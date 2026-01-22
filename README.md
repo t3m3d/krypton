@@ -26,8 +26,8 @@ Boundary Model
 K enforces a strict, typed boundary between classical and quantum worlds.
 No implicit conversions. No silent measurement. No hidden state.
 
-krypton
 
+'''Krypton
 module demo
 
 fn classical_add(a: int, b: int) -> int {
