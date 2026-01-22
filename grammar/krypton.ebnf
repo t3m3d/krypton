@@ -4,7 +4,8 @@ Program      ::= ModuleDecl Decl* ;
 
 ModuleDecl   ::= "module" Identifier ;
 
-Decl         ::= FnDecl
+Decl         ::= ImportDecl
+               | FnDecl
                | QputeDecl
                | ProcessDecl ;
 
