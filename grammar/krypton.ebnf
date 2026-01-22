@@ -1,0 +1,97 @@
+(* Krypton Language Grammar v1 (krypton.ebnf) *)
+
+Program      ::= ModuleDecl Decl* ;
+
+ModuleDecl   ::= "module" Identifier ;
+
+Decl         ::= FnDecl
+               | QputeDecl
+               | ProcessDecl ;
+
+(* Functions *)
+
+FnDecl       ::= "fn" Identifier "(" Params? ")" "->" Type Block ;
+Params       ::= Param ("," Param)* ;
+Param        ::= Identifier ":" Type ;
+
+(* Quantum Blocks (qpute) *)
+
+QputeDecl    ::= "quantum" "qpute" "(" QParams? ")" "->" Type Block ;
+QParams      ::= QParam ("," QParam)* ;
+QParam       ::= Identifier ":" QType ;
+QType        ::= "qbit" ;
+
+(* Processes *)
+
+ProcessDecl  ::= "process" Identifier Block ;
+
+(* Types *)
+
+Type         ::= PrimitiveType
+               | QType
+               | Identifier ;
+
+PrimitiveType ::= "int" | "float" | "bool" | "string" ;
+
+(* Blocks & Statements *)
+
+Block        ::= "{" Stmt* "}" ;
+
+Stmt         ::= LetStmt
+               | ReturnStmt
+               | IfStmt
+               | ExprStmt ;
+
+LetStmt      ::= "let" Identifier "=" Expr ;
+
+ReturnStmt   ::= "return" Expr ;
+
+IfStmt       ::= "if" "(" Expr ")" Block ;
+
+ExprStmt     ::= Expr ;
+
+(* Expressions *)
+
+Expr         ::= AssignmentExpr ;
+
+AssignmentExpr ::= OrExpr ;
+
+OrExpr       ::= AndExpr ( "||" AndExpr )* ;
+AndExpr      ::= EqualityExpr ( "&&" EqualityExpr )* ;
+EqualityExpr ::= RelExpr ( ("==" | "!=") RelExpr )* ;
+RelExpr      ::= AddExpr ( ("<" | ">" | "<=" | ">=") AddExpr )* ;
+AddExpr      ::= MulExpr ( ("+" | "-") MulExpr )* ;
+MulExpr      ::= UnaryExpr ( ("*" | "/") UnaryExpr )* ;
+
+UnaryExpr    ::= PrimaryExpr
+               | ("+" | "-" | "!") UnaryExpr ;
+
+PrimaryExpr  ::= Literal
+               | Identifier
+               | CallExpr
+               | PrepareExpr
+               | MeasureExpr
+               | "(" Expr ")" ;
+
+CallExpr     ::= Identifier "(" Args? ")" ;
+Args         ::= Expr ("," Expr)* ;
+
+(* Quantum-specific expressions *)
+
+PrepareExpr  ::= "prepare" "qbit" ;
+MeasureExpr  ::= "measure" Identifier ;
+
+(* Lexical Elements *)
+
+Literal      ::= IntLiteral
+               | FloatLiteral
+               | BoolLiteral
+               | StringLiteral ;
+
+BoolLiteral  ::= "true" | "false" ;
+
+Identifier   ::= /* letter (letter | digit | "_")* — defined lexically */ ;
+
+IntLiteral   ::= /* integer literal */ ;
+FloatLiteral ::= /* float literal   */ ;
+StringLiteral::= /* string literal  */ ;
