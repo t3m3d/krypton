@@ -13,28 +13,35 @@ struct LoweredProcess {
   QuantumIR quantum;
 };
 
+// NEW: function IR table
+using FunctionIRTable = std::unordered_map<std::string, ClassicalIR>;
+
 class Lowerer {
 public:
-  // Lower a whole module into per-process IR
   std::unordered_map<std::string, LoweredProcess>
   lowerModule(const ModuleDecl &module);
 
+  // NEW: lower all functions
+  FunctionIRTable lowerFunctions(const ModuleDecl &module);
+
 private:
-  // Current IR targets while lowering a process
   ClassicalIR *curClassical = nullptr;
   QuantumIR *curQuantum = nullptr;
 
   void lowerProcess(const ProcessDecl &proc, LoweredProcess &out);
 
-  // Statements / blocks
+  // NEW: lower a single function
+  void lowerFunction(const FnDecl &fn, ClassicalIR &out);
+
   void lowerBlock(const BlockPtr &block);
   void lowerStmt(const StmtPtr &stmt);
-
-  // Expressions
   void lowerExpr(const ExprPtr &expr);
   void lowerBinary(const ExprPtr &expr);
   void lowerUnary(const ExprPtr &expr);
+
+  // UPDATED: now emits CALL
   void lowerCall(const ExprPtr &expr);
+
   void lowerPrepare(const ExprPtr &expr);
   void lowerMeasure(const ExprPtr &expr);
 };

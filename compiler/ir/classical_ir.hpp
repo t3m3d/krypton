@@ -2,7 +2,6 @@
 #include <string>
 #include <vector>
 
-
 namespace k {
 
 enum class OpCode {
@@ -13,15 +12,13 @@ enum class OpCode {
   SUB,
   MUL,
   DIV,
-  JUMP,
-  JUMP_IF_FALSE,
-  CALL,
+  CALL, // <--- add this
   RETURN
 };
 
 struct Instruction {
   OpCode op;
-  std::string arg; // variable name, literal, or label
+  std::string arg; // function name, var name, or literal
 };
 
 struct ClassicalIR {
