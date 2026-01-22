@@ -12,7 +12,7 @@ enum class OpCode {
   SUB,
   MUL,
   DIV,
-  CALL, // <--- add this
+  CALL,
   RETURN
 };
 
