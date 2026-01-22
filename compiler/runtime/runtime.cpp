@@ -5,7 +5,7 @@
 namespace k {
 
 void Runtime::runModule(const ModuleDecl &module) {
-  // Lower all processes in the module
+  // Lower all processes
   auto lowered = lowerer.lowerModule(module);
 
   // Find process main
@@ -16,18 +16,11 @@ void Runtime::runModule(const ModuleDecl &module) {
 
   const LoweredProcess &lp = it->second;
 
-  // Execute classical IR
   std::cout << "[Runtime] Running classical IR...\n";
   classical.run(lp.classical);
 
-  // Execute quantum IR
   std::cout << "[Runtime] Running quantum IR...\n";
   quantum.run(lp.quantum);
-}
-
-void Runtime::runProcess(const ProcessDecl &proc) {
-  // Deprecated: now handled by runModule
-  (void)proc;
 }
 
 } // namespace k
