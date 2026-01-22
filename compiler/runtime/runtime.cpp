@@ -5,12 +5,18 @@
 namespace k {
 
 void Runtime::runModule(const ModuleDecl &module) {
-  // Lower all processes
-  auto lowered = lowerer.lowerModule(module);
+  // Lower processes
+  auto loweredProcs = lowerer.lowerModule(module);
+
+  // Lower functions
+  FunctionIRTable fnTable = lowerer.lowerFunctions(module);
+
+  // Give function table to interpreter
+  classical.setFunctionTable(&fnTable);
 
   // Find process main
-  auto it = lowered.find("main");
-  if (it == lowered.end()) {
+  auto it = loweredProcs.find("main");
+  if (it == loweredProcs.end()) {
     throw std::runtime_error("No process 'main' found in module");
   }
 
