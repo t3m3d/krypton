@@ -8,19 +8,21 @@ void QuantumSimulator::run(const QuantumIR &ir) {
     switch (inst.op) {
     case QOpCode::ALLOC_QBIT:
       qubits[inst.arg] = false; // start in |0>
+      std::cout << "[Quantum] Allocated qbit " << inst.arg << "\n";
       break;
 
     case QOpCode::APPLY_GATE:
-      std::cout << "Applying gate " << inst.arg << "\n";
+      std::cout << "[Quantum] Applying gate " << inst.arg << "\n";
       break;
 
     case QOpCode::MEASURE:
-      std::cout << "Measured " << inst.arg << " -> " << qubits[inst.arg]
-                << "\n";
+      std::cout << "[Quantum] Measured " << inst.arg << " -> "
+                << qubits[inst.arg] << "\n";
       break;
 
     case QOpCode::DEALLOC_QBIT:
       qubits.erase(inst.arg);
+      std::cout << "[Quantum] Deallocated qbit " << inst.arg << "\n";
       break;
     }
   }

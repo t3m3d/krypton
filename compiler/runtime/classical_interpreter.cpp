@@ -1,7 +1,7 @@
 #include "classical_interpreter.hpp"
+#include <cctype>
 #include <iostream>
 #include <stdexcept>
-
 
 namespace k {
 
@@ -13,6 +13,7 @@ int ClassicalInterpreter::getValue(const std::string &arg) {
   // variable?
   if (vars.count(arg))
     return vars[arg];
+
   throw std::runtime_error("Unknown variable: " + arg);
 }
 

@@ -2,16 +2,20 @@
 #include "compiler/ir/quantum_ir.hpp"
 #include <string>
 #include <unordered_map>
-#include <vector>
+
 
 namespace k {
 
 class QuantumSimulator {
 public:
+  QuantumSimulator() = default;
+
+  // Execute quantum IR instructions
   void run(const QuantumIR &ir);
 
 private:
-  std::unordered_map<std::string, bool> qubits; // extremely simplified
+  // Extremely simplified qubit model
+  std::unordered_map<std::string, bool> qubits;
 };
 
 } // namespace k

@@ -8,6 +8,9 @@ namespace k {
 
 class ClassicalInterpreter {
 public:
+  ClassicalInterpreter() = default;
+
+  // Execute a sequence of classical IR instructions
   void run(const ClassicalIR &ir);
 
 private:
