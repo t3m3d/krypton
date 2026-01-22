@@ -1,0 +1,219 @@
+#pragma once
+#include <memory>
+#include <string>
+#include <variant>
+#include <vector>
+
+
+namespace k {
+
+// Forward declarations
+struct Expr;
+struct Stmt;
+struct Block;
+struct FnDecl;
+struct QputeDecl;
+struct ProcessDecl;
+struct ModuleDecl;
+
+// Shared pointer aliases
+using ExprPtr = std::shared_ptr<Expr>;
+using StmtPtr = std::shared_ptr<Stmt>;
+using BlockPtr = std::shared_ptr<Block>;
+using FnDeclPtr = std::shared_ptr<FnDecl>;
+using QputeDeclPtr = std::shared_ptr<QputeDecl>;
+using ProcessDeclPtr = std::shared_ptr<ProcessDecl>;
+using ModuleDeclPtr = std::shared_ptr<ModuleDecl>;
+
+// ===============================
+// Types
+// ===============================
+
+enum class TypeKind { Primitive, Quantum, Named };
+
+enum class PrimitiveTypeKind { Int, Float, Bool, String };
+
+struct TypeNode {
+  TypeKind kind;
+
+  // Only one of these is used depending on kind
+  PrimitiveTypeKind primitive;
+  std::string name; // for Named
+  bool isQuantum = false;
+
+  static TypeNode primitiveType(PrimitiveTypeKind p) {
+    TypeNode t;
+    t.kind = TypeKind::Primitive;
+    t.primitive = p;
+    return t;
+  }
+
+  static TypeNode quantumQbit() {
+    TypeNode t;
+    t.kind = TypeKind::Quantum;
+    t.isQuantum = true;
+    return t;
+  }
+
+  static TypeNode named(const std::string &n) {
+    TypeNode t;
+    t.kind = TypeKind::Named;
+    t.name = n;
+    return t;
+  }
+};
+
+// ===============================
+// Parameters
+// ===============================
+
+struct Param {
+  std::string name;
+  TypeNode type;
+};
+
+struct QParam {
+  std::string name;
+  TypeNode type; // must be quantum
+};
+
+// ===============================
+// Expressions
+// ===============================
+
+enum class ExprKind {
+  Literal,
+  Identifier,
+  Binary,
+  Unary,
+  Call,
+  Prepare,
+  Measure,
+  Grouping
+};
+
+struct Expr {
+  ExprKind kind;
+
+  // Literal
+  std::string literalValue;
+
+  // Identifier
+  std::string identifier;
+
+  // Binary / Unary
+  std::string op;
+  ExprPtr left;
+  ExprPtr right;
+
+  // Call
+  std::vector<ExprPtr> args;
+
+  // Grouping
+  ExprPtr inner;
+
+  // Constructors
+  static ExprPtr literal(const std::string &v) {
+    auto e = std::make_shared<Expr>();
+    e->kind = ExprKind::Literal;
+    e->literalValue = v;
+    return e;
+  }
+
+  static ExprPtr identifierExpr(const std::string &name) {
+    auto e = std::make_shared<Expr>();
+    e->kind = ExprKind::Identifier;
+    e->identifier = name;
+    return e;
+  }
+
+  static ExprPtr binary(const std::string &op, ExprPtr l, ExprPtr r) {
+    auto e = std::make_shared<Expr>();
+    e->kind = ExprKind::Binary;
+    e->op = op;
+    e->left = l;
+    e->right = r;
+    return e;
+  }
+
+  static ExprPtr unary(const std::string &op, ExprPtr r) {
+    auto e = std::make_shared<Expr>();
+    e->kind = ExprKind::Unary;
+    e->op = op;
+    e->right = r;
+    return e;
+  }
+
+  static ExprPtr call(const std::string &name,
+                      const std::vector<ExprPtr> &args) {
+    auto e = std::make_shared<Expr>();
+    e->kind = ExprKind::Call;
+    e->identifier = name;
+    e->args = args;
+    return e;
+  }
+
+  static ExprPtr prepare() {
+    auto e = std::make_shared<Expr>();
+    e->kind = ExprKind::Prepare;
+    return e;
+  }
+
+  static ExprPtr measure(const std::string &target) {
+    auto e = std::make_shared<Expr>();
+    e->kind = ExprKind::Measure;
+    e->identifier = target;
+    return e;
+  }
+
+  static ExprPtr grouping(ExprPtr inner) {
+    auto e = std::make_shared<Expr>();
+    e->kind = ExprKind::Grouping;
+    e->inner = inner;
+    return e;
+  }
+};
+
+// ===============================
+// Statements
+// ===============================
+
+enum class StmtKind { Let, Return, If, Expr };
+
+struct Stmt {
+  StmtKind kind;
+
+  // Let
+  std::string name;
+
+  // Return / Expr
+  ExprPtr expr;
+
+  // If
+  ExprPtr condition;
+  BlockPtr thenBlock;
+
+  static StmtPtr letStmt(const std::string &name, ExprPtr value) {
+    auto s = std::make_shared<Stmt>();
+    s->kind = StmtKind::Let;
+    s->name = name;
+    s->expr = value;
+    return s;
+  }
+
+  static StmtPtr returnStmt(ExprPtr value) {
+    auto s = std::make_shared<Stmt>();
+    s->kind = StmtKind::Return;
+    s->expr = value;
+    return s;
+  }
+
+  static StmtPtr ifStmt(ExprPtr cond, BlockPtr block) {
+    auto s = std::make_shared<Stmt>();
+    s->kind = StmtKind::If;
+    s->condition = cond;
+    s->thenBlock = block;
+    return s;
+  }
+
+  static StmtPtr
