@@ -1,14 +1,12 @@
 #pragma once
 #include "compiler/ir/classical_ir.hpp"
-#include "compiler/middle/lowering/lowerer.hpp" // for FunctionIRTable
+#include "compiler/middle/lowering/lowerer.hpp"
 #include <string>
 #include <unordered_map>
 #include <vector>
 
-
 namespace k {
 
-// A stack frame for CALL
 struct Frame {
   const ClassicalIR *ir;
   int ip;
@@ -19,10 +17,8 @@ class ClassicalInterpreter {
 public:
   ClassicalInterpreter() = default;
 
-  // Provide function table before running
   void setFunctionTable(const FunctionIRTable *table);
 
-  // Execute a classical IR block
   void run(const ClassicalIR &ir);
 
 private:

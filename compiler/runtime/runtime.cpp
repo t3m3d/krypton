@@ -10,8 +10,6 @@ void Runtime::runModule(const ModuleDecl &module) {
 
   // Lower functions
   FunctionIRTable fnTable = lowerer.lowerFunctions(module);
-
-  // Give function table to interpreter
   classical.setFunctionTable(&fnTable);
 
   // Find process main

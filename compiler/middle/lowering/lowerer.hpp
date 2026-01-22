@@ -5,7 +5,6 @@
 #include <string>
 #include <unordered_map>
 
-
 namespace k {
 
 struct LoweredProcess {
@@ -13,7 +12,6 @@ struct LoweredProcess {
   QuantumIR quantum;
 };
 
-// NEW: function IR table
 using FunctionIRTable = std::unordered_map<std::string, ClassicalIR>;
 
 class Lowerer {
