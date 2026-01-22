@@ -1,20 +1,33 @@
 #include "runtime.hpp"
 #include <iostream>
+#include <stdexcept>
 
 namespace k {
 
-void Runtime::runProcess(const ProcessDecl &proc) {
-  std::cout << "Running process: " << proc.name << "\n";
+void Runtime::runModule(const ModuleDecl &module) {
+  // Lower all processes in the module
+  auto lowered = lowerer.lowerModule(module);
 
-  // For now, just print the AST
-  for (const auto &stmt : proc.body->statements) {
-    std::cout << "  stmt kind = " << (int)stmt->kind << "\n";
+  // Find process main
+  auto it = lowered.find("main");
+  if (it == lowered.end()) {
+    throw std::runtime_error("No process 'main' found in module");
   }
 
-  // Later:
-  // 1. Lower AST -> IR
-  // 2. classical.run(classicalIR)
-  // 3. quantum.run(quantumIR)
+  const LoweredProcess &lp = it->second;
+
+  // Execute classical IR
+  std::cout << "[Runtime] Running classical IR...\n";
+  classical.run(lp.classical);
+
+  // Execute quantum IR
+  std::cout << "[Runtime] Running quantum IR...\n";
+  quantum.run(lp.quantum);
+}
+
+void Runtime::runProcess(const ProcessDecl &proc) {
+  // Deprecated: now handled by runModule
+  (void)proc;
 }
 
 } // namespace k
