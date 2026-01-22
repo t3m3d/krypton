@@ -36,9 +36,10 @@ Krypton source files use UTF‑8 encoding.
 • 	Operators
 • 	Punctuation
 2.3 Keywords (v1)
--module
--fn
--quantum
+```krypton
+module
+fn
+quantum
 qpute
 process
 let
@@ -47,6 +48,7 @@ measure
 -prepare
 true
 false
+```
 2.4 Identifiers
 - Start with a letter or underscore
 - Followed by letters, digits, or underscores
@@ -57,14 +59,18 @@ false
 - Boolean literals
 - String literals (UTF‑8)
 2.6 Comments
-- Single‑line: // comment
-- Multi‑line: /* comment */
+```krypton
+Single‑line: // comment
+Multi‑line: /* comment */
+```
 2.7 Whitespace
 Whitespace separates tokens but has no semantic meaning.
 
 3. Modules
 3.1 Module Declaration
--module name
+```krypton
+module name
+```
 3.2 File Layout
 One module per file.
 File name should match module name.
@@ -75,18 +81,24 @@ Visibility modifiers will be added in a future version.
 Not yet implemented in v1.
 4. Types
 4.1 Primitive Classical Types
-- int
-- float
-- bool
-- string
+```krypton
+int
+float
+bool
+string
+```
 4.2 Quantum Types
-- qbit
-- qarray<N> (future)
+```krypton
+qbit
+qarray<N> (future)
+```
 Quantum types follow linear ownership rules
 4.3 Composite Types (Draft)
-- Structs (future)
-- Tuples (future)
-- Arrays (classical arrays TBD)
+```krypton
+Structs (future)
+Tuples (future)
+Arrays (classical arrays TBD)
+```
 4.4 Type Inference
 Local inference allowed for let bindings.
 Function signatures must be explicit.
@@ -95,12 +107,14 @@ Quantum types cannot be copied, cloned, or implicitly duplicated.
 
 5. Functions (Classical)
 5.1 Syntax
+```krypton
 fn name(params) -> type {
     ...
 }
 fn name(params) -> type {
     ...
 }
+```
 5.2 Parameters
 Pass‑by‑value for classical types.
 Quantum types cannot be passed to classical functions.
@@ -117,9 +131,11 @@ I/O is not allowed inside classical functions.
 Error model TBD.
 6. Quantum Blocks (qpute)
 6.1 Syntax
+```krypton
 quantum qpute(x: qbit) -> bit {
     measure x
 }
+```
 6.2 Inputs
 Quantum parameters must be linear (single‑owner).
 6.3 Outputs
@@ -141,9 +157,11 @@ Quantum blocks compile to a backend‑agnostic IR.
 
 7. Processes
 7.1 Syntax
+```krypton
 process main {
     ...
 }
+```
 7.2 Purpose
 Processes orchestrate classical and quantum execution.
 7.3 Allowed Operations
@@ -196,17 +214,20 @@ Defined in Appendix A.
 
 11. Statements
 11.1 Variable Declarations
+```krypton
 let x = 5
 let q = prepare qbit
 
 
 11.2 Control Flow
-- if
-- while (future)
-- for (future)
+if
+while (future)
+for (future)
+```
 11.3 Return
+```krypton
 return value
-
+```
 
 11.4 Block Rules
 Classical blocks may contain any classical statements.
@@ -214,11 +235,15 @@ Quantum blocks have strict restrictions (see Section 6).
 
 12. Standard Library (Draft)
 12.1 Classical Utilities
-- print
-- Basic math functions (future)
+```krypton
+print
+Basic math functions (future)
+```
 12.2 Quantum Primitives
-- prepare qbit
-- measure x
+```krypton
+prepare qbit
+measure x
+```
 12.3 I/O Model
 Only processes may perform I/O.
 
@@ -252,6 +277,7 @@ Concurrency planned for future versions.
 
 15. Examples (Normative)
 15.1 Minimal Program
+```krypton
 module demo
 
 process main {
@@ -263,9 +289,10 @@ process main {
 fn add(a: int, b: int) -> int {
     return a + b
 }
-
+```
 
 15.3 Quantum Block
+```krypton
 quantum qpute(x: qbit) -> bit {
     measure x
 }
@@ -277,7 +304,7 @@ process main {
     let result = qpute(q)
     print(result)
 }
-
+```
 
 
 16. Appendix
@@ -303,114 +330,11 @@ struct enum trait async await gate
 
 
 16.4 Glossary
-- qpute — a quantum execution block
-- boundary — the interface between classical and quantum semantics
-- linear type — a type that cannot be copied or aliased
-
-✔ Krypton Spec v1 is now complete
-This is the foundation.
-Everything we build next — grammar, parser, compiler, docs — will follow this spec.
-If you want, we can now move to:
-- Building the grammar
-- Designing the compiler front‑end
-- Creating the docs/ folder
-- Generating the first example programs
-- Drafting the AST structure
-Just tell me which subsystem you want to tackle next.
-11. Statements
-11.1 Variable Declarations
-let x = 5
-let q = prepare qbit
-11.2 Control Flow
-- if
-- while (future)
-- for (future)
-11.3 Return
--return value
-11.4 Block Rules
-Classical blocks may contain any classical statements.
-Quantum blocks have strict restrictions (see Section 6).
-
-12. Standard Library (Draft)
-12.1 Classical Utilities
-- print
-- Basic math functions (future)
-12.2 Quantum Primitives
-- prepare qbit
-- measure x
-12.3 I/O Model
-Only processes may perform I/O.
-13. Compiler Architecture (High‑Level)
-13.1 Front‑End
-- Lexer
-- Parser
-- AST builder
-13.2 Type Checker
-- Classical type checking
-- Quantum linearity checking
-- Boundary enforcement
-13.3 IR
-- Classical IR
-- Quantum IR (backend‑agnostic)
-13.4 Backends
-- Classical interpreter (v1)
-- Quantum simulator (v1)
-- Hardware backends (future)
-13.5 Error Reporting
-Human‑readable, structured errors.
-14. Runtime Model
-14.1 Classical Runtime
-Executes classical IR deterministically.
-14.2 Quantum Runtime
-Dispatches quantum IR to a simulator or hardware backend.
-14.3 Process Scheduler
-Sequential in v1.
-Concurrency planned for future versions.
-15. Examples (Normative)
-15.1 Minimal Program
-module demo
-
-process main {
-    print("Hello, Krypton")
-}
-
-15.2 Classical Function
-fn add(a: int, b: int) -> int {
-    return a + b
-}
-
-15.3 Quantum Block
-quantum qpute(x: qbit) -> bit {
-    measure x
-}
-
-15.4 Orchestration
-process main {
-    let q = prepare qbit
-    let result = qpute(q)
-    print(result)
-}
-
-16. Appendix ------------------------------------
-16.1 Grammar (EBNF Draft)
-(We will expand this as we build the parser.)
-Module      ::= "module" Identifier Decl*
-Decl        ::= FnDecl | QputeDecl | ProcessDecl
-FnDecl      ::= "fn" Identifier "(" Params? ")" "->" Type Block
-QputeDecl   ::= "quantum" "qpute" "(" Params? ")" "->" Type Block
-ProcessDecl ::= "process" Identifier Block
-Block       ::= "{" Stmt* "}"
-Stmt        ::= LetStmt | ExprStmt | ReturnStmt | IfStmt
-LetStmt     ::= "let" Identifier "=" Expr
-Expr        ::= Literal | Identifier | CallExpr | BinaryExpr
-
-16.2 Reserved Words
-module fn quantum qpute process let return measure prepare
-
-16.3 Future Reserved Words
-struct enum trait async await gate
-
-16.4 Glossary
+```krypton
+qpute — a quantum execution block
+boundary — the interface between classical and quantum semantics
+linear type — a type that cannot be copied or aliased
+```
 - qpute — a quantum execution block
 - boundary — the interface between classical and quantum semantics
 - linear type — a type that cannot be copied or aliased
