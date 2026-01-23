@@ -30,16 +30,15 @@ using ModuleDeclPtr = std::shared_ptr<ModuleDecl>;
 // ===============================
 
 enum class TypeKind { Primitive, Quantum, Named };
-
 enum class PrimitiveTypeKind { Int, Float, Bool, String };
 
 struct TypeNode {
   TypeKind kind;
 
-  // Only one of these is used depending on kind
   PrimitiveTypeKind primitive;
-  std::string name; // for Named
+  std::string name;
   bool isQuantum = false;
+
   static TypeNode primitiveType(PrimitiveTypeKind p) {
     TypeNode t;
     t.kind = TypeKind::Primitive;
@@ -73,7 +72,7 @@ struct Param {
 
 struct QParam {
   std::string name;
-  TypeNode type; // must be quantum
+  TypeNode type;
 };
 
 // ===============================
@@ -102,24 +101,17 @@ enum class ExprKind {
 struct Expr {
   ExprKind kind;
 
-  // Literal
   std::string literalValue;
-
-  // Identifier
   std::string identifier;
 
-  // Binary / Unary
   std::string op;
   ExprPtr left;
   ExprPtr right;
 
-  // Call
   std::vector<ExprPtr> args;
 
-  // Grouping
   ExprPtr inner;
 
-  // Constructors
   static ExprPtr literal(const std::string &v) {
     auto e = std::make_shared<Expr>();
     e->kind = ExprKind::Literal;
@@ -190,13 +182,9 @@ enum class StmtKind { Let, Return, If, Expr };
 struct Stmt {
   StmtKind kind;
 
-  // Let
   std::string name;
-
-  // Return / Expr
   ExprPtr expr;
 
-  // If
   ExprPtr condition;
   BlockPtr thenBlock;
 
@@ -237,6 +225,9 @@ struct Stmt {
 
 struct Block {
   std::vector<StmtPtr> statements;
+
+  // Required by parser.cpp
+  static BlockPtr create() { return std::make_shared<Block>(); }
 
   static BlockPtr make(const std::vector<StmtPtr> &stmts) {
     auto b = std::make_shared<Block>();
