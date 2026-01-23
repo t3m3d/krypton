@@ -3,7 +3,6 @@
 #include <iostream>
 #include <stdexcept>
 
-
 namespace k {
 
 void ClassicalInterpreter::setFunctionTable(const FunctionIRTable *table) {

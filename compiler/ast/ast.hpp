@@ -4,7 +4,6 @@
 #include <variant>
 #include <vector>
 
-
 namespace k {
 
 // Forward declarations
@@ -15,6 +14,7 @@ struct FnDecl;
 struct QputeDecl;
 struct ProcessDecl;
 struct ModuleDecl;
+struct ImportDecl;
 
 // Shared pointer aliases
 using ExprPtr = std::shared_ptr<Expr>;
@@ -40,7 +40,6 @@ struct TypeNode {
   PrimitiveTypeKind primitive;
   std::string name; // for Named
   bool isQuantum = false;
-
   static TypeNode primitiveType(PrimitiveTypeKind p) {
     TypeNode t;
     t.kind = TypeKind::Primitive;
@@ -75,6 +74,14 @@ struct Param {
 struct QParam {
   std::string name;
   TypeNode type; // must be quantum
+};
+
+// ===============================
+// Import Declarations
+// ===============================
+
+struct ImportDecl {
+  std::vector<std::string> path;
 };
 
 // ===============================
@@ -216,4 +223,99 @@ struct Stmt {
     return s;
   }
 
-  static StmtPtr
+  static StmtPtr exprStmt(ExprPtr value) {
+    auto s = std::make_shared<Stmt>();
+    s->kind = StmtKind::Expr;
+    s->expr = value;
+    return s;
+  }
+};
+
+// ===============================
+// Blocks
+// ===============================
+
+struct Block {
+  std::vector<StmtPtr> statements;
+
+  static BlockPtr make(const std::vector<StmtPtr> &stmts) {
+    auto b = std::make_shared<Block>();
+    b->statements = stmts;
+    return b;
+  }
+};
+
+// ===============================
+// Function Declarations
+// ===============================
+
+struct FnDecl {
+  std::string name;
+  std::vector<Param> params;
+  TypeNode returnType;
+  BlockPtr body;
+
+  static FnDeclPtr make(const std::string &name,
+                        const std::vector<Param> &params, const TypeNode &ret,
+                        BlockPtr body) {
+    auto f = std::make_shared<FnDecl>();
+    f->name = name;
+    f->params = params;
+    f->returnType = ret;
+    f->body = body;
+    return f;
+  }
+};
+
+// ===============================
+// Qpute Declarations
+// ===============================
+
+struct QputeDecl {
+  std::string name;
+  std::vector<QParam> params;
+  BlockPtr body;
+
+  static QputeDeclPtr make(const std::string &name,
+                           const std::vector<QParam> &params, BlockPtr body) {
+    auto q = std::make_shared<QputeDecl>();
+    q->name = name;
+    q->params = params;
+    q->body = body;
+    return q;
+  }
+};
+
+// ===============================
+// Process Declarations
+// ===============================
+
+struct ProcessDecl {
+  std::string name;
+  BlockPtr body;
+
+  static ProcessDeclPtr make(const std::string &name, BlockPtr body) {
+    auto p = std::make_shared<ProcessDecl>();
+    p->name = name;
+    p->body = body;
+    return p;
+  }
+};
+
+// ===============================
+// Module
+// ===============================
+
+struct ModuleDecl {
+  std::vector<std::variant<FnDeclPtr, QputeDeclPtr, ProcessDeclPtr>> decls;
+
+  static ModuleDeclPtr
+  make(const std::vector<std::variant<FnDeclPtr, QputeDeclPtr, ProcessDeclPtr>>
+           &decls) {
+    auto m = std::make_shared<ModuleDecl>();
+    m->decls = decls;
+    return m;
+  }
+};
+
+} // namespace k

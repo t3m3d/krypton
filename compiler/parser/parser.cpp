@@ -1,5 +1,7 @@
 #include "parser.hpp"
+#include <memory>
 #include <stdexcept>
+
 
 namespace k {
 
@@ -193,7 +195,8 @@ TypeNode Parser::parseType() {
 BlockPtr Parser::parseBlock() {
   consume(TokenType::LBRACE, "Expected '{' to start block");
 
-  BlockPtr block = Block::create();
+  // BlockPtr block = Block::create();
+  BlockPtr block = std::make_shared<Block>();
 
   while (!isAtEnd() && peek().type != TokenType::RBRACE) {
     block->statements.push_back(parseStmt());
@@ -208,7 +211,7 @@ StmtPtr Parser::parseStmt() {
     return parseLetStmt();
   if (match(TokenType::RETURN))
     return parseReturnStmt();
-  if (match(TokenType::IF))
+  if (match(TokenType::IF_))
     return parseIfStmt();
   return parseExprStmt();
 }
