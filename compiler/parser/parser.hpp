@@ -1,8 +1,8 @@
 #pragma once
-#include "ast/ast.hpp"
-#include "lexer/tokens.hpp"
+#include "compiler/ast/ast.hpp"
+#include "compiler/lexer/tokens.hpp"
+#include <variant>
 #include <vector>
-
 
 namespace k {
 
@@ -10,12 +10,14 @@ class Parser {
 public:
   explicit Parser(const std::vector<Token> &tokens);
 
+  // Matches: ModuleDecl Parser::parseProgram()
   ModuleDecl parseProgram();
 
 private:
   const std::vector<Token> &tokens;
   std::size_t current = 0;
 
+  // Core helpers
   const Token &peek() const;
   const Token &previous() const;
   bool isAtEnd() const;
@@ -23,7 +25,7 @@ private:
   const Token &consume(TokenType type, const char *message);
 
   // Declarations
-  std::shared_ptr<void> parseDecl();
+  std::variant<FnDeclPtr, QputeDeclPtr, ProcessDeclPtr> parseDecl();
   FnDeclPtr parseFnDecl();
   QputeDeclPtr parseQputeDecl();
   ProcessDeclPtr parseProcessDecl();
@@ -47,7 +49,7 @@ private:
   ExprPtr parseUnaryExpr();
   ExprPtr parsePrimaryExpr();
 
-  // Helpers
+  // Types
   TypeNode parseType();
 };
 

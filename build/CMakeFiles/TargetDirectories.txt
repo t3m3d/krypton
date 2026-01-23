@@ -1,0 +1,5 @@
+C:/Users/brian/Documents/GitHub/krypton/build/CMakeFiles/kcc.dir
+C:/Users/brian/Documents/GitHub/krypton/build/CMakeFiles/krypton_tests.dir
+C:/Users/brian/Documents/GitHub/krypton/build/CMakeFiles/RUN_TESTS.dir
+C:/Users/brian/Documents/GitHub/krypton/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/brian/Documents/GitHub/krypton/build/CMakeFiles/ZERO_CHECK.dir

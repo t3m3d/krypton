@@ -1,5 +1,7 @@
 #include "repl.hpp"
 #include "compiler/frontend/driver.hpp"
+#include "compiler/lexer/lexer.hpp"
+#include "compiler/parser/parser.hpp"
 #include "compiler/runtime/runtime.hpp"
 #include <iostream>
 
