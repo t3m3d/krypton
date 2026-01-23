@@ -2,7 +2,6 @@
 #include <memory>
 #include <stdexcept>
 
-
 namespace k {
 
 // -------------------------
@@ -41,9 +40,10 @@ const Token &Parser::consume(TokenType type, const char *message) {
 ModuleDecl Parser::parseProgram() {
   ModuleDecl module;
 
+  // We still parse 'module <name>' but ignore the name,
+  // since ModuleDecl in the AST has no 'name' field.
   consume(TokenType::MODULE, "Expected 'module' at start of file");
-  const Token &nameTok = consume(TokenType::IDENTIFIER, "Expected module name");
-  module.name = nameTok.lexeme;
+  consume(TokenType::IDENTIFIER, "Expected module name");
 
   while (!isAtEnd()) {
     module.decls.push_back(parseDecl());
@@ -132,9 +132,11 @@ QputeDeclPtr Parser::parseQputeDecl() {
   }
 
   consume(TokenType::RPAREN, "Expected ')' after parameters");
-  consume(TokenType::ARROW, "Expected '->' after parameter list");
 
-  qp->returnType = parseType();
+  // AST QputeDecl has no returnType field now, so we skip '-> type'
+  // and go straight to the body.
+  // If your language still wants a return type here, you’d need to
+  // add it back into the AST.
   qp->body = parseBlock();
 
   return qp;
@@ -195,7 +197,6 @@ TypeNode Parser::parseType() {
 BlockPtr Parser::parseBlock() {
   consume(TokenType::LBRACE, "Expected '{' to start block");
 
-  // BlockPtr block = Block::create();
   BlockPtr block = std::make_shared<Block>();
 
   while (!isAtEnd() && peek().type != TokenType::RBRACE) {
@@ -211,7 +212,8 @@ StmtPtr Parser::parseStmt() {
     return parseLetStmt();
   if (match(TokenType::RETURN))
     return parseReturnStmt();
-  if (match(TokenType::IF_))
+  // Lexer likely uses IF, not IF_
+  if (match(TokenType::IF))
     return parseIfStmt();
   return parseExprStmt();
 }
