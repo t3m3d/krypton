@@ -72,6 +72,8 @@ TokenType Lexer::keywordOrIdentifier(const std::string &text) const {
     return TokenType::LET;
   if (text == "return")
     return TokenType::RETURN;
+  if (text == "if")
+    return TokenType::IF;
   if (text == "measure")
     return TokenType::MEASURE;
   if (text == "prepare")
