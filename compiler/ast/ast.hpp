@@ -309,4 +309,4 @@ struct ModuleDecl {
   }
 };
 
-} // namespace k
+}
