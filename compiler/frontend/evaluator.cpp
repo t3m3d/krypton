@@ -1,105 +1,158 @@
 #include "evaluator.hpp"
 #include <iostream>
+#include <variant>
 
 namespace k {
-
-// ------------------------------------------------------------
-// Constructor
-// ------------------------------------------------------------
-Evaluator::Evaluator() {
-    // You can register built-in functions here later if you want.
-}
 
 // ------------------------------------------------------------
 // Entry point: evaluate a whole module
 // ------------------------------------------------------------
 void Evaluator::evaluate(const ModuleDecl& module) {
-    for (auto& stmt : module.statements) {
-        evalStatement(stmt.get());
+    // For now: run the first ProcessDecl we find.
+    // Later you can choose by name (e.g., "main").
+    for (const auto& declVariant : module.decls) {
+        if (std::holds_alternative<ProcessDeclPtr>(declVariant)) {
+            auto process = std::get<ProcessDeclPtr>(declVariant);
+            evalProcess(process);
+            return;
+        }
+    }
+
+    std::cerr << "[Evaluator] No process found to run.\n";
+}
+
+// ------------------------------------------------------------
+// Run a process: just execute its body block
+// ------------------------------------------------------------
+void Evaluator::evalProcess(const ProcessDeclPtr& process) {
+    if (!process || !process->body) {
+        std::cerr << "[Evaluator] Process has no body.\n";
+        return;
+    }
+
+    evalBlock(process->body);
+}
+
+// ------------------------------------------------------------
+// Run a block: execute each statement in order
+// ------------------------------------------------------------
+void Evaluator::evalBlock(const BlockPtr& block) {
+    if (!block) return;
+
+    for (const auto& stmt : block->statements) {
+        evalStmt(stmt);
     }
 }
 
 // ------------------------------------------------------------
 // Evaluate a statement
 // ------------------------------------------------------------
-void Evaluator::evalStatement(Statement* stmt) {
+void Evaluator::evalStmt(const StmtPtr& stmt) {
     if (!stmt) return;
 
-    // Variable declaration:  let x = expr;
-    if (auto* v = dynamic_cast<VarDeclStmt*>(stmt)) {
-        Value val = evalExpr(v->value.get());
-        variables[v->name] = val;
-        return;
+    switch (stmt->kind) {
+    case StmtKind::Let: {
+        Value v = evalExpr(stmt->expr);
+        variables[stmt->name] = v;
+        break;
     }
 
-    // Expression as a statement (e.g., print("hi"))
-    if (auto* expr = dynamic_cast<Expression*>(stmt)) {
-        evalExpr(expr);
-        return;
+    case StmtKind::Return: {
+        // You don't have a function call stack yet,
+        // so for now we just evaluate and ignore.
+        (void)evalExpr(stmt->expr);
+        break;
     }
 
-    std::cerr << "[Evaluator] Unknown statement type\n";
+    case StmtKind::If: {
+        Value cond = evalExpr(stmt->condition);
+        if (cond.isTruthy()) {
+            evalBlock(stmt->thenBlock);
+        }
+        break;
+    }
+
+    case StmtKind::Expr: {
+        (void)evalExpr(stmt->expr);
+        break;
+    }
+    }
 }
 
 // ------------------------------------------------------------
-// Evaluate an expression and return a Value
+// Evaluate an expression
 // ------------------------------------------------------------
-Value Evaluator::evalExpr(Expression* expr) {
+Value Evaluator::evalExpr(const ExprPtr& expr) {
     if (!expr) return Value();
 
-    // Literal: numbers, strings, etc.
-    if (auto* lit = dynamic_cast<LiteralExpr*>(expr)) {
-        return Value(lit->value);
-    }
+    switch (expr->kind) {
+    case ExprKind::Literal:
+        return Value(expr->literalValue);
 
-    // Identifier: variable lookup
-    if (auto* id = dynamic_cast<IdentifierExpr*>(expr)) {
-        if (variables.contains(id->name)) {
-            return variables[id->name];
+    case ExprKind::Identifier: {
+        auto it = variables.find(expr->identifier);
+        if (it != variables.end()) {
+            return it->second;
         }
-        std::cerr << "[Evaluator] Undefined variable: " << id->name << "\n";
+        std::cerr << "[Evaluator] Undefined variable: " << expr->identifier << "\n";
         return Value();
     }
 
-    // Binary expression: a + b, a - b, etc.
-    if (auto* bin = dynamic_cast<BinaryExpr*>(expr)) {
-        Value left = evalExpr(bin->left.get());
-        Value right = evalExpr(bin->right.get());
+    case ExprKind::Binary: {
+        Value left = evalExpr(expr->left);
+        Value right = evalExpr(expr->right);
 
-        switch (bin->op) {
-            case '+': return Value(left.asInt() + right.asInt());
-            case '-': return Value(left.asInt() - right.asInt());
-            case '*': return Value(left.asInt() * right.asInt());
-            case '/': return Value(left.asInt() / right.asInt());
+        // For now, treat as string concatenation for '+'
+        if (expr->op == "+") {
+            return Value(left.toString() + right.toString());
         }
 
-        std::cerr << "[Evaluator] Unknown binary operator\n";
+        std::cerr << "[Evaluator] Unsupported binary op: " << expr->op << "\n";
         return Value();
     }
 
-    // Function call: print(expr)
-    if (auto* call = dynamic_cast<CallExpr*>(expr)) {
-        return evalCall(call);
+    case ExprKind::Unary: {
+        // You can add unary ops later (e.g., '-', '!')
+        std::cerr << "[Evaluator] Unary not implemented yet.\n";
+        return Value();
     }
 
-    std::cerr << "[Evaluator] Unknown expression type\n";
+    case ExprKind::Call:
+        return evalCall(*expr);
+
+    case ExprKind::Prepare:
+        // Quantum stuff later
+        std::cerr << "[Evaluator] Prepare not implemented yet.\n";
+        return Value();
+
+    case ExprKind::Measure:
+        std::cerr << "[Evaluator] Measure not implemented yet.\n";
+        return Value();
+
+    case ExprKind::Grouping:
+        return evalExpr(expr->inner);
+    }
+
+    std::cerr << "[Evaluator] Unknown expression kind.\n";
     return Value();
 }
 
 // ------------------------------------------------------------
-// Evaluate a function call (built-ins only for now)
+// Evaluate a call expression (built-ins only for now)
 // ------------------------------------------------------------
-Value Evaluator::evalCall(CallExpr* call) {
-    if (call->callee == "print" || call->callee == "p") {
-        for (auto& arg : call->args) {
-            Value v = evalExpr(arg.get());
+Value Evaluator::evalCall(const Expr& callExpr) {
+    const std::string& name = callExpr.identifier;
+
+    if (name == "print" || name == "p") {
+        for (const auto& arg : callExpr.args) {
+            Value v = evalExpr(arg);
             std::cout << v.toString();
         }
         std::cout << "\n";
         return Value();
     }
 
-    std::cerr << "[Evaluator] Unknown function: " << call->callee << "\n";
+    std::cerr << "[Evaluator] Unknown function: " << name << "\n";
     return Value();
 }
 

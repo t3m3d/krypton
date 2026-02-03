@@ -1,35 +1,42 @@
 #pragma once
+
 #include <string>
 #include <unordered_map>
 #include "../ast/ast.hpp"
 
 namespace k {
 
-// A simple runtime value type
+// Simple runtime value
 struct Value {
-    int intValue = 0;
-    std::string strValue;
-    bool isString = false;
+    std::string str;
 
     Value() = default;
-    Value(int v) : intValue(v), isString(false) {}
-    Value(const std::string& s) : strValue(s), isString(true) {}
+    Value(const std::string& s) : str(s) {}
 
-    int asInt() const { return intValue; }
-    std::string toString() const { return isString ? strValue : std::to_string(intValue); }
+    // Later you can add int/float/bool, etc.
+    std::string toString() const { return str; }
+
+    bool isTruthy() const {
+        // super simple truthiness for now
+        return !str.empty() && str != "0" && str != "false";
+    }
 };
 
 class Evaluator {
 public:
-    Evaluator();
+    Evaluator() = default;
+
+    // Entry point: run a whole module
     void evaluate(const ModuleDecl& module);
 
 private:
     std::unordered_map<std::string, Value> variables;
 
-    void evalStatement(Statement* stmt);
-    Value evalExpr(Expression* expr);
-    Value evalCall(CallExpr* call);
+    void evalProcess(const ProcessDeclPtr& process);
+    void evalBlock(const BlockPtr& block);
+    void evalStmt(const StmtPtr& stmt);
+    Value evalExpr(const ExprPtr& expr);
+    Value evalCall(const Expr& callExpr);
 };
 
-} // namespace k
+}
