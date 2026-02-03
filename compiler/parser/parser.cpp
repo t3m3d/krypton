@@ -37,30 +37,20 @@ const Token &Parser::consume(TokenType type, const char *message) {
 // Program
 // -------------------------
 
-void Evaluator::evaluate(const ModuleDecl& module) {
-    // Prefer a process named "main"
-    for (const auto& declVariant : module.decls) {
-        if (std::holds_alternative<ProcessDeclPtr>(declVariant)) {
-            auto process = std::get<ProcessDeclPtr>(declVariant);
-            if (process->name == "main") {
-                evalProcess(process);
-                return;
-            }
-        }
+ModuleDecl Parser::parseProgram() {
+    ModuleDecl module;
+
+    // Make 'module <name>' optional
+    if (match(TokenType::MODULE)) {
+        consume(TokenType::IDENTIFIER, "Expected module name");
     }
 
-    // Fallback: run the first process, if any
-    for (const auto& declVariant : module.decls) {
-        if (std::holds_alternative<ProcessDeclPtr>(declVariant)) {
-            auto process = std::get<ProcessDeclPtr>(declVariant);
-            evalProcess(process);
-            return;
-        }
+    while (!isAtEnd()) {
+        module.decls.push_back(parseDecl());
     }
 
-    std::cout << "[Evaluator] No process found to run.\n";
+    return module;
 }
-
 // -------------------------
 // Declarations
 // -------------------------
