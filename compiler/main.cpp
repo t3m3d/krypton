@@ -4,6 +4,7 @@
 
 #include "lexer.hpp"
 #include "parser.hpp"
+#include "evaluator.hpp"
 
 std::string readFile(const std::string &path) {
   std::ifstream file(path);
@@ -29,6 +30,9 @@ int main(int argc, char **argv) {
 
   k::Parser parser(tokens);
   k::ModuleDecl module = parser.parseProgram();
+
+  k::Evaluator evaluator;
+  evaluator.evaluate(module);
 
   std::cout << "Parsed " << path << " successfully.\n";
   return 0;
