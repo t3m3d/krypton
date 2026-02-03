@@ -37,19 +37,28 @@ const Token &Parser::consume(TokenType type, const char *message) {
 // Program
 // -------------------------
 
-ModuleDecl Parser::parseProgram() {
-  ModuleDecl module;
+void Evaluator::evaluate(const ModuleDecl& module) {
+    // Prefer a process named "main"
+    for (const auto& declVariant : module.decls) {
+        if (std::holds_alternative<ProcessDeclPtr>(declVariant)) {
+            auto process = std::get<ProcessDeclPtr>(declVariant);
+            if (process->name == "main") {
+                evalProcess(process);
+                return;
+            }
+        }
+    }
 
-  // We still parse 'module <name>' but ignore the name,
-  // since ModuleDecl in the AST has no 'name' field.
-  consume(TokenType::MODULE, "Expected 'module' at start of file");
-  consume(TokenType::IDENTIFIER, "Expected module name");
+    // Fallback: run the first process, if any
+    for (const auto& declVariant : module.decls) {
+        if (std::holds_alternative<ProcessDeclPtr>(declVariant)) {
+            auto process = std::get<ProcessDeclPtr>(declVariant);
+            evalProcess(process);
+            return;
+        }
+    }
 
-  while (!isAtEnd()) {
-    module.decls.push_back(parseDecl());
-  }
-
-  return module;
+    std::cout << "[Evaluator] No process found to run.\n";
 }
 
 // -------------------------
