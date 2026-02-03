@@ -1,71 +1,35 @@
-// evaluator.hpp
 #pragma once
-#include "ast.hpp"
-#include <unordered_map>
 #include <string>
-#include <iostream>
+#include <unordered_map>
+#include "../ast/ast.hpp"
 
 namespace k {
 
-class Evaluator {
-public:
-    void evaluate(const ModuleDecl& module) {
-        for (auto& stmt : module.statements) {
-            evalStatement(stmt.get());
-        }
-    }
+// A simple runtime value type
+struct Value {
+    int intValue = 0;
+    std::string strValue;
+    bool isString = false;
 
-private:
-    std::unordered_map<std::string, int> variables;
+    Value() = default;
+    Value(int v) : intValue(v), isString(false) {}
+    Value(const std::string& s) : strValue(s), isString(true) {}
 
-    void evalStatement(Statement* stmt) {
-        if (auto* v = dynamic_cast<VarDeclStmt*>(stmt)) {
-            int value = evalExpr(v->value.get());
-            variables[v->name] = value;
-            return;
-        }
-
-        if (auto* expr = dynamic_cast<Expression*>(stmt)) {
-            evalExpr(expr);
-            return;
-        }
-
-        std::cerr << "Unknown statement type\n";
-    }
-
-    int evalExpr(Expression* expr) {
-        if (auto* lit = dynamic_cast<LiteralExpr*>(expr)) {
-            return lit->value;
-        }
-
-        if (auto* id = dynamic_cast<IdentifierExpr*>(expr)) {
-            return variables[id->name];
-        }
-
-        if (auto* bin = dynamic_cast<BinaryExpr*>(expr)) {
-            int left = evalExpr(bin->left.get());
-            int right = evalExpr(bin->right.get());
-            switch (bin->op) {
-                case '+': return left + right;
-                case '-': return left - right;
-                case '*': return left * right;
-                case '/': return left / right;
-            }
-        }
-
-        if (auto* call = dynamic_cast<CallExpr*>(expr)) {
-            if (call->callee == "print") {
-                for (auto& arg : call->args) {
-                    std::cout << evalExpr(arg.get());
-                }
-                std::cout << "\n";
-                return 0;
-            }
-        }
-
-        std::cerr << "Unknown expression type\n";
-        return 0;
-    }
+    int asInt() const { return intValue; }
+    std::string toString() const { return isString ? strValue : std::to_string(intValue); }
 };
 
-}
+class Evaluator {
+public:
+    Evaluator();
+    void evaluate(const ModuleDecl& module);
+
+private:
+    std::unordered_map<std::string, Value> variables;
+
+    void evalStatement(Statement* stmt);
+    Value evalExpr(Expression* expr);
+    Value evalCall(CallExpr* call);
+};
+
+} // namespace k
