@@ -4,7 +4,8 @@
 
 #include "lexer.hpp"
 #include "parser.hpp"
-#include "evaluator.hpp"
+#include "lowerer.hpp"
+#include "classical_interpreter.hpp"
 
 std::string readFile(const std::string &path) {
     std::ifstream file(path);
@@ -29,13 +30,23 @@ int main(int argc, char **argv) {
     auto tokens = lexer.tokenize();
 
     k::Parser parser(tokens);
-    k::ModuleDecl module = parser.parseProgram();   // <-- VALUE, not pointer
+    k::ModuleDecl module = parser.parseProgram();
 
-    k::Evaluator evaluator;
-    evaluator.evaluate(module);                     // <-- FIXED
+    // Lower to IR
+    k::Lowerer lowerer;
+    auto processes = lowerer.lowerModule(module);
+    auto functions = lowerer.lowerFunctions(module);
 
-    std::cout << "Module decl count: " << module.decls.size() << "\n";  // <-- FIXED
+    // Run the "main" process
+    auto it = processes.find("main");
+    if (it == processes.end()) {
+        std::cerr << "No main process found.\n";
+        return 1;
+    }
 
-    std::cout << "Parsed " << path << " successfully.\n";
+    k::ClassicalInterpreter interp;
+    interp.setFunctionTable(&functions);
+    interp.run(it->second.classical);
+
     return 0;
 }
