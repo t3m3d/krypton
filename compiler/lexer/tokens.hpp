@@ -12,6 +12,7 @@ enum class TokenType {
   PROCESS,
   LET,
   IF,
+  ELSE,
   RETURN,
   MEASURE,
   PREPARE,
@@ -47,6 +48,7 @@ enum class TokenType {
   RBRACE,
   COMMA,
   COLON,
+  SEMICOLON,
   ARROW,
   EQUAL,
 
@@ -60,4 +62,4 @@ struct Token {
   int column;
 };
 
-} // namespace k
+}

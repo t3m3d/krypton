@@ -1,226 +1,231 @@
 #include "lowerer.hpp"
 #include <stdexcept>
+#include <utility>
 
 namespace k {
 
 // ------------------------------------------------------------
-//  lowerModule — unchanged from your version
+//  lowerModule — lowers all process declarations
 // ------------------------------------------------------------
 std::unordered_map<std::string, LoweredProcess>
 Lowerer::lowerModule(const ModuleDecl &module) {
-  std::unordered_map<std::string, LoweredProcess> result;
+    std::unordered_map<std::string, LoweredProcess> result;
 
-  for (const auto &v : module.decls) {
-    if (std::holds_alternative<ProcessDeclPtr>(v)) {
-      auto proc = std::get<ProcessDeclPtr>(v);
-      LoweredProcess lp;
-      curClassical = &lp.classical;
-      curQuantum = &lp.quantum;
+    for (const auto &v : module.decls) {
+        if (std::holds_alternative<ProcessDeclPtr>(v)) {
+            auto proc = std::get<ProcessDeclPtr>(v);
+            if (!proc) continue;
 
-      lowerProcess(*proc, lp);
+            LoweredProcess lp;
+            curClassical = &lp.classical;
+            curQuantum   = &lp.quantum;
 
-      result[proc->name] = std::move(lp);
-      curClassical = nullptr;
-      curQuantum = nullptr;
+            lowerProcess(*proc, lp);
+
+            result[proc->name] = std::move(lp);
+            curClassical = nullptr;
+            curQuantum   = nullptr;
+        }
     }
-  }
 
-  return result;
+    return result;
 }
 
 // ------------------------------------------------------------
-//  NEW: lowerFunctions — lowers all fn declarations
+//  lowerFunctions — lowers all fn declarations to ClassicalIR
 // ------------------------------------------------------------
 FunctionIRTable Lowerer::lowerFunctions(const ModuleDecl &module) {
-  FunctionIRTable table;
+    FunctionIRTable table;
 
-  for (const auto &v : module.decls) {
-    if (std::holds_alternative<FnDeclPtr>(v)) {
-      auto fn = std::get<FnDeclPtr>(v);
+    for (const auto &v : module.decls) {
+        if (std::holds_alternative<FnDeclPtr>(v)) {
+            auto fn = std::get<FnDeclPtr>(v);
+            if (!fn) continue;
 
-      ClassicalIR ir;
-      curClassical = &ir;
-      curQuantum = nullptr;
+            ClassicalIR ir;
+            curClassical = &ir;
+            curQuantum   = nullptr;
 
-      lowerFunction(*fn, ir);
+            lowerFunction(*fn, ir);
 
-      table[fn->name] = std::move(ir);
-      curClassical = nullptr;
+            table[fn->name] = std::move(ir);
+            curClassical = nullptr;
+        }
     }
-  }
 
-  return table;
+    return table;
 }
 
 // ------------------------------------------------------------
-//  NEW: lowerFunction — lowers a single fn body
+//  lowerFunction — lowers a single fn body
 // ------------------------------------------------------------
 void Lowerer::lowerFunction(const FnDecl &fn, ClassicalIR &out) {
-  curClassical = &out;
-  lowerBlock(fn.body);
+    curClassical = &out;
+    lowerBlock(fn.body);
 
-  // Ensure a RETURN exists
-  out.emit(OpCode::RETURN);
+    // Ensure a RETURN exists so functions always terminate
+    out.emit(OpCode::RETURN);
 }
 
 // ------------------------------------------------------------
-//  lowerProcess — unchanged
+//  lowerProcess — lowers a process body
 // ------------------------------------------------------------
 void Lowerer::lowerProcess(const ProcessDecl &proc, LoweredProcess & /*out*/) {
-  lowerBlock(proc.body);
+    lowerBlock(proc.body);
 }
 
 // ------------------------------------------------------------
-//  lowerBlock — unchanged
+//  lowerBlock — lowers all statements in a block
 // ------------------------------------------------------------
 void Lowerer::lowerBlock(const BlockPtr &block) {
-  for (const auto &stmt : block->statements) {
-    lowerStmt(stmt);
-  }
+    if (!block) return;
+    for (const auto &stmt : block->statements) {
+        lowerStmt(stmt);
+    }
 }
 
 // ------------------------------------------------------------
-//  lowerStmt — unchanged except CALL support is in lowerCall()
+//  lowerStmt — let, return, if, expr
 // ------------------------------------------------------------
 void Lowerer::lowerStmt(const StmtPtr &stmt) {
-  switch (stmt->kind) {
-  case StmtKind::Let: {
-    lowerExpr(stmt->expr);
-    curClassical->emit(OpCode::STORE_VAR, stmt->name);
-    break;
-  }
-  case StmtKind::Return: {
-    lowerExpr(stmt->expr);
-    curClassical->emit(OpCode::RETURN);
-    break;
-  }
-  case StmtKind::If: {
-    lowerExpr(stmt->condition);
-    lowerBlock(stmt->thenBlock);
-    break;
-  }
-  case StmtKind::Expr: {
-    lowerExpr(stmt->expr);
-    break;
-  }
-  }
+    if (!stmt) return;
+
+    switch (stmt->kind) {
+    case StmtKind::Let: {
+        lowerExpr(stmt->expr);
+        curClassical->emit(OpCode::STORE_VAR, stmt->name);
+        break;
+    }
+    case StmtKind::Return: {
+        lowerExpr(stmt->expr);
+        curClassical->emit(OpCode::RETURN);
+        break;
+    }
+    case StmtKind::If: {
+        // For now: just lower condition + thenBlock (no else yet)
+        lowerExpr(stmt->condition);
+        lowerBlock(stmt->thenBlock);
+        break;
+    }
+    case StmtKind::Expr: {
+        lowerExpr(stmt->expr);
+        break;
+    }
+    }
 }
 
 // ------------------------------------------------------------
-//  lowerExpr — unchanged except CALL now emits CALL opcode
+//  lowerExpr — dispatch by expression kind
 // ------------------------------------------------------------
 void Lowerer::lowerExpr(const ExprPtr &expr) {
-  switch (expr->kind) {
-  case ExprKind::Literal: {
-    curClassical->emit(OpCode::LOAD_CONST, expr->literalValue);
-    break;
-  }
-  case ExprKind::Identifier: {
-    curClassical->emit(OpCode::LOAD_VAR, expr->identifier);
-    break;
-  }
-  case ExprKind::Binary: {
-    lowerBinary(expr);
-    break;
-  }
-  case ExprKind::Unary: {
-    lowerUnary(expr);
-    break;
-  }
-  case ExprKind::Call: {
-    lowerCall(expr);
-    break;
-  }
-  case ExprKind::Prepare: {
-    lowerPrepare(expr);
-    break;
-  }
-  case ExprKind::Measure: {
-    lowerMeasure(expr);
-    break;
-  }
-  case ExprKind::Grouping: {
-    lowerExpr(expr->inner);
-    break;
-  }
-  }
+    if (!expr) return;
+
+    switch (expr->kind) {
+    case ExprKind::Literal: {
+        curClassical->emit(OpCode::LOAD_CONST, expr->literalValue);
+        break;
+    }
+    case ExprKind::Identifier: {
+        curClassical->emit(OpCode::LOAD_VAR, expr->identifier);
+        break;
+    }
+    case ExprKind::Binary: {
+        lowerBinary(expr);
+        break;
+    }
+    case ExprKind::Unary: {
+        lowerUnary(expr);
+        break;
+    }
+    case ExprKind::Call: {
+        lowerCall(expr);
+        break;
+    }
+    case ExprKind::Prepare: {
+        lowerPrepare(expr);
+        break;
+    }
+    case ExprKind::Measure: {
+        lowerMeasure(expr);
+        break;
+    }
+    case ExprKind::Grouping: {
+        lowerExpr(expr->inner);
+        break;
+    }
+    }
 }
 
 // ------------------------------------------------------------
-//  lowerBinary — unchanged
+//  lowerBinary — simple arithmetic lowering
 // ------------------------------------------------------------
 void Lowerer::lowerBinary(const ExprPtr &expr) {
-  lowerExpr(expr->left);
+    // Evaluate LHS first
+    lowerExpr(expr->left);
 
-  if (expr->op == "+") {
-    if (expr->right->kind == ExprKind::Literal)
-      curClassical->emit(OpCode::ADD, expr->right->literalValue);
-    else if (expr->right->kind == ExprKind::Identifier)
-      curClassical->emit(OpCode::ADD, expr->right->identifier);
-    else
-      throw std::runtime_error("Unsupported RHS in binary '+' lowering");
-
-  } else if (expr->op == "-") {
-    if (expr->right->kind == ExprKind::Literal)
-      curClassical->emit(OpCode::SUB, expr->right->literalValue);
-    else if (expr->right->kind == ExprKind::Identifier)
-      curClassical->emit(OpCode::SUB, expr->right->identifier);
-    else
-      throw std::runtime_error("Unsupported RHS in binary '-' lowering");
-
-  } else if (expr->op == "*") {
-    if (expr->right->kind == ExprKind::Literal)
-      curClassical->emit(OpCode::MUL, expr->right->literalValue);
-    else if (expr->right->kind == ExprKind::Identifier)
-      curClassical->emit(OpCode::MUL, expr->right->identifier);
-    else
-      throw std::runtime_error("Unsupported RHS in binary '*' lowering");
-
-  } else if (expr->op == "/") {
-    if (expr->right->kind == ExprKind::Literal)
-      curClassical->emit(OpCode::DIV, expr->right->literalValue);
-    else if (expr->right->kind == ExprKind::Identifier)
-      curClassical->emit(OpCode::DIV, expr->right->identifier);
-    else
-      throw std::runtime_error("Unsupported RHS in binary '/' lowering");
-
-  } else {
-    throw std::runtime_error("Unsupported binary operator in lowering: " +
-                             expr->op);
-  }
+    // For now we special‑case RHS as literal or identifier
+    if (expr->op == "+") {
+        if (expr->right->kind == ExprKind::Literal)
+            curClassical->emit(OpCode::ADD, expr->right->literalValue);
+        else if (expr->right->kind == ExprKind::Identifier)
+            curClassical->emit(OpCode::ADD, expr->right->identifier);
+        else
+            throw std::runtime_error("Unsupported RHS in binary '+' lowering");
+    } else if (expr->op == "-") {
+        if (expr->right->kind == ExprKind::Literal)
+            curClassical->emit(OpCode::SUB, expr->right->literalValue);
+        else if (expr->right->kind == ExprKind::Identifier)
+            curClassical->emit(OpCode::SUB, expr->right->identifier);
+        else
+            throw std::runtime_error("Unsupported RHS in binary '-' lowering");
+    } else if (expr->op == "*") {
+        if (expr->right->kind == ExprKind::Literal)
+            curClassical->emit(OpCode::MUL, expr->right->literalValue);
+        else if (expr->right->kind == ExprKind::Identifier)
+            curClassical->emit(OpCode::MUL, expr->right->identifier);
+        else
+            throw std::runtime_error("Unsupported RHS in binary '*' lowering");
+    } else if (expr->op == "/") {
+        if (expr->right->kind == ExprKind::Literal)
+            curClassical->emit(OpCode::DIV, expr->right->literalValue);
+        else if (expr->right->kind == ExprKind::Identifier)
+            curClassical->emit(OpCode::DIV, expr->right->identifier);
+        else
+            throw std::runtime_error("Unsupported RHS in binary '/' lowering");
+    } else {
+        throw std::runtime_error("Unsupported binary operator in lowering: " +
+                                 expr->op);
+    }
 }
 
 // ------------------------------------------------------------
-//  lowerUnary — unchanged
+//  lowerUnary — currently just lowers the operand
 // ------------------------------------------------------------
-void Lowerer::lowerUnary(const ExprPtr &expr) { lowerExpr(expr->right); }
+void Lowerer::lowerUnary(const ExprPtr &expr) {
+    lowerExpr(expr->right);
+}
 
 // ------------------------------------------------------------
-//  NEW: lowerCall — now emits CALL opcode -- print function grabber
+//  lowerCall — built‑ins (print) + normal function calls
 // ------------------------------------------------------------
 void Lowerer::lowerCall(const ExprPtr &expr) {
     // Built‑in: print(...)
     if (expr->identifier == "print") {
-        if (expr->args.size() != 1) {
-            throw std::runtime_error("print() expects exactly one argument");
+        for (const auto &arg : expr->args) {
+            if (arg->kind == ExprKind::Literal) {
+                // Direct literal print
+                curClassical->emit(OpCode::PRINT, arg->literalValue);
+            } else {
+                // Evaluate expression → result on stack
+                lowerExpr(arg);
+                // PRINT "" means: print top of stack
+                curClassical->emit(OpCode::PRINT, "");
+            }
         }
-
-        ExprPtr arg = expr->args[0];
-
-        // If the argument is a literal, emit directly
-        if (arg->kind == ExprKind::Literal) {
-            curClassical->emit(OpCode::PRINT, arg->literalValue);
-        } else {
-            // Otherwise evaluate the expression first
-            lowerExpr(arg);
-            // PRINT with empty arg means "print _tmp"
-            curClassical->emit(OpCode::PRINT, "");
-        }
-
-        return; // IMPORTANT: do NOT fall through to CALL
+        return; // do NOT fall through to CALL
     }
 
-    // Normal function call
+    // Normal function call: evaluate args, then CALL
     for (const auto &arg : expr->args) {
         lowerExpr(arg);
     }
@@ -229,17 +234,19 @@ void Lowerer::lowerCall(const ExprPtr &expr) {
 }
 
 // ------------------------------------------------------------
-//  lowerPrepare — unchanged
+//  lowerPrepare — quantum stub
 // ------------------------------------------------------------
 void Lowerer::lowerPrepare(const ExprPtr & /*expr*/) {
-  curQuantum->emit(QOpCode::ALLOC_QBIT, "q");
+    if (!curQuantum) return;
+    curQuantum->emit(QOpCode::ALLOC_QBIT, "q");
 }
 
 // ------------------------------------------------------------
-//  lowerMeasure — unchanged
+//  lowerMeasure — quantum stub
 // ------------------------------------------------------------
 void Lowerer::lowerMeasure(const ExprPtr &expr) {
-  curQuantum->emit(QOpCode::MEASURE, expr->identifier);
+    if (!curQuantum) return;
+    curQuantum->emit(QOpCode::MEASURE, expr->identifier);
 }
 
-} // namespace k
+}

@@ -53,4 +53,4 @@ private:
   TypeNode parseType();
 };
 
-} // namespace k
+}
