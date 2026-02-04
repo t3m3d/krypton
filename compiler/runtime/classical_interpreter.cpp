@@ -10,12 +10,10 @@ void ClassicalInterpreter::setFunctionTable(const FunctionIRTable *table) {
 }
 
 int ClassicalInterpreter::getValue(const Frame &frame, const std::string &arg) {
-    // Literal integer?
     if (!arg.empty() && std::isdigit(arg[0])) {
         return std::stoi(arg);
     }
 
-    // Variable lookup
     auto it = frame.vars.find(arg);
     if (it != frame.vars.end())
         return it->second;
@@ -38,7 +36,6 @@ void ClassicalInterpreter::run(const ClassicalIR &entry) {
         Frame &frame = stack.back();
         const auto &ir = *frame.ir;
 
-        // End of function → pop frame
         if (frame.ip >= (int)ir.instructions.size()) {
             stack.pop_back();
             continue;
@@ -94,12 +91,12 @@ void ClassicalInterpreter::run(const ClassicalIR &entry) {
         }
 
         case OpCode::PRINT:
-            if (!inst.arg.empty()) {
-                std::cout << inst.arg;
-            } else {
-                std::cout << pop().toString();
-            }
-            break;
+        if (!inst.arg.empty()) {
+            std::cout << inst.arg << std::endl;
+        } else {
+            std::cout << pop().toString() << std::endl;
+    }
+    break;
 
         case OpCode::CALL: {
             auto it = functions->find(inst.arg);
