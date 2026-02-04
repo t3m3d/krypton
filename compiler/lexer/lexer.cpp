@@ -37,8 +37,8 @@ char Lexer::peekNext() const {
 void Lexer::addToken(std::vector<Token> &tokens, TokenType type,
                      const std::string &lexeme) {
 
-  std::cout << "TOKEN: " << lexeme
-            << " (" << static_cast<int>(type) << ")\n";
+ ///  debug tokens  std::cout << "TOKEN: " << lexeme
+ ///           << " (" << static_cast<int>(type) << ")\n";
 
   tokens.push_back(
       Token{type, lexeme, line, column - static_cast<int>(lexeme.size())});

@@ -4,9 +4,8 @@
 
 namespace k {
 
-// -------------------------
+
 // Utility
-// -------------------------
 
 Parser::Parser(const std::vector<Token> &toks) : tokens(toks) {}
 
@@ -33,9 +32,7 @@ const Token &Parser::consume(TokenType type, const char *message) {
   throw std::runtime_error(message);
 }
 
-// -------------------------
 // Program
-// -------------------------
 
 ModuleDecl Parser::parseProgram() {
     ModuleDecl module;
@@ -51,9 +48,8 @@ ModuleDecl Parser::parseProgram() {
 
     return module;
 }
-// -------------------------
+
 // Declarations
-// -------------------------
 
 std::variant<FnDeclPtr, QputeDeclPtr, ProcessDeclPtr> Parser::parseDecl() {
   if (match(TokenType::FN)) {
@@ -132,10 +128,6 @@ QputeDeclPtr Parser::parseQputeDecl() {
 
   consume(TokenType::RPAREN, "Expected ')' after parameters");
 
-  // AST QputeDecl has no returnType field now, so we skip '-> type'
-  // and go straight to the body.
-  // If your language still wants a return type here, you’d need to
-  // add it back into the AST.
   qp->body = parseBlock();
 
   return qp;
@@ -151,10 +143,6 @@ ProcessDeclPtr Parser::parseProcessDecl() {
   proc->body = parseBlock();
   return proc;
 }
-
-// -------------------------
-// Types
-// -------------------------
 
 TypeNode Parser::parseType() {
   const Token &t = peek();
@@ -188,10 +176,6 @@ TypeNode Parser::parseType() {
 
   throw std::runtime_error("Expected type");
 }
-
-// -------------------------
-// Blocks & Statements
-// -------------------------
 
 BlockPtr Parser::parseBlock() {
   consume(TokenType::LBRACE, "Expected '{' to start block");
@@ -251,13 +235,10 @@ StmtPtr Parser::parseIfStmt() {
 }
 
 StmtPtr Parser::parseExprStmt() {
-  ExprPtr expr = parseExpr();
-  return Stmt::exprStmt(expr);
+    ExprPtr expr = parseExpr();
+    consume(TokenType::SEMICOLON, "Expected ';' after expression");
+    return Stmt::exprStmt(expr);
 }
-
-// -------------------------
-// Expressions (precedence)
-// -------------------------
 
 ExprPtr Parser::parseExpr() { return parseOrExpr(); }
 
@@ -371,7 +352,7 @@ ExprPtr Parser::parseUnaryExpr() {
 }
 
 ExprPtr Parser::parsePrimaryExpr() {
-  // Literals
+
   if (match(TokenType::INT_LITERAL) || match(TokenType::FLOAT_LITERAL) ||
       match(TokenType::STRING_LITERAL) || match(TokenType::TRUE_) ||
       match(TokenType::FALSE_)) {
@@ -402,7 +383,6 @@ ExprPtr Parser::parsePrimaryExpr() {
     return Expr::grouping(inner);
   }
 
-  // Identifier or call
   if (match(TokenType::IDENTIFIER)) {
     std::string name = previous().lexeme;
 
