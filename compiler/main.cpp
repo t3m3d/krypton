@@ -38,9 +38,9 @@ int main(int argc, char **argv) {
     auto functions = lowerer.lowerFunctions(module);
 
     // Run the "main" process
-    auto it = processes.find("main");
+    auto it = processes.find("run");
     if (it == processes.end()) {
-        std::cerr << "No main process found.\n";
+        std::cerr << "No go run found.\n";
         return 1;
     }
 
