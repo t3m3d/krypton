@@ -229,9 +229,6 @@ struct Stmt {
   }
 };
 
-// ===============================
-// Blocks
-// ===============================
 
 struct Block {
   std::vector<StmtPtr> statements;
@@ -246,9 +243,6 @@ struct Block {
   }
 };
 
-// ===============================
-// Function Declarations
-// ===============================
 
 struct FnDecl {
   std::string name;
@@ -268,9 +262,6 @@ struct FnDecl {
   }
 };
 
-// ===============================
-// Qpute Declarations
-// ===============================
 
 struct QputeDecl {
   std::string name;
@@ -287,9 +278,6 @@ struct QputeDecl {
   }
 };
 
-// ===============================
-// Process Declarations
-// ===============================
 
 struct ProcessDecl {
   std::string name;
@@ -303,9 +291,6 @@ struct ProcessDecl {
   }
 };
 
-// ===============================
-// Module
-// ===============================
 
 struct ModuleDecl {
   std::vector<std::variant<FnDeclPtr, QputeDeclPtr, ProcessDeclPtr>> decls;

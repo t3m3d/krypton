@@ -76,7 +76,7 @@ TokenType Lexer::keywordOrIdentifier(const std::string &text) const {
     return TokenType::PROCESS;
   if (text == "let")
     return TokenType::LET;
-  if (text == "return")
+  if (text == "emit")
     return TokenType::RETURN;
   if (text == "if")
     return TokenType::IF;
@@ -125,14 +125,14 @@ void Lexer::number(std::vector<Token> &tokens) {
 }
 
 void Lexer::stringLiteral(std::vector<Token> &tokens) {
-  std::size_t start = current; // after opening quote
+  std::size_t start = current;
   while (!isAtEnd() && peek() != '"') {
     advance();
   }
   if (isAtEnd()) {
     throw std::runtime_error("Unterminated string literal");
   }
-  advance(); // closing quote
+  advance();
   std::string text = source.substr(start, current - start - 1);
   addToken(tokens, TokenType::STRING_LITERAL, text);
 }

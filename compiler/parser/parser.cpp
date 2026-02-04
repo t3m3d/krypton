@@ -5,8 +5,6 @@
 namespace k {
 
 
-// Utility
-
 Parser::Parser(const std::vector<Token> &toks) : tokens(toks) {}
 
 const Token &Parser::peek() const { return tokens[current]; }
@@ -32,7 +30,6 @@ const Token &Parser::consume(TokenType type, const char *message) {
   throw std::runtime_error(message);
 }
 
-// Program
 
 ModuleDecl Parser::parseProgram() {
     ModuleDecl module;
@@ -48,7 +45,6 @@ ModuleDecl Parser::parseProgram() {
     return module;
 }
 
-// Declarations
 
 std::variant<FnDeclPtr, QputeDeclPtr, ProcessDeclPtr> Parser::parseDecl() {
   if (match(TokenType::FN)) {
@@ -168,7 +164,6 @@ TypeNode Parser::parseType() {
       return TypeNode::primitiveType(PrimitiveTypeKind::String);
     }
 
-    // Named type
     current++;
     return TypeNode::named(t.lexeme);
   }
@@ -194,7 +189,6 @@ StmtPtr Parser::parseStmt() {
     return parseLetStmt();
   if (match(TokenType::RETURN))
     return parseReturnStmt();
-  // Lexer likely uses IF, not IF_
   if (match(TokenType::IF))
     return parseIfStmt();
   return parseExprStmt();
@@ -218,10 +212,8 @@ StmtPtr Parser::parseIfStmt() {
     ExprPtr cond = parseExpr();
     consume(TokenType::RPAREN, "Expected ')' after condition");
 
-    // Parse the 'then' block
     BlockPtr thenBlock = parseBlock();
 
-    // Optional else-block
     BlockPtr elseBlock = nullptr;
     if (match(TokenType::ELSE)) {
         elseBlock = parseBlock();
@@ -358,7 +350,6 @@ ExprPtr Parser::parsePrimaryExpr() {
     return Expr::literal(previous().lexeme);
   }
 
-  // prepare qbit
   if (match(TokenType::PREPARE)) {
     const Token &qtok =
         consume(TokenType::IDENTIFIER, "Expected 'qbit' after 'prepare'");
@@ -368,14 +359,12 @@ ExprPtr Parser::parsePrimaryExpr() {
     return Expr::prepare();
   }
 
-  // measure x
   if (match(TokenType::MEASURE)) {
     const Token &target =
         consume(TokenType::IDENTIFIER, "Expected identifier after 'measure'");
     return Expr::measure(target.lexeme);
   }
 
-  // Grouping
   if (match(TokenType::LPAREN)) {
     ExprPtr inner = parseExpr();
     consume(TokenType::RPAREN, "Expected ')' after expression");
