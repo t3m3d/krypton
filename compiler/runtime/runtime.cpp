@@ -27,4 +27,4 @@ void Runtime::runModule(const ModuleDecl &module) {
   quantum.run(lp.quantum);
 }
 
-} // namespace k
+}

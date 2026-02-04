@@ -18,4 +18,4 @@ private:
   std::string rootDir;
 };
 
-} // namespace k
+}

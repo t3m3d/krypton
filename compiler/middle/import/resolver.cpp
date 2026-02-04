@@ -25,4 +25,4 @@ std::string ImportResolver::resolve(const ImportDecl &imp) const {
   return p.string();
 }
 
-} // namespace k
+}

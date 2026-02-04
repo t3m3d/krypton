@@ -62,4 +62,4 @@ void ModuleLoader::merge(ModuleDecl &into, const ModuleDecl &from) {
   }
 }
 
-} // namespace k
+}
