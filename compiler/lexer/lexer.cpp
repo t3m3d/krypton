@@ -72,7 +72,7 @@ TokenType Lexer::keywordOrIdentifier(const std::string &text) const {
     return TokenType::QUANTUM;
   if (text == "qpute")
     return TokenType::QPUTE;
-  if (text == "process")
+  if (text == "go")
     return TokenType::PROCESS;
   if (text == "let")
     return TokenType::LET;
