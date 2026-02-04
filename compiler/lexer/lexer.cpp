@@ -139,12 +139,6 @@ void Lexer::stringLiteral(std::vector<Token> &tokens) {
 
 std::vector<Token> Lexer::tokenize() {
     std::vector<Token> tokens;
-      // DEBUG: dump raw bytes of the source file
-    std::cout << "SOURCE SIZE: " << source.size() << "\n";
-    for (size_t i = 0; i < source.size(); i++) {
-      unsigned char ch = source[i];
-      std::cout << i << ": '" << ch << "' (" << (int)ch << ")\n";
-  }
 
 
     while (!isAtEnd()) {
@@ -175,7 +169,6 @@ switch (c) {
         addToken(tokens, TokenType::COLON, ":");
         break;
 
-    // ⭐ ADD THIS
     case ';':
         addToken(tokens, TokenType::SEMICOLON, ";");
         break;
