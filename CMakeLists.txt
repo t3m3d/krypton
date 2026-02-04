@@ -13,7 +13,7 @@ file(GLOB FRONTEND_SOURCES
     "compiler/lexer/*.cpp"
     "compiler/parser/*.cpp"
     "compiler/frontend/*.cpp"
-    "compiler/lowering/*.cpp"
+    "compiler/middle/lowering/*.cpp"
     "compiler/runtime/*.cpp"
 )
 
@@ -36,5 +36,5 @@ target_include_directories(kcc PRIVATE
     ${CMAKE_SOURCE_DIR}/compiler/middle/import
     ${CMAKE_SOURCE_DIR}/compiler/middle/typechecker
     ${CMAKE_SOURCE_DIR}/compiler/runtime
-    ${CMAKE_SOURCE_DIR}/compiler/lowering    
+    ${CMAKE_SOURCE_DIR}/compiler/middle/lowering    
 )

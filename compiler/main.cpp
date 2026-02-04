@@ -4,8 +4,8 @@
 
 #include "lexer.hpp"
 #include "parser.hpp"
-#include "lowerer.hpp"
-#include "classical_interpreter.hpp"
+#include "middle/lowering/lowerer.hpp"
+#include "runtime/classical_interpreter.hpp"
 
 std::string readFile(const std::string &path) {
     std::ifstream file(path);
