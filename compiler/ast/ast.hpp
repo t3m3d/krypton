@@ -187,6 +187,7 @@ struct Stmt {
 
   ExprPtr condition;
   BlockPtr thenBlock;
+  BlockPtr elseBlock;
 
   static StmtPtr letStmt(const std::string &name, ExprPtr value) {
     auto s = std::make_shared<Stmt>();
@@ -208,6 +209,15 @@ struct Stmt {
     s->kind = StmtKind::If;
     s->condition = cond;
     s->thenBlock = block;
+    return s;
+  }
+
+  static StmtPtr ifElseStmt(ExprPtr cond, BlockPtr thenBlk, BlockPtr elseBlk) {
+    auto s = std::make_shared<Stmt>();
+    s->kind = StmtKind::If;
+    s->condition = cond;
+    s->thenBlock = thenBlk;
+    s->elseBlock = elseBlk;
     return s;
   }
 

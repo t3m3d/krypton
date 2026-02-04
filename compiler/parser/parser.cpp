@@ -231,12 +231,23 @@ StmtPtr Parser::parseReturnStmt() {
 }
 
 StmtPtr Parser::parseIfStmt() {
-  consume(TokenType::LPAREN, "Expected '(' after 'if'");
-  ExprPtr cond = parseExpr();
-  consume(TokenType::RPAREN, "Expected ')' after condition");
+    consume(TokenType::LPAREN, "Expected '(' after 'if'");
+    ExprPtr cond = parseExpr();
+    consume(TokenType::RPAREN, "Expected ')' after condition");
 
-  BlockPtr block = parseBlock();
-  return Stmt::ifStmt(cond, block);
+    // Parse the 'then' block
+    BlockPtr thenBlock = parseBlock();
+
+    // Optional else-block
+    BlockPtr elseBlock = nullptr;
+    if (match(TokenType::ELSE)) {
+        elseBlock = parseBlock();
+    }
+
+    if (elseBlock)
+        return Stmt::ifElseStmt(cond, thenBlock, elseBlock);
+    else
+        return Stmt::ifStmt(cond, thenBlock);
 }
 
 StmtPtr Parser::parseExprStmt() {

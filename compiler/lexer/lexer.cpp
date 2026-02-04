@@ -1,6 +1,7 @@
 #include "lexer.hpp"
 #include <cctype>
 #include <stdexcept>
+#include <iostream>
 
 namespace k {
 
@@ -9,14 +10,16 @@ Lexer::Lexer(const std::string &src) : source(src) {}
 bool Lexer::isAtEnd() const { return current >= source.size(); }
 
 char Lexer::advance() {
-  char c = source[current++];
-  if (c == '\n') {
-    line++;
-    column = 1;
-  } else {
-    column++;
-  }
-  return c;
+    char c = source[current++];
+
+    if (c == '\n' || c == '\r') {
+        line++;
+        column = 1;
+    } else {
+        column++;
+    }
+
+    return c;
 }
 
 char Lexer::peek() const {
@@ -33,6 +36,10 @@ char Lexer::peekNext() const {
 
 void Lexer::addToken(std::vector<Token> &tokens, TokenType type,
                      const std::string &lexeme) {
+
+  std::cout << "TOKEN: " << lexeme
+            << " (" << static_cast<int>(type) << ")\n";
+
   tokens.push_back(
       Token{type, lexeme, line, column - static_cast<int>(lexeme.size())});
 }
@@ -49,12 +56,11 @@ void Lexer::skipWhitespace() {
 }
 
 void Lexer::skipComment() {
-  // single-line: //
-  if (peek() == '/' && peekNext() == '/') {
-    while (!isAtEnd() && peek() != '\n') {
-      advance();
+    if (peek() == '/' && peekNext() == '/') {
+        while (!isAtEnd() && peek() != '\n' && peek() != '\r') {
+            advance();
+        }
     }
-  }
 }
 
 TokenType Lexer::keywordOrIdentifier(const std::string &text) const {
@@ -74,6 +80,8 @@ TokenType Lexer::keywordOrIdentifier(const std::string &text) const {
     return TokenType::RETURN;
   if (text == "if")
     return TokenType::IF;
+  if (text == "else")
+    return TokenType::ELSE;
   if (text == "measure")
     return TokenType::MEASURE;
   if (text == "prepare")
@@ -130,116 +138,133 @@ void Lexer::stringLiteral(std::vector<Token> &tokens) {
 }
 
 std::vector<Token> Lexer::tokenize() {
-  std::vector<Token> tokens;
-
-  while (!isAtEnd()) {
-    skipWhitespace();
-    skipComment();
-    if (isAtEnd())
-      break;
-
-    char c = advance();
-
-    switch (c) {
-    case '(':
-      addToken(tokens, TokenType::LPAREN, "(");
-      break;
-    case ')':
-      addToken(tokens, TokenType::RPAREN, ")");
-      break;
-    case '{':
-      addToken(tokens, TokenType::LBRACE, "{");
-      break;
-    case '}':
-      addToken(tokens, TokenType::RBRACE, "}");
-      break;
-    case ',':
-      addToken(tokens, TokenType::COMMA, ",");
-      break;
-    case ':':
-      addToken(tokens, TokenType::COLON, ":");
-      break;
-    case '=':
-      if (peek() == '=') {
-        advance();
-        addToken(tokens, TokenType::EQEQ, "==");
-      } else
-        addToken(tokens, TokenType::EQUAL, "=");
-      break;
-    case '!':
-      if (peek() == '=') {
-        advance();
-        addToken(tokens, TokenType::BANGEQ, "!=");
-      } else
-        addToken(tokens, TokenType::BANG, "!");
-      break;
-    case '<':
-      if (peek() == '=') {
-        advance();
-        addToken(tokens, TokenType::LTE, "<=");
-      } else
-        addToken(tokens, TokenType::LT, "<");
-      break;
-    case '>':
-      if (peek() == '=') {
-        advance();
-        addToken(tokens, TokenType::GTE, ">=");
-      } else
-        addToken(tokens, TokenType::GT, ">");
-      break;
-    case '+':
-      addToken(tokens, TokenType::PLUS, "+");
-      break;
-    case '-':
-      if (peek() == '>') {
-        advance();
-        addToken(tokens, TokenType::ARROW, "->");
-      } else
-        addToken(tokens, TokenType::MINUS, "-");
-      break;
-    case '*':
-      addToken(tokens, TokenType::STAR, "*");
-      break;
-    case '/':
-      if (peek() == '/') {
-        // we already handle comments via skipComment, but if you want:
-        while (!isAtEnd() && peek() != '\n')
-          advance();
-      } else {
-        addToken(tokens, TokenType::SLASH, "/");
-      }
-      break;
-    case '&':
-      if (peek() == '&') {
-        advance();
-        addToken(tokens, TokenType::ANDAND, "&&");
-      } else
-        throw std::runtime_error("Unexpected '&'");
-      break;
-    case '|':
-      if (peek() == '|') {
-        advance();
-        addToken(tokens, TokenType::OROR, "||");
-      } else
-        throw std::runtime_error("Unexpected '|'");
-      break;
-    case '"':
-      stringLiteral(tokens);
-      break;
-    default:
-      if (std::isalpha(c) || c == '_') {
-        identifier(tokens);
-      } else if (std::isdigit(c)) {
-        number(tokens);
-      } else {
-        throw std::runtime_error(std::string("Unexpected character: ") + c);
-      }
-      break;
-    }
+    std::vector<Token> tokens;
+      // DEBUG: dump raw bytes of the source file
+    std::cout << "SOURCE SIZE: " << source.size() << "\n";
+    for (size_t i = 0; i < source.size(); i++) {
+      unsigned char ch = source[i];
+      std::cout << i << ": '" << ch << "' (" << (int)ch << ")\n";
   }
 
-  tokens.push_back(Token{TokenType::END_OF_FILE, "", line, column});
-  return tokens;
-}
 
+    while (!isAtEnd()) {
+        skipWhitespace();
+        skipComment();
+        if (isAtEnd())
+            break;
+
+        char c = advance();
+
+switch (c) {
+    case '(':
+        addToken(tokens, TokenType::LPAREN, "(");
+        break;
+    case ')':
+        addToken(tokens, TokenType::RPAREN, ")");
+        break;
+    case '{':
+        addToken(tokens, TokenType::LBRACE, "{");
+        break;
+    case '}':
+        addToken(tokens, TokenType::RBRACE, "}");
+        break;
+    case ',':
+        addToken(tokens, TokenType::COMMA, ",");
+        break;
+    case ':':
+        addToken(tokens, TokenType::COLON, ":");
+        break;
+
+    // ⭐ ADD THIS
+    case ';':
+        addToken(tokens, TokenType::SEMICOLON, ";");
+        break;
+
+    case '=':
+        if (peek() == '=') {
+            advance();
+            addToken(tokens, TokenType::EQEQ, "==");
+        } else {
+            addToken(tokens, TokenType::EQUAL, "=");
+        }
+        break;
+    case '!':
+        if (peek() == '=') {
+            advance();
+            addToken(tokens, TokenType::BANGEQ, "!=");
+        } else {
+            addToken(tokens, TokenType::BANG, "!");
+        }
+        break;
+    case '<':
+        if (peek() == '=') {
+            advance();
+            addToken(tokens, TokenType::LTE, "<=");
+        } else {
+            addToken(tokens, TokenType::LT, "<");
+        }
+        break;
+    case '>':
+        if (peek() == '=') {
+            advance();
+            addToken(tokens, TokenType::GTE, ">=");
+        } else {
+            addToken(tokens, TokenType::GT, ">");
+        }
+        break;
+    case '+':
+        addToken(tokens, TokenType::PLUS, "+");
+        break;
+    case '-':
+        if (peek() == '>') {
+            advance();
+            addToken(tokens, TokenType::ARROW, "->");
+        } else {
+            addToken(tokens, TokenType::MINUS, "-");
+        }
+        break;
+    case '*':
+        addToken(tokens, TokenType::STAR, "*");
+        break;
+
+    case '/':
+        addToken(tokens, TokenType::SLASH, "/");
+        break;
+
+    case '&':
+        if (peek() == '&') {
+            advance();
+            addToken(tokens, TokenType::ANDAND, "&&");
+        } else {
+            throw std::runtime_error("Unexpected '&'");
+        }
+        break;
+    case '|':
+        if (peek() == '|') {
+            advance();
+            addToken(tokens, TokenType::OROR, "||");
+        } else {
+            throw std::runtime_error("Unexpected '|'");
+        }
+        break;
+    case '"':
+        stringLiteral(tokens);
+        break;
+
+    default:
+        if (std::isalpha(c) || c == '_') {
+            identifier(tokens);
+        } else if (std::isdigit(c)) {
+            number(tokens);
+        } else {
+            throw std::runtime_error(std::string("Unexpected character: ") + c);
+        }
+        break;
+}
+    }
+
+    addToken(tokens, TokenType::END_OF_FILE, "");
+    return tokens;
+
+}
 } // namespace k
