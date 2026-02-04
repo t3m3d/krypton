@@ -37,7 +37,6 @@ const Token &Parser::consume(TokenType type, const char *message) {
 ModuleDecl Parser::parseProgram() {
     ModuleDecl module;
 
-    // Make 'module <name>' optional
     if (match(TokenType::MODULE)) {
         consume(TokenType::IDENTIFIER, "Expected module name");
     }
