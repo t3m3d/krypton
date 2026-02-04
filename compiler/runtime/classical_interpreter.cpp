@@ -67,6 +67,11 @@ void ClassicalInterpreter::run(const ClassicalIR &entry) {
       frame.vars["_tmp"] /= getValue(frame, inst.arg);
       break;
 
+    case OpCode::PRINT:
+      std::cout << inst.arg << std::endl;
+      break;
+
+
     case OpCode::CALL: {
       auto it = functions->find(inst.arg);
       if (it == functions->end()) {
@@ -90,4 +95,4 @@ void ClassicalInterpreter::run(const ClassicalIR &entry) {
   }
 }
 
-} // namespace k
+}

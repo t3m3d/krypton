@@ -1,3 +1,4 @@
+
 #pragma once
 #include <string>
 
@@ -20,4 +21,4 @@ private:
   std::string rootDir;
 };
 
-} // namespace k
+}

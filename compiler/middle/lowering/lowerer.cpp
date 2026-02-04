@@ -196,16 +196,36 @@ void Lowerer::lowerBinary(const ExprPtr &expr) {
 void Lowerer::lowerUnary(const ExprPtr &expr) { lowerExpr(expr->right); }
 
 // ------------------------------------------------------------
-//  NEW: lowerCall — now emits CALL opcode
+//  NEW: lowerCall — now emits CALL opcode -- print function grabber
 // ------------------------------------------------------------
 void Lowerer::lowerCall(const ExprPtr &expr) {
-  // Lower arguments first
-  for (const auto &arg : expr->args) {
-    lowerExpr(arg);
-  }
+    // Built‑in: print(...)
+    if (expr->identifier == "print") {
+        if (expr->args.size() != 1) {
+            throw std::runtime_error("print() expects exactly one argument");
+        }
 
-  // Emit CALL <function_name>
-  curClassical->emit(OpCode::CALL, expr->identifier);
+        ExprPtr arg = expr->args[0];
+
+        // If the argument is a literal, emit directly
+        if (arg->kind == ExprKind::Literal) {
+            curClassical->emit(OpCode::PRINT, arg->literalValue);
+        } else {
+            // Otherwise evaluate the expression first
+            lowerExpr(arg);
+            // PRINT with empty arg means "print _tmp"
+            curClassical->emit(OpCode::PRINT, "");
+        }
+
+        return; // IMPORTANT: do NOT fall through to CALL
+    }
+
+    // Normal function call
+    for (const auto &arg : expr->args) {
+        lowerExpr(arg);
+    }
+
+    curClassical->emit(OpCode::CALL, expr->identifier);
 }
 
 // ------------------------------------------------------------

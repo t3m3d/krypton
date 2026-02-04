@@ -13,7 +13,8 @@ enum class OpCode {
   MUL,
   DIV,
   CALL,
-  RETURN
+  RETURN,
+  PRINT
 };
 
 struct Instruction {
@@ -29,4 +30,4 @@ struct ClassicalIR {
   }
 };
 
-} // namespace k
+}
