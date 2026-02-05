@@ -188,20 +188,18 @@ void Lowerer::lowerUnary(const ExprPtr &expr) {
 
 //  lowerCall — built‑ins (print) + normal function calls
 void Lowerer::lowerCall(const ExprPtr &expr) {
-    // print is a built-in function (kp)
-    if (expr->identifier == "kp") {
+    // print is a built-in function (print / kp)
+    if (expr->identifier == "print" || expr->identifier == "kp") {
         for (const auto &arg : expr->args) {
             if (arg->kind == ExprKind::Literal) {
-                // Direct literal print
                 curClassical->emit(OpCode::PRINT, arg->literalValue);
             } else {
-                // Evaluate expression → result on stack
                 lowerExpr(arg);
-                // PRINT "" means: print top of stack
                 curClassical->emit(OpCode::PRINT, "");
             }
         }
         return;
+
     }
 
     // Normal function call: evaluate args, then CALL
