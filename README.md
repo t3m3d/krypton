@@ -4,6 +4,12 @@ Krypton is a new programming language for a world where classical compute, quant
 Krypton treats quantum computation as a first‑class citizen — not a bolt‑on library, not a DSL, not a Python wrapper.
 Just a language built for the binary and quantum mixed future.
 
+e.g.
+<img width="592" height="175" alt="image" src="https://github.com/user-attachments/assets/a957f110-5a6d-4bca-9b2f-1858b778d19c" />
+
+ 
+ 
+ 
  Purpose
 Modern systems are hybrid systems. Classical code orchestrates logic and state; quantum hardware performs specialized computation. Today, developers stitch these worlds together with ad‑hoc tools, opaque runtimes, and inconsistent semantics.
 Krypton takes a different stance:
@@ -88,6 +94,7 @@ Long‑Term
 Krypton is built to grow into the language developers will need for the next decade.
 
  Contributing
+ A contributer is not only the programmer, but those who would like to test it and see what it is capable, and share ideas for the language.
 Krypton welcomes contributors who care about:
 - Systems programming
 - Quantum computing
