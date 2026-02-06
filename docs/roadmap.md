@@ -9,7 +9,7 @@ This roadmap focuses only on what is required to get the Krypton language
 These define the surface of the language and must be locked before deeper work.
 
 - [*] grammar.md (syntax rules)
-- [ ] types.md (type system rules)
+- [*] types.md (type system rules)
 - [ ] functions.md (built-in functions + keywords)
 
 Once these three are stable, the compiler has a fixed target.
