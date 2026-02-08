@@ -66,7 +66,7 @@ void Lexer::skipComment() {
 TokenType Lexer::keywordOrIdentifier(const std::string &text) const {
   if (text == "module")
     return TokenType::MODULE;
-  if (text == "fn")
+  if (text == "func")
     return TokenType::FN;
   if (text == "quantum")
     return TokenType::QUANTUM;
