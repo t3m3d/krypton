@@ -7,8 +7,8 @@ Just a language built for the binary and quantum mixed future.
 e.g.
 <img width="592" height="175" alt="image" src="https://github.com/user-attachments/assets/a957f110-5a6d-4bca-9b2f-1858b778d19c" />
 
- 
- 
+<img width="700" height="700" alt="bmc_qr" src="https://github.com/user-attachments/assets/30ea466f-9f23-4b7a-ac3a-a3d54e6763c7" />
+https://buymeacoffee.com/t3m3d
  
  Purpose
 Modern systems are hybrid systems. Classical code orchestrates logic and state; quantum hardware performs specialized computation. Today, developers stitch these worlds together with ad‑hoc tools, opaque runtimes, and inconsistent semantics.
