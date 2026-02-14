@@ -1,3 +1,5 @@
+Now has a home at https://krypton-lang.org
+
 Krypton (K)
 A systems language for the quantum‑classical frontier
 Krypton is a new programming language for a world where classical compute, quantum hardware, and distributed processes must work together with clarity and precision. K is built for engineers who want explicit control, researchers who need correctness, and systems designers who refuse to accept the messy glue layers that dominate hybrid computation today.
@@ -5,10 +7,7 @@ Krypton treats quantum computation as a first‑class citizen — not a bolt‑o
 Just a language built for the binary and quantum mixed future.
 
 e.g.
-<img width="592" height="175" alt="image" src="https://github.com/user-attachments/assets/a957f110-5a6d-4bca-9b2f-1858b778d19c" />
-
- 
- 
+<img width="792" height="375" alt="image" src="https://github.com/user-attachments/assets/a957f110-5a6d-4bca-9b2f-1858b778d19c" />
  
  Purpose
 Modern systems are hybrid systems. Classical code orchestrates logic and state; quantum hardware performs specialized computation. Today, developers stitch these worlds together with ad‑hoc tools, opaque runtimes, and inconsistent semantics.
