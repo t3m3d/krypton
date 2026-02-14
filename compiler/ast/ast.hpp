@@ -80,8 +80,20 @@ struct QParam {
 // ===============================
 
 struct ImportDecl {
-  std::vector<std::string> path;
+    std::string path;
+    int line;
+    int column;
+
+    static ImportDeclPtr make(const std::string &path, int line, int column) {
+        auto i = std::make_shared<ImportDecl>();
+        i->path = path;
+        i->line = line;
+        i->column = column;
+        return i;
+    }
 };
+
+using ImportDeclPtr = std::shared_ptr<ImportDecl>;
 
 // ===============================
 // Expressions
@@ -233,7 +245,6 @@ struct Stmt {
 struct Block {
   std::vector<StmtPtr> statements;
 
-  // Required by parser.cpp
   static BlockPtr create() { return std::make_shared<Block>(); }
 
   static BlockPtr make(const std::vector<StmtPtr> &stmts) {
@@ -293,15 +304,8 @@ struct ProcessDecl {
 
 
 struct ModuleDecl {
-  std::vector<std::variant<FnDeclPtr, QputeDeclPtr, ProcessDeclPtr>> decls;
-
-  static ModuleDeclPtr
-  make(const std::vector<std::variant<FnDeclPtr, QputeDeclPtr, ProcessDeclPtr>>
-           &decls) {
-    auto m = std::make_shared<ModuleDecl>();
-    m->decls = decls;
-    return m;
-  }
+    std::vector<ImportDeclPtr> imports;
+    std::vector<std::variant<FnDeclPtr, QputeDeclPtr, ProcessDeclPtr>> decls;
 };
 
 }

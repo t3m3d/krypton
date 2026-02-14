@@ -90,6 +90,8 @@ TokenType Lexer::keywordOrIdentifier(const std::string &text) const {
     return TokenType::TRUE_;
   if (text == "false")
     return TokenType::FALSE_;
+  if (text == "with")
+    return TokenType::WITH;
   return TokenType::IDENTIFIER;
 }
 
