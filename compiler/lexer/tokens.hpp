@@ -18,6 +18,7 @@ enum class TokenType {
   PREPARE,
   TRUE_,
   FALSE_,
+  WITH,
 
   // Identifiers & literals
   IDENTIFIER,
