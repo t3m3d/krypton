@@ -344,10 +344,24 @@ ExprPtr Parser::parseUnaryExpr() {
 
 ExprPtr Parser::parsePrimaryExpr() {
 
-  if (match(TokenType::INT_LITERAL) || match(TokenType::FLOAT_LITERAL) ||
-      match(TokenType::STRING_LITERAL) || match(TokenType::TRUE_) ||
-      match(TokenType::FALSE_)) {
-    return Expr::literal(previous().lexeme);
+  if (match(TokenType::INT_LITERAL)) {
+    return Expr::intLiteral(previous().lexeme);
+  }
+
+  if (match(TokenType::FLOAT_LITERAL)) {
+    return Expr::floatLiteral(previous().lexeme);
+  }
+
+  if (match(TokenType::STRING_LITERAL)) {
+    return Expr::stringLiteral(previous().lexeme);
+  }
+
+  if (match(TokenType::TRUE_)) {
+    return Expr::boolLiteral(true);
+  }
+
+  if (match(TokenType::FALSE_)) {
+    return Expr::boolLiteral(false);
   }
 
   if (match(TokenType::PREPARE)) {

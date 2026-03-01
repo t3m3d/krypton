@@ -61,7 +61,7 @@ void ClassicalInterpreter::run(const ClassicalIR &entry) {
             break;
 }
         case OpCode::LOAD_CONST:
-            push(Value(std::stoi(inst.arg)));
+            push(Value(inst.arg));   // store literal as string
             break;
 
         case OpCode::LOAD_VAR:
@@ -132,7 +132,7 @@ void ClassicalInterpreter::run(const ClassicalIR &entry) {
         case OpCode::LEN: {
             Value v = pop();
             int n = static_cast<int>(v.toString().size());
-            push(Value(n));
+            push(Value(std::to_string(n)));   // <-- FIXED
             break;
         }
 

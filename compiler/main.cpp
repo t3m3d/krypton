@@ -18,26 +18,45 @@ std::string readFile(const std::string &path) {
 }
 
 int main(int argc, char **argv) {
+    std::cout << "MAIN START\n";
+
     if (argc < 2) {
         std::cout << "Usage: kcc <file.k>\n";
         return 1;
     }
 
     std::string path = argv[1];
-    std::string source = readFile(path);
+
+    if (path == "--help" || path == "-h") {
+        std::cout << "Krypton Compiler (kcc)\n";
+        std::cout << "Usage: kcc <file.k>\n";
+        return 0;
+    }
+
+    std::string source;
+    try {
+        source = readFile(path);
+    } catch (const std::exception &e) {
+        std::cerr << e.what() << "\n";
+        return 1;
+    }
 
     k::Lexer lexer(source);
     auto tokens = lexer.tokenize();
 
     k::Parser parser(tokens);
-    k::ModuleDecl module = parser.parseProgram();
+    k::ModuleDecl module;
+    try {
+        module = parser.parseProgram();
+    } catch (const std::exception &e) {
+        std::cerr << "Parse error: " << e.what() << "\n";
+        return 1;
+    }
 
-    // Lower to IR
     k::Lowerer lowerer;
     auto processes = lowerer.lowerModule(module);
     auto functions = lowerer.lowerFunctions(module);
 
-    // Run the "main" process
     auto it = processes.find("run");
     if (it == processes.end()) {
         std::cerr << "No go run found.\n";
@@ -46,7 +65,13 @@ int main(int argc, char **argv) {
 
     k::ClassicalInterpreter interp;
     interp.setFunctionTable(&functions);
-    interp.run(it->second.classical);
+
+    try {
+        interp.run(it->second.classical);
+    } catch (const std::exception &e) {
+        std::cerr << "Runtime error: " << e.what() << "\n";
+        return 1;
+    }
 
     return 0;
 }
