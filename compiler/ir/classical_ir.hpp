@@ -15,7 +15,8 @@ enum class OpCode {
   CALL,
   RETURN,
   PRINT,
-  LEN
+  LEN,
+  SUBSTRING
 };
 
 struct Instruction {
