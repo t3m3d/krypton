@@ -90,7 +90,6 @@ void Lowerer::lowerStmt(const StmtPtr &stmt) {
         break;
     }
     case StmtKind::If: {
-        // For now: just lower condition + thenBlock (no else yet)
         lowerExpr(stmt->condition);
         lowerBlock(stmt->thenBlock);
         break;
@@ -144,10 +143,8 @@ void Lowerer::lowerExpr(const ExprPtr &expr) {
 
 //  lowerBinary — simple arithmetic lowering
 void Lowerer::lowerBinary(const ExprPtr &expr) {
-    // Evaluate LHS first
     lowerExpr(expr->left);
 
-    // For now we special‑case RHS as literal or identifier
     if (expr->op == "+") {
         if (expr->right->kind == ExprKind::Literal)
             curClassical->emit(OpCode::ADD, expr->right->literalValue);
@@ -177,8 +174,7 @@ void Lowerer::lowerBinary(const ExprPtr &expr) {
         else
             throw std::runtime_error("Unsupported RHS in binary '/' lowering");
     } else {
-        throw std::runtime_error("Unsupported binary operator in lowering: " +
-                                 expr->op);
+        throw std::runtime_error("Unsupported binary operator in lowering: " + expr->op);
     }
 }
 
@@ -186,7 +182,7 @@ void Lowerer::lowerUnary(const ExprPtr &expr) {
     lowerExpr(expr->right);
 }
 
-//  lowerCall — built‑ins (print) + normal function calls
+//  lowerCall — built‑ins (print, len) + normal function calls
 void Lowerer::lowerCall(const ExprPtr &expr) {
     // print is a built-in function (print / kp)
     if (expr->identifier == "print" || expr->identifier == "kp") {
@@ -199,7 +195,16 @@ void Lowerer::lowerCall(const ExprPtr &expr) {
             }
         }
         return;
+    }
 
+    // len is a built-in: len(x) → evaluate x, then LEN
+    if (expr->identifier == "len") {
+        if (expr->args.size() != 1) {
+            throw std::runtime_error("len() expects exactly one argument");
+        }
+        lowerExpr(expr->args[0]);
+        curClassical->emit(OpCode::LEN);
+        return;
     }
 
     // Normal function call: evaluate args, then CALL
@@ -222,4 +227,4 @@ void Lowerer::lowerMeasure(const ExprPtr &expr) {
     curQuantum->emit(QOpCode::MEASURE, expr->identifier);
 }
 
-}
+} // namespace k

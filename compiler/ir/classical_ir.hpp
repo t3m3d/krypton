@@ -14,7 +14,8 @@ enum class OpCode {
   DIV,
   CALL,
   RETURN,
-  PRINT
+  PRINT,
+  LEN
 };
 
 struct Instruction {

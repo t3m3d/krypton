@@ -123,6 +123,13 @@ void ClassicalInterpreter::run(const ClassicalIR &entry) {
             stack.pop_back();
             continue;
         }
+        case OpCode::LEN: {
+            Value v = pop();
+            int n = static_cast<int>(v.toString().size());
+            push(Value(n));
+            break;
+        }
+
         }
 
         frame.ip++;
