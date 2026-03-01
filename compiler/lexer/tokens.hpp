@@ -4,7 +4,6 @@
 namespace k {
 
 enum class TokenType {
-  // Keywords
   MODULE,
   FN,
   QUANTUM,
@@ -20,14 +19,12 @@ enum class TokenType {
   FALSE_,
   WITH,
 
-  // Identifiers & literals
   IDENTIFIER,
   INT_LITERAL,
   FLOAT_LITERAL,
   STRING_LITERAL,
   BOOL_LITERAL,
 
-  // Operators
   PLUS,
   MINUS,
   STAR,
@@ -42,7 +39,6 @@ enum class TokenType {
   OROR,
   BANG,
 
-  // Punctuation
   LPAREN,
   RPAREN,
   LBRACE,
