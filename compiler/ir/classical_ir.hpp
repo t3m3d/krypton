@@ -21,7 +21,7 @@ enum class OpCode {
 
 struct Instruction {
   OpCode op;
-  std::string arg; // function name, var name, or literal
+  std::string arg;
 };
 
 struct ClassicalIR {
