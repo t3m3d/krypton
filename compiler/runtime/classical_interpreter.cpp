@@ -41,6 +41,8 @@ void ClassicalInterpreter::run(const ClassicalIR &entry) {
         }
 
         const Instruction &inst = ir.instructions[frame.ip];
+            std::cerr << "OP: " << static_cast<int>(inst.op)
+                << " ARG: '" << inst.arg << "'\n";
 
         switch (inst.op) {
 
