@@ -29,7 +29,6 @@ void ClassicalInterpreter::run(const ClassicalIR &entry) {
     stack.clear();
     valueStack.clear();
 
-    // Push initial frame
     stack.push_back(Frame{&entry, 0, {}});
 
     while (!stack.empty()) {
@@ -45,18 +44,31 @@ void ClassicalInterpreter::run(const ClassicalIR &entry) {
 
         switch (inst.op) {
 
+        case OpCode::SUBSTRING: {
+            Value endV = pop();
+            Value startV = pop();
+            Value strV = pop();
+
+            std::string s = strV.toString();
+            int start = startV.number;
+            int end = endV.number;
+
+            if (start < 0) start = 0;
+            if (end > (int)s.size()) end = s.size();
+            if (start > end) start = end;
+
+            push(Value(s.substr(start, end - start)));
+            break;
+}
         case OpCode::LOAD_CONST:
-            // literal number (from lowerer)
             push(Value(std::stoi(inst.arg)));
             break;
 
         case OpCode::LOAD_VAR:
-            // load variable from current frame
             push(Value(getValue(frame, inst.arg)));
             break;
 
         case OpCode::STORE_VAR:
-            // store top of stack into variable
             frame.vars[inst.arg] = pop().number;
             break;
 
@@ -94,9 +106,6 @@ void ClassicalInterpreter::run(const ClassicalIR &entry) {
         }
 
         case OpCode::PRINT: {
-            // From lowerer:
-            //  - PRINT "literal"  → inst.arg has text
-            //  - PRINT ""         → print top of value stack
             if (!inst.arg.empty()) {
                 std::cout << inst.arg << std::endl;
             } else {
@@ -111,15 +120,12 @@ void ClassicalInterpreter::run(const ClassicalIR &entry) {
                 throw std::runtime_error("Unknown function: " + inst.arg);
             }
 
-            // Push new frame for callee
             stack.push_back(Frame{&it->second, 0, {}});
-            frame.ip++; // advance caller IP
-            continue;   // start executing callee
+            frame.ip++;
+            continue;
         }
 
         case OpCode::RETURN: {
-            // For now: just pop the frame.
-            // Any return value should already be on valueStack if you use it.
             stack.pop_back();
             continue;
         }

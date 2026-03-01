@@ -4,7 +4,6 @@
 
 namespace k {
 
-//  lowerModule — lowers all process declarations
 std::unordered_map<std::string, LoweredProcess>
 Lowerer::lowerModule(const ModuleDecl &module) {
     std::unordered_map<std::string, LoweredProcess> result;
@@ -29,7 +28,6 @@ Lowerer::lowerModule(const ModuleDecl &module) {
     return result;
 }
 
-//  lowerFunctions — lowers all fn declarations to ClassicalIR
 FunctionIRTable Lowerer::lowerFunctions(const ModuleDecl &module) {
     FunctionIRTable table;
 
@@ -52,21 +50,17 @@ FunctionIRTable Lowerer::lowerFunctions(const ModuleDecl &module) {
     return table;
 }
 
-//  lowerFunction — lowers a single fn body
 void Lowerer::lowerFunction(const FnDecl &fn, ClassicalIR &out) {
     curClassical = &out;
     lowerBlock(fn.body);
 
-    // Ensure a RETURN exists so functions always terminate
     out.emit(OpCode::RETURN);
 }
 
-//  lowerProcess — lowers a process body
 void Lowerer::lowerProcess(const ProcessDecl &proc, LoweredProcess & /*out*/) {
     lowerBlock(proc.body);
 }
 
-//  lowerBlock — lowers all statements in a block
 void Lowerer::lowerBlock(const BlockPtr &block) {
     if (!block) return;
     for (const auto &stmt : block->statements) {
@@ -74,7 +68,6 @@ void Lowerer::lowerBlock(const BlockPtr &block) {
     }
 }
 
-//  lowerStmt — let, return, if, expr
 void Lowerer::lowerStmt(const StmtPtr &stmt) {
     if (!stmt) return;
 
@@ -101,7 +94,6 @@ void Lowerer::lowerStmt(const StmtPtr &stmt) {
     }
 }
 
-//  lowerExpr — dispatch by expression kind
 void Lowerer::lowerExpr(const ExprPtr &expr) {
     if (!expr) return;
 
@@ -141,7 +133,6 @@ void Lowerer::lowerExpr(const ExprPtr &expr) {
     }
 }
 
-//  lowerBinary — simple arithmetic lowering
 void Lowerer::lowerBinary(const ExprPtr &expr) {
     lowerExpr(expr->left);
 
@@ -182,9 +173,7 @@ void Lowerer::lowerUnary(const ExprPtr &expr) {
     lowerExpr(expr->right);
 }
 
-//  lowerCall — built‑ins (print, len) + normal function calls
 void Lowerer::lowerCall(const ExprPtr &expr) {
-    // print is a built-in function (print / kp)
     if (expr->identifier == "print" || expr->identifier == "kp") {
         for (const auto &arg : expr->args) {
             if (arg->kind == ExprKind::Literal) {
@@ -197,7 +186,6 @@ void Lowerer::lowerCall(const ExprPtr &expr) {
         return;
     }
 
-    // len is a built-in: len(x) → evaluate x, then LEN
     if (expr->identifier == "len") {
         if (expr->args.size() != 1) {
             throw std::runtime_error("len() expects exactly one argument");
@@ -207,7 +195,17 @@ void Lowerer::lowerCall(const ExprPtr &expr) {
         return;
     }
 
-    // Normal function call: evaluate args, then CALL
+    if (expr->identifier == "substring") {
+    if (expr->args.size() != 3) {
+        throw std::runtime_error("substring() expects 3 arguments");
+    }
+        lowerExpr(expr->args[0]);
+        lowerExpr(expr->args[1]);
+        lowerExpr(expr->args[2]);
+        curClassical->emit(OpCode::SUBSTRING);
+        return;
+}
+
     for (const auto &arg : expr->args) {
         lowerExpr(arg);
     }
@@ -215,13 +213,11 @@ void Lowerer::lowerCall(const ExprPtr &expr) {
     curClassical->emit(OpCode::CALL, expr->identifier);
 }
 
-//  lowerPrepare — quantum stub
 void Lowerer::lowerPrepare(const ExprPtr & /*expr*/) {
     if (!curQuantum) return;
     curQuantum->emit(QOpCode::ALLOC_QBIT, "q");
 }
 
-//  lowerMeasure — quantum stub
 void Lowerer::lowerMeasure(const ExprPtr &expr) {
     if (!curQuantum) return;
     curQuantum->emit(QOpCode::MEASURE, expr->identifier);
