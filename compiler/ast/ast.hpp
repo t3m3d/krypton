@@ -6,7 +6,6 @@
 
 namespace k {
 
-// Forward declarations
 struct Expr;
 struct Stmt;
 struct Block;
@@ -16,7 +15,6 @@ struct ProcessDecl;
 struct ModuleDecl;
 struct ImportDecl;
 
-// Shared pointer aliases
 using ExprPtr = std::shared_ptr<Expr>;
 using StmtPtr = std::shared_ptr<Stmt>;
 using BlockPtr = std::shared_ptr<Block>;
@@ -24,10 +22,7 @@ using FnDeclPtr = std::shared_ptr<FnDecl>;
 using QputeDeclPtr = std::shared_ptr<QputeDecl>;
 using ProcessDeclPtr = std::shared_ptr<ProcessDecl>;
 using ModuleDeclPtr = std::shared_ptr<ModuleDecl>;
-
-// ===============================
-// Types
-// ===============================
+using ImportDeclPtr = std::shared_ptr<ImportDecl>;
 
 enum class TypeKind { Primitive, Quantum, Named };
 enum class PrimitiveTypeKind { Int, Float, Bool, String };
@@ -93,11 +88,6 @@ struct ImportDecl {
     }
 };
 
-using ImportDeclPtr = std::shared_ptr<ImportDecl>;
-
-// ===============================
-// Expressions
-// ===============================
 
 enum class ExprKind {
   Literal,
@@ -185,10 +175,6 @@ struct Expr {
   }
 };
 
-// ===============================
-// Statements
-// ===============================
-
 enum class StmtKind { Let, Return, If, Expr };
 
 struct Stmt {
@@ -240,7 +226,6 @@ struct Stmt {
     return s;
   }
 };
-
 
 struct Block {
   std::vector<StmtPtr> statements;
