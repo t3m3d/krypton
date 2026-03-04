@@ -42,6 +42,10 @@ void ClassicalInterpreter::run(const ClassicalIR &entry) {
         }
 
         const Instruction &inst = ir.instructions[frame.ip];
+        // DEBUG
+        std::cerr << "[interp] ip=" << frame.ip << " op=" << (int)inst.op
+                  << " arg='" << inst.arg << "' stackSize=" << stack.size()
+                  << " valueStackSize=" << valueStack.size() << "\n";
 
         switch (inst.op) {
 
@@ -131,6 +135,8 @@ void ClassicalInterpreter::run(const ClassicalIR &entry) {
         }
         }
 
+        // indicate that we've finished handling this instruction
+        std::cerr << "[interp] executed ip=" << frame.ip << "\n";
         frame.ip++;
     }
 }
