@@ -1,3 +1,4 @@
-go run {
-    kp("Hello, World!")
+just run {
+    kp("Hello World");
+    emit "ok";
 }

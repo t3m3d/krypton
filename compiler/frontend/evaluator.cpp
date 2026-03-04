@@ -1,75 +1,79 @@
 #include "evaluator.hpp"
 #include <iostream>
 #include <variant>
+#include <optional>
 
 namespace k {
 
-void Evaluator::evaluate(const ModuleDecl& module) {
-    // Prefer a process named "main"
+std::optional<Value> Evaluator::evaluate(const ModuleDecl& module) {
+    // try to pick a "run" process if one exists
     for (const auto& declVariant : module.decls) {
         if (std::holds_alternative<ProcessDeclPtr>(declVariant)) {
             auto process = std::get<ProcessDeclPtr>(declVariant);
-            if (process && process->name == "main") {
-                evalProcess(process);
-                return;
+            if (process && process->name == "run") {
+                return evalProcess(process);
             }
         }
     }
 
-    // Fallback: run the first process, if any
+    // fallback: just evaluate the first process encountered
     for (const auto& declVariant : module.decls) {
         if (std::holds_alternative<ProcessDeclPtr>(declVariant)) {
             auto process = std::get<ProcessDeclPtr>(declVariant);
             if (process) {
-                evalProcess(process);
-                return;
+                return evalRun(process);
             }
         }
     }
 
-    std::cout << "[Evaluator] No process found to run.\n";
+    std::cout << "No run block found. -eval\n";
+    return std::nullopt;
 }
 
-void Evaluator::evalProcess(const ProcessDeclPtr& process) {
+std::optional<Value> Evaluator::evalRun(const ProcessDeclPtr& process) {
     if (!process || !process->body) {
-        std::cout << "[Evaluator] Process has no body.\n";
-        return;
+        std::cout << "Run block has no body. -eval\n";
+        return std::nullopt;
     }
-    evalBlock(process->body);
+    return evalBlock(process->body);
 }
 
-void Evaluator::evalBlock(const BlockPtr& block) {
-    if (!block) return;
+std::optional<Value> Evaluator::evalBlock(const BlockPtr& block) {
+    if (!block) return std::nullopt;
     for (const auto& stmt : block->statements) {
-        evalStmt(stmt);
+        auto maybe = evalStmt(stmt);
+        if (maybe.has_value())
+            return maybe;
     }
+    return std::nullopt;
 }
 
-void Evaluator::evalStmt(const StmtPtr& stmt) {
-    if (!stmt) return;
+std::optional<Value> Evaluator::evalStmt(const StmtPtr& stmt) {
+    if (!stmt) return std::nullopt;
 
     switch (stmt->kind) {
     case StmtKind::Let: {
         Value v = evalExpr(stmt->expr);
         variables[stmt->name] = v;
-        break;
+        return std::nullopt;
     }
-    case StmtKind::Return: {
-        (void)evalExpr(stmt->expr);
-        break;
+    case StmtKind::Emit: {
+        Value result = evalExpr(stmt->expr);
+        return result;
     }
     case StmtKind::If: {
         Value cond = evalExpr(stmt->condition);
         if (cond.isTruthy()) {
-            evalBlock(stmt->thenBlock);
+            return evalBlock(stmt->thenBlock);
         }
-        break;
+        return std::nullopt;
     }
     case StmtKind::Expr: {
         (void)evalExpr(stmt->expr);
-        break;
+        return std::nullopt;
     }
     }
+    return std::nullopt;
 }
 
 Value Evaluator::evalExpr(const ExprPtr& expr) {
@@ -133,6 +137,11 @@ Value Evaluator::evalCall(const Expr& callExpr) {
 
     std::cout << "[Evaluator] Unknown function: " << name << "\n";
     return Value();
+}
+
+// simple implementation for now, forwards to run entrypoint
+std::optional<Value> Evaluator::evalProcess(const ProcessDeclPtr& process) {
+    return evalRun(process);
 }
 
 }

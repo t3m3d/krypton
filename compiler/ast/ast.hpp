@@ -3,10 +3,7 @@
 #include <string>
 #include <variant>
 #include <vector>
-
 namespace k {
-
-// Forward declarations
 struct Expr;
 struct Stmt;
 struct Block;
@@ -15,8 +12,7 @@ struct QputeDecl;
 struct ProcessDecl;
 struct ModuleDecl;
 struct ImportDecl;
-
-// Shared pointer aliases
+// forward declare pointer types early so they can be used inside structs
 using ExprPtr = std::shared_ptr<Expr>;
 using StmtPtr = std::shared_ptr<Stmt>;
 using BlockPtr = std::shared_ptr<Block>;
@@ -24,35 +20,26 @@ using FnDeclPtr = std::shared_ptr<FnDecl>;
 using QputeDeclPtr = std::shared_ptr<QputeDecl>;
 using ProcessDeclPtr = std::shared_ptr<ProcessDecl>;
 using ModuleDeclPtr = std::shared_ptr<ModuleDecl>;
-
-// ===============================
-// Types
-// ===============================
-
+using ImportDeclPtr = std::shared_ptr<ImportDecl>;
 enum class TypeKind { Primitive, Quantum, Named };
 enum class PrimitiveTypeKind { Int, Float, Bool, String };
-
 struct TypeNode {
   TypeKind kind;
-
   PrimitiveTypeKind primitive;
   std::string name;
   bool isQuantum = false;
-
   static TypeNode primitiveType(PrimitiveTypeKind p) {
     TypeNode t;
     t.kind = TypeKind::Primitive;
     t.primitive = p;
     return t;
   }
-
   static TypeNode quantumQbit() {
     TypeNode t;
     t.kind = TypeKind::Quantum;
     t.isQuantum = true;
     return t;
   }
-
   static TypeNode named(const std::string &n) {
     TypeNode t;
     t.kind = TypeKind::Named;
@@ -60,30 +47,18 @@ struct TypeNode {
     return t;
   }
 };
-
-// ===============================
-// Parameters
-// ===============================
-
 struct Param {
   std::string name;
   TypeNode type;
 };
-
 struct QParam {
   std::string name;
   TypeNode type;
 };
-
-// ===============================
-// Import Declarations
-// ===============================
-
 struct ImportDecl {
     std::string path;
     int line;
     int column;
-
     static ImportDeclPtr make(const std::string &path, int line, int column) {
         auto i = std::make_shared<ImportDecl>();
         i->path = path;
@@ -92,13 +67,7 @@ struct ImportDecl {
         return i;
     }
 };
-
 using ImportDeclPtr = std::shared_ptr<ImportDecl>;
-
-// ===============================
-// Expressions
-// ===============================
-
 enum class ExprKind {
   Literal,
   Identifier,
@@ -109,35 +78,27 @@ enum class ExprKind {
   Measure,
   Grouping
 };
-
 struct Expr {
   ExprKind kind;
-
   std::string literalValue;
   std::string identifier;
-
   std::string op;
   ExprPtr left;
   ExprPtr right;
-
   std::vector<ExprPtr> args;
-
   ExprPtr inner;
-
   static ExprPtr literal(const std::string &v) {
     auto e = std::make_shared<Expr>();
     e->kind = ExprKind::Literal;
     e->literalValue = v;
     return e;
   }
-
   static ExprPtr identifierExpr(const std::string &name) {
     auto e = std::make_shared<Expr>();
     e->kind = ExprKind::Identifier;
     e->identifier = name;
     return e;
   }
-
   static ExprPtr binary(const std::string &op, ExprPtr l, ExprPtr r) {
     auto e = std::make_shared<Expr>();
     e->kind = ExprKind::Binary;
@@ -146,7 +107,6 @@ struct Expr {
     e->right = r;
     return e;
   }
-
   static ExprPtr unary(const std::string &op, ExprPtr r) {
     auto e = std::make_shared<Expr>();
     e->kind = ExprKind::Unary;
@@ -154,7 +114,6 @@ struct Expr {
     e->right = r;
     return e;
   }
-
   static ExprPtr call(const std::string &name,
                       const std::vector<ExprPtr> &args) {
     auto e = std::make_shared<Expr>();
@@ -163,20 +122,17 @@ struct Expr {
     e->args = args;
     return e;
   }
-
   static ExprPtr prepare() {
     auto e = std::make_shared<Expr>();
     e->kind = ExprKind::Prepare;
     return e;
   }
-
   static ExprPtr measure(const std::string &target) {
     auto e = std::make_shared<Expr>();
     e->kind = ExprKind::Measure;
     e->identifier = target;
     return e;
   }
-
   static ExprPtr grouping(ExprPtr inner) {
     auto e = std::make_shared<Expr>();
     e->kind = ExprKind::Grouping;
@@ -184,23 +140,14 @@ struct Expr {
     return e;
   }
 };
-
-// ===============================
-// Statements
-// ===============================
-
-enum class StmtKind { Let, Return, If, Expr };
-
+enum class StmtKind { Let, Return, If, Expr, Emit };
 struct Stmt {
   StmtKind kind;
-
   std::string name;
   ExprPtr expr;
-
   ExprPtr condition;
   BlockPtr thenBlock;
   BlockPtr elseBlock;
-
   static StmtPtr letStmt(const std::string &name, ExprPtr value) {
     auto s = std::make_shared<Stmt>();
     s->kind = StmtKind::Let;
@@ -208,14 +155,18 @@ struct Stmt {
     s->expr = value;
     return s;
   }
-
   static StmtPtr returnStmt(ExprPtr value) {
     auto s = std::make_shared<Stmt>();
     s->kind = StmtKind::Return;
     s->expr = value;
     return s;
   }
-
+  static StmtPtr emitStmt(ExprPtr value) {
+    auto s = std::make_shared<Stmt>();
+    s->kind = StmtKind::Emit;
+    s->expr = value;
+    return s;
+  }
   static StmtPtr ifStmt(ExprPtr cond, BlockPtr block) {
     auto s = std::make_shared<Stmt>();
     s->kind = StmtKind::If;
@@ -223,7 +174,6 @@ struct Stmt {
     s->thenBlock = block;
     return s;
   }
-
   static StmtPtr ifElseStmt(ExprPtr cond, BlockPtr thenBlk, BlockPtr elseBlk) {
     auto s = std::make_shared<Stmt>();
     s->kind = StmtKind::If;
@@ -232,7 +182,6 @@ struct Stmt {
     s->elseBlock = elseBlk;
     return s;
   }
-
   static StmtPtr exprStmt(ExprPtr value) {
     auto s = std::make_shared<Stmt>();
     s->kind = StmtKind::Expr;
@@ -240,27 +189,20 @@ struct Stmt {
     return s;
   }
 };
-
-
 struct Block {
   std::vector<StmtPtr> statements;
-
   static BlockPtr create() { return std::make_shared<Block>(); }
-
   static BlockPtr make(const std::vector<StmtPtr> &stmts) {
     auto b = std::make_shared<Block>();
     b->statements = stmts;
     return b;
   }
 };
-
-
 struct FnDecl {
   std::string name;
   std::vector<Param> params;
   TypeNode returnType;
   BlockPtr body;
-
   static FnDeclPtr make(const std::string &name,
                         const std::vector<Param> &params, const TypeNode &ret,
                         BlockPtr body) {
@@ -272,13 +214,10 @@ struct FnDecl {
     return f;
   }
 };
-
-
 struct QputeDecl {
   std::string name;
   std::vector<QParam> params;
   BlockPtr body;
-
   static QputeDeclPtr make(const std::string &name,
                            const std::vector<QParam> &params, BlockPtr body) {
     auto q = std::make_shared<QputeDecl>();
@@ -288,12 +227,9 @@ struct QputeDecl {
     return q;
   }
 };
-
-
 struct ProcessDecl {
   std::string name;
   BlockPtr body;
-
   static ProcessDeclPtr make(const std::string &name, BlockPtr body) {
     auto p = std::make_shared<ProcessDecl>();
     p->name = name;
@@ -301,11 +237,8 @@ struct ProcessDecl {
     return p;
   }
 };
-
-
 struct ModuleDecl {
     std::vector<ImportDeclPtr> imports;
     std::vector<std::variant<FnDeclPtr, QputeDeclPtr, ProcessDeclPtr>> decls;
 };
-
 }

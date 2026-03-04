@@ -187,6 +187,8 @@ BlockPtr Parser::parseBlock() {
 StmtPtr Parser::parseStmt() {
   if (match(TokenType::LET))
     return parseLetStmt();
+  if (match(TokenType::EMIT))
+    return parseEmitStmt();
   if (match(TokenType::RETURN))
     return parseReturnStmt();
   if (match(TokenType::IF))
@@ -200,6 +202,12 @@ StmtPtr Parser::parseLetStmt() {
   consume(TokenType::EQUAL, "Expected '=' after variable name");
   ExprPtr value = parseExpr();
   return Stmt::letStmt(nameTok.lexeme, value);
+}
+
+StmtPtr Parser::parseEmitStmt() {
+  ExprPtr value = parseExpr();
+  consume(TokenType::SEMICOLON, "Expected ';' after emit expression");
+  return Stmt::emitStmt(value);
 }
 
 StmtPtr Parser::parseReturnStmt() {
