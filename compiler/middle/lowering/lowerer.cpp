@@ -64,6 +64,9 @@ void Lowerer::lowerFunction(const FnDecl &fn, ClassicalIR &out) {
 //  lowerProcess — lowers a process body
 void Lowerer::lowerProcess(const ProcessDecl &proc, LoweredProcess & /*out*/) {
     lowerBlock(proc.body);
+    // ensure process always returns at end so interpreter frame unwinds
+    if (curClassical)
+        curClassical->emit(OpCode::RETURN);
 }
 
 //  lowerBlock — lowers all statements in a block
@@ -82,6 +85,12 @@ void Lowerer::lowerStmt(const StmtPtr &stmt) {
     case StmtKind::Let: {
         lowerExpr(stmt->expr);
         curClassical->emit(OpCode::STORE_VAR, stmt->name);
+        break;
+    }
+    case StmtKind::Emit: {
+        // treat emit like a return in processes/functions
+        lowerExpr(stmt->expr);
+        curClassical->emit(OpCode::RETURN);
         break;
     }
     case StmtKind::Return: {

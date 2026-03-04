@@ -2,38 +2,29 @@
 #include <cctype>
 #include <stdexcept>
 #include <iostream>
-
 namespace k {
-
 Lexer::Lexer(const std::string &src) : source(src) {}
-
 bool Lexer::isAtEnd() const { return current >= source.size(); }
-
 char Lexer::advance() {
     char c = source[current++];
-
     if (c == '\n' || c == '\r') {
         line++;
         column = 1;
     } else {
         column++;
     }
-
     return c;
 }
-
 char Lexer::peek() const {
   if (isAtEnd())
     return '\0';
   return source[current];
 }
-
 char Lexer::peekNext() const {
   if (current + 1 >= source.size())
     return '\0';
   return source[current + 1];
 }
-
 void Lexer::addToken(std::vector<Token> &tokens, TokenType type,
                      const std::string &lexeme) {
 
@@ -43,7 +34,6 @@ void Lexer::addToken(std::vector<Token> &tokens, TokenType type,
   tokens.push_back(
       Token{type, lexeme, line, column - static_cast<int>(lexeme.size())});
 }
-
 void Lexer::skipWhitespace() {
   while (!isAtEnd()) {
     char c = peek();
@@ -54,7 +44,6 @@ void Lexer::skipWhitespace() {
     }
   }
 }
-
 void Lexer::skipComment() {
     if (peek() == '/' && peekNext() == '/') {
         while (!isAtEnd() && peek() != '\n' && peek() != '\r') {
@@ -62,7 +51,6 @@ void Lexer::skipComment() {
         }
     }
 }
-
 TokenType Lexer::keywordOrIdentifier(const std::string &text) const {
   if (text == "module")
     return TokenType::MODULE;
@@ -72,12 +60,12 @@ TokenType Lexer::keywordOrIdentifier(const std::string &text) const {
     return TokenType::QUANTUM;
   if (text == "qpute")
     return TokenType::QPUTE;
-  if (text == "go")
+  if (text == "just")
     return TokenType::PROCESS;
   if (text == "let")
     return TokenType::LET;
   if (text == "emit")
-    return TokenType::RETURN;
+    return TokenType::EMIT;
   if (text == "if")
     return TokenType::IF;
   if (text == "else")
@@ -94,7 +82,6 @@ TokenType Lexer::keywordOrIdentifier(const std::string &text) const {
     return TokenType::WITH;
   return TokenType::IDENTIFIER;
 }
-
 void Lexer::identifier(std::vector<Token> &tokens) {
   std::size_t start = current - 1;
   while (!isAtEnd() && (std::isalnum(peek()) || peek() == '_')) {
@@ -104,15 +91,12 @@ void Lexer::identifier(std::vector<Token> &tokens) {
   TokenType type = keywordOrIdentifier(text);
   addToken(tokens, type, text);
 }
-
 void Lexer::number(std::vector<Token> &tokens) {
   std::size_t start = current - 1;
   bool isFloat = false;
-
   while (!isAtEnd() && std::isdigit(peek())) {
     advance();
   }
-
   if (!isAtEnd() && peek() == '.' && std::isdigit(peekNext())) {
     isFloat = true;
     advance(); // consume '.'
@@ -120,12 +104,10 @@ void Lexer::number(std::vector<Token> &tokens) {
       advance();
     }
   }
-
   std::string text = source.substr(start, current - start);
   addToken(tokens, isFloat ? TokenType::FLOAT_LITERAL : TokenType::INT_LITERAL,
            text);
 }
-
 void Lexer::stringLiteral(std::vector<Token> &tokens) {
   std::size_t start = current;
   while (!isAtEnd() && peek() != '"') {
@@ -138,19 +120,14 @@ void Lexer::stringLiteral(std::vector<Token> &tokens) {
   std::string text = source.substr(start, current - start - 1);
   addToken(tokens, TokenType::STRING_LITERAL, text);
 }
-
 std::vector<Token> Lexer::tokenize() {
     std::vector<Token> tokens;
-
-
     while (!isAtEnd()) {
         skipWhitespace();
         skipComment();
         if (isAtEnd())
             break;
-
         char c = advance();
-
 switch (c) {
     case '(':
         addToken(tokens, TokenType::LPAREN, "(");
@@ -170,11 +147,9 @@ switch (c) {
     case ':':
         addToken(tokens, TokenType::COLON, ":");
         break;
-
     case ';':
         addToken(tokens, TokenType::SEMICOLON, ";");
         break;
-
     case '=':
         if (peek() == '=') {
             advance();
@@ -221,11 +196,9 @@ switch (c) {
     case '*':
         addToken(tokens, TokenType::STAR, "*");
         break;
-
     case '/':
         addToken(tokens, TokenType::SLASH, "/");
         break;
-
     case '&':
         if (peek() == '&') {
             advance();
@@ -245,7 +218,6 @@ switch (c) {
     case '"':
         stringLiteral(tokens);
         break;
-
     default:
         if (std::isalpha(c) || c == '_') {
             identifier(tokens);
@@ -257,9 +229,7 @@ switch (c) {
         break;
 }
     }
-
     addToken(tokens, TokenType::END_OF_FILE, "");
     return tokens;
-
 }
 } // namespace k

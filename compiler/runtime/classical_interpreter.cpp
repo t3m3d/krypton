@@ -45,10 +45,16 @@ void ClassicalInterpreter::run(const ClassicalIR &entry) {
 
         switch (inst.op) {
 
-        case OpCode::LOAD_CONST:
-            // literal number (from lowerer)
-            push(Value(std::stoi(inst.arg)));
+        case OpCode::LOAD_CONST: {
+            // literal from lowerer; try number first, otherwise treat as string
+            try {
+                int n = std::stoi(inst.arg);
+                push(Value(n));
+            } catch (const std::exception &) {
+                push(Value(inst.arg));
+            }
             break;
+        }
 
         case OpCode::LOAD_VAR:
             // load variable from current frame

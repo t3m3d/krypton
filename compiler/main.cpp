@@ -46,7 +46,13 @@ int main(int argc, char **argv) {
 
     k::ClassicalInterpreter interp;
     interp.setFunctionTable(&functions);
-    interp.run(it->second.classical);
+    try {
+        interp.run(it->second.classical);
+    } catch (const std::exception &e) {
+        std::cerr << "runtime error: " << e.what() << "\n";
+        return 1;
+    }
 
+    std::cerr << "interpreter finished normally\n";
     return 0;
 }

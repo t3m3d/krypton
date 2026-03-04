@@ -34,6 +34,7 @@ private:
   BlockPtr parseBlock();
   StmtPtr parseStmt();
   StmtPtr parseLetStmt();
+  StmtPtr parseEmitStmt();
   StmtPtr parseReturnStmt();
   StmtPtr parseIfStmt();
   StmtPtr parseExprStmt();
