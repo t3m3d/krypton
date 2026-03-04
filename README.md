@@ -1,5 +1,7 @@
 Now has a home at https://krypton-lang.org
 
+Honestly, do not have any friends that code, so I'm trying CodeRabbit, via ThePrimagens referrals to it.
+![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/t3m3d/krypton?utm_source=oss&utm_medium=github&utm_campaign=t3m3d%2Fkrypton&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
 Krypton (K)
 A systems language for the quantum‑classical frontier
 Krypton is a new programming language for a world where classical compute, quantum hardware, and distributed processes must work together with clarity and precision. K is built for engineers who want explicit control, researchers who need correctness, and systems designers who refuse to accept the messy glue layers that dominate hybrid computation today.
@@ -35,22 +37,9 @@ No implicit conversions. No silent measurement. No hidden state.
 ```krypton
 module demo
 
-fn classical_add(a: int, b: int) -> int {
-    return a + b
-}
-
-quantum qpute(x: qbit) -> bit {
-    // quantum operations here
-    measure x
-}
-
-process main {
-    let a = classical_add(2, 3)
-    let q = prepare qbit
-    let result = qpute(q)
-
-    print("classical:", a)
-    print("quantum:", result)
+just run {
+  kp("Hello World")
+  emit
 }
 ```
 
