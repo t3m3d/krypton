@@ -4,7 +4,20 @@
 
 namespace k {
 
-//  lowerModule — lowers all process declarations
+static std::string literalToString(const ExprPtr& e) {
+    switch (e->litKind) {
+    case LiteralKind::Int:
+        return std::to_string(e->litInt);
+    case LiteralKind::Float:
+        return std::to_string(e->litFloat);
+    case LiteralKind::String:
+        return e->litString;
+    case LiteralKind::Bool:
+        return e->litBool ? "true" : "false";
+    }
+    throw std::runtime_error("Unknown literal kind in literalToString");
+}
+
 std::unordered_map<std::string, LoweredProcess>
 Lowerer::lowerModule(const ModuleDecl &module) {
     std::unordered_map<std::string, LoweredProcess> result;
@@ -29,7 +42,6 @@ Lowerer::lowerModule(const ModuleDecl &module) {
     return result;
 }
 
-//  lowerFunctions — lowers all fn declarations to ClassicalIR
 FunctionIRTable Lowerer::lowerFunctions(const ModuleDecl &module) {
     FunctionIRTable table;
 
@@ -52,7 +64,6 @@ FunctionIRTable Lowerer::lowerFunctions(const ModuleDecl &module) {
     return table;
 }
 
-//  lowerFunction — lowers a single fn body
 void Lowerer::lowerFunction(const FnDecl &fn, ClassicalIR &out) {
     out.params.clear();
     for (const auto &p : fn.params) {
@@ -60,17 +71,13 @@ void Lowerer::lowerFunction(const FnDecl &fn, ClassicalIR &out) {
     }
     curClassical = &out;
     lowerBlock(fn.body);
-
-    // Ensure a RETURN exists so functions always terminate
     out.emit(OpCode::RETURN);
 }
 
-//  lowerProcess — lowers a process body
 void Lowerer::lowerProcess(const ProcessDecl &proc, LoweredProcess & /*out*/) {
     lowerBlock(proc.body);
 }
 
-//  lowerBlock — lowers all statements in a block
 void Lowerer::lowerBlock(const BlockPtr &block) {
     if (!block) return;
     for (const auto &stmt : block->statements) {
@@ -78,7 +85,6 @@ void Lowerer::lowerBlock(const BlockPtr &block) {
     }
 }
 
-//  lowerStmt — let, return, if, expr
 void Lowerer::lowerStmt(const StmtPtr &stmt) {
     if (!stmt) return;
 
@@ -100,7 +106,6 @@ void Lowerer::lowerStmt(const StmtPtr &stmt) {
         break;
     }
     case StmtKind::If: {
-        // For now: just lower condition + thenBlock (no else yet)
         lowerExpr(stmt->condition);
         lowerBlock(stmt->thenBlock);
         break;
@@ -112,13 +117,12 @@ void Lowerer::lowerStmt(const StmtPtr &stmt) {
     }
 }
 
-//  lowerExpr — dispatch by expression kind
 void Lowerer::lowerExpr(const ExprPtr &expr) {
     if (!expr) return;
 
     switch (expr->kind) {
     case ExprKind::Literal: {
-        curClassical->emit(OpCode::LOAD_CONST, expr->literalValue);
+        curClassical->emit(OpCode::LOAD_CONST, literalToString(expr));
         break;
     }
     case ExprKind::Identifier: {
@@ -152,43 +156,28 @@ void Lowerer::lowerExpr(const ExprPtr &expr) {
     }
 }
 
-//  lowerBinary — simple arithmetic lowering
 void Lowerer::lowerBinary(const ExprPtr &expr) {
-    // Evaluate LHS first
     lowerExpr(expr->left);
 
-    // For now we special‑case RHS as literal or identifier
+    auto emitWithRhs = [&](OpCode op) {
+        if (expr->right->kind == ExprKind::Literal)
+            curClassical->emit(op, literalToString(expr->right));
+        else if (expr->right->kind == ExprKind::Identifier)
+            curClassical->emit(op, expr->right->identifier);
+        else
+            throw std::runtime_error("Unsupported RHS in binary lowering");
+    };
+
     if (expr->op == "+") {
-        if (expr->right->kind == ExprKind::Literal)
-            curClassical->emit(OpCode::ADD, expr->right->literalValue);
-        else if (expr->right->kind == ExprKind::Identifier)
-            curClassical->emit(OpCode::ADD, expr->right->identifier);
-        else
-            throw std::runtime_error("Unsupported RHS in binary '+' lowering");
+        emitWithRhs(OpCode::ADD);
     } else if (expr->op == "-") {
-        if (expr->right->kind == ExprKind::Literal)
-            curClassical->emit(OpCode::SUB, expr->right->literalValue);
-        else if (expr->right->kind == ExprKind::Identifier)
-            curClassical->emit(OpCode::SUB, expr->right->identifier);
-        else
-            throw std::runtime_error("Unsupported RHS in binary '-' lowering");
+        emitWithRhs(OpCode::SUB);
     } else if (expr->op == "*") {
-        if (expr->right->kind == ExprKind::Literal)
-            curClassical->emit(OpCode::MUL, expr->right->literalValue);
-        else if (expr->right->kind == ExprKind::Identifier)
-            curClassical->emit(OpCode::MUL, expr->right->identifier);
-        else
-            throw std::runtime_error("Unsupported RHS in binary '*' lowering");
+        emitWithRhs(OpCode::MUL);
     } else if (expr->op == "/") {
-        if (expr->right->kind == ExprKind::Literal)
-            curClassical->emit(OpCode::DIV, expr->right->literalValue);
-        else if (expr->right->kind == ExprKind::Identifier)
-            curClassical->emit(OpCode::DIV, expr->right->identifier);
-        else
-            throw std::runtime_error("Unsupported RHS in binary '/' lowering");
+        emitWithRhs(OpCode::DIV);
     } else {
-        throw std::runtime_error("Unsupported binary operator in lowering: " +
-                                 expr->op);
+        throw std::runtime_error("Unsupported binary operator in lowering: " + expr->op);
     }
 }
 
@@ -196,23 +185,39 @@ void Lowerer::lowerUnary(const ExprPtr &expr) {
     lowerExpr(expr->right);
 }
 
-//  lowerCall — built‑ins (print) + normal function calls
 void Lowerer::lowerCall(const ExprPtr &expr) {
-    // print is a built-in function (print / kp)
     if (expr->identifier == "print" || expr->identifier == "kp") {
         for (const auto &arg : expr->args) {
             if (arg->kind == ExprKind::Literal) {
-                curClassical->emit(OpCode::PRINT, arg->literalValue);
+                curClassical->emit(OpCode::PRINT, literalToString(arg));
             } else {
                 lowerExpr(arg);
                 curClassical->emit(OpCode::PRINT, "");
             }
         }
         return;
-
     }
 
-    // Normal function call: evaluate args, then CALL
+    if (expr->identifier == "len") {
+        if (expr->args.size() != 1) {
+            throw std::runtime_error("len() expects exactly one argument");
+        }
+        lowerExpr(expr->args[0]);
+        curClassical->emit(OpCode::LEN);
+        return;
+    }
+
+    if (expr->identifier == "substring") {
+        if (expr->args.size() != 3) {
+            throw std::runtime_error("substring() expects 3 arguments");
+        }
+        lowerExpr(expr->args[0]);
+        lowerExpr(expr->args[1]);
+        lowerExpr(expr->args[2]);
+        curClassical->emit(OpCode::SUBSTRING);
+        return;
+    }
+
     for (const auto &arg : expr->args) {
         lowerExpr(arg);
     }
@@ -220,16 +225,14 @@ void Lowerer::lowerCall(const ExprPtr &expr) {
     curClassical->emit(OpCode::CALL, expr->identifier);
 }
 
-//  lowerPrepare — quantum stub
 void Lowerer::lowerPrepare(const ExprPtr & /*expr*/) {
     if (!curQuantum) return;
     curQuantum->emit(QOpCode::ALLOC_QBIT, "q");
 }
 
-//  lowerMeasure — quantum stub
 void Lowerer::lowerMeasure(const ExprPtr &expr) {
     if (!curQuantum) return;
     curQuantum->emit(QOpCode::MEASURE, expr->identifier);
 }
 
-}
+} // namespace k

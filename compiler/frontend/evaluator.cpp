@@ -5,8 +5,29 @@
 
 namespace k {
 
+<<<<<<< HEAD
 std::optional<Value> Evaluator::evaluate(const ModuleDecl& module) {
     // try to pick a "run" process if one exists
+=======
+static Value literalToValue(const ExprPtr& expr) {
+    switch (expr->litKind) {
+        case LiteralKind::Int:
+            return Value(std::to_string(expr->litInt));
+
+        case LiteralKind::Float:
+            return Value(std::to_string(expr->litFloat));
+
+        case LiteralKind::String:
+            return Value(expr->litString);
+
+        case LiteralKind::Bool:
+            return Value(expr->litBool ? "true" : "false");
+    }
+    return Value("");
+}
+
+void Evaluator::evaluate(const ModuleDecl& module) {
+>>>>>>> 55f12d0ac9096b1e646be66ac223353da7762815
     for (const auto& declVariant : module.decls) {
         if (std::holds_alternative<ProcessDeclPtr>(declVariant)) {
             auto process = std::get<ProcessDeclPtr>(declVariant);
@@ -16,7 +37,10 @@ std::optional<Value> Evaluator::evaluate(const ModuleDecl& module) {
         }
     }
 
+<<<<<<< HEAD
     // fallback: just evaluate the first process encountered
+=======
+>>>>>>> 55f12d0ac9096b1e646be66ac223353da7762815
     for (const auto& declVariant : module.decls) {
         if (std::holds_alternative<ProcessDeclPtr>(declVariant)) {
             auto process = std::get<ProcessDeclPtr>(declVariant);
@@ -77,50 +101,53 @@ std::optional<Value> Evaluator::evalStmt(const StmtPtr& stmt) {
 }
 
 Value Evaluator::evalExpr(const ExprPtr& expr) {
-    if (!expr) return Value();
+    if (!expr) return Value("");
 
     switch (expr->kind) {
+
     case ExprKind::Literal:
-        return Value(expr->literalValue);
+        return literalToValue(expr);
 
     case ExprKind::Identifier: {
         auto it = variables.find(expr->identifier);
         if (it != variables.end()) return it->second;
         std::cout << "[Evaluator] Undefined variable: " << expr->identifier << "\n";
-        return Value();
+        return Value("");
     }
 
     case ExprKind::Binary: {
         Value left = evalExpr(expr->left);
         Value right = evalExpr(expr->right);
+
         if (expr->op == "+") {
             return Value(left.toString() + right.toString());
         }
+
         std::cout << "[Evaluator] Unsupported binary op: " << expr->op << "\n";
-        return Value();
+        return Value("");
     }
 
     case ExprKind::Unary:
         std::cout << "[Evaluator] Unary not implemented yet.\n";
-        return Value();
+        return Value("");
 
     case ExprKind::Call:
         return evalCall(*expr);
 
     case ExprKind::Prepare:
         std::cout << "[Evaluator] Prepare not implemented yet.\n";
-        return Value();
+        return Value("");
 
     case ExprKind::Measure:
         std::cout << "[Evaluator] Measure not implemented yet.\n";
-        return Value();
+        return Value("");
 
     case ExprKind::Grouping:
         return evalExpr(expr->inner);
     }
 
     std::cout << "[Evaluator] Unknown expression kind.\n";
-    return Value();
+    return Value("");
 }
 
 Value Evaluator::evalCall(const Expr& callExpr) {
@@ -132,11 +159,11 @@ Value Evaluator::evalCall(const Expr& callExpr) {
             std::cout << v.toString();
         }
         std::cout << "\n";
-        return Value();
+        return Value("");
     }
 
     std::cout << "[Evaluator] Unknown function: " << name << "\n";
-    return Value();
+    return Value("");
 }
 
 // simple implementation for now, forwards to run entrypoint

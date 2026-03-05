@@ -18,14 +18,33 @@ std::string readFile(const std::string &path) {
 }
 
 int main(int argc, char **argv) {
+    std::cout << "MAIN START\n";
+
     if (argc < 2) {
         std::cout << "Usage: kcc <file.k>\n";
         return 1;
     }
 
     std::string path = argv[1];
+<<<<<<< HEAD
     std::string source = readFile(path);
     std::cerr << "read file\n";
+=======
+
+    if (path == "--help" || path == "-h") {
+        std::cout << "Krypton Compiler (kcc)\n";
+        std::cout << "Usage: kcc <file.k>\n";
+        return 0;
+    }
+
+    std::string source;
+    try {
+        source = readFile(path);
+    } catch (const std::exception &e) {
+        std::cerr << e.what() << "\n";
+        return 1;
+    }
+>>>>>>> 55f12d0ac9096b1e646be66ac223353da7762815
 
     k::Lexer lexer(source);
     auto tokens = lexer.tokenize();
@@ -36,19 +55,23 @@ int main(int argc, char **argv) {
     try {
         module = parser.parseProgram();
     } catch (const std::exception &e) {
+<<<<<<< HEAD
         std::cerr << "parse error: " << e.what() << "\n";
         return 1;
     }
     std::cerr << "parsed module\n";
     std::cerr << "parsed module\n";
+=======
+        std::cerr << "Parse error: " << e.what() << "\n";
+        return 1;
+    }
+>>>>>>> 55f12d0ac9096b1e646be66ac223353da7762815
 
-    // Lower to IR
     k::Lowerer lowerer;
     auto processes = lowerer.lowerModule(module);
     auto functions = lowerer.lowerFunctions(module);
     std::cerr << "lowered\n";
 
-    // Run the "main" process
     auto it = processes.find("run");
     if (it == processes.end()) {
         std::cerr << "No go run found.\n";
@@ -58,6 +81,7 @@ int main(int argc, char **argv) {
 
     k::ClassicalInterpreter interp;
     interp.setFunctionTable(&functions);
+<<<<<<< HEAD
     std::cerr << "about to run interpreter\n";
     std::cerr << "about to run interpreter\n";
     try {
@@ -72,6 +96,13 @@ int main(int argc, char **argv) {
         }
     } catch (const std::exception &e) {
         std::cerr << "runtime error: " << e.what() << "\n";
+=======
+
+    try {
+        interp.run(it->second.classical);
+    } catch (const std::exception &e) {
+        std::cerr << "Runtime error: " << e.what() << "\n";
+>>>>>>> 55f12d0ac9096b1e646be66ac223353da7762815
         return 1;
     }
 
