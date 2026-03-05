@@ -37,7 +37,6 @@ std::optional<Value> ClassicalInterpreter::run(const ClassicalIR &entry) {
     stack.clear();
     valueStack.clear();
 
-    // Push initial frame
     stack.push_back(Frame{&entry, 0, {}});
     std::cerr << "interpreter started\n";
     std::cerr << "instructions size: " << entry.instructions.size() << "\n";
@@ -59,9 +58,12 @@ std::optional<Value> ClassicalInterpreter::run(const ClassicalIR &entry) {
         }
 
         const Instruction &inst = ir.instructions[frame.ip];
+            std::cerr << "OP: " << static_cast<int>(inst.op)
+                << " ARG: '" << inst.arg << "'\n";
 
         switch (inst.op) {
 
+<<<<<<< HEAD
         case OpCode::LOAD_CONST: {
             std::cerr << "in LOAD_CONST, arg='" << inst.arg << "'\n";
             // literal from lowerer
@@ -71,10 +73,31 @@ std::optional<Value> ClassicalInterpreter::run(const ClassicalIR &entry) {
                 std::cerr << "before push\n";
                 push(Value(inst.arg));
             }
+=======
+        case OpCode::SUBSTRING: {
+            Value endV = pop();
+            Value startV = pop();
+            Value strV = pop();
+
+            std::string s = strV.toString();
+            int start = startV.number;
+            int end = endV.number;
+
+            if (start < 0) start = 0;
+            if (end > (int)s.size()) end = s.size();
+            if (start > end) start = end;
+
+            push(Value(s.substr(start, end - start)));
+            break;
+}
+        case OpCode::LOAD_CONST:
+            push(Value(inst.arg));   // store literal as string
+>>>>>>> 55f12d0ac9096b1e646be66ac223353da7762815
             break;
         }
 
         case OpCode::LOAD_VAR:
+<<<<<<< HEAD
             // load variable from current frame
             push(getValue(frame, inst.arg));
             break;
@@ -82,6 +105,13 @@ std::optional<Value> ClassicalInterpreter::run(const ClassicalIR &entry) {
         case OpCode::STORE_VAR:
             // store top of stack into variable
             frame.vars[inst.arg] = pop();
+=======
+            push(Value(getValue(frame, inst.arg)));
+            break;
+
+        case OpCode::STORE_VAR:
+            frame.vars[inst.arg] = pop().number;
+>>>>>>> 55f12d0ac9096b1e646be66ac223353da7762815
             break;
 
         case OpCode::ADD: {
@@ -118,10 +148,13 @@ std::optional<Value> ClassicalInterpreter::run(const ClassicalIR &entry) {
         }
 
         case OpCode::PRINT: {
+<<<<<<< HEAD
             // std::cerr << "PRINT arg='" << inst.arg << "' stackSize=" << valueStack.size() << "\n";
             // From lowerer:
             //  - PRINT "literal"  → inst.arg has text
             //  - PRINT ""         → print top of value stack
+=======
+>>>>>>> 55f12d0ac9096b1e646be66ac223353da7762815
             if (!inst.arg.empty()) {
                 // std::cout << inst.arg << std::endl;
             } else {
@@ -137,6 +170,7 @@ std::optional<Value> ClassicalInterpreter::run(const ClassicalIR &entry) {
                 throw std::runtime_error("Unknown function: " + inst.arg);
             }
 
+<<<<<<< HEAD
             // Pop args from valueStack into new frame's vars
             std::unordered_map<std::string, Value> calleeVars;
             for (auto it_param = it->second.params.rbegin(); it_param != it->second.params.rend(); ++it_param) {
@@ -161,9 +195,24 @@ std::optional<Value> ClassicalInterpreter::run(const ClassicalIR &entry) {
                 retVal = valueStack.back();
                 std::cerr << "retVal set to " << retVal->toString() << "\n";
             }
+=======
+            stack.push_back(Frame{&it->second, 0, {}});
+            frame.ip++;
+            continue;
+        }
+
+        case OpCode::RETURN: {
+>>>>>>> 55f12d0ac9096b1e646be66ac223353da7762815
             stack.pop_back();
             continue;
         }
+        case OpCode::LEN: {
+            Value v = pop();
+            int n = static_cast<int>(v.toString().size());
+            push(Value(std::to_string(n)));   // <-- FIXED
+            break;
+        }
+
         }
 
         frame.ip++;

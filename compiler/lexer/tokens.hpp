@@ -17,12 +17,20 @@ enum class TokenType {
   TRUE_,
   FALSE_,
   WITH,
+<<<<<<< HEAD
+=======
+
+>>>>>>> 55f12d0ac9096b1e646be66ac223353da7762815
   IDENTIFIER,
   INT_LITERAL,
   FLOAT_LITERAL,
   STRING_LITERAL,
   BOOL_LITERAL,
+<<<<<<< HEAD
   // Operators
+=======
+
+>>>>>>> 55f12d0ac9096b1e646be66ac223353da7762815
   PLUS,
   MINUS,
   STAR,
@@ -36,7 +44,11 @@ enum class TokenType {
   ANDAND,
   OROR,
   BANG,
+<<<<<<< HEAD
   // Punctuation
+=======
+
+>>>>>>> 55f12d0ac9096b1e646be66ac223353da7762815
   LPAREN,
   RPAREN,
   LBRACE,

@@ -1,24 +1,35 @@
-
 #pragma once
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "compiler/ast/ast.hpp"
 #include "compiler/frontend/driver.hpp"
+#include "resolver.hpp"
 
 namespace k {
 
 class ModuleLoader {
 public:
-  explicit ModuleLoader(const std::string &rootPath) : rootDir(rootPath) {}
+    explicit ModuleLoader(const std::string &root);
 
-  // Load a .k file and return a parsed module
-  ModuleDecl load(const std::string &path) {
-    Driver driver;
-    return driver.loadAndParse(path);
-  }
+    // Public entry point: load a module (with imports resolved)
+    ModuleDecl load(const std::string &path);
 
 private:
-  std::string rootDir;
+    // Internal recursive loader
+    ModuleDecl loadModule(const std::string &path);
+
+    // Merge declarations from imported modules
+    void merge(ModuleDecl &into, const ModuleDecl &from);
+
+    std::string rootDir;
+    ImportResolver resolver;
+    Driver driver;
+
+    // Prevent reloading and detect cycles
+    std::unordered_map<std::string, ModuleDecl> cache;
+    std::unordered_set<std::string> loading;
 };
 
 }

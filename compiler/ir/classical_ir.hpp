@@ -14,12 +14,14 @@ enum class OpCode {
   DIV,
   CALL,
   RETURN,
-  PRINT
+  PRINT,
+  LEN,
+  SUBSTRING
 };
 
 struct Instruction {
   OpCode op;
-  std::string arg; // function name, var name, or literal
+  std::string arg;
 };
 
 struct ClassicalIR {
