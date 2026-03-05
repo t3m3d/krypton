@@ -24,6 +24,7 @@ struct Instruction {
 
 struct ClassicalIR {
   std::vector<Instruction> instructions;
+  std::vector<std::string> params;  // parameter names for functions
 
   void emit(OpCode op, const std::string &arg = "") {
     instructions.push_back({op, arg});
