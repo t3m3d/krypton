@@ -1,8 +1,4 @@
 just run {
-    // define a helper and use it
-    fn add(a, b) {
-        a + b
-    }
-    kp(add(1, 2));
+    kp(42);
     emit 42;
 }

@@ -5,13 +5,21 @@
 
 namespace k {
 
+bool isNumber(const std::string &s) {
+    if (s.empty()) return false;
+    for (char c : s) {
+        if (!std::isdigit(c)) return false;
+    }
+    return true;
+}
+
 void ClassicalInterpreter::setFunctionTable(const FunctionIRTable *table) {
     functions = table;
 }
 
-int ClassicalInterpreter::getValue(const Frame &frame, const std::string &arg) {
+Value ClassicalInterpreter::getValue(const Frame &frame, const std::string &arg) {
     if (!arg.empty() && std::isdigit(arg[0])) {
-        return std::stoi(arg);
+        return Value(std::stoi(arg));
     }
 
     auto it = frame.vars.find(arg);
@@ -21,7 +29,7 @@ int ClassicalInterpreter::getValue(const Frame &frame, const std::string &arg) {
     throw std::runtime_error("Unknown variable: " + arg);
 }
 
-void ClassicalInterpreter::run(const ClassicalIR &entry) {
+std::optional<Value> ClassicalInterpreter::run(const ClassicalIR &entry) {
     if (!functions) {
         throw std::runtime_error("Function table not set in ClassicalInterpreter");
     }
@@ -31,9 +39,18 @@ void ClassicalInterpreter::run(const ClassicalIR &entry) {
 
     // Push initial frame
     stack.push_back(Frame{&entry, 0, {}});
+    std::cerr << "interpreter started\n";
+    std::cerr << "instructions size: " << entry.instructions.size() << "\n";
+    for (size_t i = 0; i < entry.instructions.size(); ++i) {
+        std::cerr << "inst " << i << ": " << (int)entry.instructions[i].op << " '" << entry.instructions[i].arg << "'\n";
+    }
 
+    std::optional<Value> retVal;
+    std::cerr << "starting loop\n";
     while (!stack.empty()) {
+        std::cerr << "loop iteration\n";
         Frame &frame = stack.back();
+        std::cerr << "frame.ip = " << frame.ip << "\n";
         const auto &ir = *frame.ir;
 
         if (frame.ip >= (int)ir.instructions.size()) {
@@ -42,19 +59,16 @@ void ClassicalInterpreter::run(const ClassicalIR &entry) {
         }
 
         const Instruction &inst = ir.instructions[frame.ip];
-        // DEBUG
-        std::cerr << "[interp] ip=" << frame.ip << " op=" << (int)inst.op
-                  << " arg='" << inst.arg << "' stackSize=" << stack.size()
-                  << " valueStackSize=" << valueStack.size() << "\n";
 
         switch (inst.op) {
 
         case OpCode::LOAD_CONST: {
-            // literal from lowerer; try number first, otherwise treat as string
-            try {
-                int n = std::stoi(inst.arg);
-                push(Value(n));
-            } catch (const std::exception &) {
+            std::cerr << "in LOAD_CONST, arg='" << inst.arg << "'\n";
+            // literal from lowerer
+            if (isNumber(inst.arg)) {
+                push(Value(std::stoi(inst.arg)));
+            } else {
+                std::cerr << "before push\n";
                 push(Value(inst.arg));
             }
             break;
@@ -62,12 +76,12 @@ void ClassicalInterpreter::run(const ClassicalIR &entry) {
 
         case OpCode::LOAD_VAR:
             // load variable from current frame
-            push(Value(getValue(frame, inst.arg)));
+            push(getValue(frame, inst.arg));
             break;
 
         case OpCode::STORE_VAR:
             // store top of stack into variable
-            frame.vars[inst.arg] = pop().number;
+            frame.vars[inst.arg] = pop();
             break;
 
         case OpCode::ADD: {
@@ -104,13 +118,15 @@ void ClassicalInterpreter::run(const ClassicalIR &entry) {
         }
 
         case OpCode::PRINT: {
+            // std::cerr << "PRINT arg='" << inst.arg << "' stackSize=" << valueStack.size() << "\n";
             // From lowerer:
             //  - PRINT "literal"  → inst.arg has text
             //  - PRINT ""         → print top of value stack
             if (!inst.arg.empty()) {
-                std::cout << inst.arg << std::endl;
+                // std::cout << inst.arg << std::endl;
             } else {
-                std::cout << pop().toString() << std::endl;
+                Value v = pop();
+                std::cout << v.toString() << std::endl;
             }
             break;
         }
@@ -121,24 +137,39 @@ void ClassicalInterpreter::run(const ClassicalIR &entry) {
                 throw std::runtime_error("Unknown function: " + inst.arg);
             }
 
+            // Pop args from valueStack into new frame's vars
+            std::unordered_map<std::string, Value> calleeVars;
+            for (auto it_param = it->second.params.rbegin(); it_param != it->second.params.rend(); ++it_param) {
+                if (valueStack.empty()) {
+                    throw std::runtime_error("Not enough arguments for function: " + inst.arg);
+                }
+                Value arg = pop();
+                calleeVars[*it_param] = arg;
+            }
+
             // Push new frame for callee
-            stack.push_back(Frame{&it->second, 0, {}});
+            stack.push_back(Frame{&it->second, 0, std::move(calleeVars)});
             frame.ip++; // advance caller IP
             continue;   // start executing callee
         }
 
         case OpCode::RETURN: {
-            // For now: just pop the frame.
-            // Any return value should already be on valueStack if you use it.
+            std::cerr << "in RETURN\n";
+            std::cerr << "valueStack.size() = " << valueStack.size() << "\n";
+            // record top of valueStack if available
+            if (!valueStack.empty()) {
+                retVal = valueStack.back();
+                std::cerr << "retVal set to " << retVal->toString() << "\n";
+            }
             stack.pop_back();
             continue;
         }
         }
 
-        // indicate that we've finished handling this instruction
-        std::cerr << "[interp] executed ip=" << frame.ip << "\n";
         frame.ip++;
     }
+    std::cerr << "interpreter finished\n";
+    return retVal;
 }
 
 } // namespace k

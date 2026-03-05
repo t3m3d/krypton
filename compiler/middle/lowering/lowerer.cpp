@@ -54,6 +54,10 @@ FunctionIRTable Lowerer::lowerFunctions(const ModuleDecl &module) {
 
 //  lowerFunction — lowers a single fn body
 void Lowerer::lowerFunction(const FnDecl &fn, ClassicalIR &out) {
+    out.params.clear();
+    for (const auto &p : fn.params) {
+        out.params.push_back(p.name);
+    }
     curClassical = &out;
     lowerBlock(fn.body);
 
@@ -64,9 +68,6 @@ void Lowerer::lowerFunction(const FnDecl &fn, ClassicalIR &out) {
 //  lowerProcess — lowers a process body
 void Lowerer::lowerProcess(const ProcessDecl &proc, LoweredProcess & /*out*/) {
     lowerBlock(proc.body);
-    // ensure process always returns at end so interpreter frame unwinds
-    if (curClassical)
-        curClassical->emit(OpCode::RETURN);
 }
 
 //  lowerBlock — lowers all statements in a block

@@ -3,15 +3,17 @@
 #include "compiler/middle/lowering/lowerer.hpp"
 #include <string>
 #include <unordered_map>
+#include <deque>
 #include <vector>
 #include <stdexcept>
+#include <optional>
 
 namespace k {
 
 struct Frame {
   const ClassicalIR *ir;
   int ip;
-  std::unordered_map<std::string, int> vars;
+  std::unordered_map<std::string, Value> vars;
 };
 
 struct Value {
@@ -21,7 +23,7 @@ struct Value {
 
     Value() : isNum(true), number(0) {}
     Value(int n) : isNum(true), number(n) {}
-    Value(std::string s) : isNum(false), number(0), str(std::move(s)) {}
+    Value(std::string s) : isNum(false), number(0), str(s) {}
 
     bool isNumber() const { return isNum; }
 
@@ -36,14 +38,17 @@ public:
 
   void setFunctionTable(const FunctionIRTable *table);
 
-  void run(const ClassicalIR &ir);
+  // execute the given IR and return an optional value produced by
+  // the program (the value stack's top element).  string values are not
+  // currently supported; only integer literals are returned.
+  std::optional<Value> run(const ClassicalIR &ir);
 
 private:
   const FunctionIRTable *functions = nullptr;
   std::vector<Frame> stack;
 
-  int getValue(const Frame &frame, const std::string &arg);
-  std::vector<Value> valueStack;
+  Value getValue(const Frame &frame, const std::string &arg);
+  std::deque<Value> valueStack;
 
   Value pop() {
       if (valueStack.empty()) throw std::runtime_error("Stack underflow");
