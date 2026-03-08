@@ -1319,8 +1319,10 @@ go run {
     print("Tokenized: " + ntoks + " tokens")
 
     let ftable = scanFunctions(tokens, ntoks)
+    print("Functions scanned")
 
     let entry = findEntry(tokens, ntoks)
+    print("Entry point: " + entry)
     if entry < 0 {
         print("No entry point found")
         emit 1
