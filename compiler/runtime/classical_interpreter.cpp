@@ -424,6 +424,162 @@ std::optional<Value> ClassicalInterpreter::run(const ClassicalIR &entry) {
             break;
         }
 
+        case OpCode::GET_LINE: {
+            Value idxV = pop();
+            Value strV = pop();
+            const std::string &s = strV.str;
+            int target = idxV.number;
+            int line = 0;
+            size_t start = 0;
+            for (size_t i = 0; i <= s.size(); i++) {
+                if (i == s.size() || s[i] == '\n') {
+                    if (line == target) {
+                        push(Value(s.substr(start, i - start)));
+                        goto getline_done;
+                    }
+                    line++;
+                    start = i + 1;
+                }
+            }
+            push(Value(""));
+            getline_done:
+            break;
+        }
+
+        case OpCode::LINE_COUNT: {
+            Value v = pop();
+            const std::string &s = v.str;
+            if (s.empty()) {
+                push(Value(0));
+            } else {
+                int cnt = 1;
+                for (char c : s) {
+                    if (c == '\n') cnt++;
+                }
+                if (s.back() == '\n') cnt--;
+                push(Value(cnt));
+            }
+            break;
+        }
+
+        case OpCode::ENV_GET: {
+            // envGet(env, name) - last-match lookup in "name=val\n..." string
+            // Values are escaped: \\ -> backslash, \n -> newline
+            Value nameV = pop();
+            Value envV = pop();
+            const std::string &env = envV.str;
+            const std::string &name = nameV.str;
+            std::string result;
+            size_t lineStart = 0;
+            for (size_t i = 0; i <= env.size(); i++) {
+                if (i == env.size() || env[i] == '\n') {
+                    // check line from lineStart..i
+                    size_t eqPos = std::string::npos;
+                    for (size_t j = lineStart; j < i; j++) {
+                        if (env[j] == '=') { eqPos = j; break; }
+                    }
+                    if (eqPos != std::string::npos) {
+                        if (eqPos - lineStart == name.size() &&
+                            env.compare(lineStart, name.size(), name) == 0) {
+                            result = env.substr(eqPos + 1, i - eqPos - 1);
+                        }
+                    }
+                    lineStart = i + 1;
+                }
+            }
+            // Unescape: \n -> newline, \\ -> backslash
+            std::string unescaped;
+            unescaped.reserve(result.size());
+            for (size_t i = 0; i < result.size(); i++) {
+                if (result[i] == '\\' && i + 1 < result.size()) {
+                    if (result[i + 1] == 'n') { unescaped += '\n'; i++; }
+                    else if (result[i + 1] == '\\') { unescaped += '\\'; i++; }
+                    else unescaped += result[i];
+                } else {
+                    unescaped += result[i];
+                }
+            }
+            push(Value(unescaped));
+            break;
+        }
+
+        case OpCode::ENV_SET: {
+            // envSet(env, name, val) - append "name=val\n"
+            // Escape newlines and backslashes in value
+            Value valV = pop();
+            Value nameV = pop();
+            Value envV = pop();
+            std::string escaped;
+            escaped.reserve(valV.str.size());
+            for (char c : valV.str) {
+                if (c == '\\') escaped += "\\\\";
+                else if (c == '\n') escaped += "\\n";
+                else escaped += c;
+            }
+            push(Value(envV.str + nameV.str + "=" + escaped + "\n"));
+            break;
+        }
+
+        case OpCode::FIND_LAST_COMMA: {
+            Value v = pop();
+            const std::string &s = v.str;
+            int pos = -1;
+            for (int i = (int)s.size() - 1; i >= 0; i--) {
+                if (s[i] == ',') { pos = i; break; }
+            }
+            push(Value(pos));
+            break;
+        }
+
+        case OpCode::PAIR_VAL: {
+            // extract value before last comma
+            Value v = pop();
+            const std::string &s = v.str;
+            int pos = -1;
+            for (int i = (int)s.size() - 1; i >= 0; i--) {
+                if (s[i] == ',') { pos = i; break; }
+            }
+            if (pos < 0) push(v);
+            else push(Value(s.substr(0, pos)));
+            break;
+        }
+
+        case OpCode::PAIR_POS: {
+            // extract int after last comma
+            Value v = pop();
+            const std::string &s = v.str;
+            int pos = -1;
+            for (int i = (int)s.size() - 1; i >= 0; i--) {
+                if (s[i] == ',') { pos = i; break; }
+            }
+            if (pos < 0) push(Value(0));
+            else {
+                try { push(Value(std::stoi(s.substr(pos + 1)))); }
+                catch (...) { push(Value(0)); }
+            }
+            break;
+        }
+
+        case OpCode::TOK_TYPE: {
+            // part before first ':'
+            Value v = pop();
+            const std::string &s = v.str;
+            size_t cp = s.find(':');
+            if (cp == std::string::npos) push(v);
+            else push(Value(s.substr(0, cp)));
+            break;
+        }
+
+        case OpCode::TOK_VAL: {
+            // part after first ':'
+            Value v = pop();
+            const std::string &s = v.str;
+            size_t cp = s.find(':');
+            if (cp == std::string::npos) push(Value(""));
+            else push(Value(s.substr(cp + 1)));
+            break;
+        }
+
         case OpCode::POP: {
             if (!valueStack.empty()) pop();
             break;
