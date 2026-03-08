@@ -37,6 +37,7 @@ private:
   StmtPtr parseEmitStmt();
   StmtPtr parseReturnStmt();
   StmtPtr parseIfStmt();
+  StmtPtr parseWhileStmt();
   StmtPtr parseExprStmt();
 
   // Expressions
@@ -48,6 +49,7 @@ private:
   ExprPtr parseAddExpr();
   ExprPtr parseMulExpr();
   ExprPtr parseUnaryExpr();
+  ExprPtr parsePostfixExpr();
   ExprPtr parsePrimaryExpr();
 
   // Types

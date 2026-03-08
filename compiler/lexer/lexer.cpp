@@ -80,6 +80,16 @@ TokenType Lexer::keywordOrIdentifier(const std::string &text) const {
     return TokenType::FALSE_;
   if (text == "with")
     return TokenType::WITH;
+  if (text == "while")
+    return TokenType::WHILE;
+  if (text == "break")
+    return TokenType::BREAK;
+  if (text == "go")
+    return TokenType::GO;
+  if (text == "return")
+    return TokenType::RETURN;
+  if (text == "fn")
+    return TokenType::FN;
   return TokenType::IDENTIFIER;
 }
 void Lexer::identifier(std::vector<Token> &tokens) {
@@ -109,24 +119,39 @@ void Lexer::number(std::vector<Token> &tokens) {
            text);
 }
 void Lexer::stringLiteral(std::vector<Token> &tokens) {
-  std::size_t start = current;
+  std::string text;
   while (!isAtEnd() && peek() != '"') {
-    advance();
+    if (peek() == '\\') {
+      advance(); // consume backslash
+      if (isAtEnd()) throw std::runtime_error("Unterminated escape in string");
+      char esc = advance();
+      switch (esc) {
+        case 'n': text += '\n'; break;
+        case 't': text += '\t'; break;
+        case '\\': text += '\\'; break;
+        case '"': text += '"'; break;
+        default: text += '\\'; text += esc; break;
+      }
+    } else {
+      text += advance();
+    }
   }
   if (isAtEnd()) {
     throw std::runtime_error("Unterminated string literal");
   }
-  advance();
-  std::string text = source.substr(start, current - start - 1);
+  advance(); // closing quote
   addToken(tokens, TokenType::STRING_LITERAL, text);
 }
 std::vector<Token> Lexer::tokenize() {
     std::vector<Token> tokens;
     while (!isAtEnd()) {
         skipWhitespace();
-        skipComment();
-        if (isAtEnd())
-            break;
+        if (isAtEnd()) break;
+        // Skip comments and then any whitespace after them
+        if (peek() == '/' && (peekNext() == '/' || peekNext() == '*')) {
+            skipComment();
+            continue; // re-enter loop to skip whitespace again
+        }
         char c = advance();
 switch (c) {
     case '(':
@@ -140,6 +165,12 @@ switch (c) {
         break;
     case '}':
         addToken(tokens, TokenType::RBRACE, "}");
+        break;
+    case '[':
+        addToken(tokens, TokenType::LBRACKET, "[");
+        break;
+    case ']':
+        addToken(tokens, TokenType::RBRACKET, "]");
         break;
     case ',':
         addToken(tokens, TokenType::COMMA, ",");
