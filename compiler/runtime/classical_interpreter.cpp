@@ -487,36 +487,49 @@ std::optional<Value> ClassicalInterpreter::run(const ClassicalIR &entry) {
                     lineStart = i + 1;
                 }
             }
-            // Unescape: \n -> newline, \\ -> backslash
-            std::string unescaped;
-            unescaped.reserve(result.size());
-            for (size_t i = 0; i < result.size(); i++) {
-                if (result[i] == '\\' && i + 1 < result.size()) {
-                    if (result[i + 1] == 'n') { unescaped += '\n'; i++; }
-                    else if (result[i + 1] == '\\') { unescaped += '\\'; i++; }
-                    else unescaped += result[i];
-                } else {
-                    unescaped += result[i];
+            // Unescape only if result contains backslashes
+            if (result.find('\\') != std::string::npos) {
+                std::string unescaped;
+                unescaped.reserve(result.size());
+                for (size_t i = 0; i < result.size(); i++) {
+                    if (result[i] == '\\' && i + 1 < result.size()) {
+                        if (result[i + 1] == 'n') { unescaped += '\n'; i++; }
+                        else if (result[i + 1] == '\\') { unescaped += '\\'; i++; }
+                        else unescaped += result[i];
+                    } else {
+                        unescaped += result[i];
+                    }
                 }
+                push(Value(unescaped));
+            } else {
+                push(Value(result));
             }
-            push(Value(unescaped));
             break;
         }
 
         case OpCode::ENV_SET: {
             // envSet(env, name, val) - append "name=val\n"
-            // Escape newlines and backslashes in value
+            // Escape newlines and backslashes in value (fast-path if none present)
             Value valV = pop();
             Value nameV = pop();
             Value envV = pop();
-            std::string escaped;
-            escaped.reserve(valV.str.size());
-            for (char c : valV.str) {
-                if (c == '\\') escaped += "\\\\";
-                else if (c == '\n') escaped += "\\n";
-                else escaped += c;
+            const std::string &val = valV.str;
+            bool needsEscape = false;
+            for (char c : val) {
+                if (c == '\n' || c == '\\') { needsEscape = true; break; }
             }
-            push(Value(envV.str + nameV.str + "=" + escaped + "\n"));
+            if (needsEscape) {
+                std::string escaped;
+                escaped.reserve(val.size() + 16);
+                for (char c : val) {
+                    if (c == '\\') escaped += "\\\\";
+                    else if (c == '\n') escaped += "\\n";
+                    else escaped += c;
+                }
+                push(Value(envV.str + nameV.str + "=" + escaped + "\n"));
+            } else {
+                push(Value(envV.str + nameV.str + "=" + val + "\n"));
+            }
             break;
         }
 
