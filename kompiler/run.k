@@ -197,10 +197,8 @@ func isKW(word) {
 func tokenize(text) {
     let out = ""
     let i = 0
-    print("DEBUG tokenize text len: " + len(text))
 
     while i < len(text) {
-        print("DEBUG LOOP i=" + i + " len=" + len(text))
         i = skipWS(text, i)
 
         if i >= len(text) {
@@ -208,7 +206,6 @@ func tokenize(text) {
         }
 
         let c = text[i]
-        print("DEBUG tok i=" + i + " c=[" + c + "]")
 
         if c == "/" && i + 1 < len(text) && (text[i + 1] == "/" || text[i + 1] == "*") {
             i = skipComment(text, i)
@@ -1400,16 +1397,11 @@ func execExprStmt(tokens, pos, env, ftable) {
 
 just run {
     let file = arg(0)
-    print("DEBUG file: [" + file + "]")
     let source = readFile(file)
-    print("DEBUG source len: " + len(source))
 
     let tokens = tokenize(source)
     let ntoks = lineCount(tokens)
     print("Tokenized: " + ntoks + " tokens")
-    if ntoks < 20 {
-        print("DEBUG tokens: [" + tokens + "]")
-    }
 
     let ftable = scanFunctions(tokens, ntoks)
     print("Functions scanned")
