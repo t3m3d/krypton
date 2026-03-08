@@ -1,5 +1,6 @@
 #include "classical_interpreter.hpp"
 #include <cctype>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 
@@ -397,6 +398,32 @@ std::optional<Value> ClassicalInterpreter::run(const ClassicalIR &entry) {
             break;
         }
 
+        case OpCode::READ_FILE: {
+            Value pathV = pop();
+            std::string path = pathV.toString();
+            std::ifstream file(path);
+            if (!file.is_open())
+                throw std::runtime_error("Cannot open file: " + path);
+            std::string content((std::istreambuf_iterator<char>(file)),
+                                 std::istreambuf_iterator<char>());
+            push(Value(content));
+            break;
+        }
+
+        case OpCode::ARG: {
+            Value idxV = pop();
+            int idx = idxV.number;
+            if (idx < 0 || idx >= (int)programArgs.size())
+                throw std::runtime_error("Argument index out of range: " + std::to_string(idx));
+            push(Value(programArgs[idx]));
+            break;
+        }
+
+        case OpCode::ARG_COUNT: {
+            push(Value((int)programArgs.size()));
+            break;
+        }
+
         case OpCode::POP: {
             if (!valueStack.empty()) pop();
             break;
@@ -408,6 +435,10 @@ std::optional<Value> ClassicalInterpreter::run(const ClassicalIR &entry) {
     }
 
     return retVal;
+}
+
+void ClassicalInterpreter::setArgs(const std::vector<std::string> &args) {
+    programArgs = args;
 }
 
 } // namespace k

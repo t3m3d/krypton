@@ -5,6 +5,10 @@
         "/^& \\.\\\\build\\\\Debug\\\\kcc\\.exe \\.\\\\examples\\\\hello\\.k 2>&1$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^c:\\\\Users\\\\brian\\\\Documents\\\\GitHub\\\\krypton\\\\build\\\\Debug\\\\kcc\\.exe c:\\\\Users\\\\brian\\\\Documents\\\\GitHub\\\\krypton\\\\examples\\\\features_test\\.k 2>&1$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }

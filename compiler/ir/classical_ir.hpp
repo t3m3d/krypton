@@ -16,7 +16,35 @@ enum class OpCode {
   RETURN,
   PRINT,
   LEN,
-  SUBSTRING
+  SUBSTRING,
+  // Control flow
+  JUMP,
+  JUMP_IF_FALSE,
+  // Comparison
+  CMP_EQ,
+  CMP_NEQ,
+  CMP_LT,
+  CMP_GT,
+  CMP_LTE,
+  CMP_GTE,
+  // Logical
+  LOGIC_AND,
+  LOGIC_OR,
+  LOGIC_NOT,
+  // String/collection
+  INDEX,
+  SPLIT,
+  TO_INT,
+  STARTS_WITH,
+  COUNT,
+  EXTRACT,
+  FIND_SECOND,
+  // IO / args
+  READ_FILE,
+  ARG,
+  ARG_COUNT,
+  // Misc
+  POP
 };
 
 struct Instruction {
