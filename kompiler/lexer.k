@@ -69,12 +69,11 @@ go lexer {
     }
 
     func skipWhitespace(text, i) {
-        while i < len(text) && (text[i] == " " || text[i] == "\n" || text[i] == "\t") {
+        while i < len(text) && (text[i] == " " || text[i] == "\n" || text[i] == "\t" || text[i] == "\r") {
             i = i + 1;
         }
         emit i;
     }
-
     func skipComment(text, i) {
         if i + 1 < len(text) && text[i] == "/" && text[i + 1] == "/" {
             while i < len(text) && text[i] != "\n" {
