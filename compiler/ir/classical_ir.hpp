@@ -43,6 +43,17 @@ enum class OpCode {
   READ_FILE,
   ARG,
   ARG_COUNT,
+  // Line-based string access
+  GET_LINE,
+  LINE_COUNT,
+  // Kompiler acceleration
+  ENV_GET,
+  ENV_SET,
+  PAIR_VAL,
+  PAIR_POS,
+  TOK_TYPE,
+  TOK_VAL,
+  FIND_LAST_COMMA,
   // Misc
   POP
 };

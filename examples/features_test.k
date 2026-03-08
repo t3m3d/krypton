@@ -6,7 +6,7 @@ func greet(name) {
     emit "Hello, " + name
 }
 
-go run {
+just run {
     // Test function calls
     let x = add(3, 4)
     kp(x)

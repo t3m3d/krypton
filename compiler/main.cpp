@@ -22,12 +22,14 @@ std::string readFile(const std::string &path) {
 int main(int argc, char **argv) {
 	std::cout << "MAIN START\n";
 
+	std::string path;
 	if (argc < 2) {
 		std::cout << "Usage: kcc <file.k>\n";
-		return 1;
+		std::cout << "Defaulting to run.k\n";
+		path = "run.k";
+	} else {
+		path = argv[1];
 	}
-
-	std::string path = argv[1];
 	if (path == "--help" || path == "-h") {
 		std::cout << "Krypton Compiler (kcc)\n";
 		std::cout << "Usage: kcc <file.k>\n";

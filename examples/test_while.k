@@ -1,4 +1,4 @@
-go run {
+just run {
     let i = 0
     while i < 3 {
         kp(i)

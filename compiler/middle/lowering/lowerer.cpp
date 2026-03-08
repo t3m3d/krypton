@@ -370,6 +370,91 @@ void Lowerer::lowerCall(const ExprPtr &expr) {
         return;
     }
 
+    if (expr->identifier == "getLine") {
+        if (expr->args.size() != 2) {
+            throw std::runtime_error("getLine() expects 2 arguments");
+        }
+        lowerExpr(expr->args[0]);
+        lowerExpr(expr->args[1]);
+        curClassical->emit(OpCode::GET_LINE);
+        return;
+    }
+
+    if (expr->identifier == "lineCount") {
+        if (expr->args.size() != 1) {
+            throw std::runtime_error("lineCount() expects 1 argument");
+        }
+        lowerExpr(expr->args[0]);
+        curClassical->emit(OpCode::LINE_COUNT);
+        return;
+    }
+
+    if (expr->identifier == "envGet") {
+        if (expr->args.size() != 2) {
+            throw std::runtime_error("envGet() expects 2 arguments");
+        }
+        lowerExpr(expr->args[0]);
+        lowerExpr(expr->args[1]);
+        curClassical->emit(OpCode::ENV_GET);
+        return;
+    }
+
+    if (expr->identifier == "envSet") {
+        if (expr->args.size() != 3) {
+            throw std::runtime_error("envSet() expects 3 arguments");
+        }
+        lowerExpr(expr->args[0]);
+        lowerExpr(expr->args[1]);
+        lowerExpr(expr->args[2]);
+        curClassical->emit(OpCode::ENV_SET);
+        return;
+    }
+
+    if (expr->identifier == "pairVal") {
+        if (expr->args.size() != 1) {
+            throw std::runtime_error("pairVal() expects 1 argument");
+        }
+        lowerExpr(expr->args[0]);
+        curClassical->emit(OpCode::PAIR_VAL);
+        return;
+    }
+
+    if (expr->identifier == "pairPos") {
+        if (expr->args.size() != 1) {
+            throw std::runtime_error("pairPos() expects 1 argument");
+        }
+        lowerExpr(expr->args[0]);
+        curClassical->emit(OpCode::PAIR_POS);
+        return;
+    }
+
+    if (expr->identifier == "tokType") {
+        if (expr->args.size() != 1) {
+            throw std::runtime_error("tokType() expects 1 argument");
+        }
+        lowerExpr(expr->args[0]);
+        curClassical->emit(OpCode::TOK_TYPE);
+        return;
+    }
+
+    if (expr->identifier == "tokVal") {
+        if (expr->args.size() != 1) {
+            throw std::runtime_error("tokVal() expects 1 argument");
+        }
+        lowerExpr(expr->args[0]);
+        curClassical->emit(OpCode::TOK_VAL);
+        return;
+    }
+
+    if (expr->identifier == "findLastComma") {
+        if (expr->args.size() != 1) {
+            throw std::runtime_error("findLastComma() expects 1 argument");
+        }
+        lowerExpr(expr->args[0]);
+        curClassical->emit(OpCode::FIND_LAST_COMMA);
+        return;
+    }
+
     for (const auto &arg : expr->args) {
         lowerExpr(arg);
     }
