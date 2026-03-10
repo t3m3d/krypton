@@ -27,7 +27,10 @@ const Token &Parser::consume(TokenType type, const char *message) {
     current++;
     return previous();
   }
-  throw std::runtime_error(message);
+  const Token &t = peek();
+  throw std::runtime_error(std::string(message) + " (at line " +
+    std::to_string(t.line) + ", col " + std::to_string(t.column) +
+    ", got '" + t.lexeme + "')");
 }
 
 
