@@ -760,11 +760,8 @@ func compileFunc(tokens, pos, ntoks) {
 // === C Runtime (embedded in output) ===
 
 func cRuntime() {
-    print("DEBUG: cRuntime start")
     let r = ""
-    print("DEBUG: r initialized")
     r = r + "#include <stdio.h>\n"
-    print("DEBUG: first concat done")
     r = r + "#include <stdlib.h>\n"
     r = r + "#include <string.h>\n\n"
     r = r + "static int _argc; static char** _argv;\n\n"

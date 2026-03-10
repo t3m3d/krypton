@@ -2,16 +2,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-static char _arena[256*1024*1024];
-static int _apos = 0;
 static int _argc; static char** _argv;
 
 static char* _alloc(int n) {
-    if (_apos + n > 256*1024*1024) {
-        fprintf(stderr, "arena overflow\n"); exit(1);
-    }
-    char* p = _arena + _apos;
-    _apos += n;
+    char* p = (char*)malloc(n);
+    if (!p) { fprintf(stderr, "out of memory\n"); exit(1); }
     return p;
 }
 
