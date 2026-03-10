@@ -195,6 +195,63 @@ static char* kr_count(const char* s) {
     return kr_linecount(s);
 }
 
+typedef struct EnvEntry { char* name; char* value; struct EnvEntry* prev; } EnvEntry;
+
+static char* kr_envnew() { return (char*)0; }
+
+static char* kr_envset(char* envp, const char* name, const char* val) {
+    EnvEntry* e = (EnvEntry*)malloc(sizeof(EnvEntry));
+    e->name = kr_str(name);
+    e->value = kr_str(val);
+    e->prev = envp ? (EnvEntry*)envp : NULL;
+    return (char*)e;
+}
+
+static char* kr_envget(char* envp, const char* name) {
+    EnvEntry* e = (EnvEntry*)envp;
+    while (e) {
+        if (strcmp(e->name, name) == 0) return e->value;
+        e = e->prev;
+    }
+    if (strcmp(name, "__argOffset") != 0)
+        fprintf(stderr, "ERROR: undefined variable: %s\n", name);
+    return kr_str("");
+}
+
+typedef struct ResultStruct { char tag; char* val; char* env; int pos; } ResultStruct;
+
+static char* kr_makeresult(const char* tag, const char* val, const char* env, const char* pos) {
+    ResultStruct* r = (ResultStruct*)malloc(sizeof(ResultStruct));
+    r->tag = tag[0];
+    r->val = (char*)val;
+    r->env = (char*)env;
+    r->pos = atoi(pos);
+    return (char*)r;
+}
+
+static char* kr_getresulttag(const char* r) {
+    char buf[2] = {((ResultStruct*)r)->tag, 0};
+    return kr_str(buf);
+}
+
+static char* kr_getresultval(const char* r) {
+    return ((ResultStruct*)r)->val;
+}
+
+static char* kr_getresultenv(const char* r) {
+    return ((ResultStruct*)r)->env;
+}
+
+static char* kr_getresultpos(const char* r) {
+    return kr_itoa(((ResultStruct*)r)->pos);
+}
+
+static char* kr_istruthy(const char* s) {
+    if (!s || !*s || strcmp(s, "0") == 0 || strcmp(s, "false") == 0)
+        return kr_str("0");
+    return kr_str("1");
+}
+
 char* findLastComma(char*);
 char* pairVal(char*);
 char* pairPos(char*);
@@ -212,6 +269,7 @@ char* skipWS(char*, char*);
 char* skipComment(char*, char*);
 char* isKW(char*);
 char* tokenize(char*);
+char* envNew();
 char* envGet(char*, char*);
 char* envSet(char*, char*, char*);
 char* scanFunctions(char*, char*);
@@ -579,6 +637,10 @@ char* tokenize(char* text) {
     return out;
 }
 
+char* envNew() {
+    return kr_str("");
+}
+
 char* envGet(char* env, char* name) {
     char* result = kr_str("");
     char* found = kr_str("0");
@@ -610,7 +672,33 @@ char* envGet(char* env, char* name) {
 }
 
 char* envSet(char* env, char* name, char* val) {
-    return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(env, name), kr_str("=")), kr_len(val)), kr_str(":")), val), kr_str("\n"));
+    char* newEntry = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(name, kr_str("=")), kr_len(val)), kr_str(":")), val), kr_str("\n"));
+    char* lastStart = kr_neg(kr_str("1"));
+    char* lastEnd = kr_neg(kr_str("1"));
+    char* i = kr_str("0");
+    while (kr_truthy(kr_lt(i, kr_len(env)))) {
+        char* entryStart = i;
+        char* eqPos = i;
+        while (kr_truthy((kr_truthy(kr_lt(eqPos, kr_len(env))) && kr_truthy(kr_neq(kr_idx(env, kr_atoi(eqPos)), kr_str("="))) ? kr_str("1") : kr_str("0")))) {
+            eqPos = kr_plus(eqPos, kr_str("1"));
+        }
+        char* entryName = kr_substr(env, i, eqPos);
+        char* colonPos = kr_plus(eqPos, kr_str("1"));
+        while (kr_truthy((kr_truthy(kr_lt(colonPos, kr_len(env))) && kr_truthy(kr_neq(kr_idx(env, kr_atoi(colonPos)), kr_str(":"))) ? kr_str("1") : kr_str("0")))) {
+            colonPos = kr_plus(colonPos, kr_str("1"));
+        }
+        char* vlen = kr_toint(kr_substr(env, kr_plus(eqPos, kr_str("1")), colonPos));
+        char* entryEnd = kr_plus(kr_plus(kr_plus(colonPos, kr_str("1")), vlen), kr_str("1"));
+        if (kr_truthy(kr_eq(entryName, name))) {
+            lastStart = entryStart;
+            lastEnd = entryEnd;
+        }
+        i = entryEnd;
+    }
+    if (kr_truthy(kr_gte(lastStart, kr_str("0")))) {
+        return kr_plus(kr_plus(kr_substr(env, kr_str("0"), lastStart), kr_substr(env, lastEnd, kr_len(env))), newEntry);
+    }
+    return kr_plus(env, newEntry);
 }
 
 char* scanFunctions(char* tokens, char* ntoks) {
@@ -1036,7 +1124,7 @@ char* evalPrimary(char* tokens, char* pos, char* env, char* ftable) {
         if (kr_truthy(kr_eq(next, kr_str("LPAREN")))) {
             return evalCall(tokens, pos, env, ftable);
         } else {
-            char* val = envGet(env, tv);
+            char* val = kr_envget(env, tv);
             return kr_plus(kr_plus(val, kr_str(",")), kr_plus(pos, kr_str("1")));
         }
     }
@@ -1101,11 +1189,11 @@ char* evalCall(char* tokens, char* pos, char* env, char* ftable) {
     }
     if (kr_truthy(kr_eq(fname, kr_str("arg")))) {
         char* idx = kr_toint(getArg(args, kr_str("0")));
-        char* offset = kr_toint(envGet(env, kr_str("__argOffset")));
+        char* offset = kr_toint(kr_envget(env, kr_str("__argOffset")));
         return kr_plus(kr_plus(kr_arg(kr_plus(idx, offset)), kr_str(",")), p);
     }
     if (kr_truthy(kr_eq(fname, kr_str("argCount")))) {
-        char* offset = kr_toint(envGet(env, kr_str("__argOffset")));
+        char* offset = kr_toint(kr_envget(env, kr_str("__argOffset")));
         return kr_plus(kr_plus(kr_sub(kr_argcount(), offset), kr_str(",")), p);
     }
     if (kr_truthy(kr_eq(fname, kr_str("getLine")))) {
@@ -1125,13 +1213,13 @@ char* evalCall(char* tokens, char* pos, char* env, char* ftable) {
     if (kr_truthy(kr_eq(fname, kr_str("envGet")))) {
         char* e = getArg(args, kr_str("0"));
         char* n = getArg(args, kr_str("1"));
-        return kr_plus(kr_plus(envGet(e, n), kr_str(",")), p);
+        return kr_plus(kr_plus(kr_envget(e, n), kr_str(",")), p);
     }
     if (kr_truthy(kr_eq(fname, kr_str("envSet")))) {
         char* e = getArg(args, kr_str("0"));
         char* n = getArg(args, kr_str("1"));
         char* v = getArg(args, kr_str("2"));
-        return kr_plus(kr_plus(envSet(e, n, v), kr_str(",")), p);
+        return kr_plus(kr_plus(kr_envset(e, n, v), kr_str(",")), p);
     }
     if (kr_truthy(kr_eq(fname, kr_str("pairVal")))) {
         char* s = getArg(args, kr_str("0"));
@@ -1177,12 +1265,12 @@ char* evalCall(char* tokens, char* pos, char* env, char* ftable) {
         while (kr_truthy(kr_lt(a, pc))) {
             char* pname = getNthParam(paramStr, a);
             char* aval = getArg(args, a);
-            fenv = envSet(fenv, pname, aval);
+            fenv = kr_envset(fenv, pname, aval);
             a = kr_plus(a, kr_str("1"));
         }
         char* result = execBlock(tokens, bodyStart, fenv, ftable);
-        char* tag = kr_idx(result, kr_atoi(kr_str("0")));
-        char* rval = getResultVal(result);
+        char* tag = kr_getresulttag(result);
+        char* rval = kr_getresultval(result);
         if (kr_truthy(kr_eq(tag, kr_str("R")))) {
             return kr_plus(kr_plus(rval, kr_str(",")), p);
         }
@@ -1283,15 +1371,15 @@ char* execBlock(char* tokens, char* pos, char* env, char* ftable) {
             p = kr_plus(p, kr_str("1"));
         } else {
             char* result = execStmt(tokens, p, curEnv, ftable);
-            char* tag = getResultTag(result);
+            char* tag = kr_getresulttag(result);
             if (kr_truthy((kr_truthy(kr_eq(tag, kr_str("R"))) || kr_truthy(kr_eq(tag, kr_str("B"))) ? kr_str("1") : kr_str("0")))) {
                 return result;
             }
-            curEnv = getResultEnv(result);
-            p = getResultPos(result);
+            curEnv = kr_getresultenv(result);
+            p = kr_getresultpos(result);
         }
     }
-    return makeResult(kr_str("C"), kr_str(""), curEnv, kr_plus(p, kr_str("1")));
+    return kr_makeresult(kr_str("C"), kr_str(""), curEnv, kr_plus(p, kr_str("1")));
 }
 
 char* execStmt(char* tokens, char* pos, char* env, char* ftable) {
@@ -1313,7 +1401,7 @@ char* execStmt(char* tokens, char* pos, char* env, char* ftable) {
         if (kr_truthy(kr_eq(tokAt(tokens, p), kr_str("SEMI")))) {
             p = kr_plus(p, kr_str("1"));
         }
-        return makeResult(kr_str("B"), kr_str(""), env, p);
+        return kr_makeresult(kr_str("B"), kr_str(""), env, p);
     }
     if (kr_truthy((kr_truthy(kr_eq(tokType(tok), kr_str("ID"))) && kr_truthy(kr_eq(tokAt(tokens, kr_plus(pos, kr_str("1"))), kr_str("ASSIGN"))) ? kr_str("1") : kr_str("0")))) {
         return execAssign(tokens, pos, env, ftable);
@@ -1330,8 +1418,8 @@ char* execLet(char* tokens, char* pos, char* env, char* ftable) {
     if (kr_truthy(kr_eq(tokAt(tokens, p), kr_str("SEMI")))) {
         p = kr_plus(p, kr_str("1"));
     }
-    char* newEnv = envSet(env, name, val);
-    return makeResult(kr_str("C"), kr_str(""), newEnv, p);
+    char* newEnv = kr_envset(env, name, val);
+    return kr_makeresult(kr_str("C"), kr_str(""), newEnv, p);
 }
 
 char* execAssign(char* tokens, char* pos, char* env, char* ftable) {
@@ -1343,8 +1431,8 @@ char* execAssign(char* tokens, char* pos, char* env, char* ftable) {
     if (kr_truthy(kr_eq(tokAt(tokens, p), kr_str("SEMI")))) {
         p = kr_plus(p, kr_str("1"));
     }
-    char* newEnv = envSet(env, name, val);
-    return makeResult(kr_str("C"), kr_str(""), newEnv, p);
+    char* newEnv = kr_envset(env, name, val);
+    return kr_makeresult(kr_str("C"), kr_str(""), newEnv, p);
 }
 
 char* execEmit(char* tokens, char* pos, char* env, char* ftable) {
@@ -1354,18 +1442,18 @@ char* execEmit(char* tokens, char* pos, char* env, char* ftable) {
     if (kr_truthy(kr_eq(tokAt(tokens, p), kr_str("SEMI")))) {
         p = kr_plus(p, kr_str("1"));
     }
-    return makeResult(kr_str("R"), val, env, p);
+    return kr_makeresult(kr_str("R"), val, env, p);
 }
 
 char* execIf(char* tokens, char* pos, char* env, char* ftable) {
     char* condPair = evalExpr(tokens, pos, env, ftable);
     char* condVal = pairVal(condPair);
     char* p = pairPos(condPair);
-    if (kr_truthy(isTruthy(condVal))) {
+    if (kr_truthy(kr_istruthy(condVal))) {
         char* result = execBlock(tokens, p, env, ftable);
-        char* tag = getResultTag(result);
-        char* renv = getResultEnv(result);
-        char* rpos = getResultPos(result);
+        char* tag = kr_getresulttag(result);
+        char* renv = kr_getresultenv(result);
+        char* rpos = kr_getresultpos(result);
         if (kr_truthy(kr_eq(tokAt(tokens, rpos), kr_str("KW:else")))) {
             if (kr_truthy(kr_eq(tokAt(tokens, kr_plus(rpos, kr_str("1"))), kr_str("KW:if")))) {
                 char* skipPos = kr_plus(rpos, kr_str("2"));
@@ -1384,22 +1472,22 @@ char* execIf(char* tokens, char* pos, char* env, char* ftable) {
                     }
                 }
                 if (kr_truthy((kr_truthy(kr_eq(tag, kr_str("R"))) || kr_truthy(kr_eq(tag, kr_str("B"))) ? kr_str("1") : kr_str("0")))) {
-                    return makeResult(tag, getResultVal(result), renv, skipPos);
+                    return kr_makeresult(tag, kr_getresultval(result), renv, skipPos);
                 }
-                return makeResult(kr_str("C"), kr_str(""), renv, skipPos);
+                return kr_makeresult(kr_str("C"), kr_str(""), renv, skipPos);
             } else {
                 char* skipPos = kr_plus(rpos, kr_str("1"));
                 skipPos = skipBlock(tokens, skipPos);
                 if (kr_truthy((kr_truthy(kr_eq(tag, kr_str("R"))) || kr_truthy(kr_eq(tag, kr_str("B"))) ? kr_str("1") : kr_str("0")))) {
-                    return makeResult(tag, getResultVal(result), renv, skipPos);
+                    return kr_makeresult(tag, kr_getresultval(result), renv, skipPos);
                 }
-                return makeResult(kr_str("C"), kr_str(""), renv, skipPos);
+                return kr_makeresult(kr_str("C"), kr_str(""), renv, skipPos);
             }
         }
         if (kr_truthy((kr_truthy(kr_eq(tag, kr_str("R"))) || kr_truthy(kr_eq(tag, kr_str("B"))) ? kr_str("1") : kr_str("0")))) {
             return result;
         }
-        return makeResult(kr_str("C"), kr_str(""), renv, rpos);
+        return kr_makeresult(kr_str("C"), kr_str(""), renv, rpos);
     } else {
         char* skipPos = skipBlock(tokens, p);
         if (kr_truthy(kr_eq(tokAt(tokens, skipPos), kr_str("KW:else")))) {
@@ -1409,7 +1497,7 @@ char* execIf(char* tokens, char* pos, char* env, char* ftable) {
                 return execBlock(tokens, kr_plus(skipPos, kr_str("1")), env, ftable);
             }
         }
-        return makeResult(kr_str("C"), kr_str(""), env, skipPos);
+        return kr_makeresult(kr_str("C"), kr_str(""), env, skipPos);
     }
 }
 
@@ -1420,22 +1508,22 @@ char* execWhile(char* tokens, char* pos, char* env, char* ftable) {
         char* condPair = evalExpr(tokens, condStart, curEnv, ftable);
         char* condVal = pairVal(condPair);
         char* bodyStart = pairPos(condPair);
-        if (kr_truthy(kr_not(isTruthy(condVal)))) {
+        if (kr_truthy(kr_not(kr_istruthy(condVal)))) {
             char* endPos = skipBlock(tokens, bodyStart);
-            return makeResult(kr_str("C"), kr_str(""), curEnv, endPos);
+            return kr_makeresult(kr_str("C"), kr_str(""), curEnv, endPos);
         }
         char* result = execBlock(tokens, bodyStart, curEnv, ftable);
-        char* tag = getResultTag(result);
-        curEnv = getResultEnv(result);
+        char* tag = kr_getresulttag(result);
+        curEnv = kr_getresultenv(result);
         if (kr_truthy(kr_eq(tag, kr_str("R")))) {
             return result;
         }
         if (kr_truthy(kr_eq(tag, kr_str("B")))) {
             char* endPos = skipBlock(tokens, bodyStart);
-            return makeResult(kr_str("C"), kr_str(""), curEnv, endPos);
+            return kr_makeresult(kr_str("C"), kr_str(""), curEnv, endPos);
         }
     }
-    return makeResult(kr_str("C"), kr_str(""), curEnv, condStart);
+    return kr_makeresult(kr_str("C"), kr_str(""), curEnv, condStart);
 }
 
 char* execExprStmt(char* tokens, char* pos, char* env, char* ftable) {
@@ -1444,7 +1532,7 @@ char* execExprStmt(char* tokens, char* pos, char* env, char* ftable) {
     if (kr_truthy(kr_eq(tokAt(tokens, p), kr_str("SEMI")))) {
         p = kr_plus(p, kr_str("1"));
     }
-    return makeResult(kr_str("C"), kr_str(""), env, p);
+    return kr_makeresult(kr_str("C"), kr_str(""), env, p);
 }
 
 int main(int argc, char** argv) {
@@ -1459,11 +1547,11 @@ int main(int argc, char** argv) {
         kr_print(kr_str("No entry point found"));
         return 0;
     }
-    char* initEnv = envSet(kr_str(""), kr_str("__argOffset"), kr_str("1"));
+    char* initEnv = kr_envset(kr_envnew(), kr_str("__argOffset"), kr_str("1"));
     char* result = execBlock(tokens, entry, initEnv, ftable);
-    char* tag = getResultTag(result);
+    char* tag = kr_getresulttag(result);
     if (kr_truthy(kr_eq(tag, kr_str("R")))) {
-        char* val = getResultVal(result);
+        char* val = kr_getresultval(result);
         if (kr_truthy(kr_neq(val, kr_str("")))) {
             return 0;
         }

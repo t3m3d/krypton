@@ -550,6 +550,35 @@ func compileCall(tokens, pos, ntoks) {
         emit "kr_count(" + args + ")," + p
     }
 
+    // Native env/result builtins
+    if fname == "envNew" {
+        emit "kr_envnew()," + p
+    }
+    if fname == "envSet" {
+        emit "kr_envset(" + args + ")," + p
+    }
+    if fname == "envGet" {
+        emit "kr_envget(" + args + ")," + p
+    }
+    if fname == "makeResult" {
+        emit "kr_makeresult(" + args + ")," + p
+    }
+    if fname == "getResultTag" {
+        emit "kr_getresulttag(" + args + ")," + p
+    }
+    if fname == "getResultVal" {
+        emit "kr_getresultval(" + args + ")," + p
+    }
+    if fname == "getResultEnv" {
+        emit "kr_getresultenv(" + args + ")," + p
+    }
+    if fname == "getResultPos" {
+        emit "kr_getresultpos(" + args + ")," + p
+    }
+    if fname == "isTruthy" {
+        emit "kr_istruthy(" + args + ")," + p
+    }
+
     // User-defined function call
     emit cIdent(fname) + "(" + args + ")," + p
 }
@@ -933,6 +962,66 @@ func cRuntime() {
     r = r + "static char* kr_count(const char* s) {\n"
     r = r + "    return kr_linecount(s);\n"
     r = r + "}\n\n"
+
+    // Native env (linked-list of entries, cast to char*)
+    r = r + "typedef struct EnvEntry { char* name; char* value; struct EnvEntry* prev; } EnvEntry;\n\n"
+
+    r = r + "static char* kr_envnew() { return (char*)0; }\n\n"
+
+    r = r + "static char* kr_envset(char* envp, const char* name, const char* val) {\n"
+    r = r + "    EnvEntry* e = (EnvEntry*)malloc(sizeof(EnvEntry));\n"
+    r = r + "    e->name = kr_str(name);\n"
+    r = r + "    e->value = kr_str(val);\n"
+    r = r + "    e->prev = envp ? (EnvEntry*)envp : NULL;\n"
+    r = r + "    return (char*)e;\n"
+    r = r + "}\n\n"
+
+    r = r + "static char* kr_envget(char* envp, const char* name) {\n"
+    r = r + "    EnvEntry* e = (EnvEntry*)envp;\n"
+    r = r + "    while (e) {\n"
+    r = r + "        if (strcmp(e->name, name) == 0) return e->value;\n"
+    r = r + "        e = e->prev;\n"
+    r = r + "    }\n"
+    r = r + "    if (strcmp(name, \"__argOffset\") != 0)\n"
+    r = r + "        fprintf(stderr, \"ERROR: undefined variable: %s\\n\", name);\n"
+    r = r + "    return kr_str(\"\");\n"
+    r = r + "}\n\n"
+
+    // Native result (struct with tag, val, env, pos)
+    r = r + "typedef struct ResultStruct { char tag; char* val; char* env; int pos; } ResultStruct;\n\n"
+
+    r = r + "static char* kr_makeresult(const char* tag, const char* val, const char* env, const char* pos) {\n"
+    r = r + "    ResultStruct* r = (ResultStruct*)malloc(sizeof(ResultStruct));\n"
+    r = r + "    r->tag = tag[0];\n"
+    r = r + "    r->val = (char*)val;\n"
+    r = r + "    r->env = (char*)env;\n"
+    r = r + "    r->pos = atoi(pos);\n"
+    r = r + "    return (char*)r;\n"
+    r = r + "}\n\n"
+
+    r = r + "static char* kr_getresulttag(const char* r) {\n"
+    r = r + "    char buf[2] = {((ResultStruct*)r)->tag, 0};\n"
+    r = r + "    return kr_str(buf);\n"
+    r = r + "}\n\n"
+
+    r = r + "static char* kr_getresultval(const char* r) {\n"
+    r = r + "    return ((ResultStruct*)r)->val;\n"
+    r = r + "}\n\n"
+
+    r = r + "static char* kr_getresultenv(const char* r) {\n"
+    r = r + "    return ((ResultStruct*)r)->env;\n"
+    r = r + "}\n\n"
+
+    r = r + "static char* kr_getresultpos(const char* r) {\n"
+    r = r + "    return kr_itoa(((ResultStruct*)r)->pos);\n"
+    r = r + "}\n\n"
+
+    r = r + "static char* kr_istruthy(const char* s) {\n"
+    r = r + "    if (!s || !*s || strcmp(s, \"0\") == 0 || strcmp(s, \"false\") == 0)\n"
+    r = r + "        return kr_str(\"0\");\n"
+    r = r + "    return kr_str(\"1\");\n"
+    r = r + "}\n\n"
+
     emit r
 }
 

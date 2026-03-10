@@ -368,6 +368,10 @@ func tokenize(text) {
 // env is a string: "name=value\nname2=value2\n..."
 // last-match semantics for shadowing
 
+func envNew() {
+    emit ""
+}
+
 func envGet(env, name) {
     // env format: name=LEN:value\n (length-prefixed, no escaping)
     let result = ""
@@ -403,8 +407,34 @@ func envGet(env, name) {
 }
 
 func envSet(env, name, val) {
-    // Length-prefixed: no escaping needed
-    emit env + name + "=" + len(val) + ":" + val + "\n"
+    // Length-prefixed with dedup: replace existing entry if found
+    let newEntry = name + "=" + len(val) + ":" + val + "\n"
+    let lastStart = -1
+    let lastEnd = -1
+    let i = 0
+    while i < len(env) {
+        let entryStart = i
+        let eqPos = i
+        while eqPos < len(env) && env[eqPos] != "=" {
+            eqPos = eqPos + 1
+        }
+        let entryName = substring(env, i, eqPos)
+        let colonPos = eqPos + 1
+        while colonPos < len(env) && env[colonPos] != ":" {
+            colonPos = colonPos + 1
+        }
+        let vlen = toInt(substring(env, eqPos + 1, colonPos))
+        let entryEnd = colonPos + 1 + vlen + 1
+        if entryName == name {
+            lastStart = entryStart
+            lastEnd = entryEnd
+        }
+        i = entryEnd
+    }
+    if lastStart >= 0 {
+        emit substring(env, 0, lastStart) + substring(env, lastEnd, len(env)) + newEntry
+    }
+    emit env + newEntry
 }
 
 // ── Function Table ────────────────────────────────────────
@@ -1058,7 +1088,7 @@ func evalCall(tokens, pos, env, ftable) {
 
         // execute function body (bodyStart points to LBRACE)
         let result = execBlock(tokens, bodyStart, fenv, ftable)
-        let tag = result[0]
+        let tag = getResultTag(result)
         let rval = getResultVal(result)
         // R means return/emit
         if tag == "R" {
@@ -1400,7 +1430,7 @@ just run {
     }
 
     // Set up initial env with arg offset so inner arg() calls skip our file arg
-    let initEnv = envSet("", "__argOffset", "1")
+    let initEnv = envSet(envNew(), "__argOffset", "1")
 
     let result = execBlock(tokens, entry, initEnv, ftable)
     let tag = getResultTag(result)
