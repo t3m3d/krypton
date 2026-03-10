@@ -169,8 +169,8 @@ func funcLookup(table, name) {
             }
             t1 = t1 + 1
         }
-        let fn = substring(line, 0, t1)
-        if fn == name {
+        let fnom = substring(line, 0, t1)
+        if fnom == name {
             emit substring(line, t1 + 1, len(line))
         }
         i = nl + 1
@@ -540,6 +540,15 @@ func compileCall(tokens, pos, ntoks) {
     if fname == "argCount" {
         emit "kr_argcount()," + p
     }
+    if fname == "getLine" {
+        emit "kr_getline(" + args + ")," + p
+    }
+    if fname == "lineCount" {
+        emit "kr_linecount(" + args + ")," + p
+    }
+    if fname == "count" {
+        emit "kr_count(" + args + ")," + p
+    }
 
     // User-defined function call
     emit cIdent(fname) + "(" + args + ")," + p
@@ -678,7 +687,7 @@ func compileWhile(tokens, pos, ntoks, depth, inFunc) {
     let bcode = pairVal(bp)
     p = pairPos(bp)
 
-    let out = indent(depth) + "while (kr_truthy(" + cond + "))) {\n" + bcode + indent(depth) + "}\n"
+    let out = indent(depth) + "while (kr_truthy(" + cond + ")) {\n" + bcode + indent(depth) + "}\n"
     emit out + "," + p
 }
 
@@ -892,6 +901,39 @@ func cRuntime() {
     r = r + "}\n\n"
     r = r + "static char* kr_argcount() {\n"
     r = r + "    return kr_itoa(_argc - 1);\n"
+    r = r + "}\n\n"
+    r = r + "static char* kr_getline(const char* s, const char* idxs) {\n"
+    r = r + "    int idx = atoi(idxs);\n"
+    r = r + "    int cur = 0;\n"
+    r = r + "    const char* start = s;\n"
+    r = r + "    const char* p = s;\n"
+    r = r + "    while (*p) {\n"
+    r = r + "        if (*p == '\\n') {\n"
+    r = r + "            if (cur == idx) {\n"
+    r = r + "                int len = (int)(p - start);\n"
+    r = r + "                char* r = _alloc(len + 1);\n"
+    r = r + "                memcpy(r, start, len);\n"
+    r = r + "                r[len] = 0;\n"
+    r = r + "                return r;\n"
+    r = r + "            }\n"
+    r = r + "            cur++;\n"
+    r = r + "            start = p + 1;\n"
+    r = r + "        }\n"
+    r = r + "        p++;\n"
+    r = r + "    }\n"
+    r = r + "    if (cur == idx) return kr_str(start);\n"
+    r = r + "    return kr_str(\"\");\n"
+    r = r + "}\n\n"
+    r = r + "static char* kr_linecount(const char* s) {\n"
+    r = r + "    if (!*s) return kr_str(\"0\");\n"
+    r = r + "    int count = 1;\n"
+    r = r + "    const char* p = s;\n"
+    r = r + "    while (*p) { if (*p == '\\n') count++; p++; }\n"
+    r = r + "    if (*(p - 1) == '\\n') count--;\n"
+    r = r + "    return kr_itoa(count);\n"
+    r = r + "}\n\n"
+    r = r + "static char* kr_count(const char* s) {\n"
+    r = r + "    return kr_linecount(s);\n"
     r = r + "}\n\n"
     emit r
 }
