@@ -4,9 +4,29 @@
 
 static int _argc; static char** _argv;
 
+static long long _alloc_count = 0;
+static long long _alloc_bytes = 0;
+
+#define ARENA_BLOCK (256 * 1024 * 1024)
+typedef struct ABlock { char* data; int used; int cap; struct ABlock* next; } ABlock;
+static ABlock* _arena = NULL;
+
 static char* _alloc(int n) {
-    char* p = (char*)malloc(n);
-    if (!p) { fprintf(stderr, "out of memory\n"); exit(1); }
+    _alloc_count++;
+    _alloc_bytes += n;
+    int aligned = (n + 7) & ~7;
+    if (!_arena || _arena->used + aligned > _arena->cap) {
+        int cap = aligned > ARENA_BLOCK ? aligned : ARENA_BLOCK;
+        ABlock* b = (ABlock*)malloc(sizeof(ABlock));
+        b->data = (char*)malloc(cap);
+        if (!b->data) { fprintf(stderr, "out of memory\n"); exit(1); }
+        b->used = 0;
+        b->cap = cap;
+        b->next = _arena;
+        _arena = b;
+    }
+    char* p = _arena->data + _arena->used;
+    _arena->used += aligned;
     return p;
 }
 
@@ -200,9 +220,9 @@ typedef struct EnvEntry { char* name; char* value; struct EnvEntry* prev; } EnvE
 static char* kr_envnew() { return (char*)0; }
 
 static char* kr_envset(char* envp, const char* name, const char* val) {
-    EnvEntry* e = (EnvEntry*)malloc(sizeof(EnvEntry));
-    e->name = kr_str(name);
-    e->value = kr_str(val);
+    EnvEntry* e = (EnvEntry*)_alloc(sizeof(EnvEntry));
+    e->name = (char*)name;
+    e->value = (char*)val;
     e->prev = (EnvEntry*)envp;
     return (char*)e;
 }
@@ -221,7 +241,7 @@ static char* kr_envget(char* envp, const char* name) {
 typedef struct ResultStruct { char tag; char* val; char* env; int pos; } ResultStruct;
 
 static char* kr_makeresult(const char* tag, const char* val, const char* env, const char* pos) {
-    ResultStruct* r = (ResultStruct*)malloc(sizeof(ResultStruct));
+    ResultStruct* r = (ResultStruct*)_alloc(sizeof(ResultStruct));
     r->tag = tag[0];
     r->val = (char*)val;
     r->env = (char*)env;
@@ -1549,6 +1569,7 @@ int main(int argc, char** argv) {
     }
     char* initEnv = kr_envset(kr_envnew(), kr_str("__argOffset"), kr_str("1"));
     char* result = execBlock(tokens, entry, initEnv, ftable);
+    fprintf(stderr, "allocs: %lld  bytes: %lld\n", _alloc_count, _alloc_bytes);
     char* tag = kr_getresulttag(result);
     if (kr_truthy(kr_eq(tag, kr_str("R")))) {
         char* val = kr_getresultval(result);
@@ -1556,7 +1577,6 @@ int main(int argc, char** argv) {
             return 0;
         }
     }
-    return 0;
     return 0;
 }
 
