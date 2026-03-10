@@ -158,7 +158,7 @@ Quantum blocks compile to a backend‑agnostic IR.
 7. Processes
 7.1 Syntax
 ```krypton
-process main {
+just run {
     ...
 }
 ```
@@ -236,7 +236,7 @@ Quantum blocks have strict restrictions (see Section 6).
 12. Standard Library (Draft)
 12.1 Classical Utilities
 ```krypton
-print
+kp (print)
 Basic math functions (future)
 ```
 12.2 Quantum Primitives
@@ -280,14 +280,14 @@ Concurrency planned for future versions.
 ```krypton
 module demo
 
-process main {
-    print("Hello, Krypton")
+just run {
+    kp("Hello, Krypton")
 }
 
 
 15.2 Classical Function
 fn add(a: int, b: int) -> int {
-    return a + b
+    emit a + b
 }
 ```
 
@@ -299,10 +299,10 @@ quantum qpute(x: qbit) -> bit {
 
 
 15.4 Orchestration
-process main {
+just run {
     let q = prepare qbit
     let result = qpute(q)
-    print(result)
+    kp(result)
 }
 ```
 
@@ -310,7 +310,7 @@ process main {
 16. Appendix
 16.1 Grammar (EBNF Draft)
 (We will expand this as we build the parser.)
-Module      ::= "module" Identifier Decl*
+Just      ::= "module" Identifier Decl*
 Decl        ::= FnDecl | QputeDecl | ProcessDecl
 FnDecl      ::= "fn" Identifier "(" Params? ")" "->" Type Block
 QputeDecl   ::= "quantum" "qpute" "(" Params? ")" "->" Type Block
