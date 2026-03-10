@@ -1,10 +1,11 @@
 just run {
     let src = readFile("examples/hello.k")
     let paired = src + ",99"
-    print("paired len: " + len(paired))
+    kp("paired len: " + len(paired))
     let v = pairVal(paired)
     let pos = pairPos(paired)
-    print("val len: " + len(v))
-    print("pos: " + pos)
-    print("val: " + v)
+    kp("val len: " + len(v))
+    kp("pos: " + pos)
+    kp("val: " + v)
+    emit "ok"
 }

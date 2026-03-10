@@ -455,6 +455,45 @@ void Lowerer::lowerCall(const ExprPtr &expr) {
         return;
     }
 
+    if (expr->identifier == "tokAt") {
+        if (expr->args.size() != 2) {
+            throw std::runtime_error("tokAt() expects 2 arguments");
+        }
+        lowerExpr(expr->args[0]);
+        lowerExpr(expr->args[1]);
+        curClassical->emit(OpCode::TOK_AT);
+        return;
+    }
+
+    if (expr->identifier == "tokenize") {
+        if (expr->args.size() != 1) {
+            throw std::runtime_error("tokenize() expects 1 argument");
+        }
+        lowerExpr(expr->args[0]);
+        curClassical->emit(OpCode::TOKENIZE);
+        return;
+    }
+
+    if (expr->identifier == "scanFunctions") {
+        if (expr->args.size() != 2) {
+            throw std::runtime_error("scanFunctions() expects 2 arguments");
+        }
+        lowerExpr(expr->args[0]);
+        lowerExpr(expr->args[1]);
+        curClassical->emit(OpCode::SCAN_FUNCS);
+        return;
+    }
+
+    if (expr->identifier == "findEntry") {
+        if (expr->args.size() != 2) {
+            throw std::runtime_error("findEntry() expects 2 arguments");
+        }
+        lowerExpr(expr->args[0]);
+        lowerExpr(expr->args[1]);
+        curClassical->emit(OpCode::FIND_ENTRY);
+        return;
+    }
+
     for (const auto &arg : expr->args) {
         lowerExpr(arg);
     }

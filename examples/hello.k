@@ -1,4 +1,4 @@
 just run {
-    kp("Hello World");
-    emit "ok";
+    kp("Hello World")
+    emit "ok"
 }

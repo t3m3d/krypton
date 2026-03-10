@@ -1,4 +1,4 @@
 just run {
-    kp(42);
-    emit 42;
+    kp(42)
+    emit "ok"
 }
