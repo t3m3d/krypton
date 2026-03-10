@@ -195,6 +195,63 @@ static char* kr_count(const char* s) {
     return kr_linecount(s);
 }
 
+typedef struct EnvEntry { char* name; char* value; struct EnvEntry* prev; } EnvEntry;
+
+static char* kr_envnew() { return (char*)0; }
+
+static char* kr_envset(char* envp, const char* name, const char* val) {
+    EnvEntry* e = (EnvEntry*)malloc(sizeof(EnvEntry));
+    e->name = kr_str(name);
+    e->value = kr_str(val);
+    e->prev = envp ? (EnvEntry*)envp : NULL;
+    return (char*)e;
+}
+
+static char* kr_envget(char* envp, const char* name) {
+    EnvEntry* e = (EnvEntry*)envp;
+    while (e) {
+        if (strcmp(e->name, name) == 0) return e->value;
+        e = e->prev;
+    }
+    if (strcmp(name, "__argOffset") != 0)
+        fprintf(stderr, "ERROR: undefined variable: %s\n", name);
+    return kr_str("");
+}
+
+typedef struct ResultStruct { char tag; char* val; char* env; int pos; } ResultStruct;
+
+static char* kr_makeresult(const char* tag, const char* val, const char* env, const char* pos) {
+    ResultStruct* r = (ResultStruct*)malloc(sizeof(ResultStruct));
+    r->tag = tag[0];
+    r->val = (char*)val;
+    r->env = (char*)env;
+    r->pos = atoi(pos);
+    return (char*)r;
+}
+
+static char* kr_getresulttag(const char* r) {
+    char buf[2] = {((ResultStruct*)r)->tag, 0};
+    return kr_str(buf);
+}
+
+static char* kr_getresultval(const char* r) {
+    return ((ResultStruct*)r)->val;
+}
+
+static char* kr_getresultenv(const char* r) {
+    return ((ResultStruct*)r)->env;
+}
+
+static char* kr_getresultpos(const char* r) {
+    return kr_itoa(((ResultStruct*)r)->pos);
+}
+
+static char* kr_istruthy(const char* s) {
+    if (!s || !*s || strcmp(s, "0") == 0 || strcmp(s, "false") == 0)
+        return kr_str("0");
+    return kr_str("1");
+}
+
 
 int main(int argc, char** argv) {
     _argc = argc; _argv = argv;
