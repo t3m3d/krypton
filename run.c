@@ -583,88 +583,34 @@ char* envGet(char* env, char* name) {
     char* result = kr_str("");
     char* found = kr_str("0");
     char* i = kr_str("0");
-    char* lineStart = kr_str("0");
-    while (kr_truthy(kr_lte(i, kr_len(env)))) {
-        if (kr_truthy((kr_truthy(kr_eq(i, kr_len(env))) || kr_truthy(kr_eq(kr_idx(env, kr_atoi(i)), kr_str("\n"))) ? kr_str("1") : kr_str("0")))) {
-            char* line = kr_substr(env, lineStart, i);
-            char* eqPos = kr_neg(kr_str("1"));
-            char* j = kr_str("0");
-            while (kr_truthy(kr_lt(j, kr_len(line)))) {
-                if (kr_truthy((kr_truthy(kr_eq(kr_idx(line, kr_atoi(j)), kr_str("="))) && kr_truthy(kr_eq(eqPos, kr_neg(kr_str("1")))) ? kr_str("1") : kr_str("0")))) {
-                    eqPos = j;
-                }
-                j = kr_plus(j, kr_str("1"));
-            }
-            if (kr_truthy(kr_gt(eqPos, kr_str("0")))) {
-                char* k = kr_substr(line, kr_str("0"), eqPos);
-                if (kr_truthy(kr_eq(k, name))) {
-                    result = kr_substr(line, kr_plus(eqPos, kr_str("1")), kr_len(line));
-                    found = kr_str("1");
-                }
-            }
-            lineStart = kr_plus(i, kr_str("1"));
+    while (kr_truthy(kr_lt(i, kr_len(env)))) {
+        char* eqPos = i;
+        while (kr_truthy((kr_truthy(kr_lt(eqPos, kr_len(env))) && kr_truthy(kr_neq(kr_idx(env, kr_atoi(eqPos)), kr_str("="))) ? kr_str("1") : kr_str("0")))) {
+            eqPos = kr_plus(eqPos, kr_str("1"));
         }
-        i = kr_plus(i, kr_str("1"));
+        char* entryName = kr_substr(env, i, eqPos);
+        char* colonPos = kr_plus(eqPos, kr_str("1"));
+        while (kr_truthy((kr_truthy(kr_lt(colonPos, kr_len(env))) && kr_truthy(kr_neq(kr_idx(env, kr_atoi(colonPos)), kr_str(":"))) ? kr_str("1") : kr_str("0")))) {
+            colonPos = kr_plus(colonPos, kr_str("1"));
+        }
+        char* vlen = kr_toint(kr_substr(env, kr_plus(eqPos, kr_str("1")), colonPos));
+        char* valStart = kr_plus(colonPos, kr_str("1"));
+        if (kr_truthy(kr_eq(entryName, name))) {
+            result = kr_substr(env, valStart, kr_plus(valStart, vlen));
+            found = kr_str("1");
+        }
+        i = kr_plus(kr_plus(valStart, vlen), kr_str("1"));
     }
     if (kr_truthy(kr_eq(found, kr_str("0")))) {
         if (kr_truthy(kr_neq(name, kr_str("__argOffset")))) {
             kr_print(kr_plus(kr_str("ERROR: undefined variable: "), name));
         }
     }
-    char* unescaped = kr_str("");
-    char* ui = kr_str("0");
-    char* ustart = kr_str("0");
-    while (kr_truthy(kr_lt(ui, kr_len(result)))) {
-        if (kr_truthy((kr_truthy(kr_eq(kr_idx(result, kr_atoi(ui)), kr_str("\\"))) && kr_truthy(kr_lt(kr_plus(ui, kr_str("1")), kr_len(result))) ? kr_str("1") : kr_str("0")))) {
-            if (kr_truthy(kr_gt(ui, ustart))) {
-                unescaped = kr_plus(unescaped, kr_substr(result, ustart, ui));
-            }
-            if (kr_truthy(kr_eq(kr_idx(result, kr_atoi(kr_plus(ui, kr_str("1")))), kr_str("n")))) {
-                unescaped = kr_plus(unescaped, kr_str("\n"));
-            } else if (kr_truthy(kr_eq(kr_idx(result, kr_atoi(kr_plus(ui, kr_str("1")))), kr_str("\\")))) {
-                unescaped = kr_plus(unescaped, kr_str("\\"));
-            } else {
-                unescaped = kr_plus(unescaped, kr_substr(result, ui, kr_plus(ui, kr_str("1"))));
-            }
-            ui = kr_plus(ui, kr_str("2"));
-            ustart = ui;
-        } else {
-            ui = kr_plus(ui, kr_str("1"));
-        }
-    }
-    if (kr_truthy(kr_gt(ui, ustart))) {
-        unescaped = kr_plus(unescaped, kr_substr(result, ustart, ui));
-    }
-    return unescaped;
+    return result;
 }
 
 char* envSet(char* env, char* name, char* val) {
-    char* escaped = kr_str("");
-    char* ei = kr_str("0");
-    char* estart = kr_str("0");
-    while (kr_truthy(kr_lt(ei, kr_len(val)))) {
-        if (kr_truthy(kr_eq(kr_idx(val, kr_atoi(ei)), kr_str("\\")))) {
-            if (kr_truthy(kr_gt(ei, estart))) {
-                escaped = kr_plus(escaped, kr_substr(val, estart, ei));
-            }
-            escaped = kr_plus(escaped, kr_str("\\\\"));
-            ei = kr_plus(ei, kr_str("1"));
-            estart = ei;
-        } else if (kr_truthy(kr_eq(kr_idx(val, kr_atoi(ei)), kr_str("\n")))) {
-            if (kr_truthy(kr_gt(ei, estart))) {
-                escaped = kr_plus(escaped, kr_substr(val, estart, ei));
-            }
-            escaped = kr_plus(escaped, kr_str("\\n"));
-            ei = kr_plus(ei, kr_str("1"));
-            estart = ei;
-        } else {
-            ei = kr_plus(ei, kr_str("1"));
-        }
-    }
-    if (kr_truthy(kr_gt(ei, estart))) {
-        escaped = kr_plus(escaped, kr_substr(val, estart, ei));
-    }
-    return kr_plus(kr_plus(kr_plus(kr_plus(env, name), kr_str("=")), escaped), kr_str("\n"));
+    return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(env, name), kr_str("=")), kr_len(val)), kr_str(":")), val), kr_str("\n"));
 }
 
 char* scanFunctions(char* tokens, char* ntoks) {
@@ -1264,72 +1210,61 @@ char* getArg(char* args, char* idx) {
 }
 
 char* makeResult(char* tag, char* val, char* env, char* pos) {
-    char* r = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(tag, kr_str("|")), val), kr_str("|")), env), kr_str("|")), pos);
-    return r;
+    return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(tag, kr_str("|")), pos), kr_str("|")), kr_len(val)), kr_str("|")), kr_len(env)), kr_str("|")), val), env);
 }
 
 char* getResultTag(char* r) {
-    char* i = kr_str("0");
-    while (kr_truthy(kr_lt(i, kr_len(r)))) {
-        if (kr_truthy(kr_eq(kr_idx(r, kr_atoi(i)), kr_str("|")))) {
-            return kr_substr(r, kr_str("0"), i);
-        }
-        i = kr_plus(i, kr_str("1"));
-    }
-    return r;
+    return kr_idx(r, kr_atoi(kr_str("0")));
 }
 
 char* getResultVal(char* r) {
-    char* first = kr_neg(kr_str("1"));
-    char* last = kr_neg(kr_str("1"));
-    char* secondLast = kr_neg(kr_str("1"));
-    char* i = kr_str("0");
-    while (kr_truthy(kr_lt(i, kr_len(r)))) {
-        if (kr_truthy(kr_eq(kr_idx(r, kr_atoi(i)), kr_str("|")))) {
-            if (kr_truthy(kr_eq(first, kr_neg(kr_str("1"))))) {
-                first = i;
-            }
-            secondLast = last;
-            last = i;
-        }
+    char* i = kr_str("2");
+    while (kr_truthy((kr_truthy(kr_lt(i, kr_len(r))) && kr_truthy(kr_neq(kr_idx(r, kr_atoi(i)), kr_str("|"))) ? kr_str("1") : kr_str("0")))) {
         i = kr_plus(i, kr_str("1"));
     }
-    if (kr_truthy((kr_truthy(kr_gte(first, kr_str("0"))) && kr_truthy(kr_gte(secondLast, kr_str("0"))) ? kr_str("1") : kr_str("0")))) {
-        return kr_substr(r, kr_plus(first, kr_str("1")), secondLast);
+    char* vlenStart = kr_plus(i, kr_str("1"));
+    i = vlenStart;
+    while (kr_truthy((kr_truthy(kr_lt(i, kr_len(r))) && kr_truthy(kr_neq(kr_idx(r, kr_atoi(i)), kr_str("|"))) ? kr_str("1") : kr_str("0")))) {
+        i = kr_plus(i, kr_str("1"));
     }
-    return kr_str("");
+    char* vlen = kr_toint(kr_substr(r, vlenStart, i));
+    char* elenStart = kr_plus(i, kr_str("1"));
+    i = elenStart;
+    while (kr_truthy((kr_truthy(kr_lt(i, kr_len(r))) && kr_truthy(kr_neq(kr_idx(r, kr_atoi(i)), kr_str("|"))) ? kr_str("1") : kr_str("0")))) {
+        i = kr_plus(i, kr_str("1"));
+    }
+    char* dataStart = kr_plus(i, kr_str("1"));
+    return kr_substr(r, dataStart, kr_plus(dataStart, vlen));
 }
 
 char* getResultEnv(char* r) {
-    char* last = kr_neg(kr_str("1"));
-    char* secondLast = kr_neg(kr_str("1"));
-    char* i = kr_str("0");
-    while (kr_truthy(kr_lt(i, kr_len(r)))) {
-        if (kr_truthy(kr_eq(kr_idx(r, kr_atoi(i)), kr_str("|")))) {
-            secondLast = last;
-            last = i;
-        }
+    char* i = kr_str("2");
+    while (kr_truthy((kr_truthy(kr_lt(i, kr_len(r))) && kr_truthy(kr_neq(kr_idx(r, kr_atoi(i)), kr_str("|"))) ? kr_str("1") : kr_str("0")))) {
         i = kr_plus(i, kr_str("1"));
     }
-    if (kr_truthy((kr_truthy(kr_gte(secondLast, kr_str("0"))) && kr_truthy(kr_gte(last, kr_str("0"))) ? kr_str("1") : kr_str("0")))) {
-        return kr_substr(r, kr_plus(secondLast, kr_str("1")), last);
+    char* vlenStart = kr_plus(i, kr_str("1"));
+    i = vlenStart;
+    while (kr_truthy((kr_truthy(kr_lt(i, kr_len(r))) && kr_truthy(kr_neq(kr_idx(r, kr_atoi(i)), kr_str("|"))) ? kr_str("1") : kr_str("0")))) {
+        i = kr_plus(i, kr_str("1"));
     }
-    return kr_str("");
+    char* vlen = kr_toint(kr_substr(r, vlenStart, i));
+    char* elenStart = kr_plus(i, kr_str("1"));
+    i = elenStart;
+    while (kr_truthy((kr_truthy(kr_lt(i, kr_len(r))) && kr_truthy(kr_neq(kr_idx(r, kr_atoi(i)), kr_str("|"))) ? kr_str("1") : kr_str("0")))) {
+        i = kr_plus(i, kr_str("1"));
+    }
+    char* elen = kr_toint(kr_substr(r, elenStart, i));
+    char* dataStart = kr_plus(i, kr_str("1"));
+    return kr_substr(r, kr_plus(dataStart, vlen), kr_plus(kr_plus(dataStart, vlen), elen));
 }
 
 char* getResultPos(char* r) {
-    char* last = kr_neg(kr_str("1"));
-    char* i = kr_str("0");
-    while (kr_truthy(kr_lt(i, kr_len(r)))) {
-        if (kr_truthy(kr_eq(kr_idx(r, kr_atoi(i)), kr_str("|")))) {
-            last = i;
-        }
-        i = kr_plus(i, kr_str("1"));
+    char* i = kr_str("2");
+    char* posEnd = i;
+    while (kr_truthy((kr_truthy(kr_lt(posEnd, kr_len(r))) && kr_truthy(kr_neq(kr_idx(r, kr_atoi(posEnd)), kr_str("|"))) ? kr_str("1") : kr_str("0")))) {
+        posEnd = kr_plus(posEnd, kr_str("1"));
     }
-    if (kr_truthy(kr_gte(last, kr_str("0")))) {
-        return kr_toint(kr_substr(r, kr_plus(last, kr_str("1")), kr_len(r)));
-    }
-    return kr_str("0");
+    return kr_toint(kr_substr(r, kr_str("2"), posEnd));
 }
 
 char* isTruthy(char* val) {
