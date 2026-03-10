@@ -198,7 +198,6 @@ static char* kr_count(const char* s) {
 
 int main(int argc, char** argv) {
     _argc = argc; _argv = argv;
-    kr_print(kr_str("Hello World"));
     return 0;
     return 0;
 }

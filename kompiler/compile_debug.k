@@ -941,16 +941,23 @@ func cRuntime() {
 // =============================================
 
 just run {
+    print("DEBUG: start")
     let file = arg(0)
+    print("DEBUG: file=" + file)
     let source = readFile(file)
+    print("DEBUG: source len=" + len(source))
 
     let tokens = tokenize(source)
+    print("DEBUG: tokenized")
     let ntoks = lineCount(tokens)
+    print("DEBUG: ntoks=" + ntoks)
 
     let ftable = scanFunctions(tokens, ntoks)
+    print("DEBUG: scanned functions")
 
     // Output the C runtime
     let output = cRuntime()
+    print("DEBUG: cRuntime done, len=" + len(output))
 
     // Compile all func declarations (forward declare then define)
     // First pass: emit forward declarations

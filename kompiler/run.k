@@ -369,93 +369,42 @@ func tokenize(text) {
 // last-match semantics for shadowing
 
 func envGet(env, name) {
+    // env format: name=LEN:value\n (length-prefixed, no escaping)
     let result = ""
     let found = 0
     let i = 0
-    let lineStart = 0
-    while i <= len(env) {
-        if i == len(env) || env[i] == "\n" {
-            let line = substring(env, lineStart, i)
-            let eqPos = -1
-            let j = 0
-            while j < len(line) {
-                if line[j] == "=" && eqPos == -1 {
-                    eqPos = j
-                }
-                j = j + 1
-            }
-            if eqPos > 0 {
-                let k = substring(line, 0, eqPos)
-                if k == name {
-                    result = substring(line, eqPos + 1, len(line))
-                    found = 1
-                }
-            }
-            lineStart = i + 1
+    while i < len(env) {
+        // find = for this entry
+        let eqPos = i
+        while eqPos < len(env) && env[eqPos] != "=" {
+            eqPos = eqPos + 1
         }
-        i = i + 1
+        let entryName = substring(env, i, eqPos)
+        // find : to get length
+        let colonPos = eqPos + 1
+        while colonPos < len(env) && env[colonPos] != ":" {
+            colonPos = colonPos + 1
+        }
+        let vlen = toInt(substring(env, eqPos + 1, colonPos))
+        let valStart = colonPos + 1
+        if entryName == name {
+            result = substring(env, valStart, valStart + vlen)
+            found = 1
+        }
+        // skip past value + trailing newline
+        i = valStart + vlen + 1
     }
     if found == 0 {
         if name != "__argOffset" {
             print("ERROR: undefined variable: " + name)
         }
     }
-    // Unescape: \\n -> newline, \\\\ -> backslash
-    let unescaped = ""
-    let ui = 0
-    let ustart = 0
-    while ui < len(result) {
-        if result[ui] == "\\" && ui + 1 < len(result) {
-            if ui > ustart {
-                unescaped = unescaped + substring(result, ustart, ui)
-            }
-            if result[ui + 1] == "n" {
-                unescaped = unescaped + "\n"
-            } else if result[ui + 1] == "\\" {
-                unescaped = unescaped + "\\"
-            } else {
-                unescaped = unescaped + substring(result, ui, ui + 1)
-            }
-            ui = ui + 2
-            ustart = ui
-        } else {
-            ui = ui + 1
-        }
-    }
-    if ui > ustart {
-        unescaped = unescaped + substring(result, ustart, ui)
-    }
-    emit unescaped
+    emit result
 }
 
 func envSet(env, name, val) {
-    // Escape newlines and backslashes in value
-    let escaped = ""
-    let ei = 0
-    let estart = 0
-    while ei < len(val) {
-        if val[ei] == "\\" {
-            if ei > estart {
-                escaped = escaped + substring(val, estart, ei)
-            }
-            escaped = escaped + "\\\\"
-            ei = ei + 1
-            estart = ei
-        } else if val[ei] == "\n" {
-            if ei > estart {
-                escaped = escaped + substring(val, estart, ei)
-            }
-            escaped = escaped + "\\n"
-            ei = ei + 1
-            estart = ei
-        } else {
-            ei = ei + 1
-        }
-    }
-    if ei > estart {
-        escaped = escaped + substring(val, estart, ei)
-    }
-    emit env + name + "=" + escaped + "\n"
+    // Length-prefixed: no escaping needed
+    emit env + name + "=" + len(val) + ":" + val + "\n"
 }
 
 // ── Function Table ────────────────────────────────────────
@@ -1145,77 +1094,68 @@ func getArg(args, idx) {
 // Returns "C\tenv\tpos" (continue), "R\tvalue\tpos" (return/emit), "B\tenv\tpos" (break)
 
 func makeResult(tag, val, env, pos) {
-    let r = tag + "|" + val + "|" + env + "|" + pos
-    emit r
+    // Length-prefixed: tag|pos|vlen|elen|val_bytes_env_bytes
+    emit tag + "|" + pos + "|" + len(val) + "|" + len(env) + "|" + val + env
 }
 
 func getResultTag(r) {
-    let i = 0
-    while i < len(r) {
-        if r[i] == "|" {
-            emit substring(r, 0, i)
-        }
-        i = i + 1
-    }
-    emit r
+    emit r[0]
 }
 
 func getResultVal(r) {
-    // between first pipe and second-to-last pipe
-    // (parse from both ends to handle nested pipes in val)
-    let first = -1
-    let last = -1
-    let secondLast = -1
-    let i = 0
-    while i < len(r) {
-        if r[i] == "|" {
-            if first == -1 {
-                first = i
-            }
-            secondLast = last
-            last = i
-        }
+    // tag|pos|vlen|elen|data...
+    // skip past tag| (index 2), find pos end
+    let i = 2
+    while i < len(r) && r[i] != "|" {
         i = i + 1
     }
-    if first >= 0 && secondLast >= 0 {
-        emit substring(r, first + 1, secondLast)
+    // i is at pipe after pos, skip to vlen
+    let vlenStart = i + 1
+    i = vlenStart
+    while i < len(r) && r[i] != "|" {
+        i = i + 1
     }
-    emit ""
+    let vlen = toInt(substring(r, vlenStart, i))
+    // skip past elen
+    let elenStart = i + 1
+    i = elenStart
+    while i < len(r) && r[i] != "|" {
+        i = i + 1
+    }
+    let dataStart = i + 1
+    emit substring(r, dataStart, dataStart + vlen)
 }
 
 func getResultEnv(r) {
-    // between second-to-last and last pipe
-    // (parse from both ends to handle nested pipes in val)
-    let last = -1
-    let secondLast = -1
-    let i = 0
-    while i < len(r) {
-        if r[i] == "|" {
-            secondLast = last
-            last = i
-        }
+    // tag|pos|vlen|elen|data...
+    let i = 2
+    while i < len(r) && r[i] != "|" {
         i = i + 1
     }
-    if secondLast >= 0 && last >= 0 {
-        emit substring(r, secondLast + 1, last)
+    let vlenStart = i + 1
+    i = vlenStart
+    while i < len(r) && r[i] != "|" {
+        i = i + 1
     }
-    emit ""
+    let vlen = toInt(substring(r, vlenStart, i))
+    let elenStart = i + 1
+    i = elenStart
+    while i < len(r) && r[i] != "|" {
+        i = i + 1
+    }
+    let elen = toInt(substring(r, elenStart, i))
+    let dataStart = i + 1
+    emit substring(r, dataStart + vlen, dataStart + vlen + elen)
 }
 
 func getResultPos(r) {
-    // after last pipe
-    let last = -1
-    let i = 0
-    while i < len(r) {
-        if r[i] == "|" {
-            last = i
-        }
-        i = i + 1
+    // tag|pos|...
+    let i = 2
+    let posEnd = i
+    while posEnd < len(r) && r[posEnd] != "|" {
+        posEnd = posEnd + 1
     }
-    if last >= 0 {
-        emit toInt(substring(r, last + 1, len(r)))
-    }
-    emit 0
+    emit toInt(substring(r, 2, posEnd))
 }
 
 func isTruthy(val) {
