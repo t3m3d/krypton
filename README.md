@@ -37,7 +37,7 @@ module demo
 
 just run {
   kp("Hello World")
-  emit
+  emit "ok"
 }
 ```
 
