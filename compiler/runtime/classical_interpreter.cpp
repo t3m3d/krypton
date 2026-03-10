@@ -1,10 +1,33 @@
 #include "classical_interpreter.hpp"
 #include <cctype>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <vector>
 
 namespace k {
+
+// ── Linked-list environment for O(1) envSet, O(depth) envGet ──
+struct EnvNode {
+    int parent;          // index of parent node, -1 for root
+    std::string name;
+    std::string value;
+};
+static std::vector<EnvNode> g_envNodes;
+
+static inline bool isEnvHandle(const std::string &s) {
+    return s.size() > 4 && s[0] == 'E' && s[1] == 'N' && s[2] == 'V' && s[3] == ':';
+}
+
+static inline int parseEnvHandle(const std::string &s) {
+    // "ENV:123" -> 123
+    int n = 0;
+    for (size_t i = 4; i < s.size(); i++) {
+        n = n * 10 + (s[i] - '0');
+    }
+    return n;
+}
 
 static bool isNumber(const std::string &s) {
     if (s.empty()) return false;
@@ -79,7 +102,10 @@ std::optional<Value> ClassicalInterpreter::run(const ClassicalIR &entry) {
             if (a.isNumber() && b.isNumber()) {
                 push(Value(a.number + b.number));
             } else {
-                push(Value(a.toString() + b.toString()));
+                // Move a's string buffer if it's already a string (avoids copy)
+                std::string result = a.isNumber() ? a.toString() : std::move(a.str);
+                result += b.toString();
+                push(Value(std::move(result)));
             }
             break;
         }
@@ -463,73 +489,42 @@ std::optional<Value> ClassicalInterpreter::run(const ClassicalIR &entry) {
         }
 
         case OpCode::ENV_GET: {
-            // envGet(env, name) - last-match lookup in "name=val\n..." string
-            // Values are escaped: \\ -> backslash, \n -> newline
+            // envGet(env, name) - O(depth) lookup via linked-list nodes
             Value nameV = pop();
             Value envV = pop();
-            const std::string &env = envV.str;
-            const std::string &name = nameV.str;
+            std::string env = envV.toString();
+            std::string name = nameV.toString();
             std::string result;
-            size_t lineStart = 0;
-            for (size_t i = 0; i <= env.size(); i++) {
-                if (i == env.size() || env[i] == '\n') {
-                    // check line from lineStart..i
-                    size_t eqPos = std::string::npos;
-                    for (size_t j = lineStart; j < i; j++) {
-                        if (env[j] == '=') { eqPos = j; break; }
+            if (isEnvHandle(env)) {
+                int idx = parseEnvHandle(env);
+                while (idx >= 0) {
+                    const auto &node = g_envNodes[idx];
+                    if (node.name == name) {
+                        result = node.value;
+                        break;
                     }
-                    if (eqPos != std::string::npos) {
-                        if (eqPos - lineStart == name.size() &&
-                            env.compare(lineStart, name.size(), name) == 0) {
-                            result = env.substr(eqPos + 1, i - eqPos - 1);
-                        }
-                    }
-                    lineStart = i + 1;
+                    idx = node.parent;
                 }
             }
-            // Unescape only if result contains backslashes
-            if (result.find('\\') != std::string::npos) {
-                std::string unescaped;
-                unescaped.reserve(result.size());
-                for (size_t i = 0; i < result.size(); i++) {
-                    if (result[i] == '\\' && i + 1 < result.size()) {
-                        if (result[i + 1] == 'n') { unescaped += '\n'; i++; }
-                        else if (result[i + 1] == '\\') { unescaped += '\\'; i++; }
-                        else unescaped += result[i];
-                    } else {
-                        unescaped += result[i];
-                    }
-                }
-                push(Value(unescaped));
-            } else {
-                push(Value(result));
-            }
+            // empty env "" → result stays ""
+            push(Value(result));
             break;
         }
 
         case OpCode::ENV_SET: {
-            // envSet(env, name, val) - append "name=val\n"
-            // Escape newlines and backslashes in value (fast-path if none present)
+            // envSet(env, name, val) - O(1) append to linked-list
             Value valV = pop();
             Value nameV = pop();
             Value envV = pop();
-            const std::string &val = valV.str;
-            bool needsEscape = false;
-            for (char c : val) {
-                if (c == '\n' || c == '\\') { needsEscape = true; break; }
+            int parent = -1;
+            std::string envStr = envV.toString();
+            if (isEnvHandle(envStr)) {
+                parent = parseEnvHandle(envStr);
             }
-            if (needsEscape) {
-                std::string escaped;
-                escaped.reserve(val.size() + 16);
-                for (char c : val) {
-                    if (c == '\\') escaped += "\\\\";
-                    else if (c == '\n') escaped += "\\n";
-                    else escaped += c;
-                }
-                push(Value(envV.str + nameV.str + "=" + escaped + "\n"));
-            } else {
-                push(Value(envV.str + nameV.str + "=" + val + "\n"));
-            }
+            int idx = (int)g_envNodes.size();
+            g_envNodes.push_back({parent, nameV.toString(), valV.toString()});
+            std::string handle = "ENV:" + std::to_string(idx);
+            push(Value(std::move(handle)));
             break;
         }
 
@@ -590,6 +585,263 @@ std::optional<Value> ClassicalInterpreter::run(const ClassicalIR &entry) {
             size_t cp = s.find(':');
             if (cp == std::string::npos) push(Value(""));
             else push(Value(s.substr(cp + 1)));
+            break;
+        }
+
+        case OpCode::TOK_AT: {
+            // tokAt(tokens, idx) - get line at index with cached offsets
+            Value idxV = pop();
+            Value tokV = pop();
+            const std::string &s = tokV.str;
+            int target = idxV.number;
+            // Multi-slot cache keyed by string size
+            static std::vector<std::pair<size_t, std::vector<size_t>>> tokAtCache;
+            std::vector<size_t> *offsets = nullptr;
+            for (auto &entry : tokAtCache) {
+                if (entry.first == s.size()) { offsets = &entry.second; break; }
+            }
+            if (!offsets) {
+                tokAtCache.push_back({s.size(), {}});
+                offsets = &tokAtCache.back().second;
+                offsets->push_back(0);
+                for (size_t i = 0; i < s.size(); i++) {
+                    if (s[i] == '\n') offsets->push_back(i + 1);
+                }
+            }
+            if (target >= 0 && target < (int)offsets->size()) {
+                size_t start = (*offsets)[target];
+                size_t end = (target + 1 < (int)offsets->size())
+                    ? (*offsets)[target + 1] - 1
+                    : s.size();
+                push(Value(s.substr(start, end - start)));
+            } else {
+                push(Value(""));
+            }
+            break;
+        }
+
+        case OpCode::TOKENIZE: {
+            // Native tokenize(text) - replicates the Krypton tokenize function
+            Value srcV = pop();
+            const std::string &text = srcV.str;
+            std::string out;
+            out.reserve(text.size()); // rough estimate
+            size_t i = 0;
+            size_t tlen = text.size();
+
+            auto isDigitC = [](char c) { return c >= '0' && c <= '9'; };
+            auto isAlphaC = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; };
+            auto isAlphaNumC = [&](char c) { return isAlphaC(c) || isDigitC(c); };
+            auto isKW = [](const std::string &w) {
+                return w=="just"||w=="go"||w=="func"||w=="fn"||w=="let"||
+                       w=="emit"||w=="return"||w=="if"||w=="else"||w=="while"||
+                       w=="break"||w=="module"||w=="quantum"||w=="qpute"||
+                       w=="process"||w=="true"||w=="false"||w=="measure"||w=="prepare";
+            };
+
+            while (i < tlen) {
+                // skip whitespace
+                while (i < tlen && (text[i]==' '||text[i]=='\n'||text[i]=='\t'||text[i]=='\r')) i++;
+                if (i >= tlen) break;
+
+                char c = text[i];
+                // comments
+                if (c == '/' && i+1 < tlen && text[i+1] == '/') {
+                    while (i < tlen && text[i] != '\n') i++;
+                    continue;
+                }
+                if (c == '/' && i+1 < tlen && text[i+1] == '*') {
+                    i += 2;
+                    while (i+1 < tlen && !(text[i]=='*' && text[i+1]=='/')) i++;
+                    i += 2;
+                    continue;
+                }
+                // number
+                if (isDigitC(c)) {
+                    out += "INT:";
+                    while (i < tlen && isDigitC(text[i])) out += text[i++];
+                    out += '\n';
+                }
+                // string
+                else if (c == '"') {
+                    out += "STR:";
+                    i++; // skip opening quote
+                    while (i < tlen && text[i] != '"') {
+                        if (text[i] == '\\' && i+1 < tlen) {
+                            // keep escape sequences raw
+                            out += text[i]; out += text[i+1];
+                            i += 2;
+                        } else {
+                            out += text[i++];
+                        }
+                    }
+                    i++; // skip closing quote
+                    out += '\n';
+                }
+                // ident/keyword
+                else if (isAlphaC(c)) {
+                    std::string id;
+                    while (i < tlen && isAlphaNumC(text[i])) id += text[i++];
+                    if (isKW(id)) { out += "KW:"; out += id; }
+                    else { out += "ID:"; out += id; }
+                    out += '\n';
+                }
+                // operators
+                else if (c == '+') { out += "PLUS\n"; i++; }
+                else if (c == '-') {
+                    if (i+1<tlen && text[i+1]=='>') { out += "ARROW\n"; i+=2; }
+                    else { out += "MINUS\n"; i++; }
+                }
+                else if (c == '*') { out += "STAR\n"; i++; }
+                else if (c == '/') { out += "SLASH\n"; i++; }
+                else if (c == '(') { out += "LPAREN\n"; i++; }
+                else if (c == ')') { out += "RPAREN\n"; i++; }
+                else if (c == '{') { out += "LBRACE\n"; i++; }
+                else if (c == '}') { out += "RBRACE\n"; i++; }
+                else if (c == '[') { out += "LBRACK\n"; i++; }
+                else if (c == ']') { out += "RBRACK\n"; i++; }
+                else if (c == ':') { out += "COLON\n"; i++; }
+                else if (c == ';') { out += "SEMI\n"; i++; }
+                else if (c == ',') { out += "COMMA\n"; i++; }
+                else if (c == '=') {
+                    if (i+1<tlen && text[i+1]=='=') { out += "EQ\n"; i+=2; }
+                    else { out += "ASSIGN\n"; i++; }
+                }
+                else if (c == '!') {
+                    if (i+1<tlen && text[i+1]=='=') { out += "NEQ\n"; i+=2; }
+                    else { out += "BANG\n"; i++; }
+                }
+                else if (c == '<') {
+                    if (i+1<tlen && text[i+1]=='=') { out += "LTE\n"; i+=2; }
+                    else { out += "LT\n"; i++; }
+                }
+                else if (c == '>') {
+                    if (i+1<tlen && text[i+1]=='=') { out += "GTE\n"; i+=2; }
+                    else { out += "GT\n"; i++; }
+                }
+                else if (c == '&') {
+                    if (i+1<tlen && text[i+1]=='&') { out += "AND\n"; i+=2; }
+                    else i++;
+                }
+                else if (c == '|') {
+                    if (i+1<tlen && text[i+1]=='|') { out += "OR\n"; i+=2; }
+                    else i++;
+                }
+                else { i++; }
+            }
+            // Remove trailing newline if present
+            if (!out.empty() && out.back() == '\n') out.pop_back();
+            push(Value(std::move(out)));
+            break;
+        }
+
+        case OpCode::SCAN_FUNCS: {
+            // scanFunctions(tokens, ntoks) - native function table builder
+            Value ntoksV = pop();
+            Value toksV = pop();
+            const std::string &toks = toksV.str;
+            int ntoks = ntoksV.isNum ? ntoksV.number : std::stoi(ntoksV.str);
+
+            // Build line offsets for fast access
+            std::vector<size_t> offs;
+            offs.reserve(ntoks + 1);
+            offs.push_back(0);
+            for (size_t j = 0; j < toks.size(); j++) {
+                if (toks[j] == '\n') offs.push_back(j + 1);
+            }
+
+            auto getLine = [&](int idx) -> std::string {
+                if (idx < 0 || idx >= (int)offs.size()) return "";
+                size_t start = offs[idx];
+                size_t end = (idx + 1 < (int)offs.size()) ? offs[idx+1] - 1 : toks.size();
+                return toks.substr(start, end - start);
+            };
+            auto tokType = [](const std::string &tok) -> std::string {
+                auto cp = tok.find(':');
+                return (cp != std::string::npos) ? tok.substr(0, cp) : tok;
+            };
+            auto tokVal = [](const std::string &tok) -> std::string {
+                auto cp = tok.find(':');
+                return (cp != std::string::npos) ? tok.substr(cp + 1) : "";
+            };
+
+            std::string table;
+            int i = 0;
+            while (i < ntoks) {
+                std::string tok = getLine(i);
+                if (tok == "KW:func" || tok == "KW:fn") {
+                    std::string nameTok = getLine(i + 1);
+                    std::string fname = tokVal(nameTok);
+                    int pi = i + 3;
+                    std::string params;
+                    int pc = 0;
+                    while (getLine(pi) != "RPAREN") {
+                        std::string ptok = getLine(pi);
+                        if (tokType(ptok) == "ID") {
+                            if (pc > 0) params += ',';
+                            params += tokVal(ptok);
+                            pc++;
+                        }
+                        pi++;
+                    }
+                    // skip past RPAREN, find LBRACE
+                    pi++;
+                    while (getLine(pi) != "LBRACE") pi++;
+                    table += fname + '~' + std::to_string(pc) + '~' + params + '~' + std::to_string(pi) + '\n';
+                    // skip past function body
+                    i = pi;
+                    int depth = 0;
+                    while (i < ntoks) {
+                        std::string t = getLine(i);
+                        if (t == "LBRACE") depth++;
+                        else if (t == "RBRACE") {
+                            depth--;
+                            if (depth == 0) { i++; break; }
+                        }
+                        i++;
+                    }
+                } else {
+                    i++;
+                }
+            }
+            // Remove trailing newline
+            if (!table.empty() && table.back() == '\n') table.pop_back();
+            push(Value(std::move(table)));
+            break;
+        }
+
+        case OpCode::FIND_ENTRY: {
+            // findEntry(tokens, ntoks) - find "just run {" or "go run {"
+            Value ntoksV = pop();
+            Value toksV = pop();
+            const std::string &toks = toksV.str;
+            int ntoks = ntoksV.isNum ? ntoksV.number : std::stoi(ntoksV.str);
+
+            // Build line offsets
+            std::vector<size_t> offs;
+            offs.reserve(ntoks + 1);
+            offs.push_back(0);
+            for (size_t j = 0; j < toks.size(); j++) {
+                if (toks[j] == '\n') offs.push_back(j + 1);
+            }
+            auto getLine = [&](int idx) -> std::string {
+                if (idx < 0 || idx >= (int)offs.size()) return "";
+                size_t start = offs[idx];
+                size_t end = (idx + 1 < (int)offs.size()) ? offs[idx+1] - 1 : toks.size();
+                return toks.substr(start, end - start);
+            };
+
+            int result = -1;
+            for (int j = 0; j + 2 < ntoks; j++) {
+                std::string t0 = getLine(j);
+                if (t0 == "KW:go" || t0 == "KW:just") {
+                    if (getLine(j+1) == "ID:run" && getLine(j+2) == "LBRACE") {
+                        result = j + 2;
+                        break;
+                    }
+                }
+            }
+            push(Value(result));
             break;
         }
 

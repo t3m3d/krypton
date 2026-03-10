@@ -20,7 +20,6 @@ std::string readFile(const std::string &path) {
 }
 
 int main(int argc, char **argv) {
-	std::cout << "MAIN START\n";
 
 	std::string path;
 	if (argc < 2) {
@@ -52,7 +51,6 @@ int main(int argc, char **argv) {
 		std::cerr << "Lexer error: " << e.what() << "\n";
 		return 1;
 	}
-	std::cerr << "tokenized\n";
 
 	k::Parser parser(tokens);
 	k::ModuleDecl module;
@@ -62,19 +60,16 @@ int main(int argc, char **argv) {
 		std::cerr << "Parse error: " << e.what() << "\n";
 		return 1;
 	}
-	std::cerr << "parsed module\n";
 
 	k::Lowerer lowerer;
 	auto processes = lowerer.lowerModule(module);
 	auto functions = lowerer.lowerFunctions(module);
-	std::cerr << "lowered\n";
 
 	auto it = processes.find("run");
 	if (it == processes.end()) {
 		std::cerr << "No run process found.\n";
 		return 1;
 	}
-	std::cerr << "found run process\n";
 
 	k::ClassicalInterpreter interp;
 	interp.setFunctionTable(&functions);
@@ -83,20 +78,19 @@ int main(int argc, char **argv) {
 		extraArgs.push_back(argv[i]);
 	}
 	interp.setArgs(extraArgs);
-	std::cerr << "about to run interpreter\n";
 	try {
 		auto maybe = interp.run(it->second.classical);
-		std::cerr << "run returned\n";
 		if (maybe.has_value()) {
-			std::cerr << "result: " << maybe->toString() << "\n";
 			if (maybe->isNumber())
 				return maybe->number;
 		}
 	} catch (const std::exception &e) {
 		std::cerr << "Runtime error: " << e.what() << "\n";
 		return 1;
+	} catch (...) {
+		std::cerr << "Unknown exception caught!\n";
+		return 2;
 	}
 
-	std::cerr << "interpreter finished normally\n";
 	return 0;
 }

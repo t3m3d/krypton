@@ -54,6 +54,10 @@ enum class OpCode {
   TOK_TYPE,
   TOK_VAL,
   FIND_LAST_COMMA,
+  TOK_AT,
+  TOKENIZE,
+  SCAN_FUNCS,
+  FIND_ENTRY,
   // Misc
   POP
 };

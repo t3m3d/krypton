@@ -466,7 +466,7 @@ func scanFunctions(tokens, ntoks) {
             while tokAt(tokens, pi) != "LBRACE" {
                 pi = pi + 1
             }
-            table = table + fname + "\t" + pc + "\t" + params + "\t" + pi + "\n"
+            table = table + fname + "~" + pc + "~" + params + "~" + pi + "\n"
             // skip past the function body
             i = pi
             let depth = 0
@@ -493,17 +493,17 @@ func scanFunctions(tokens, ntoks) {
 }
 
 func funcLookup(table, name) {
-    // returns "paramCount\tp1,p2,...\tstartTokIdx" or "" if not found
+    // returns "paramCount~p1,p2,...~startTokIdx" or "" if not found
     let i = 0
     let lineStart = 0
     while i <= len(table) {
         if i == len(table) || table[i] == "\n" {
             let line = substring(table, lineStart, i)
-            // find first tab
+            // find first tilde
             let t1 = -1
             let j = 0
             while j < len(line) {
-                if line[j] == "\t" && t1 == -1 {
+                if line[j] == "~" && t1 == -1 {
                     t1 = j
                 }
                 j = j + 1
@@ -524,7 +524,7 @@ func funcLookup(table, name) {
 func funcParamCount(info) {
     let i = 0
     while i < len(info) {
-        if info[i] == "\t" {
+        if info[i] == "~" {
             emit toInt(substring(info, 0, i))
         }
         i = i + 1
@@ -533,12 +533,12 @@ func funcParamCount(info) {
 }
 
 func funcParams(info) {
-    // between first and second tab
+    // between first and second tilde
     let t1 = -1
     let t2 = -1
     let i = 0
     while i < len(info) {
-        if info[i] == "\t" {
+        if info[i] == "~" {
             if t1 == -1 {
                 t1 = i
             }
@@ -555,11 +555,11 @@ func funcParams(info) {
 }
 
 func funcStart(info) {
-    // after last tab
+    // after last tilde
     let last = -1
     let i = 0
     while i < len(info) {
-        if info[i] == "\t" {
+        if info[i] == "~" {
             last = i
         }
         i = i + 1
@@ -999,6 +999,12 @@ func evalCall(tokens, pos, env, ftable) {
         emit getLine(s, idx) + "," + p
     }
 
+    if fname == "tokAt" {
+        let s = getArg(args, 0)
+        let idx = toInt(getArg(args, 1))
+        emit tokAt(s, idx) + "," + p
+    }
+
     if fname == "lineCount" {
         let s = getArg(args, 0)
         emit lineCount(s) + "," + p
@@ -1040,6 +1046,23 @@ func evalCall(tokens, pos, env, ftable) {
     if fname == "findLastComma" {
         let s = getArg(args, 0)
         emit findLastComma(s) + "," + p
+    }
+
+    if fname == "tokenize" {
+        let s = getArg(args, 0)
+        emit tokenize(s) + "," + p
+    }
+
+    if fname == "scanFunctions" {
+        let s = getArg(args, 0)
+        let n = toInt(getArg(args, 1))
+        emit scanFunctions(s, n) + "," + p
+    }
+
+    if fname == "findEntry" {
+        let s = getArg(args, 0)
+        let n = toInt(getArg(args, 1))
+        emit findEntry(s, n) + "," + p
     }
 
     // ── User-defined functions ──
@@ -1097,13 +1120,14 @@ func getArg(args, idx) {
 // Returns "C\tenv\tpos" (continue), "R\tvalue\tpos" (return/emit), "B\tenv\tpos" (break)
 
 func makeResult(tag, val, env, pos) {
-    emit tag + "\t" + val + "\t" + env + "\t" + pos
+    let r = tag + "|" + val + "|" + env + "|" + pos
+    emit r
 }
 
 func getResultTag(r) {
     let i = 0
     while i < len(r) {
-        if r[i] == "\t" {
+        if r[i] == "|" {
             emit substring(r, 0, i)
         }
         i = i + 1
@@ -1112,53 +1136,53 @@ func getResultTag(r) {
 }
 
 func getResultVal(r) {
-    // between first and second tab
-    let t1 = -1
-    let t2 = -1
+    // between first pipe and second-to-last pipe
+    // (parse from both ends to handle nested pipes in val)
+    let first = -1
+    let last = -1
+    let secondLast = -1
     let i = 0
     while i < len(r) {
-        if r[i] == "\t" {
-            if t1 == -1 {
-                t1 = i
+        if r[i] == "|" {
+            if first == -1 {
+                first = i
             }
-            else if t2 == -1 {
-                t2 = i
-            }
+            secondLast = last
+            last = i
         }
         i = i + 1
     }
-    if t1 >= 0 && t2 >= 0 {
-        emit substring(r, t1 + 1, t2)
+    if first >= 0 && secondLast >= 0 {
+        emit substring(r, first + 1, secondLast)
     }
     emit ""
 }
 
 func getResultEnv(r) {
-    // between second and third tab
-    let t1 = -1
-    let t2 = -1
-    let t3 = -1
+    // between second-to-last and last pipe
+    // (parse from both ends to handle nested pipes in val)
+    let last = -1
+    let secondLast = -1
     let i = 0
     while i < len(r) {
-        if r[i] == "\t" {
-            if t1 == -1 { t1 = i }
-            else if t2 == -1 { t2 = i }
-            else if t3 == -1 { t3 = i }
+        if r[i] == "|" {
+            secondLast = last
+            last = i
         }
         i = i + 1
     }
-    if t2 >= 0 && t3 >= 0 {
-        emit substring(r, t2 + 1, t3)
+    if secondLast >= 0 && last >= 0 {
+        emit substring(r, secondLast + 1, last)
     }
     emit ""
 }
 
 func getResultPos(r) {
-    // after last tab
+    // after last pipe
     let last = -1
     let i = 0
     while i < len(r) {
-        if r[i] == "\t" {
+        if r[i] == "|" {
             last = i
         }
         i = i + 1
@@ -1401,28 +1425,24 @@ just run {
 
     let tokens = tokenize(source)
     let ntoks = lineCount(tokens)
-    print("Tokenized: " + ntoks + " tokens")
 
     let ftable = scanFunctions(tokens, ntoks)
-    print("Functions scanned")
 
     let entry = findEntry(tokens, ntoks)
-    print("Entry point: " + entry)
     if entry < 0 {
         print("No entry point found")
         emit 1
     }
 
     // Set up initial env with arg offset so inner arg() calls skip our file arg
-    let initEnv = "__argOffset=1\n"
+    let initEnv = envSet("", "__argOffset", "1")
 
-    print("Running...")
     let result = execBlock(tokens, entry, initEnv, ftable)
     let tag = getResultTag(result)
     if tag == "R" {
         let val = getResultVal(result)
         if val != "" {
-            print("Result: " + val)
+            emit toInt(val)
         }
     }
     emit 0

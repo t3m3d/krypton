@@ -1,5 +1,6 @@
 just run {
     let src = readFile("examples/hello.k")
-    print(len(src))
-    print(src)
+    kp(len(src))
+    kp(src)
+    emit "ok"
 }
