@@ -68,34 +68,37 @@ func tokVal(tok) {
 func expandEscapes(s) {
     let r = ""
     let i = 0
+    let start = 0
     while i < len(s) {
         if s[i] == "\\" && i + 1 < len(s) {
+            if i > start {
+                r = r + substring(s, start, i)
+            }
             let nc = s[i + 1]
             if nc == "n" {
                 r = r + "\n"
-                i = i + 2
             }
             else if nc == "t" {
                 r = r + "\t"
-                i = i + 2
             }
             else if nc == "\\" {
                 r = r + "\\"
-                i = i + 2
             }
             else if nc == "\"" {
                 r = r + "\""
-                i = i + 2
             }
             else {
-                r = r + s[i]
-                i = i + 1
+                r = r + substring(s, i, i + 1)
             }
+            i = i + 2
+            start = i
         }
         else {
-            r = r + s[i]
             i = i + 1
         }
+    }
+    if i > start {
+        r = r + substring(s, start, i)
     }
     emit r
 }
@@ -113,36 +116,40 @@ func isAlphaNum(c) {
 }
 
 func readNumber(text, i) {
-    let n = ""
+    let start = i
     while i < len(text) && isDigit(text[i]) {
-        n = n + text[i]
         i = i + 1
     }
-    emit n + "," + i
+    emit substring(text, start, i) + "," + i
 }
 
 func readIdent(text, i) {
-    let n = ""
+    let start = i
     while i < len(text) && isAlphaNum(text[i]) {
-        n = n + text[i]
         i = i + 1
     }
-    emit n + "," + i
+    emit substring(text, start, i) + "," + i
 }
 
 func readString(text, i) {
-    let s = ""
     i = i + 1
+    let start = i
+    let s = ""
     while i < len(text) && text[i] != "\"" {
         if text[i] == "\\" && i + 1 < len(text) {
-            // Keep escape sequences raw (e.g. \n stays as two chars \ and n)
-            s = s + text[i] + text[i + 1]
+            if i > start {
+                s = s + substring(text, start, i)
+            }
+            s = s + substring(text, i, i + 2)
             i = i + 2
+            start = i
         }
         else {
-            s = s + text[i]
             i = i + 1
         }
+    }
+    if i > start {
+        s = s + substring(text, start, i)
     }
     emit s + "," + (i + 1)
 }
@@ -396,22 +403,27 @@ func envGet(env, name) {
     // Unescape: \\n -> newline, \\\\ -> backslash
     let unescaped = ""
     let ui = 0
+    let ustart = 0
     while ui < len(result) {
         if result[ui] == "\\" && ui + 1 < len(result) {
+            if ui > ustart {
+                unescaped = unescaped + substring(result, ustart, ui)
+            }
             if result[ui + 1] == "n" {
                 unescaped = unescaped + "\n"
-                ui = ui + 2
             } else if result[ui + 1] == "\\" {
                 unescaped = unescaped + "\\"
-                ui = ui + 2
             } else {
-                unescaped = unescaped + result[ui]
-                ui = ui + 1
+                unescaped = unescaped + substring(result, ui, ui + 1)
             }
+            ui = ui + 2
+            ustart = ui
         } else {
-            unescaped = unescaped + result[ui]
             ui = ui + 1
         }
+    }
+    if ui > ustart {
+        unescaped = unescaped + substring(result, ustart, ui)
     }
     emit unescaped
 }
@@ -420,15 +432,28 @@ func envSet(env, name, val) {
     // Escape newlines and backslashes in value
     let escaped = ""
     let ei = 0
+    let estart = 0
     while ei < len(val) {
         if val[ei] == "\\" {
+            if ei > estart {
+                escaped = escaped + substring(val, estart, ei)
+            }
             escaped = escaped + "\\\\"
+            ei = ei + 1
+            estart = ei
         } else if val[ei] == "\n" {
+            if ei > estart {
+                escaped = escaped + substring(val, estart, ei)
+            }
             escaped = escaped + "\\n"
+            ei = ei + 1
+            estart = ei
         } else {
-            escaped = escaped + val[ei]
+            ei = ei + 1
         }
-        ei = ei + 1
+    }
+    if ei > estart {
+        escaped = escaped + substring(val, estart, ei)
     }
     emit env + name + "=" + escaped + "\n"
 }

@@ -2,11 +2,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-static char _arena[4*1024*1024];
+static char _arena[256*1024*1024];
 static int _apos = 0;
 static int _argc; static char** _argv;
 
 static char* _alloc(int n) {
+    if (_apos + n > 256*1024*1024) {
+        fprintf(stderr, "arena overflow\n"); exit(1);
+    }
     char* p = _arena + _apos;
     _apos += n;
     return p;
@@ -307,29 +310,32 @@ char* tokVal(char* tok) {
 char* expandEscapes(char* s) {
     char* r = kr_str("");
     char* i = kr_str("0");
+    char* start = kr_str("0");
     while (kr_truthy(kr_lt(i, kr_len(s)))) {
         if (kr_truthy((kr_truthy(kr_eq(kr_idx(s, kr_atoi(i)), kr_str("\\"))) && kr_truthy(kr_lt(kr_plus(i, kr_str("1")), kr_len(s))) ? kr_str("1") : kr_str("0")))) {
+            if (kr_truthy(kr_gt(i, start))) {
+                r = kr_plus(r, kr_substr(s, start, i));
+            }
             char* nc = kr_idx(s, kr_atoi(kr_plus(i, kr_str("1"))));
             if (kr_truthy(kr_eq(nc, kr_str("n")))) {
                 r = kr_plus(r, kr_str("\n"));
-                i = kr_plus(i, kr_str("2"));
             } else if (kr_truthy(kr_eq(nc, kr_str("t")))) {
                 r = kr_plus(r, kr_str("\t"));
-                i = kr_plus(i, kr_str("2"));
             } else if (kr_truthy(kr_eq(nc, kr_str("\\")))) {
                 r = kr_plus(r, kr_str("\\"));
-                i = kr_plus(i, kr_str("2"));
             } else if (kr_truthy(kr_eq(nc, kr_str("\"")))) {
                 r = kr_plus(r, kr_str("\""));
-                i = kr_plus(i, kr_str("2"));
             } else {
-                r = kr_plus(r, kr_idx(s, kr_atoi(i)));
-                i = kr_plus(i, kr_str("1"));
+                r = kr_plus(r, kr_substr(s, i, kr_plus(i, kr_str("1"))));
             }
+            i = kr_plus(i, kr_str("2"));
+            start = i;
         } else {
-            r = kr_plus(r, kr_idx(s, kr_atoi(i)));
             i = kr_plus(i, kr_str("1"));
         }
+    }
+    if (kr_truthy(kr_gt(i, start))) {
+        r = kr_plus(r, kr_substr(s, start, i));
     }
     return r;
 }
@@ -347,34 +353,39 @@ char* isAlphaNum(char* c) {
 }
 
 char* readNumber(char* text, char* i) {
-    char* n = kr_str("");
+    char* start = i;
     while (kr_truthy((kr_truthy(kr_lt(i, kr_len(text))) && kr_truthy(isDigit(kr_idx(text, kr_atoi(i)))) ? kr_str("1") : kr_str("0")))) {
-        n = kr_plus(n, kr_idx(text, kr_atoi(i)));
         i = kr_plus(i, kr_str("1"));
     }
-    return kr_plus(kr_plus(n, kr_str(",")), i);
+    return kr_plus(kr_plus(kr_substr(text, start, i), kr_str(",")), i);
 }
 
 char* readIdent(char* text, char* i) {
-    char* n = kr_str("");
+    char* start = i;
     while (kr_truthy((kr_truthy(kr_lt(i, kr_len(text))) && kr_truthy(isAlphaNum(kr_idx(text, kr_atoi(i)))) ? kr_str("1") : kr_str("0")))) {
-        n = kr_plus(n, kr_idx(text, kr_atoi(i)));
         i = kr_plus(i, kr_str("1"));
     }
-    return kr_plus(kr_plus(n, kr_str(",")), i);
+    return kr_plus(kr_plus(kr_substr(text, start, i), kr_str(",")), i);
 }
 
 char* readString(char* text, char* i) {
-    char* s = kr_str("");
     i = kr_plus(i, kr_str("1"));
+    char* start = i;
+    char* s = kr_str("");
     while (kr_truthy((kr_truthy(kr_lt(i, kr_len(text))) && kr_truthy(kr_neq(kr_idx(text, kr_atoi(i)), kr_str("\""))) ? kr_str("1") : kr_str("0")))) {
         if (kr_truthy((kr_truthy(kr_eq(kr_idx(text, kr_atoi(i)), kr_str("\\"))) && kr_truthy(kr_lt(kr_plus(i, kr_str("1")), kr_len(text))) ? kr_str("1") : kr_str("0")))) {
-            s = kr_plus(kr_plus(s, kr_idx(text, kr_atoi(i))), kr_idx(text, kr_atoi(kr_plus(i, kr_str("1")))));
+            if (kr_truthy(kr_gt(i, start))) {
+                s = kr_plus(s, kr_substr(text, start, i));
+            }
+            s = kr_plus(s, kr_substr(text, i, kr_plus(i, kr_str("2"))));
             i = kr_plus(i, kr_str("2"));
+            start = i;
         } else {
-            s = kr_plus(s, kr_idx(text, kr_atoi(i)));
             i = kr_plus(i, kr_str("1"));
         }
+    }
+    if (kr_truthy(kr_gt(i, start))) {
+        s = kr_plus(s, kr_substr(text, start, i));
     }
     return kr_plus(kr_plus(s, kr_str(",")), kr_plus(i, kr_str("1")));
 }
@@ -607,22 +618,27 @@ char* envGet(char* env, char* name) {
     }
     char* unescaped = kr_str("");
     char* ui = kr_str("0");
+    char* ustart = kr_str("0");
     while (kr_truthy(kr_lt(ui, kr_len(result)))) {
         if (kr_truthy((kr_truthy(kr_eq(kr_idx(result, kr_atoi(ui)), kr_str("\\"))) && kr_truthy(kr_lt(kr_plus(ui, kr_str("1")), kr_len(result))) ? kr_str("1") : kr_str("0")))) {
+            if (kr_truthy(kr_gt(ui, ustart))) {
+                unescaped = kr_plus(unescaped, kr_substr(result, ustart, ui));
+            }
             if (kr_truthy(kr_eq(kr_idx(result, kr_atoi(kr_plus(ui, kr_str("1")))), kr_str("n")))) {
                 unescaped = kr_plus(unescaped, kr_str("\n"));
-                ui = kr_plus(ui, kr_str("2"));
             } else if (kr_truthy(kr_eq(kr_idx(result, kr_atoi(kr_plus(ui, kr_str("1")))), kr_str("\\")))) {
                 unescaped = kr_plus(unescaped, kr_str("\\"));
-                ui = kr_plus(ui, kr_str("2"));
             } else {
-                unescaped = kr_plus(unescaped, kr_idx(result, kr_atoi(ui)));
-                ui = kr_plus(ui, kr_str("1"));
+                unescaped = kr_plus(unescaped, kr_substr(result, ui, kr_plus(ui, kr_str("1"))));
             }
+            ui = kr_plus(ui, kr_str("2"));
+            ustart = ui;
         } else {
-            unescaped = kr_plus(unescaped, kr_idx(result, kr_atoi(ui)));
             ui = kr_plus(ui, kr_str("1"));
         }
+    }
+    if (kr_truthy(kr_gt(ui, ustart))) {
+        unescaped = kr_plus(unescaped, kr_substr(result, ustart, ui));
     }
     return unescaped;
 }
@@ -630,15 +646,28 @@ char* envGet(char* env, char* name) {
 char* envSet(char* env, char* name, char* val) {
     char* escaped = kr_str("");
     char* ei = kr_str("0");
+    char* estart = kr_str("0");
     while (kr_truthy(kr_lt(ei, kr_len(val)))) {
         if (kr_truthy(kr_eq(kr_idx(val, kr_atoi(ei)), kr_str("\\")))) {
+            if (kr_truthy(kr_gt(ei, estart))) {
+                escaped = kr_plus(escaped, kr_substr(val, estart, ei));
+            }
             escaped = kr_plus(escaped, kr_str("\\\\"));
+            ei = kr_plus(ei, kr_str("1"));
+            estart = ei;
         } else if (kr_truthy(kr_eq(kr_idx(val, kr_atoi(ei)), kr_str("\n")))) {
+            if (kr_truthy(kr_gt(ei, estart))) {
+                escaped = kr_plus(escaped, kr_substr(val, estart, ei));
+            }
             escaped = kr_plus(escaped, kr_str("\\n"));
+            ei = kr_plus(ei, kr_str("1"));
+            estart = ei;
         } else {
-            escaped = kr_plus(escaped, kr_idx(val, kr_atoi(ei)));
+            ei = kr_plus(ei, kr_str("1"));
         }
-        ei = kr_plus(ei, kr_str("1"));
+    }
+    if (kr_truthy(kr_gt(ei, estart))) {
+        escaped = kr_plus(escaped, kr_substr(val, estart, ei));
     }
     return kr_plus(kr_plus(kr_plus(kr_plus(env, name), kr_str("=")), escaped), kr_str("\n"));
 }
@@ -1185,7 +1214,7 @@ char* evalCall(char* tokens, char* pos, char* env, char* ftable) {
     }
     if (kr_truthy(kr_eq(fname, kr_str("tokenize")))) {
         char* s = getArg(args, kr_str("0"));
-        return kr_plus(kr_plus(kr_tokenize(s), kr_str(",")), p);
+        return kr_plus(kr_plus(tokenize(s), kr_str(",")), p);
     }
     if (kr_truthy(kr_eq(fname, kr_str("scanFunctions")))) {
         char* s = getArg(args, kr_str("0"));
@@ -1492,7 +1521,7 @@ int main(int argc, char** argv) {
     _argc = argc; _argv = argv;
     char* file = kr_arg(kr_str("0"));
     char* source = kr_readfile(file);
-    char* tokens = kr_tokenize(source);
+    char* tokens = tokenize(source);
     char* ntoks = kr_linecount(tokens);
     char* ftable = scanFunctions(tokens, ntoks);
     char* entry = findEntry(tokens, ntoks);
