@@ -203,7 +203,7 @@ static char* kr_envset(char* envp, const char* name, const char* val) {
     EnvEntry* e = (EnvEntry*)malloc(sizeof(EnvEntry));
     e->name = kr_str(name);
     e->value = kr_str(val);
-    e->prev = envp ? (EnvEntry*)envp : NULL;
+    e->prev = (EnvEntry*)envp;
     return (char*)e;
 }
 

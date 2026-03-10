@@ -252,10 +252,52 @@ static char* kr_istruthy(const char* s) {
     return kr_str("1");
 }
 
+char* add(char*, char*);
+char* greet(char*);
+
+char* add(char* a, char* b) {
+    return kr_plus(a, b);
+}
+
+char* greet(char* name) {
+    return kr_plus(kr_str("Hello, "), name);
+}
 
 int main(int argc, char** argv) {
     _argc = argc; _argv = argv;
-    kr_print(kr_str("Hello World"));
+    char* x = add(kr_str("3"), kr_str("4"));
+    kr_print(x);
+    char* msg = greet(kr_str("Krypton"));
+    kr_print(msg);
+    char* i = kr_str("0");
+    while (kr_truthy(kr_lt(i, kr_str("5")))) {
+        kr_print(i);
+        i = kr_plus(i, kr_str("1"));
+    }
+    char* val = kr_str("42");
+    if (kr_truthy(kr_eq(val, kr_str("42")))) {
+        kr_print(kr_str("found it"));
+    } else if (kr_truthy(kr_eq(val, kr_str("0")))) {
+        kr_print(kr_str("zero"));
+    } else {
+        kr_print(kr_str("other"));
+    }
+    char* s = kr_str("abc");
+    kr_print(kr_idx(s, kr_atoi(kr_str("0"))));
+    kr_print(kr_idx(s, kr_atoi(kr_str("1"))));
+    kr_print(kr_idx(s, kr_atoi(kr_str("2"))));
+    if (kr_truthy(kr_gt(kr_str("10"), kr_str("5")))) {
+        kr_print(kr_str("1 > 5"));
+    }
+    char* pair = kr_str("hello,world");
+    char* first = kr_split(pair, kr_str("0"));
+    char* second = kr_split(pair, kr_str("1"));
+    kr_print(first);
+    kr_print(second);
+    if (kr_truthy(kr_startswith(kr_str("hello world"), kr_str("hello")))) {
+        kr_print(kr_str("starts with hello"));
+    }
+    kr_print(kr_len(kr_str("test")));
     return 0;
     return 0;
 }
