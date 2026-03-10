@@ -972,7 +972,7 @@ func cRuntime() {
     r = r + "    EnvEntry* e = (EnvEntry*)malloc(sizeof(EnvEntry));\n"
     r = r + "    e->name = kr_str(name);\n"
     r = r + "    e->value = kr_str(val);\n"
-    r = r + "    e->prev = envp ? (EnvEntry*)envp : NULL;\n"
+    r = r + "    e->prev = (EnvEntry*)envp;\n"
     r = r + "    return (char*)e;\n"
     r = r + "}\n\n"
 
