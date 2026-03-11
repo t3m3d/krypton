@@ -4,9 +4,29 @@
 
 static int _argc; static char** _argv;
 
+static long long _alloc_count = 0;
+static long long _alloc_bytes = 0;
+
+#define ARENA_BLOCK (256 * 1024 * 1024)
+typedef struct ABlock { char* data; int used; int cap; struct ABlock* next; } ABlock;
+static ABlock* _arena = NULL;
+
 static char* _alloc(int n) {
-    char* p = (char*)malloc(n);
-    if (!p) { fprintf(stderr, "out of memory\n"); exit(1); }
+    _alloc_count++;
+    _alloc_bytes += n;
+    int aligned = (n + 7) & ~7;
+    if (!_arena || _arena->used + aligned > _arena->cap) {
+        int cap = aligned > ARENA_BLOCK ? aligned : ARENA_BLOCK;
+        ABlock* b = (ABlock*)malloc(sizeof(ABlock));
+        b->data = (char*)malloc(cap);
+        if (!b->data) { fprintf(stderr, "out of memory\n"); exit(1); }
+        b->used = 0;
+        b->cap = cap;
+        b->next = _arena;
+        _arena = b;
+    }
+    char* p = _arena->data + _arena->used;
+    _arena->used += aligned;
     return p;
 }
 
@@ -200,9 +220,9 @@ typedef struct EnvEntry { char* name; char* value; struct EnvEntry* prev; } EnvE
 static char* kr_envnew() { return (char*)0; }
 
 static char* kr_envset(char* envp, const char* name, const char* val) {
-    EnvEntry* e = (EnvEntry*)malloc(sizeof(EnvEntry));
-    e->name = kr_str(name);
-    e->value = kr_str(val);
+    EnvEntry* e = (EnvEntry*)_alloc(sizeof(EnvEntry));
+    e->name = (char*)name;
+    e->value = (char*)val;
     e->prev = (EnvEntry*)envp;
     return (char*)e;
 }
@@ -221,7 +241,7 @@ static char* kr_envget(char* envp, const char* name) {
 typedef struct ResultStruct { char tag; char* val; char* env; int pos; } ResultStruct;
 
 static char* kr_makeresult(const char* tag, const char* val, const char* env, const char* pos) {
-    ResultStruct* r = (ResultStruct*)malloc(sizeof(ResultStruct));
+    ResultStruct* r = (ResultStruct*)_alloc(sizeof(ResultStruct));
     r->tag = tag[0];
     r->val = (char*)val;
     r->env = (char*)env;
@@ -252,35 +272,6 @@ static char* kr_istruthy(const char* s) {
     return kr_str("1");
 }
 
-typedef struct { int cap; int len; } SBHdr;
-static char* kr_sbnew() {
-    int initcap = 65536;
-    SBHdr* h = (SBHdr*)malloc(sizeof(SBHdr) + initcap);
-    h->cap = initcap;
-    h->len = 0;
-    ((char*)(h + 1))[0] = 0;
-    return (char*)h;
-}
-
-static char* kr_sbappend(char* sb, const char* s) {
-    SBHdr* h = (SBHdr*)sb;
-    int slen = (int)strlen(s);
-    while (h->len + slen + 1 > h->cap) {
-        int newcap = h->cap * 2;
-        h = (SBHdr*)realloc(h, sizeof(SBHdr) + newcap);
-        h->cap = newcap;
-    }
-    memcpy((char*)(h + 1) + h->len, s, slen);
-    h->len += slen;
-    ((char*)(h + 1))[h->len] = 0;
-    return (char*)h;
-}
-
-static char* kr_sbtostring(char* sb) {
-    SBHdr* h = (SBHdr*)sb;
-    return (char*)(h + 1);
-}
-
 char* findLastComma(char*);
 char* pairVal(char*);
 char* pairPos(char*);
@@ -299,9 +290,6 @@ char* skipComment(char*, char*);
 char* isKW(char*);
 char* tokenize(char*);
 char* envNew();
-char* sbNew();
-char* sbAppend(char*, char*);
-char* sbToString(char*);
 char* envGet(char*, char*);
 char* envSet(char*, char*, char*);
 char* scanFunctions(char*, char*);
@@ -671,18 +659,6 @@ char* tokenize(char* text) {
 
 char* envNew() {
     return kr_str("");
-}
-
-char* sbNew() {
-    return kr_str("");
-}
-
-char* sbAppend(char* sb, char* s) {
-    return kr_plus(sb, s);
-}
-
-char* sbToString(char* sb) {
-    return sb;
 }
 
 char* envGet(char* env, char* name) {
@@ -1593,6 +1569,7 @@ int main(int argc, char** argv) {
     }
     char* initEnv = kr_envset(kr_envnew(), kr_str("__argOffset"), kr_str("1"));
     char* result = execBlock(tokens, entry, initEnv, ftable);
+    fprintf(stderr, "allocs: %lld  bytes: %lld\n", _alloc_count, _alloc_bytes);
     char* tag = kr_getresulttag(result);
     if (kr_truthy(kr_eq(tag, kr_str("R")))) {
         char* val = kr_getresultval(result);
@@ -1600,7 +1577,6 @@ int main(int argc, char** argv) {
             return 0;
         }
     }
-    return 0;
     return 0;
 }
 

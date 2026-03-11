@@ -578,6 +578,15 @@ func compileCall(tokens, pos, ntoks) {
     if fname == "isTruthy" {
         emit "kr_istruthy(" + args + ")," + p
     }
+    if fname == "sbNew" {
+        emit "kr_sbnew()," + p
+    }
+    if fname == "sbAppend" {
+        emit "kr_sbappend(" + args + ")," + p
+    }
+    if fname == "sbToString" {
+        emit "kr_sbtostring(" + args + ")," + p
+    }
 
     // User-defined function call
     emit cIdent(fname) + "(" + args + ")," + p
@@ -786,243 +795,284 @@ func compileFunc(tokens, pos, ntoks) {
     emit out + "," + p
 }
 
+// StringBuilder (Krypton-level: just concat; the C builtins in cRuntime are the fast path)
+func sbNew() {
+    emit ""
+}
+
+func sbAppend(sb, s) {
+    emit sb + s
+}
+
+func sbToString(sb) {
+    emit sb
+}
+
 // === C Runtime (embedded in output) ===
 
 func cRuntime() {
-    let r = ""
-    r = r + "#include <stdio.h>\n"
-    r = r + "#include <stdlib.h>\n"
-    r = r + "#include <string.h>\n\n"
-    r = r + "static int _argc; static char** _argv;\n\n"
-    r = r + "static char* _alloc(int n) {\n"
-    r = r + "    char* p = (char*)malloc(n);\n"
-    r = r + "    if (!p) { fprintf(stderr, \"out of memory\\n\"); exit(1); }\n"
-    r = r + "    return p;\n"
-    r = r + "}\n\n"
-    r = r + "static char* kr_str(const char* s) {\n"
-    r = r + "    int n = (int)strlen(s) + 1;\n"
-    r = r + "    char* p = _alloc(n);\n"
-    r = r + "    memcpy(p, s, n);\n"
-    r = r + "    return p;\n"
-    r = r + "}\n\n"
-    r = r + "static char* kr_cat(const char* a, const char* b) {\n"
-    r = r + "    int la = (int)strlen(a), lb = (int)strlen(b);\n"
-    r = r + "    char* p = _alloc(la + lb + 1);\n"
-    r = r + "    memcpy(p, a, la);\n"
-    r = r + "    memcpy(p + la, b, lb + 1);\n"
-    r = r + "    return p;\n"
-    r = r + "}\n\n"
-    r = r + "static int kr_isnum(const char* s) {\n"
-    r = r + "    if (!*s) return 0;\n"
-    r = r + "    const char* p = s;\n"
-    r = r + "    if (*p == '-') p++;\n"
-    r = r + "    if (!*p) return 0;\n"
-    r = r + "    while (*p) { if (*p < '0' || *p > '9') return 0; p++; }\n"
-    r = r + "    return 1;\n"
-    r = r + "}\n\n"
-    r = r + "static char* kr_itoa(int v) {\n"
-    r = r + "    char buf[32];\n"
-    r = r + "    snprintf(buf, sizeof(buf), \"%d\", v);\n"
-    r = r + "    return kr_str(buf);\n"
-    r = r + "}\n\n"
-    r = r + "static int kr_atoi(const char* s) { return atoi(s); }\n\n"
-    r = r + "static char* kr_plus(const char* a, const char* b) {\n"
-    r = r + "    if (kr_isnum(a) && kr_isnum(b))\n"
-    r = r + "        return kr_itoa(atoi(a) + atoi(b));\n"
-    r = r + "    return kr_cat(a, b);\n"
-    r = r + "}\n\n"
-    r = r + "static char* kr_sub(const char* a, const char* b) { return kr_itoa(atoi(a) - atoi(b)); }\n"
-    r = r + "static char* kr_mul(const char* a, const char* b) { return kr_itoa(atoi(a) * atoi(b)); }\n"
-    r = r + "static char* kr_div(const char* a, const char* b) { return kr_itoa(atoi(a) / atoi(b)); }\n"
-    r = r + "static char* kr_mod(const char* a, const char* b) { return kr_itoa(atoi(a) % atoi(b)); }\n"
-    r = r + "static char* kr_neg(const char* a) { return kr_itoa(-atoi(a)); }\n"
-    r = r + "static char* kr_not(const char* a) { return kr_str(atoi(a) ? \"0\" : \"1\"); }\n\n"
-    r = r + "static char* kr_eq(const char* a, const char* b) {\n"
-    r = r + "    return kr_str(strcmp(a, b) == 0 ? \"1\" : \"0\");\n"
-    r = r + "}\n"
-    r = r + "static char* kr_neq(const char* a, const char* b) {\n"
-    r = r + "    return kr_str(strcmp(a, b) != 0 ? \"1\" : \"0\");\n"
-    r = r + "}\n"
-    r = r + "static char* kr_lt(const char* a, const char* b) {\n"
-    r = r + "    if (kr_isnum(a) && kr_isnum(b)) return kr_str(atoi(a) < atoi(b) ? \"1\" : \"0\");\n"
-    r = r + "    return kr_str(strcmp(a, b) < 0 ? \"1\" : \"0\");\n"
-    r = r + "}\n"
-    r = r + "static char* kr_gt(const char* a, const char* b) {\n"
-    r = r + "    if (kr_isnum(a) && kr_isnum(b)) return kr_str(atoi(a) > atoi(b) ? \"1\" : \"0\");\n"
-    r = r + "    return kr_str(strcmp(a, b) > 0 ? \"1\" : \"0\");\n"
-    r = r + "}\n"
-    r = r + "static char* kr_lte(const char* a, const char* b) {\n"
-    r = r + "    return kr_str(strcmp(kr_gt(a, b), \"0\") == 0 ? \"1\" : \"0\");\n"
-    r = r + "}\n"
-    r = r + "static char* kr_gte(const char* a, const char* b) {\n"
-    r = r + "    return kr_str(strcmp(kr_lt(a, b), \"0\") == 0 ? \"1\" : \"0\");\n"
-    r = r + "}\n\n"
-    r = r + "static int kr_truthy(const char* s) {\n"
-    r = r + "    if (!s || !*s) return 0;\n"
-    r = r + "    if (strcmp(s, \"0\") == 0) return 0;\n"
-    r = r + "    return 1;\n"
-    r = r + "}\n\n"
-    r = r + "static char* kr_print(const char* s) {\n"
-    r = r + "    printf(\"%s\\n\", s);\n"
-    r = r + "    return kr_str(\"\");\n"
-    r = r + "}\n\n"
-    r = r + "static char* kr_len(const char* s) { return kr_itoa((int)strlen(s)); }\n\n"
-    r = r + "static char* kr_idx(const char* s, int i) {\n"
-    r = r + "    char buf[2] = {s[i], 0};\n"
-    r = r + "    return kr_str(buf);\n"
-    r = r + "}\n\n"
-    r = r + "static char* kr_split(const char* s, const char* idxs) {\n"
-    r = r + "    int idx = atoi(idxs);\n"
-    r = r + "    int count = 0;\n"
-    r = r + "    const char* start = s;\n"
-    r = r + "    const char* p = s;\n"
-    r = r + "    while (*p) {\n"
-    r = r + "        if (*p == ',') {\n"
-    r = r + "            if (count == idx) {\n"
-    r = r + "                int len = (int)(p - start);\n"
-    r = r + "                char* r = _alloc(len + 1);\n"
-    r = r + "                memcpy(r, start, len);\n"
-    r = r + "                r[len] = 0;\n"
-    r = r + "                return r;\n"
-    r = r + "            }\n"
-    r = r + "            count++;\n"
-    r = r + "            start = p + 1;\n"
-    r = r + "        }\n"
-    r = r + "        p++;\n"
-    r = r + "    }\n"
-    r = r + "    if (count == idx) return kr_str(start);\n"
-    r = r + "    return kr_str(\"\");\n"
-    r = r + "}\n\n"
-    r = r + "static char* kr_startswith(const char* s, const char* prefix) {\n"
-    r = r + "    return kr_str(strncmp(s, prefix, strlen(prefix)) == 0 ? \"1\" : \"0\");\n"
-    r = r + "}\n\n"
-    r = r + "static char* kr_substr(const char* s, const char* starts, const char* ends) {\n"
-    r = r + "    int st = atoi(starts), en = atoi(ends);\n"
-    r = r + "    int slen = (int)strlen(s);\n"
-    r = r + "    if (st >= slen) return kr_str(\"\");\n"
-    r = r + "    if (en > slen) en = slen;\n"
-    r = r + "    int n = en - st;\n"
-    r = r + "    if (n <= 0) return kr_str(\"\");\n"
-    r = r + "    char* r = _alloc(n + 1);\n"
-    r = r + "    memcpy(r, s + st, n);\n"
-    r = r + "    r[n] = 0;\n"
-    r = r + "    return r;\n"
-    r = r + "}\n\n"
-    r = r + "static char* kr_toint(const char* s) { return kr_itoa(atoi(s)); }\n\n"
-    r = r + "static char* kr_readfile(const char* path) {\n"
-    r = r + "    FILE* f = fopen(path, \"rb\");\n"
-    r = r + "    if (!f) return kr_str(\"\");\n"
-    r = r + "    fseek(f, 0, SEEK_END);\n"
-    r = r + "    long sz = ftell(f);\n"
-    r = r + "    fseek(f, 0, SEEK_SET);\n"
-    r = r + "    char* buf = _alloc((int)sz + 1);\n"
-    r = r + "    fread(buf, 1, sz, f);\n"
-    r = r + "    buf[sz] = 0;\n"
-    r = r + "    fclose(f);\n"
-    r = r + "    return buf;\n"
-    r = r + "}\n\n"
-    r = r + "static char* kr_arg(const char* idxs) {\n"
-    r = r + "    int idx = atoi(idxs) + 1;\n"
-    r = r + "    if (idx < _argc) return kr_str(_argv[idx]);\n"
-    r = r + "    return kr_str(\"\");\n"
-    r = r + "}\n\n"
-    r = r + "static char* kr_argcount() {\n"
-    r = r + "    return kr_itoa(_argc - 1);\n"
-    r = r + "}\n\n"
-    r = r + "static char* kr_getline(const char* s, const char* idxs) {\n"
-    r = r + "    int idx = atoi(idxs);\n"
-    r = r + "    int cur = 0;\n"
-    r = r + "    const char* start = s;\n"
-    r = r + "    const char* p = s;\n"
-    r = r + "    while (*p) {\n"
-    r = r + "        if (*p == '\\n') {\n"
-    r = r + "            if (cur == idx) {\n"
-    r = r + "                int len = (int)(p - start);\n"
-    r = r + "                char* r = _alloc(len + 1);\n"
-    r = r + "                memcpy(r, start, len);\n"
-    r = r + "                r[len] = 0;\n"
-    r = r + "                return r;\n"
-    r = r + "            }\n"
-    r = r + "            cur++;\n"
-    r = r + "            start = p + 1;\n"
-    r = r + "        }\n"
-    r = r + "        p++;\n"
-    r = r + "    }\n"
-    r = r + "    if (cur == idx) return kr_str(start);\n"
-    r = r + "    return kr_str(\"\");\n"
-    r = r + "}\n\n"
-    r = r + "static char* kr_linecount(const char* s) {\n"
-    r = r + "    if (!*s) return kr_str(\"0\");\n"
-    r = r + "    int count = 1;\n"
-    r = r + "    const char* p = s;\n"
-    r = r + "    while (*p) { if (*p == '\\n') count++; p++; }\n"
-    r = r + "    if (*(p - 1) == '\\n') count--;\n"
-    r = r + "    return kr_itoa(count);\n"
-    r = r + "}\n\n"
-    r = r + "static char* kr_count(const char* s) {\n"
-    r = r + "    return kr_linecount(s);\n"
-    r = r + "}\n\n"
+    let r = sbNew()
+    r = sbAppend(r, "#include <stdio.h>\n")
+    r = sbAppend(r, "#include <stdlib.h>\n")
+    r = sbAppend(r, "#include <string.h>\n\n")
+    r = sbAppend(r, "static int _argc; static char** _argv;\n\n")
+    r = sbAppend(r, "static char* _alloc(int n) {\n")
+    r = sbAppend(r, "    char* p = (char*)malloc(n);\n")
+    r = sbAppend(r, "    if (!p) { fprintf(stderr, \"out of memory\\n\"); exit(1); }\n")
+    r = sbAppend(r, "    return p;\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_str(const char* s) {\n")
+    r = sbAppend(r, "    int n = (int)strlen(s) + 1;\n")
+    r = sbAppend(r, "    char* p = _alloc(n);\n")
+    r = sbAppend(r, "    memcpy(p, s, n);\n")
+    r = sbAppend(r, "    return p;\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_cat(const char* a, const char* b) {\n")
+    r = sbAppend(r, "    int la = (int)strlen(a), lb = (int)strlen(b);\n")
+    r = sbAppend(r, "    char* p = _alloc(la + lb + 1);\n")
+    r = sbAppend(r, "    memcpy(p, a, la);\n")
+    r = sbAppend(r, "    memcpy(p + la, b, lb + 1);\n")
+    r = sbAppend(r, "    return p;\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static int kr_isnum(const char* s) {\n")
+    r = sbAppend(r, "    if (!*s) return 0;\n")
+    r = sbAppend(r, "    const char* p = s;\n")
+    r = sbAppend(r, "    if (*p == '-') p++;\n")
+    r = sbAppend(r, "    if (!*p) return 0;\n")
+    r = sbAppend(r, "    while (*p) { if (*p < '0' || *p > '9') return 0; p++; }\n")
+    r = sbAppend(r, "    return 1;\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_itoa(int v) {\n")
+    r = sbAppend(r, "    char buf[32];\n")
+    r = sbAppend(r, "    snprintf(buf, sizeof(buf), \"%d\", v);\n")
+    r = sbAppend(r, "    return kr_str(buf);\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static int kr_atoi(const char* s) { return atoi(s); }\n\n")
+    r = sbAppend(r, "static char* kr_plus(const char* a, const char* b) {\n")
+    r = sbAppend(r, "    if (kr_isnum(a) && kr_isnum(b))\n")
+    r = sbAppend(r, "        return kr_itoa(atoi(a) + atoi(b));\n")
+    r = sbAppend(r, "    return kr_cat(a, b);\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_sub(const char* a, const char* b) { return kr_itoa(atoi(a) - atoi(b)); }\n")
+    r = sbAppend(r, "static char* kr_mul(const char* a, const char* b) { return kr_itoa(atoi(a) * atoi(b)); }\n")
+    r = sbAppend(r, "static char* kr_div(const char* a, const char* b) { return kr_itoa(atoi(a) / atoi(b)); }\n")
+    r = sbAppend(r, "static char* kr_mod(const char* a, const char* b) { return kr_itoa(atoi(a) % atoi(b)); }\n")
+    r = sbAppend(r, "static char* kr_neg(const char* a) { return kr_itoa(-atoi(a)); }\n")
+    r = sbAppend(r, "static char* kr_not(const char* a) { return kr_str(atoi(a) ? \"0\" : \"1\"); }\n\n")
+    r = sbAppend(r, "static char* kr_eq(const char* a, const char* b) {\n")
+    r = sbAppend(r, "    return kr_str(strcmp(a, b) == 0 ? \"1\" : \"0\");\n")
+    r = sbAppend(r, "}\n")
+    r = sbAppend(r, "static char* kr_neq(const char* a, const char* b) {\n")
+    r = sbAppend(r, "    return kr_str(strcmp(a, b) != 0 ? \"1\" : \"0\");\n")
+    r = sbAppend(r, "}\n")
+    r = sbAppend(r, "static char* kr_lt(const char* a, const char* b) {\n")
+    r = sbAppend(r, "    if (kr_isnum(a) && kr_isnum(b)) return kr_str(atoi(a) < atoi(b) ? \"1\" : \"0\");\n")
+    r = sbAppend(r, "    return kr_str(strcmp(a, b) < 0 ? \"1\" : \"0\");\n")
+    r = sbAppend(r, "}\n")
+    r = sbAppend(r, "static char* kr_gt(const char* a, const char* b) {\n")
+    r = sbAppend(r, "    if (kr_isnum(a) && kr_isnum(b)) return kr_str(atoi(a) > atoi(b) ? \"1\" : \"0\");\n")
+    r = sbAppend(r, "    return kr_str(strcmp(a, b) > 0 ? \"1\" : \"0\");\n")
+    r = sbAppend(r, "}\n")
+    r = sbAppend(r, "static char* kr_lte(const char* a, const char* b) {\n")
+    r = sbAppend(r, "    return kr_str(strcmp(kr_gt(a, b), \"0\") == 0 ? \"1\" : \"0\");\n")
+    r = sbAppend(r, "}\n")
+    r = sbAppend(r, "static char* kr_gte(const char* a, const char* b) {\n")
+    r = sbAppend(r, "    return kr_str(strcmp(kr_lt(a, b), \"0\") == 0 ? \"1\" : \"0\");\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static int kr_truthy(const char* s) {\n")
+    r = sbAppend(r, "    if (!s || !*s) return 0;\n")
+    r = sbAppend(r, "    if (strcmp(s, \"0\") == 0) return 0;\n")
+    r = sbAppend(r, "    return 1;\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_print(const char* s) {\n")
+    r = sbAppend(r, "    printf(\"%s\\n\", s);\n")
+    r = sbAppend(r, "    return kr_str(\"\");\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_len(const char* s) { return kr_itoa((int)strlen(s)); }\n\n")
+    r = sbAppend(r, "static char* kr_idx(const char* s, int i) {\n")
+    r = sbAppend(r, "    char buf[2] = {s[i], 0};\n")
+    r = sbAppend(r, "    return kr_str(buf);\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_split(const char* s, const char* idxs) {\n")
+    r = sbAppend(r, "    int idx = atoi(idxs);\n")
+    r = sbAppend(r, "    int count = 0;\n")
+    r = sbAppend(r, "    const char* start = s;\n")
+    r = sbAppend(r, "    const char* p = s;\n")
+    r = sbAppend(r, "    while (*p) {\n")
+    r = sbAppend(r, "        if (*p == ',') {\n")
+    r = sbAppend(r, "            if (count == idx) {\n")
+    r = sbAppend(r, "                int len = (int)(p - start);\n")
+    r = sbAppend(r, "                char* r = _alloc(len + 1);\n")
+    r = sbAppend(r, "                memcpy(r, start, len);\n")
+    r = sbAppend(r, "                r[len] = 0;\n")
+    r = sbAppend(r, "                return r;\n")
+    r = sbAppend(r, "            }\n")
+    r = sbAppend(r, "            count++;\n")
+    r = sbAppend(r, "            start = p + 1;\n")
+    r = sbAppend(r, "        }\n")
+    r = sbAppend(r, "        p++;\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    if (count == idx) return kr_str(start);\n")
+    r = sbAppend(r, "    return kr_str(\"\");\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_startswith(const char* s, const char* prefix) {\n")
+    r = sbAppend(r, "    return kr_str(strncmp(s, prefix, strlen(prefix)) == 0 ? \"1\" : \"0\");\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_substr(const char* s, const char* starts, const char* ends) {\n")
+    r = sbAppend(r, "    int st = atoi(starts), en = atoi(ends);\n")
+    r = sbAppend(r, "    int slen = (int)strlen(s);\n")
+    r = sbAppend(r, "    if (st >= slen) return kr_str(\"\");\n")
+    r = sbAppend(r, "    if (en > slen) en = slen;\n")
+    r = sbAppend(r, "    int n = en - st;\n")
+    r = sbAppend(r, "    if (n <= 0) return kr_str(\"\");\n")
+    r = sbAppend(r, "    char* r = _alloc(n + 1);\n")
+    r = sbAppend(r, "    memcpy(r, s + st, n);\n")
+    r = sbAppend(r, "    r[n] = 0;\n")
+    r = sbAppend(r, "    return r;\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_toint(const char* s) { return kr_itoa(atoi(s)); }\n\n")
+    r = sbAppend(r, "static char* kr_readfile(const char* path) {\n")
+    r = sbAppend(r, "    FILE* f = fopen(path, \"rb\");\n")
+    r = sbAppend(r, "    if (!f) return kr_str(\"\");\n")
+    r = sbAppend(r, "    fseek(f, 0, SEEK_END);\n")
+    r = sbAppend(r, "    long sz = ftell(f);\n")
+    r = sbAppend(r, "    fseek(f, 0, SEEK_SET);\n")
+    r = sbAppend(r, "    char* buf = _alloc((int)sz + 1);\n")
+    r = sbAppend(r, "    fread(buf, 1, sz, f);\n")
+    r = sbAppend(r, "    buf[sz] = 0;\n")
+    r = sbAppend(r, "    fclose(f);\n")
+    r = sbAppend(r, "    return buf;\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_arg(const char* idxs) {\n")
+    r = sbAppend(r, "    int idx = atoi(idxs) + 1;\n")
+    r = sbAppend(r, "    if (idx < _argc) return kr_str(_argv[idx]);\n")
+    r = sbAppend(r, "    return kr_str(\"\");\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_argcount() {\n")
+    r = sbAppend(r, "    return kr_itoa(_argc - 1);\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_getline(const char* s, const char* idxs) {\n")
+    r = sbAppend(r, "    int idx = atoi(idxs);\n")
+    r = sbAppend(r, "    int cur = 0;\n")
+    r = sbAppend(r, "    const char* start = s;\n")
+    r = sbAppend(r, "    const char* p = s;\n")
+    r = sbAppend(r, "    while (*p) {\n")
+    r = sbAppend(r, "        if (*p == '\\n') {\n")
+    r = sbAppend(r, "            if (cur == idx) {\n")
+    r = sbAppend(r, "                int len = (int)(p - start);\n")
+    r = sbAppend(r, "                char* r = _alloc(len + 1);\n")
+    r = sbAppend(r, "                memcpy(r, start, len);\n")
+    r = sbAppend(r, "                r[len] = 0;\n")
+    r = sbAppend(r, "                return r;\n")
+    r = sbAppend(r, "            }\n")
+    r = sbAppend(r, "            cur++;\n")
+    r = sbAppend(r, "            start = p + 1;\n")
+    r = sbAppend(r, "        }\n")
+    r = sbAppend(r, "        p++;\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    if (cur == idx) return kr_str(start);\n")
+    r = sbAppend(r, "    return kr_str(\"\");\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_linecount(const char* s) {\n")
+    r = sbAppend(r, "    if (!*s) return kr_str(\"0\");\n")
+    r = sbAppend(r, "    int count = 1;\n")
+    r = sbAppend(r, "    const char* p = s;\n")
+    r = sbAppend(r, "    while (*p) { if (*p == '\\n') count++; p++; }\n")
+    r = sbAppend(r, "    if (*(p - 1) == '\\n') count--;\n")
+    r = sbAppend(r, "    return kr_itoa(count);\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_count(const char* s) {\n")
+    r = sbAppend(r, "    return kr_linecount(s);\n")
+    r = sbAppend(r, "}\n\n")
 
     // Native env (linked-list of entries, cast to char*)
-    r = r + "typedef struct EnvEntry { char* name; char* value; struct EnvEntry* prev; } EnvEntry;\n\n"
+    r = sbAppend(r, "typedef struct EnvEntry { char* name; char* value; struct EnvEntry* prev; } EnvEntry;\n\n")
 
-    r = r + "static char* kr_envnew() { return (char*)0; }\n\n"
+    r = sbAppend(r, "static char* kr_envnew() { return (char*)0; }\n\n")
 
-    r = r + "static char* kr_envset(char* envp, const char* name, const char* val) {\n"
-    r = r + "    EnvEntry* e = (EnvEntry*)malloc(sizeof(EnvEntry));\n"
-    r = r + "    e->name = kr_str(name);\n"
-    r = r + "    e->value = kr_str(val);\n"
-    r = r + "    e->prev = (EnvEntry*)envp;\n"
-    r = r + "    return (char*)e;\n"
-    r = r + "}\n\n"
+    r = sbAppend(r, "static char* kr_envset(char* envp, const char* name, const char* val) {\n")
+    r = sbAppend(r, "    EnvEntry* e = (EnvEntry*)malloc(sizeof(EnvEntry));\n")
+    r = sbAppend(r, "    e->name = kr_str(name);\n")
+    r = sbAppend(r, "    e->value = kr_str(val);\n")
+    r = sbAppend(r, "    e->prev = (EnvEntry*)envp;\n")
+    r = sbAppend(r, "    return (char*)e;\n")
+    r = sbAppend(r, "}\n\n")
 
-    r = r + "static char* kr_envget(char* envp, const char* name) {\n"
-    r = r + "    EnvEntry* e = (EnvEntry*)envp;\n"
-    r = r + "    while (e) {\n"
-    r = r + "        if (strcmp(e->name, name) == 0) return e->value;\n"
-    r = r + "        e = e->prev;\n"
-    r = r + "    }\n"
-    r = r + "    if (strcmp(name, \"__argOffset\") != 0)\n"
-    r = r + "        fprintf(stderr, \"ERROR: undefined variable: %s\\n\", name);\n"
-    r = r + "    return kr_str(\"\");\n"
-    r = r + "}\n\n"
+    r = sbAppend(r, "static char* kr_envget(char* envp, const char* name) {\n")
+    r = sbAppend(r, "    EnvEntry* e = (EnvEntry*)envp;\n")
+    r = sbAppend(r, "    while (e) {\n")
+    r = sbAppend(r, "        if (strcmp(e->name, name) == 0) return e->value;\n")
+    r = sbAppend(r, "        e = e->prev;\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    if (strcmp(name, \"__argOffset\") != 0)\n")
+    r = sbAppend(r, "        fprintf(stderr, \"ERROR: undefined variable: %s\\n\", name);\n")
+    r = sbAppend(r, "    return kr_str(\"\");\n")
+    r = sbAppend(r, "}\n\n")
 
     // Native result (struct with tag, val, env, pos)
-    r = r + "typedef struct ResultStruct { char tag; char* val; char* env; int pos; } ResultStruct;\n\n"
+    r = sbAppend(r, "typedef struct ResultStruct { char tag; char* val; char* env; int pos; } ResultStruct;\n\n")
 
-    r = r + "static char* kr_makeresult(const char* tag, const char* val, const char* env, const char* pos) {\n"
-    r = r + "    ResultStruct* r = (ResultStruct*)malloc(sizeof(ResultStruct));\n"
-    r = r + "    r->tag = tag[0];\n"
-    r = r + "    r->val = (char*)val;\n"
-    r = r + "    r->env = (char*)env;\n"
-    r = r + "    r->pos = atoi(pos);\n"
-    r = r + "    return (char*)r;\n"
-    r = r + "}\n\n"
+    r = sbAppend(r, "static char* kr_makeresult(const char* tag, const char* val, const char* env, const char* pos) {\n")
+    r = sbAppend(r, "    ResultStruct* r = (ResultStruct*)malloc(sizeof(ResultStruct));\n")
+    r = sbAppend(r, "    r->tag = tag[0];\n")
+    r = sbAppend(r, "    r->val = (char*)val;\n")
+    r = sbAppend(r, "    r->env = (char*)env;\n")
+    r = sbAppend(r, "    r->pos = atoi(pos);\n")
+    r = sbAppend(r, "    return (char*)r;\n")
+    r = sbAppend(r, "}\n\n")
 
-    r = r + "static char* kr_getresulttag(const char* r) {\n"
-    r = r + "    char buf[2] = {((ResultStruct*)r)->tag, 0};\n"
-    r = r + "    return kr_str(buf);\n"
-    r = r + "}\n\n"
+    r = sbAppend(r, "static char* kr_getresulttag(const char* r) {\n")
+    r = sbAppend(r, "    char buf[2] = {((ResultStruct*)r)->tag, 0};\n")
+    r = sbAppend(r, "    return kr_str(buf);\n")
+    r = sbAppend(r, "}\n\n")
 
-    r = r + "static char* kr_getresultval(const char* r) {\n"
-    r = r + "    return ((ResultStruct*)r)->val;\n"
-    r = r + "}\n\n"
+    r = sbAppend(r, "static char* kr_getresultval(const char* r) {\n")
+    r = sbAppend(r, "    return ((ResultStruct*)r)->val;\n")
+    r = sbAppend(r, "}\n\n")
 
-    r = r + "static char* kr_getresultenv(const char* r) {\n"
-    r = r + "    return ((ResultStruct*)r)->env;\n"
-    r = r + "}\n\n"
+    r = sbAppend(r, "static char* kr_getresultenv(const char* r) {\n")
+    r = sbAppend(r, "    return ((ResultStruct*)r)->env;\n")
+    r = sbAppend(r, "}\n\n")
 
-    r = r + "static char* kr_getresultpos(const char* r) {\n"
-    r = r + "    return kr_itoa(((ResultStruct*)r)->pos);\n"
-    r = r + "}\n\n"
+    r = sbAppend(r, "static char* kr_getresultpos(const char* r) {\n")
+    r = sbAppend(r, "    return kr_itoa(((ResultStruct*)r)->pos);\n")
+    r = sbAppend(r, "}\n\n")
 
-    r = r + "static char* kr_istruthy(const char* s) {\n"
-    r = r + "    if (!s || !*s || strcmp(s, \"0\") == 0 || strcmp(s, \"false\") == 0)\n"
-    r = r + "        return kr_str(\"0\");\n"
-    r = r + "    return kr_str(\"1\");\n"
-    r = r + "}\n\n"
+    r = sbAppend(r, "static char* kr_istruthy(const char* s) {\n")
+    r = sbAppend(r, "    if (!s || !*s || strcmp(s, \"0\") == 0 || strcmp(s, \"false\") == 0)\n")
+    r = sbAppend(r, "        return kr_str(\"0\");\n")
+    r = sbAppend(r, "    return kr_str(\"1\");\n")
+    r = sbAppend(r, "}\n\n")
 
-    emit r
+    // StringBuilder: mutable buffer with capacity doubling
+    r = sbAppend(r, "typedef struct { int cap; int len; } SBHdr;\n")
+    r = sbAppend(r, "static char* kr_sbnew() {\n")
+    r = sbAppend(r, "    int initcap = 65536;\n")
+    r = sbAppend(r, "    SBHdr* h = (SBHdr*)malloc(sizeof(SBHdr) + initcap);\n")
+    r = sbAppend(r, "    h->cap = initcap;\n")
+    r = sbAppend(r, "    h->len = 0;\n")
+    r = sbAppend(r, "    ((char*)(h + 1))[0] = 0;\n")
+    r = sbAppend(r, "    return (char*)h;\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_sbappend(char* sb, const char* s) {\n")
+    r = sbAppend(r, "    SBHdr* h = (SBHdr*)sb;\n")
+    r = sbAppend(r, "    int slen = (int)strlen(s);\n")
+    r = sbAppend(r, "    while (h->len + slen + 1 > h->cap) {\n")
+    r = sbAppend(r, "        int newcap = h->cap * 2;\n")
+    r = sbAppend(r, "        h = (SBHdr*)realloc(h, sizeof(SBHdr) + newcap);\n")
+    r = sbAppend(r, "        h->cap = newcap;\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    memcpy((char*)(h + 1) + h->len, s, slen);\n")
+    r = sbAppend(r, "    h->len += slen;\n")
+    r = sbAppend(r, "    ((char*)(h + 1))[h->len] = 0;\n")
+    r = sbAppend(r, "    return (char*)h;\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_sbtostring(char* sb) {\n")
+    r = sbAppend(r, "    SBHdr* h = (SBHdr*)sb;\n")
+    r = sbAppend(r, "    return (char*)(h + 1);\n")
+    r = sbAppend(r, "}\n\n")
+
+    emit sbToString(r)
 }
 
 // =============================================
@@ -1039,7 +1089,8 @@ just run {
     let ftable = scanFunctions(tokens, ntoks)
 
     // Output the C runtime
-    let output = cRuntime()
+    let sb = sbNew()
+    sb = sbAppend(sb, cRuntime())
 
     // Compile all func declarations (forward declare then define)
     // First pass: emit forward declarations
@@ -1062,11 +1113,11 @@ just run {
                 pi = pi + 1
             }
             decl = decl + ");\n"
-            output = output + decl
+            sb = sbAppend(sb, decl)
         }
         i = i + 1
     }
-    output = output + "\n"
+    sb = sbAppend(sb, "\n")
 
     // Second pass: compile function bodies
     i = 0
@@ -1075,7 +1126,7 @@ just run {
         if tok == "KW:func" {
             let fp = compileFunc(tokens, i, ntoks)
             let fcode = pairVal(fp)
-            output = output + fcode
+            sb = sbAppend(sb, fcode)
             // skip past the function in token stream
             i = pairPos(fp)
         } else {
@@ -1090,15 +1141,15 @@ just run {
         emit 1
     }
 
-    output = output + "int main(int argc, char** argv) {\n"
-    output = output + "    _argc = argc; _argv = argv;\n"
+    sb = sbAppend(sb, "int main(int argc, char** argv) {\n")
+    sb = sbAppend(sb, "    _argc = argc; _argv = argv;\n")
 
     let bp = compileBlock(tokens, entry, ntoks, 0, "0")
     let bcode = pairVal(bp)
-    output = output + bcode
-    output = output + "    return 0;\n"
-    output = output + "}\n"
+    sb = sbAppend(sb, bcode)
+    sb = sbAppend(sb, "    return 0;\n")
+    sb = sbAppend(sb, "}\n")
 
-    print(output)
+    print(sbToString(sb))
     emit "ok"
 }
