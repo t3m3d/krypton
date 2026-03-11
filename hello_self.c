@@ -4,9 +4,19 @@
 
 static int _argc; static char** _argv;
 
+typedef struct ABlock { struct ABlock* next; int cap; int used; } ABlock;
+static ABlock* _arena = 0;
 static char* _alloc(int n) {
-    char* p = (char*)malloc(n);
-    if (!p) { fprintf(stderr, "out of memory\n"); exit(1); }
+    n = (n + 7) & ~7;
+    if (!_arena || _arena->used + n > _arena->cap) {
+        int cap = 256*1024*1024;
+        if (n > cap) cap = n;
+        ABlock* b = (ABlock*)malloc(sizeof(ABlock) + cap);
+        if (!b) { fprintf(stderr, "out of memory\n"); exit(1); }
+        b->cap = cap; b->used = 0; b->next = _arena; _arena = b;
+    }
+    char* p = (char*)(_arena + 1) + _arena->used;
+    _arena->used += n;
     return p;
 }
 
@@ -200,9 +210,9 @@ typedef struct EnvEntry { char* name; char* value; struct EnvEntry* prev; } EnvE
 static char* kr_envnew() { return (char*)0; }
 
 static char* kr_envset(char* envp, const char* name, const char* val) {
-    EnvEntry* e = (EnvEntry*)malloc(sizeof(EnvEntry));
-    e->name = kr_str(name);
-    e->value = kr_str(val);
+    EnvEntry* e = (EnvEntry*)_alloc(sizeof(EnvEntry));
+    e->name = (char*)name;
+    e->value = (char*)val;
     e->prev = (EnvEntry*)envp;
     return (char*)e;
 }
@@ -221,7 +231,7 @@ static char* kr_envget(char* envp, const char* name) {
 typedef struct ResultStruct { char tag; char* val; char* env; int pos; } ResultStruct;
 
 static char* kr_makeresult(const char* tag, const char* val, const char* env, const char* pos) {
-    ResultStruct* r = (ResultStruct*)malloc(sizeof(ResultStruct));
+    ResultStruct* r = (ResultStruct*)_alloc(sizeof(ResultStruct));
     r->tag = tag[0];
     r->val = (char*)val;
     r->env = (char*)env;
@@ -253,17 +263,23 @@ static char* kr_istruthy(const char* s) {
 }
 
 typedef struct { int cap; int len; } SBHdr;
+#define MAX_SBS 4096
+static SBHdr* _sb_table[MAX_SBS];
+static int _sb_count = 0;
+
 static char* kr_sbnew() {
     int initcap = 65536;
     SBHdr* h = (SBHdr*)malloc(sizeof(SBHdr) + initcap);
     h->cap = initcap;
     h->len = 0;
     ((char*)(h + 1))[0] = 0;
-    return (char*)h;
+    _sb_table[_sb_count] = h;
+    return kr_itoa(_sb_count++);
 }
 
-static char* kr_sbappend(char* sb, const char* s) {
-    SBHdr* h = (SBHdr*)sb;
+static char* kr_sbappend(const char* handle, const char* s) {
+    int idx = atoi(handle);
+    SBHdr* h = _sb_table[idx];
     int slen = (int)strlen(s);
     while (h->len + slen + 1 > h->cap) {
         int newcap = h->cap * 2;
@@ -273,11 +289,13 @@ static char* kr_sbappend(char* sb, const char* s) {
     memcpy((char*)(h + 1) + h->len, s, slen);
     h->len += slen;
     ((char*)(h + 1))[h->len] = 0;
-    return (char*)h;
+    _sb_table[idx] = h;
+    return kr_str(handle);
 }
 
-static char* kr_sbtostring(char* sb) {
-    SBHdr* h = (SBHdr*)sb;
+static char* kr_sbtostring(const char* handle) {
+    int idx = atoi(handle);
+    SBHdr* h = _sb_table[idx];
     return (char*)(h + 1);
 }
 
