@@ -1082,6 +1082,21 @@ func evalCall(tokens, pos, env, ftable) {
         emit findEntry(s, n) + "," + p
     }
 
+    if fname == "sbNew" {
+        emit sbNew() + "," + p
+    }
+
+    if fname == "sbAppend" {
+        let sb = getArg(args, 0)
+        let s = getArg(args, 1)
+        emit sbAppend(sb, s) + "," + p
+    }
+
+    if fname == "sbToString" {
+        let sb = getArg(args, 0)
+        emit sbToString(sb) + "," + p
+    }
+
     // ── User-defined functions ──
     let info = funcLookup(ftable, fname)
     if info != "" {

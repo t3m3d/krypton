@@ -1,98 +1,161 @@
-(* Krypton Language Grammar v1 (krypton.ebnf) *)
+(* Krypton Language Grammar v2 — krypton.ebnf *)
+(* Matches the self-hosting compiler (kompiler/) implementation. *)
 
-Program      ::= ModuleDecl Decl* ;
+(* ═══════════════════════════════════════════════════════════════ *)
+(*  Program Structure                                              *)
+(* ═══════════════════════════════════════════════════════════════ *)
 
-ModuleDecl   ::= "module" Identifier ;
+Program       ::= TopLevel* ;
 
-Decl         ::= ImportDecl
-               | FnDecl
-               | QputeDecl
-               | ProcessDecl ;
+TopLevel      ::= FuncDecl
+                | EntryPoint ;
 
-(* Functions *)
+(* Entry point — exactly one required per program *)
+EntryPoint    ::= ( "just" | "go" ) "run" Block ;
 
-FnDecl       ::= "fn" Identifier "(" Params? ")" "->" Type Block ;
-Params       ::= Param ("," Param)* ;
-Param        ::= Identifier ":" Type ;
+(* ═══════════════════════════════════════════════════════════════ *)
+(*  Functions                                                      *)
+(* ═══════════════════════════════════════════════════════════════ *)
 
-(* Quantum Blocks (qpute) *)
+FuncDecl      ::= "func" Identifier "(" Params? ")" Block ;
+Params        ::= Identifier ( "," Identifier )* ;
 
-QputeDecl    ::= "quantum" "qpute" "(" QParams? ")" "->" Type Block ;
-QParams      ::= QParam ("," QParam)* ;
-QParam       ::= Identifier ":" QType ;
-QType        ::= "qbit" ;
+(* ═══════════════════════════════════════════════════════════════ *)
+(*  Blocks & Statements                                            *)
+(* ═══════════════════════════════════════════════════════════════ *)
 
-(* Processes *)
+Block         ::= "{" Stmt* "}" ;
 
-ProcessDecl  ::= "process" Identifier Block ;
+Stmt          ::= LetStmt
+                | AssignStmt
+                | EmitStmt
+                | IfStmt
+                | WhileStmt
+                | BreakStmt
+                | ExprStmt ;
 
-(* Types *)
+LetStmt       ::= "let" Identifier "=" Expr ;
+AssignStmt    ::= Identifier "=" Expr ;
+EmitStmt      ::= "emit" Expr ;
+BreakStmt     ::= "break" ;
 
-Type         ::= PrimitiveType
-               | QType
-               | Identifier ;
+IfStmt        ::= "if" Expr Block
+                   ( "else" "if" Expr Block )*
+                   ( "else" Block )? ;
 
-PrimitiveType ::= "int" | "float" | "bool" | "string" ;
+WhileStmt     ::= "while" Expr Block ;
 
-(* Blocks & Statements *)
+ExprStmt      ::= Expr ;
 
-Block        ::= "{" Stmt* "}" ;
+(* ═══════════════════════════════════════════════════════════════ *)
+(*  Expressions (lowest to highest precedence)                     *)
+(* ═══════════════════════════════════════════════════════════════ *)
 
-Stmt         ::= LetStmt
-               | ReturnStmt
-               | IfStmt
-               | ExprStmt ;
+Expr          ::= OrExpr ;
 
-LetStmt      ::= "let" Identifier "=" Expr ;
+OrExpr        ::= AndExpr ( "||" AndExpr )* ;
+AndExpr       ::= EqualityExpr ( "&&" EqualityExpr )* ;
+EqualityExpr  ::= RelExpr ( ( "==" | "!=" ) RelExpr )* ;
+RelExpr       ::= AddExpr ( ( "<" | ">" | "<=" | ">=" ) AddExpr )* ;
+AddExpr       ::= MulExpr ( ( "+" | "-" ) MulExpr )* ;
+MulExpr       ::= UnaryExpr ( ( "*" | "/" | "%" ) UnaryExpr )* ;
 
-ReturnStmt   ::= "return" Expr ;
+UnaryExpr     ::= ( "-" | "!" ) UnaryExpr
+                | PostfixExpr ;
 
-IfStmt       ::= "if" "(" Expr ")" Block ;
+PostfixExpr   ::= PrimaryExpr ( "[" Expr "]" )* ;
 
-ExprStmt     ::= Expr ;
+PrimaryExpr   ::= IntLiteral
+                | StringLiteral
+                | "true" | "false"
+                | CallExpr
+                | Identifier
+                | "(" Expr ")" ;
 
-(* Expressions *)
+CallExpr      ::= Identifier "(" Args? ")" ;
+Args          ::= Expr ( "," Expr )* ;
 
-Expr         ::= AssignmentExpr ;
+(* ═══════════════════════════════════════════════════════════════ *)
+(*  Lexical Elements                                               *)
+(* ═══════════════════════════════════════════════════════════════ *)
 
-AssignmentExpr ::= OrExpr ;
+Comment       ::= "//" { any except newline }
+                | "/*" { any } "*/" ;
 
-OrExpr       ::= AndExpr ( "||" AndExpr )* ;
-AndExpr      ::= EqualityExpr ( "&&" EqualityExpr )* ;
-EqualityExpr ::= RelExpr ( ("==" | "!=") RelExpr )* ;
-RelExpr      ::= AddExpr ( ("<" | ">" | "<=" | ">=") AddExpr )* ;
-AddExpr      ::= MulExpr ( ("+" | "-") MulExpr )* ;
-MulExpr      ::= UnaryExpr ( ("*" | "/") UnaryExpr )* ;
+Identifier    ::= Letter ( Letter | Digit | "_" )* ;
 
-UnaryExpr    ::= PrimaryExpr
-               | ("+" | "-" | "!") UnaryExpr ;
+IntLiteral    ::= Digit+ ;
 
-PrimaryExpr  ::= Literal
-               | Identifier
-               | CallExpr
-               | PrepareExpr
-               | MeasureExpr
-               | "(" Expr ")" ;
+StringLiteral ::= '"' StringChar* '"' ;
+StringChar    ::= EscapeSeq | { any except '"' and '\' } ;
+EscapeSeq     ::= '\n' | '\t' | '\r' | '\\' | '\"' ;
 
-CallExpr     ::= Identifier "(" Args? ")" ;
-Args         ::= Expr ("," Expr)* ;
+Letter        ::= 'a'..'z' | 'A'..'Z' | '_' ;
+Digit         ::= '0'..'9' ;
 
-(* Quantum-specific expressions *)
+(* ═══════════════════════════════════════════════════════════════ *)
+(*  Token Types                                                    *)
+(* ═══════════════════════════════════════════════════════════════ *)
+(*                                                                 *)
+(*  INT       integer literal          42                          *)
+(*  STR       string literal           "hello"                     *)
+(*  ID        identifier               myVar                       *)
+(*  KW:x      keyword                  if, while, func, ...        *)
+(*  PLUS      +       MINUS    -       STAR     *                  *)
+(*  SLASH     /       PERCENT  %       BANG     !                  *)
+(*  EQ        ==      NEQ      !=      ASSIGN   =                 *)
+(*  LT        <       GT       >       LTE      <=                *)
+(*  GTE       >=      AND      &&      OR       ||                *)
+(*  LPAREN    (       RPAREN   )                                   *)
+(*  LBRACE    {       RBRACE   }                                   *)
+(*  LBRACK    [       RBRACK   ]                                   *)
+(*  COMMA     ,       COLON    :       SEMI     ;                  *)
+(*                                                                 *)
+(* ═══════════════════════════════════════════════════════════════ *)
 
-PrepareExpr  ::= "prepare" "qbit" ;
-MeasureExpr  ::= "measure" Identifier ;
+(* ═══════════════════════════════════════════════════════════════ *)
+(*  Builtin Functions                                              *)
+(* ═══════════════════════════════════════════════════════════════ *)
+(*                                                                 *)
+(*  I/O                                                            *)
+(*    print(s)              Write s + newline to stdout             *)
+(*    kp(s)                 Alias for print                        *)
+(*    readFile(path)        Read file contents as string           *)
+(*    arg(index)            Command-line argument by index         *)
+(*    argCount()            Number of command-line arguments       *)
+(*                                                                 *)
+(*  String operations                                              *)
+(*    len(s)                String length                          *)
+(*    substring(s, st, en)  Substring from st to en (exclusive)    *)
+(*    split(s, index)       Split on comma, return part by index   *)
+(*    startsWith(s, pfx)    "1" if s starts with pfx, else "0"    *)
+(*    getLine(s, index)     Get line by index from multiline str   *)
+(*    lineCount(s)          Number of lines in string              *)
+(*    count(s)              Alias for lineCount                    *)
+(*                                                                 *)
+(*  Type conversion                                                *)
+(*    toInt(s)              Parse string to integer string          *)
+(*                                                                 *)
+(*  StringBuilder                                                  *)
+(*    sbNew()               Create new string builder              *)
+(*    sbAppend(sb, s)       Append s to builder, return handle     *)
+(*    sbToString(sb)        Finalize builder to string             *)
+(*                                                                 *)
+(* ═══════════════════════════════════════════════════════════════ *)
 
-(* Lexical Elements *)
-
-Literal      ::= IntLiteral
-               | FloatLiteral
-               | BoolLiteral
-               | StringLiteral ;
-
-BoolLiteral  ::= "true" | "false" ;
-
-Identifier   ::= /* letter (letter | digit | "_")* — defined lexically */ ;
-
-IntLiteral   ::= /* integer literal */ ;
-FloatLiteral ::= /* float literal   */ ;
-StringLiteral::= /* string literal  */ ;
+(* ═══════════════════════════════════════════════════════════════ *)
+(*  Type System & Truthiness                                       *)
+(* ═══════════════════════════════════════════════════════════════ *)
+(*                                                                 *)
+(*  All values are strings at runtime.                             *)
+(*    Numbers  →  "42", "-3"                                       *)
+(*    Booleans →  "1" (true), "0" (false)                          *)
+(*    Strings  →  as-is                                            *)
+(*                                                                 *)
+(*  A value is falsy if it is "", "0", or "false".                 *)
+(*  All other values are truthy.                                   *)
+(*                                                                 *)
+(*  The + operator is overloaded: if both operands are numeric     *)
+(*  strings it performs addition; otherwise concatenation.          *)
+(*                                                                 *)
+(* ═══════════════════════════════════════════════════════════════ *)
