@@ -252,35 +252,6 @@ static char* kr_istruthy(const char* s) {
     return kr_str("1");
 }
 
-typedef struct { int cap; int len; } SBHdr;
-static char* kr_sbnew() {
-    int initcap = 65536;
-    SBHdr* h = (SBHdr*)malloc(sizeof(SBHdr) + initcap);
-    h->cap = initcap;
-    h->len = 0;
-    ((char*)(h + 1))[0] = 0;
-    return (char*)h;
-}
-
-static char* kr_sbappend(char* sb, const char* s) {
-    SBHdr* h = (SBHdr*)sb;
-    int slen = (int)strlen(s);
-    while (h->len + slen + 1 > h->cap) {
-        int newcap = h->cap * 2;
-        h = (SBHdr*)realloc(h, sizeof(SBHdr) + newcap);
-        h->cap = newcap;
-    }
-    memcpy((char*)(h + 1) + h->len, s, slen);
-    h->len += slen;
-    ((char*)(h + 1))[h->len] = 0;
-    return (char*)h;
-}
-
-static char* kr_sbtostring(char* sb) {
-    SBHdr* h = (SBHdr*)sb;
-    return (char*)(h + 1);
-}
-
 char* findLastComma(char*);
 char* pairVal(char*);
 char* pairPos(char*);
@@ -299,9 +270,6 @@ char* skipComment(char*, char*);
 char* isKW(char*);
 char* tokenize(char*);
 char* envNew();
-char* sbNew();
-char* sbAppend(char*, char*);
-char* sbToString(char*);
 char* envGet(char*, char*);
 char* envSet(char*, char*, char*);
 char* scanFunctions(char*, char*);
@@ -671,18 +639,6 @@ char* tokenize(char* text) {
 
 char* envNew() {
     return kr_str("");
-}
-
-char* sbNew() {
-    return kr_str("");
-}
-
-char* sbAppend(char* sb, char* s) {
-    return kr_plus(sb, s);
-}
-
-char* sbToString(char* sb) {
-    return sb;
 }
 
 char* envGet(char* env, char* name) {

@@ -252,6 +252,35 @@ static char* kr_istruthy(const char* s) {
     return kr_str("1");
 }
 
+typedef struct { int cap; int len; } SBHdr;
+static char* kr_sbnew() {
+    int initcap = 65536;
+    SBHdr* h = (SBHdr*)malloc(sizeof(SBHdr) + initcap);
+    h->cap = initcap;
+    h->len = 0;
+    ((char*)(h + 1))[0] = 0;
+    return (char*)h;
+}
+
+static char* kr_sbappend(char* sb, const char* s) {
+    SBHdr* h = (SBHdr*)sb;
+    int slen = (int)strlen(s);
+    while (h->len + slen + 1 > h->cap) {
+        int newcap = h->cap * 2;
+        h = (SBHdr*)realloc(h, sizeof(SBHdr) + newcap);
+        h->cap = newcap;
+    }
+    memcpy((char*)(h + 1) + h->len, s, slen);
+    h->len += slen;
+    ((char*)(h + 1))[h->len] = 0;
+    return (char*)h;
+}
+
+static char* kr_sbtostring(char* sb) {
+    SBHdr* h = (SBHdr*)sb;
+    return (char*)(h + 1);
+}
+
 
 int main(int argc, char** argv) {
     _argc = argc; _argv = argv;
