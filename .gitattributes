@@ -1,5 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 
-# Force GitHub Linguist to treat .k files as Krypton (avoid KCL mis-detection)
-*.k linguist-language=Krypton
+# Force GitHub Linguist to treat .k files as K (avoid KCL mis-detection)
+*.k linguist-language=K
