@@ -372,18 +372,8 @@ func envNew() {
     emit ""
 }
 
-// StringBuilder (in interpreted mode, just concat — optimization is in compiled C)
-func sbNew() {
-    emit ""
-}
-
-func sbAppend(sb, s) {
-    emit sb + s
-}
-
-func sbToString(sb) {
-    emit sb
-}
+// sbNew, sbAppend, sbToString are builtins in evalCall.
+// When compiled to C, compile.k maps them to kr_sbnew/kr_sbappend/kr_sbtostring.
 
 func envGet(env, name) {
     // env format: name=LEN:value\n (length-prefixed, no escaping)
