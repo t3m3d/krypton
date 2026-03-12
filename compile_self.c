@@ -661,22 +661,30 @@ char* tokVal(char* tok) {
 char* cEscape(char* s) {
     char* out = kr_str("");
     char* i = kr_str("0");
+    char* start = kr_str("0");
     while (kr_truthy(kr_lt(i, kr_len(s)))) {
         char* c = kr_idx(s, kr_atoi(i));
-        if (kr_truthy(kr_eq(c, kr_str("\\")))) {
-            out = kr_plus(out, kr_str("\\\\"));
-        } else if (kr_truthy(kr_eq(c, kr_str("\"")))) {
-            out = kr_plus(out, kr_str("\\\""));
-        } else if (kr_truthy(kr_eq(c, kr_str("\n")))) {
-            out = kr_plus(out, kr_str("\\n"));
-        } else if (kr_truthy(kr_eq(c, kr_str("\\r")))) {
-            out = kr_plus(out, kr_str("\\r"));
-        } else if (kr_truthy(kr_eq(c, kr_str("\t")))) {
-            out = kr_plus(out, kr_str("\\t"));
-        } else {
-            out = kr_plus(out, c);
+        if (kr_truthy((kr_truthy((kr_truthy((kr_truthy((kr_truthy(kr_eq(c, kr_str("\\"))) || kr_truthy(kr_eq(c, kr_str("\""))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(c, kr_str("\n"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(c, kr_str("\\r"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(c, kr_str("\t"))) ? kr_str("1") : kr_str("0")))) {
+            if (kr_truthy(kr_gt(i, start))) {
+                out = kr_plus(out, kr_substr(s, start, i));
+            }
+            if (kr_truthy(kr_eq(c, kr_str("\\")))) {
+                out = kr_plus(out, kr_str("\\\\"));
+            } else if (kr_truthy(kr_eq(c, kr_str("\"")))) {
+                out = kr_plus(out, kr_str("\\\""));
+            } else if (kr_truthy(kr_eq(c, kr_str("\n")))) {
+                out = kr_plus(out, kr_str("\\n"));
+            } else if (kr_truthy(kr_eq(c, kr_str("\\r")))) {
+                out = kr_plus(out, kr_str("\\r"));
+            } else if (kr_truthy(kr_eq(c, kr_str("\t")))) {
+                out = kr_plus(out, kr_str("\\t"));
+            }
+            start = kr_plus(i, kr_str("1"));
         }
         i = kr_plus(i, kr_str("1"));
+    }
+    if (kr_truthy(kr_gt(i, start))) {
+        out = kr_plus(out, kr_substr(s, start, i));
     }
     return out;
 }
@@ -684,8 +692,12 @@ char* cEscape(char* s) {
 char* expandEscapes(char* s) {
     char* out = kr_str("");
     char* i = kr_str("0");
+    char* start = kr_str("0");
     while (kr_truthy(kr_lt(i, kr_len(s)))) {
         if (kr_truthy(kr_eq(kr_idx(s, kr_atoi(i)), kr_str("\\")))) {
+            if (kr_truthy(kr_gt(i, start))) {
+                out = kr_plus(out, kr_substr(s, start, i));
+            }
             i = kr_plus(i, kr_str("1"));
             if (kr_truthy(kr_lt(i, kr_len(s)))) {
                 char* c = kr_idx(s, kr_atoi(i));
@@ -703,10 +715,12 @@ char* expandEscapes(char* s) {
                     out = kr_plus(kr_plus(out, kr_str("\\")), c);
                 }
             }
-        } else {
-            out = kr_plus(out, kr_idx(s, kr_atoi(i)));
+            start = kr_plus(i, kr_str("1"));
         }
         i = kr_plus(i, kr_str("1"));
+    }
+    if (kr_truthy(kr_gt(i, start))) {
+        out = kr_plus(out, kr_substr(s, start, i));
     }
     return out;
 }

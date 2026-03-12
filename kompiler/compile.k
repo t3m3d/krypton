@@ -328,22 +328,30 @@ func tokVal(tok) {
 func cEscape(s) {
     let out = ""
     let i = 0
+    let start = 0
     while i < len(s) {
         let c = s[i]
-        if c == "\\" {
-            out = out + "\\\\"
-        } else if c == "\"" {
-            out = out + "\\\""
-        } else if c == "\n" {
-            out = out + "\\n"
-        } else if c == "\r" {
-            out = out + "\\r"
-        } else if c == "\t" {
-            out = out + "\\t"
-        } else {
-            out = out + c
+        if c == "\\" || c == "\"" || c == "\n" || c == "\r" || c == "\t" {
+            if i > start {
+                out = out + substring(s, start, i)
+            }
+            if c == "\\" {
+                out = out + "\\\\"
+            } else if c == "\"" {
+                out = out + "\\\""
+            } else if c == "\n" {
+                out = out + "\\n"
+            } else if c == "\r" {
+                out = out + "\\r"
+            } else if c == "\t" {
+                out = out + "\\t"
+            }
+            start = i + 1
         }
         i = i + 1
+    }
+    if i > start {
+        out = out + substring(s, start, i)
     }
     emit out
 }
@@ -353,8 +361,12 @@ func cEscape(s) {
 func expandEscapes(s) {
     let out = ""
     let i = 0
+    let start = 0
     while i < len(s) {
         if s[i] == "\\" {
+            if i > start {
+                out = out + substring(s, start, i)
+            }
             i = i + 1
             if i < len(s) {
                 let c = s[i]
@@ -372,10 +384,12 @@ func expandEscapes(s) {
                     out = out + "\\" + c
                 }
             }
-        } else {
-            out = out + s[i]
+            start = i + 1
         }
         i = i + 1
+    }
+    if i > start {
+        out = out + substring(s, start, i)
     }
     emit out
 }
