@@ -2,4 +2,4 @@
 * text=auto
 
 # Force GitHub Linguist to treat .k files as K (avoid KCL mis-detection)
-*.k linguist-language=K
+*.k linguist-language=Go
