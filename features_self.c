@@ -343,7 +343,7 @@ int main(int argc, char** argv) {
     kr_print(kr_idx(s, kr_atoi(kr_str("1"))));
     kr_print(kr_idx(s, kr_atoi(kr_str("2"))));
     if (kr_truthy(kr_gt(kr_str("10"), kr_str("5")))) {
-        kr_print(kr_str("1 > 5"));
+        kr_print(kr_str("10 > 5"));
     }
     char* pair = kr_str("hello,world");
     char* first = kr_split(pair, kr_str("0"));
