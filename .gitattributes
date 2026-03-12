@@ -2,8 +2,9 @@
 * text=auto
 
 # ── Krypton (.k) is the primary language ──
-# Until Krypton is added to GitHub Linguist, .k will auto-detect.
-# Suppress all other languages so .k dominates the repo stats.
+# .k auto-detects as KCL — override until Krypton is registered in linguist.
+# Using linguist-detectable=false hides .k from the language bar.
+*.k linguist-detectable=false
 
 # C++ bootstrap compiler — vendored (not primary source)
 compiler/** linguist-vendored
