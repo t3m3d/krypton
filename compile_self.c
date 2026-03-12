@@ -311,6 +311,148 @@ static char* kr_type(const char* s) {
     return kr_str("string");
 }
 
+static char* kr_append(const char* lst, const char* item) {
+    if (!*lst) return kr_str(item);
+    return kr_cat(kr_cat(lst, ","), item);
+}
+
+static char* kr_join(const char* lst, const char* sep) {
+    int llen = (int)strlen(lst), slen = (int)strlen(sep);
+    int rlen = 0;
+    for (int i = 0; i < llen; i++) {
+        if (lst[i] == ',') rlen += slen; else rlen++;
+    }
+    char* out = _alloc(rlen + 1);
+    int j = 0;
+    for (int i = 0; i < llen; i++) {
+        if (lst[i] == ',') { memcpy(out+j, sep, slen); j += slen; }
+        else { out[j++] = lst[i]; }
+    }
+    out[j] = 0;
+    return out;
+}
+
+static char* kr_reverse(const char* lst) {
+    int cnt = 0;
+    const char* p = lst;
+    while (*p) { if (*p == ',') cnt++; p++; }
+    cnt++;
+    char* out = _K_EMPTY;
+    for (int i = cnt - 1; i >= 0; i--) {
+        char* item = kr_split(lst, kr_itoa(i));
+        if (i == cnt - 1) out = item;
+        else out = kr_cat(kr_cat(out, ","), item);
+    }
+    return out;
+}
+
+static int _kr_cmp(const void* a, const void* b) {
+    const char* sa = *(const char**)a;
+    const char* sb = *(const char**)b;
+    if (kr_isnum(sa) && kr_isnum(sb)) return atoi(sa) - atoi(sb);
+    return strcmp(sa, sb);
+}
+static char* kr_sort(const char* lst) {
+    if (!*lst) return _K_EMPTY;
+    int cnt = 1;
+    const char* p = lst;
+    while (*p) { if (*p == ',') cnt++; p++; }
+    char** arr = (char**)_alloc(cnt * sizeof(char*));
+    for (int i = 0; i < cnt; i++) arr[i] = kr_split(lst, kr_itoa(i));
+    qsort(arr, cnt, sizeof(char*), _kr_cmp);
+    char* out = arr[0];
+    for (int i = 1; i < cnt; i++) out = kr_cat(kr_cat(out, ","), arr[i]);
+    return out;
+}
+
+static char* kr_keys(const char* map) {
+    if (!*map) return _K_EMPTY;
+    int cnt = 1;
+    const char* p = map;
+    while (*p) { if (*p == ',') cnt++; p++; }
+    char* out = _K_EMPTY; int first = 1;
+    for (int i = 0; i < cnt; i += 2) {
+        char* k = kr_split(map, kr_itoa(i));
+        if (first) { out = k; first = 0; }
+        else out = kr_cat(kr_cat(out, ","), k);
+    }
+    return out;
+}
+
+static char* kr_values(const char* map) {
+    if (!*map) return _K_EMPTY;
+    int cnt = 1;
+    const char* p = map;
+    while (*p) { if (*p == ',') cnt++; p++; }
+    char* out = _K_EMPTY; int first = 1;
+    for (int i = 1; i < cnt; i += 2) {
+        char* v = kr_split(map, kr_itoa(i));
+        if (first) { out = v; first = 0; }
+        else out = kr_cat(kr_cat(out, ","), v);
+    }
+    return out;
+}
+
+static char* kr_haskey(const char* map, const char* key) {
+    if (!*map) return _K_ZERO;
+    int cnt = 1;
+    const char* p = map;
+    while (*p) { if (*p == ',') cnt++; p++; }
+    for (int i = 0; i < cnt; i += 2) {
+        if (strcmp(kr_split(map, kr_itoa(i)), key) == 0) return _K_ONE;
+    }
+    return _K_ZERO;
+}
+
+static char* kr_remove(const char* lst, const char* item) {
+    if (!*lst) return _K_EMPTY;
+    int cnt = 1;
+    const char* p = lst;
+    while (*p) { if (*p == ',') cnt++; p++; }
+    char* out = _K_EMPTY; int first = 1;
+    for (int i = 0; i < cnt; i++) {
+        char* el = kr_split(lst, kr_itoa(i));
+        if (strcmp(el, item) != 0) {
+            if (first) { out = el; first = 0; }
+            else out = kr_cat(kr_cat(out, ","), el);
+        }
+    }
+    return out;
+}
+
+static char* kr_repeat(const char* s, const char* ns) {
+    int n = atoi(ns);
+    if (n <= 0) return _K_EMPTY;
+    int slen = (int)strlen(s);
+    char* out = _alloc(slen * n + 1);
+    for (int i = 0; i < n; i++) memcpy(out + i * slen, s, slen);
+    out[slen * n] = 0;
+    return out;
+}
+
+static char* kr_format(const char* fmt, const char* arg) {
+    char buf[4096];
+    const char* p = strstr(fmt, "{}");
+    if (!p) return kr_str(fmt);
+    int pre = (int)(p - fmt);
+    int alen = (int)strlen(arg);
+    int postlen = (int)strlen(p + 2);
+    if (pre + alen + postlen >= 4096) return kr_str(fmt);
+    memcpy(buf, fmt, pre);
+    memcpy(buf + pre, arg, alen);
+    memcpy(buf + pre + alen, p + 2, postlen + 1);
+    return kr_str(buf);
+}
+
+static char* kr_parseint(const char* s) {
+    const char* p = s;
+    while (*p == ' ' || *p == '\t') p++;
+    if (!*p) return _K_ZERO;
+    return kr_itoa(atoi(p));
+}
+
+static char* kr_tostr(const char* s) { return kr_str(s); }
+
 typedef struct EnvEntry { char* name; char* value; struct EnvEntry* prev; } EnvEntry;
 
 static char* kr_envnew() { return (char*)0; }
@@ -450,6 +592,8 @@ char* compileAssign(char*, char*, char*, char*);
 char* compileEmit(char*, char*, char*, char*, char*);
 char* compileIf(char*, char*, char*, char*, char*);
 char* compileWhile(char*, char*, char*, char*, char*);
+char* compileCompoundAssign(char*, char*, char*, char*);
+char* compileFor(char*, char*, char*, char*, char*);
 char* compileExprStmt(char*, char*, char*, char*);
 char* compileBlock(char*, char*, char*, char*, char*);
 char* compileFunc(char*, char*, char*);
@@ -578,6 +722,10 @@ char* isKW(char* word) {
         return kr_str("1");
     } else if (kr_truthy(kr_eq(word, kr_str("break")))) {
         return kr_str("1");
+    } else if (kr_truthy(kr_eq(word, kr_str("for")))) {
+        return kr_str("1");
+    } else if (kr_truthy(kr_eq(word, kr_str("in")))) {
+        return kr_str("1");
     } else if (kr_truthy(kr_eq(word, kr_str("module")))) {
         return kr_str("1");
     } else if (kr_truthy(kr_eq(word, kr_str("quantum")))) {
@@ -630,22 +778,40 @@ char* tokenize(char* text) {
                 out = kr_plus(kr_plus(kr_plus(out, kr_str("ID:")), id), kr_str("\n"));
             }
         } else if (kr_truthy(kr_eq(c, kr_str("+")))) {
-            out = kr_plus(out, kr_str("PLUS\n"));
-            i = kr_plus(i, kr_str("1"));
+            if (kr_truthy((kr_truthy(kr_lt(kr_plus(i, kr_str("1")), kr_len(text))) && kr_truthy(kr_eq(kr_idx(text, kr_atoi(kr_plus(i, kr_str("1")))), kr_str("="))) ? kr_str("1") : kr_str("0")))) {
+                out = kr_plus(out, kr_str("PLUSEQ\n"));
+                i = kr_plus(i, kr_str("2"));
+            } else {
+                out = kr_plus(out, kr_str("PLUS\n"));
+                i = kr_plus(i, kr_str("1"));
+            }
         } else if (kr_truthy(kr_eq(c, kr_str("-")))) {
             if (kr_truthy((kr_truthy(kr_lt(kr_plus(i, kr_str("1")), kr_len(text))) && kr_truthy(kr_eq(kr_idx(text, kr_atoi(kr_plus(i, kr_str("1")))), kr_str(">"))) ? kr_str("1") : kr_str("0")))) {
                 out = kr_plus(out, kr_str("ARROW\n"));
+                i = kr_plus(i, kr_str("2"));
+            } else if (kr_truthy((kr_truthy(kr_lt(kr_plus(i, kr_str("1")), kr_len(text))) && kr_truthy(kr_eq(kr_idx(text, kr_atoi(kr_plus(i, kr_str("1")))), kr_str("="))) ? kr_str("1") : kr_str("0")))) {
+                out = kr_plus(out, kr_str("MINUSEQ\n"));
                 i = kr_plus(i, kr_str("2"));
             } else {
                 out = kr_plus(out, kr_str("MINUS\n"));
                 i = kr_plus(i, kr_str("1"));
             }
         } else if (kr_truthy(kr_eq(c, kr_str("*")))) {
-            out = kr_plus(out, kr_str("STAR\n"));
-            i = kr_plus(i, kr_str("1"));
+            if (kr_truthy((kr_truthy(kr_lt(kr_plus(i, kr_str("1")), kr_len(text))) && kr_truthy(kr_eq(kr_idx(text, kr_atoi(kr_plus(i, kr_str("1")))), kr_str("="))) ? kr_str("1") : kr_str("0")))) {
+                out = kr_plus(out, kr_str("STAREQ\n"));
+                i = kr_plus(i, kr_str("2"));
+            } else {
+                out = kr_plus(out, kr_str("STAR\n"));
+                i = kr_plus(i, kr_str("1"));
+            }
         } else if (kr_truthy(kr_eq(c, kr_str("/")))) {
-            out = kr_plus(out, kr_str("SLASH\n"));
-            i = kr_plus(i, kr_str("1"));
+            if (kr_truthy((kr_truthy(kr_lt(kr_plus(i, kr_str("1")), kr_len(text))) && kr_truthy(kr_eq(kr_idx(text, kr_atoi(kr_plus(i, kr_str("1")))), kr_str("="))) ? kr_str("1") : kr_str("0")))) {
+                out = kr_plus(out, kr_str("SLASHEQ\n"));
+                i = kr_plus(i, kr_str("2"));
+            } else {
+                out = kr_plus(out, kr_str("SLASH\n"));
+                i = kr_plus(i, kr_str("1"));
+            }
         } else if (kr_truthy(kr_eq(c, kr_str("(")))) {
             out = kr_plus(out, kr_str("LPAREN\n"));
             i = kr_plus(i, kr_str("1"));
@@ -720,8 +886,13 @@ char* tokenize(char* text) {
                 i = kr_plus(i, kr_str("1"));
             }
         } else if (kr_truthy(kr_eq(c, kr_str("%")))) {
-            out = kr_plus(out, kr_str("MOD\n"));
-            i = kr_plus(i, kr_str("1"));
+            if (kr_truthy((kr_truthy(kr_lt(kr_plus(i, kr_str("1")), kr_len(text))) && kr_truthy(kr_eq(kr_idx(text, kr_atoi(kr_plus(i, kr_str("1")))), kr_str("="))) ? kr_str("1") : kr_str("0")))) {
+                out = kr_plus(out, kr_str("MODEQ\n"));
+                i = kr_plus(i, kr_str("2"));
+            } else {
+                out = kr_plus(out, kr_str("MOD\n"));
+                i = kr_plus(i, kr_str("1"));
+            }
         } else {
             i = kr_plus(i, kr_str("1"));
         }
@@ -1306,6 +1477,42 @@ char* compileCall(char* tokens, char* pos, char* ntoks) {
     if (kr_truthy(kr_eq(fname, kr_str("type")))) {
         return kr_plus(kr_plus(kr_plus(kr_str("kr_type("), args), kr_str("),")), p);
     }
+    if (kr_truthy(kr_eq(fname, kr_str("append")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_append("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("join")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_join("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("reverse")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_reverse("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("sort")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_sort("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("keys")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_keys("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("values")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_values("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("hasKey")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_haskey("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("remove")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_remove("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("repeat")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_repeat("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("format")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_format("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("parseInt")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_parseint("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("toStr")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_tostr("), args), kr_str("),")), p);
+    }
     return kr_plus(kr_plus(kr_plus(kr_plus(cIdent(fname), kr_str("(")), args), kr_str("),")), p);
 }
 
@@ -1323,12 +1530,21 @@ char* compileStmt(char* tokens, char* pos, char* ntoks, char* depth, char* inFun
     if (kr_truthy(kr_eq(tok, kr_str("KW:while")))) {
         return compileWhile(tokens, kr_plus(pos, kr_str("1")), ntoks, depth, inFunc);
     }
+    if (kr_truthy(kr_eq(tok, kr_str("KW:for")))) {
+        return compileFor(tokens, kr_plus(pos, kr_str("1")), ntoks, depth, inFunc);
+    }
     if (kr_truthy(kr_eq(tok, kr_str("KW:break")))) {
         char* p = kr_plus(pos, kr_str("1"));
         if (kr_truthy(kr_eq(tokAt(tokens, p), kr_str("SEMI")))) {
             p = kr_plus(p, kr_str("1"));
         }
         return kr_plus(kr_plus(indent(depth), kr_str("break;\n,")), p);
+    }
+    if (kr_truthy(kr_eq(tokType(tok), kr_str("ID")))) {
+        char* nextTok = tokAt(tokens, kr_plus(pos, kr_str("1")));
+        if (kr_truthy((kr_truthy((kr_truthy((kr_truthy((kr_truthy(kr_eq(nextTok, kr_str("PLUSEQ"))) || kr_truthy(kr_eq(nextTok, kr_str("MINUSEQ"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(nextTok, kr_str("STAREQ"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(nextTok, kr_str("SLASHEQ"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(nextTok, kr_str("MODEQ"))) ? kr_str("1") : kr_str("0")))) {
+            return compileCompoundAssign(tokens, pos, ntoks, depth);
+        }
     }
     if (kr_truthy(kr_eq(tokType(tok), kr_str("ID")))) {
         if (kr_truthy(kr_eq(tokAt(tokens, kr_plus(pos, kr_str("1"))), kr_str("ASSIGN")))) {
@@ -1412,6 +1628,56 @@ char* compileWhile(char* tokens, char* pos, char* ntoks, char* depth, char* inFu
     char* bcode = pairVal(bp);
     p = pairPos(bp);
     char* out = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(indent(depth), kr_str("while (kr_truthy(")), cond), kr_str(")) {\n")), bcode), indent(depth)), kr_str("}\n"));
+    return kr_plus(kr_plus(out, kr_str(",")), p);
+}
+
+char* compileCompoundAssign(char* tokens, char* pos, char* ntoks, char* depth) {
+    char* name = tokVal(tokAt(tokens, pos));
+    char* op = tokAt(tokens, kr_plus(pos, kr_str("1")));
+    char* p = kr_plus(pos, kr_str("2"));
+    char* ep = compileExpr(tokens, p, ntoks);
+    char* ecode = pairVal(ep);
+    p = pairPos(ep);
+    if (kr_truthy(kr_eq(tokAt(tokens, p), kr_str("SEMI")))) {
+        p = kr_plus(p, kr_str("1"));
+    }
+    char* cname = cIdent(name);
+    if (kr_truthy(kr_eq(op, kr_str("PLUSEQ")))) {
+        return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(indent(depth), cname), kr_str(" = kr_plus(")), cname), kr_str(", ")), ecode), kr_str(");\n,")), p);
+    }
+    if (kr_truthy(kr_eq(op, kr_str("MINUSEQ")))) {
+        return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(indent(depth), cname), kr_str(" = kr_sub(")), cname), kr_str(", ")), ecode), kr_str(");\n,")), p);
+    }
+    if (kr_truthy(kr_eq(op, kr_str("STAREQ")))) {
+        return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(indent(depth), cname), kr_str(" = kr_mul(")), cname), kr_str(", ")), ecode), kr_str(");\n,")), p);
+    }
+    if (kr_truthy(kr_eq(op, kr_str("SLASHEQ")))) {
+        return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(indent(depth), cname), kr_str(" = kr_div(")), cname), kr_str(", ")), ecode), kr_str(");\n,")), p);
+    }
+    if (kr_truthy(kr_eq(op, kr_str("MODEQ")))) {
+        return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(indent(depth), cname), kr_str(" = kr_mod(")), cname), kr_str(", ")), ecode), kr_str(");\n,")), p);
+    }
+    return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(indent(depth), cname), kr_str(" = ")), ecode), kr_str(";\n,")), p);
+}
+
+char* compileFor(char* tokens, char* pos, char* ntoks, char* depth, char* inFunc) {
+    char* varName = tokVal(tokAt(tokens, pos));
+    char* p = kr_plus(pos, kr_str("2"));
+    char* ep = compileExpr(tokens, p, ntoks);
+    char* collection = pairVal(ep);
+    p = pairPos(ep);
+    char* bp = compileBlock(tokens, p, ntoks, depth, inFunc);
+    char* bcode = pairVal(bp);
+    p = pairPos(bp);
+    char* cvar = cIdent(varName);
+    char* out = kr_plus(indent(depth), kr_str("{\n"));
+    out = kr_plus(kr_plus(kr_plus(kr_plus(out, indent(kr_plus(depth, kr_str("1")))), kr_str("char* _for_col = ")), collection), kr_str(";\n"));
+    out = kr_plus(kr_plus(out, indent(kr_plus(depth, kr_str("1")))), kr_str("int _for_cnt = kr_atoi(kr_linecount(_for_col));\n"));
+    out = kr_plus(kr_plus(out, indent(kr_plus(depth, kr_str("1")))), kr_str("for (int _for_i = 0; _for_i < _for_cnt; _for_i++) {\n"));
+    out = kr_plus(kr_plus(kr_plus(kr_plus(out, indent(kr_plus(depth, kr_str("2")))), kr_str("char* ")), cvar), kr_str(" = kr_split(_for_col, kr_itoa(_for_i));\n"));
+    out = kr_plus(out, bcode);
+    out = kr_plus(kr_plus(out, indent(kr_plus(depth, kr_str("1")))), kr_str("}\n"));
+    out = kr_plus(kr_plus(out, indent(depth)), kr_str("}\n"));
     return kr_plus(kr_plus(out, kr_str(",")), p);
 }
 
@@ -1756,6 +2022,136 @@ char* cRuntime() {
     r = kr_sbappend(r, kr_str("    if (kr_isnum(s)) return kr_str(\"number\");\n"));
     r = kr_sbappend(r, kr_str("    return kr_str(\"string\");\n"));
     r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_append(const char* lst, const char* item) {\n"));
+    r = kr_sbappend(r, kr_str("    if (!*lst) return kr_str(item);\n"));
+    r = kr_sbappend(r, kr_str("    return kr_cat(kr_cat(lst, \",\"), item);\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_join(const char* lst, const char* sep) {\n"));
+    r = kr_sbappend(r, kr_str("    int llen = (int)strlen(lst), slen = (int)strlen(sep);\n"));
+    r = kr_sbappend(r, kr_str("    int rlen = 0;\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 0; i < llen; i++) {\n"));
+    r = kr_sbappend(r, kr_str("        if (lst[i] == ',') rlen += slen; else rlen++;\n"));
+    r = kr_sbappend(r, kr_str("    }\n"));
+    r = kr_sbappend(r, kr_str("    char* out = _alloc(rlen + 1);\n"));
+    r = kr_sbappend(r, kr_str("    int j = 0;\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 0; i < llen; i++) {\n"));
+    r = kr_sbappend(r, kr_str("        if (lst[i] == ',') { memcpy(out+j, sep, slen); j += slen; }\n"));
+    r = kr_sbappend(r, kr_str("        else { out[j++] = lst[i]; }\n"));
+    r = kr_sbappend(r, kr_str("    }\n"));
+    r = kr_sbappend(r, kr_str("    out[j] = 0;\n"));
+    r = kr_sbappend(r, kr_str("    return out;\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_reverse(const char* lst) {\n"));
+    r = kr_sbappend(r, kr_str("    int cnt = 0;\n"));
+    r = kr_sbappend(r, kr_str("    const char* p = lst;\n"));
+    r = kr_sbappend(r, kr_str("    while (*p) { if (*p == ',') cnt++; p++; }\n"));
+    r = kr_sbappend(r, kr_str("    cnt++;\n"));
+    r = kr_sbappend(r, kr_str("    char* out = _K_EMPTY;\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = cnt - 1; i >= 0; i--) {\n"));
+    r = kr_sbappend(r, kr_str("        char* item = kr_split(lst, kr_itoa(i));\n"));
+    r = kr_sbappend(r, kr_str("        if (i == cnt - 1) out = item;\n"));
+    r = kr_sbappend(r, kr_str("        else out = kr_cat(kr_cat(out, \",\"), item);\n"));
+    r = kr_sbappend(r, kr_str("    }\n"));
+    r = kr_sbappend(r, kr_str("    return out;\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static int _kr_cmp(const void* a, const void* b) {\n"));
+    r = kr_sbappend(r, kr_str("    const char* sa = *(const char**)a;\n"));
+    r = kr_sbappend(r, kr_str("    const char* sb = *(const char**)b;\n"));
+    r = kr_sbappend(r, kr_str("    if (kr_isnum(sa) && kr_isnum(sb)) return atoi(sa) - atoi(sb);\n"));
+    r = kr_sbappend(r, kr_str("    return strcmp(sa, sb);\n"));
+    r = kr_sbappend(r, kr_str("}\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_sort(const char* lst) {\n"));
+    r = kr_sbappend(r, kr_str("    if (!*lst) return _K_EMPTY;\n"));
+    r = kr_sbappend(r, kr_str("    int cnt = 1;\n"));
+    r = kr_sbappend(r, kr_str("    const char* p = lst;\n"));
+    r = kr_sbappend(r, kr_str("    while (*p) { if (*p == ',') cnt++; p++; }\n"));
+    r = kr_sbappend(r, kr_str("    char** arr = (char**)_alloc(cnt * sizeof(char*));\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 0; i < cnt; i++) arr[i] = kr_split(lst, kr_itoa(i));\n"));
+    r = kr_sbappend(r, kr_str("    qsort(arr, cnt, sizeof(char*), _kr_cmp);\n"));
+    r = kr_sbappend(r, kr_str("    char* out = arr[0];\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 1; i < cnt; i++) out = kr_cat(kr_cat(out, \",\"), arr[i]);\n"));
+    r = kr_sbappend(r, kr_str("    return out;\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_keys(const char* map) {\n"));
+    r = kr_sbappend(r, kr_str("    if (!*map) return _K_EMPTY;\n"));
+    r = kr_sbappend(r, kr_str("    int cnt = 1;\n"));
+    r = kr_sbappend(r, kr_str("    const char* p = map;\n"));
+    r = kr_sbappend(r, kr_str("    while (*p) { if (*p == ',') cnt++; p++; }\n"));
+    r = kr_sbappend(r, kr_str("    char* out = _K_EMPTY; int first = 1;\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 0; i < cnt; i += 2) {\n"));
+    r = kr_sbappend(r, kr_str("        char* k = kr_split(map, kr_itoa(i));\n"));
+    r = kr_sbappend(r, kr_str("        if (first) { out = k; first = 0; }\n"));
+    r = kr_sbappend(r, kr_str("        else out = kr_cat(kr_cat(out, \",\"), k);\n"));
+    r = kr_sbappend(r, kr_str("    }\n"));
+    r = kr_sbappend(r, kr_str("    return out;\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_values(const char* map) {\n"));
+    r = kr_sbappend(r, kr_str("    if (!*map) return _K_EMPTY;\n"));
+    r = kr_sbappend(r, kr_str("    int cnt = 1;\n"));
+    r = kr_sbappend(r, kr_str("    const char* p = map;\n"));
+    r = kr_sbappend(r, kr_str("    while (*p) { if (*p == ',') cnt++; p++; }\n"));
+    r = kr_sbappend(r, kr_str("    char* out = _K_EMPTY; int first = 1;\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 1; i < cnt; i += 2) {\n"));
+    r = kr_sbappend(r, kr_str("        char* v = kr_split(map, kr_itoa(i));\n"));
+    r = kr_sbappend(r, kr_str("        if (first) { out = v; first = 0; }\n"));
+    r = kr_sbappend(r, kr_str("        else out = kr_cat(kr_cat(out, \",\"), v);\n"));
+    r = kr_sbappend(r, kr_str("    }\n"));
+    r = kr_sbappend(r, kr_str("    return out;\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_haskey(const char* map, const char* key) {\n"));
+    r = kr_sbappend(r, kr_str("    if (!*map) return _K_ZERO;\n"));
+    r = kr_sbappend(r, kr_str("    int cnt = 1;\n"));
+    r = kr_sbappend(r, kr_str("    const char* p = map;\n"));
+    r = kr_sbappend(r, kr_str("    while (*p) { if (*p == ',') cnt++; p++; }\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 0; i < cnt; i += 2) {\n"));
+    r = kr_sbappend(r, kr_str("        if (strcmp(kr_split(map, kr_itoa(i)), key) == 0) return _K_ONE;\n"));
+    r = kr_sbappend(r, kr_str("    }\n"));
+    r = kr_sbappend(r, kr_str("    return _K_ZERO;\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_remove(const char* lst, const char* item) {\n"));
+    r = kr_sbappend(r, kr_str("    if (!*lst) return _K_EMPTY;\n"));
+    r = kr_sbappend(r, kr_str("    int cnt = 1;\n"));
+    r = kr_sbappend(r, kr_str("    const char* p = lst;\n"));
+    r = kr_sbappend(r, kr_str("    while (*p) { if (*p == ',') cnt++; p++; }\n"));
+    r = kr_sbappend(r, kr_str("    char* out = _K_EMPTY; int first = 1;\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 0; i < cnt; i++) {\n"));
+    r = kr_sbappend(r, kr_str("        char* el = kr_split(lst, kr_itoa(i));\n"));
+    r = kr_sbappend(r, kr_str("        if (strcmp(el, item) != 0) {\n"));
+    r = kr_sbappend(r, kr_str("            if (first) { out = el; first = 0; }\n"));
+    r = kr_sbappend(r, kr_str("            else out = kr_cat(kr_cat(out, \",\"), el);\n"));
+    r = kr_sbappend(r, kr_str("        }\n"));
+    r = kr_sbappend(r, kr_str("    }\n"));
+    r = kr_sbappend(r, kr_str("    return out;\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_repeat(const char* s, const char* ns) {\n"));
+    r = kr_sbappend(r, kr_str("    int n = atoi(ns);\n"));
+    r = kr_sbappend(r, kr_str("    if (n <= 0) return _K_EMPTY;\n"));
+    r = kr_sbappend(r, kr_str("    int slen = (int)strlen(s);\n"));
+    r = kr_sbappend(r, kr_str("    char* out = _alloc(slen * n + 1);\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 0; i < n; i++) memcpy(out + i * slen, s, slen);\n"));
+    r = kr_sbappend(r, kr_str("    out[slen * n] = 0;\n"));
+    r = kr_sbappend(r, kr_str("    return out;\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_format(const char* fmt, const char* arg) {\n"));
+    r = kr_sbappend(r, kr_str("    char buf[4096];\n"));
+    r = kr_sbappend(r, kr_str("    const char* p = strstr(fmt, \"{}\");\n"));
+    r = kr_sbappend(r, kr_str("    if (!p) return kr_str(fmt);\n"));
+    r = kr_sbappend(r, kr_str("    int pre = (int)(p - fmt);\n"));
+    r = kr_sbappend(r, kr_str("    int alen = (int)strlen(arg);\n"));
+    r = kr_sbappend(r, kr_str("    int postlen = (int)strlen(p + 2);\n"));
+    r = kr_sbappend(r, kr_str("    if (pre + alen + postlen >= 4096) return kr_str(fmt);\n"));
+    r = kr_sbappend(r, kr_str("    memcpy(buf, fmt, pre);\n"));
+    r = kr_sbappend(r, kr_str("    memcpy(buf + pre, arg, alen);\n"));
+    r = kr_sbappend(r, kr_str("    memcpy(buf + pre + alen, p + 2, postlen + 1);\n"));
+    r = kr_sbappend(r, kr_str("    return kr_str(buf);\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_parseint(const char* s) {\n"));
+    r = kr_sbappend(r, kr_str("    const char* p = s;\n"));
+    r = kr_sbappend(r, kr_str("    while (*p == ' ' || *p == '\\t') p++;\n"));
+    r = kr_sbappend(r, kr_str("    if (!*p) return _K_ZERO;\n"));
+    r = kr_sbappend(r, kr_str("    return kr_itoa(atoi(p));\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_tostr(const char* s) { return kr_str(s); }\n\n"));
     r = kr_sbappend(r, kr_str("typedef struct EnvEntry { char* name; char* value; struct EnvEntry* prev; } EnvEntry;\n\n"));
     r = kr_sbappend(r, kr_str("static char* kr_envnew() { return (char*)0; }\n\n"));
     r = kr_sbappend(r, kr_str("static char* kr_envset(char* envp, const char* name, const char* val) {\n"));
