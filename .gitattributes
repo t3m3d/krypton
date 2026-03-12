@@ -1,12 +1,21 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 
-# Krypton language — use vendor grammar for .k files
-*.k linguist-language=Krypton
-*.k linguist-detectable
+# ── Krypton (.k) is the primary language ──
+# Until Krypton is added to GitHub Linguist, .k will auto-detect.
+# Suppress all other languages so .k dominates the repo stats.
 
-# Generated C output — not first-class source
+# C++ bootstrap compiler — vendored (not primary source)
+compiler/** linguist-vendored
+tests/** linguist-vendored
+
+# Generated C output from the Krypton compiler
 *.c linguist-generated=true
-compile_self.c linguist-generated=true
-run_self.c linguist-generated=true
-run.c linguist-generated=true
+
+# Build system files
+CMakeLists.txt linguist-vendored
+build/** linguist-generated=true
+
+# Resource files
+*.rc linguist-vendored
+*.res linguist-generated=true
