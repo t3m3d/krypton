@@ -587,6 +587,179 @@ static char* kr_assert(const char* cond, const char* msg) {
     return _K_ONE;
 }
 
+static char* kr_splitby(const char* s, const char* delim) {
+    int slen = (int)strlen(s), dlen = (int)strlen(delim);
+    if (dlen == 0 || slen == 0) return kr_str(s);
+    char* out = _K_EMPTY; int first = 1;
+    const char* p = s;
+    while (*p) {
+        const char* f = strstr(p, delim);
+        if (!f) { 
+            if (first) out = kr_str(p); else out = kr_cat(kr_cat(out, ","), kr_str(p));
+            break;
+        }
+        int n = (int)(f - p);
+        char* chunk = _alloc(n + 1);
+        memcpy(chunk, p, n); chunk[n] = 0;
+        if (first) { out = chunk; first = 0; }
+        else out = kr_cat(kr_cat(out, ","), chunk);
+        p = f + dlen;
+        if (!*p) { out = kr_cat(kr_cat(out, ","), _K_EMPTY); break; }
+    }
+    return out;
+}
+
+static char* kr_listindexof(const char* lst, const char* item) {
+    if (!*lst) return kr_itoa(-1);
+    int cnt = kr_listlen(lst);
+    for (int i = 0; i < cnt; i++) {
+        if (strcmp(kr_split(lst, kr_itoa(i)), item) == 0) return kr_itoa(i);
+    }
+    return kr_itoa(-1);
+}
+
+static char* kr_insertat(const char* lst, const char* idxs, const char* item) {
+    int idx = atoi(idxs);
+    int cnt = kr_listlen(lst);
+    if (!*lst && idx == 0) return kr_str(item);
+    if (idx < 0) idx = 0;
+    if (idx >= cnt) return kr_cat(kr_cat(lst, ","), item);
+    char* out = _K_EMPTY; int first = 1;
+    for (int i = 0; i < cnt; i++) {
+        if (i == idx) {
+            if (first) { out = kr_str(item); first = 0; }
+            else out = kr_cat(kr_cat(out, ","), item);
+        }
+        char* el = kr_split(lst, kr_itoa(i));
+        if (first) { out = el; first = 0; }
+        else out = kr_cat(kr_cat(out, ","), el);
+    }
+    return out;
+}
+
+static char* kr_removeat(const char* lst, const char* idxs) {
+    int idx = atoi(idxs);
+    int cnt = kr_listlen(lst);
+    if (idx < 0 || idx >= cnt) return kr_str(lst);
+    char* out = _K_EMPTY; int first = 1;
+    for (int i = 0; i < cnt; i++) {
+        if (i == idx) continue;
+        char* el = kr_split(lst, kr_itoa(i));
+        if (first) { out = el; first = 0; }
+        else out = kr_cat(kr_cat(out, ","), el);
+    }
+    return out;
+}
+
+static char* kr_replaceat(const char* lst, const char* idxs, const char* val) {
+    int idx = atoi(idxs);
+    int cnt = kr_listlen(lst);
+    if (idx < 0 || idx >= cnt) return kr_str(lst);
+    char* out = _K_EMPTY; int first = 1;
+    for (int i = 0; i < cnt; i++) {
+        char* el = (i == idx) ? (char*)val : kr_split(lst, kr_itoa(i));
+        if (first) { out = el; first = 0; }
+        else out = kr_cat(kr_cat(out, ","), el);
+    }
+    return out;
+}
+
+static char* kr_fill(const char* ns, const char* val) {
+    int n = atoi(ns);
+    if (n <= 0) return _K_EMPTY;
+    char* out = kr_str(val);
+    for (int i = 1; i < n; i++) out = kr_cat(kr_cat(out, ","), val);
+    return out;
+}
+
+static char* kr_zip(const char* a, const char* b) {
+    int ac = kr_listlen(a), bc = kr_listlen(b);
+    int mc = ac < bc ? ac : bc;
+    if (!*a || !*b) return _K_EMPTY;
+    char* out = _K_EMPTY; int first = 1;
+    for (int i = 0; i < mc; i++) {
+        char* ai = kr_split(a, kr_itoa(i));
+        char* bi = kr_split(b, kr_itoa(i));
+        if (first) { out = kr_cat(kr_cat(ai, ","), bi); first = 0; }
+        else { out = kr_cat(kr_cat(out, ","), kr_cat(kr_cat(ai, ","), bi)); }
+    }
+    return out;
+}
+
+static char* kr_every(const char* lst, const char* val) {
+    if (!*lst) return _K_ONE;
+    int cnt = kr_listlen(lst);
+    for (int i = 0; i < cnt; i++) {
+        if (strcmp(kr_split(lst, kr_itoa(i)), val) != 0) return _K_ZERO;
+    }
+    return _K_ONE;
+}
+
+static char* kr_some(const char* lst, const char* val) {
+    if (!*lst) return _K_ZERO;
+    int cnt = kr_listlen(lst);
+    for (int i = 0; i < cnt; i++) {
+        if (strcmp(kr_split(lst, kr_itoa(i)), val) == 0) return _K_ONE;
+    }
+    return _K_ZERO;
+}
+
+static char* kr_countof(const char* lst, const char* item) {
+    if (!*lst) return _K_ZERO;
+    int cnt = kr_listlen(lst), c = 0;
+    for (int i = 0; i < cnt; i++) {
+        if (strcmp(kr_split(lst, kr_itoa(i)), item) == 0) c++;
+    }
+    return kr_itoa(c);
+}
+
+static char* kr_sumlist(const char* lst) {
+    if (!*lst) return _K_ZERO;
+    int cnt = kr_listlen(lst), s = 0;
+    for (int i = 0; i < cnt; i++) s += atoi(kr_split(lst, kr_itoa(i)));
+    return kr_itoa(s);
+}
+
+static char* kr_maxlist(const char* lst) {
+    if (!*lst) return _K_ZERO;
+    int cnt = kr_listlen(lst);
+    int m = atoi(kr_split(lst, _K_ZERO));
+    for (int i = 1; i < cnt; i++) {
+        int v = atoi(kr_split(lst, kr_itoa(i)));
+        if (v > m) m = v;
+    }
+    return kr_itoa(m);
+}
+
+static char* kr_minlist(const char* lst) {
+    if (!*lst) return _K_ZERO;
+    int cnt = kr_listlen(lst);
+    int m = atoi(kr_split(lst, _K_ZERO));
+    for (int i = 1; i < cnt; i++) {
+        int v = atoi(kr_split(lst, kr_itoa(i)));
+        if (v < m) m = v;
+    }
+    return kr_itoa(m);
+}
+
+static char* kr_hex(const char* s) {
+    int v = atoi(s);
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%x", v < 0 ? -v : v);
+    if (v < 0) return kr_cat("-", kr_str(buf));
+    return kr_str(buf);
+}
+
+static char* kr_bin(const char* s) {
+    int v = atoi(s);
+    if (v == 0) return _K_ZERO;
+    int neg = v < 0; if (neg) v = -v;
+    char buf[64]; int i = 63; buf[i] = 0;
+    while (v > 0) { buf[--i] = '0' + (v & 1); v >>= 1; }
+    if (neg) return kr_cat("-", kr_str(&buf[i]));
+    return kr_str(&buf[i]);
+}
+
 typedef struct EnvEntry { char* name; char* value; struct EnvEntry* prev; } EnvEntry;
 
 static char* kr_envnew() { return (char*)0; }
@@ -710,6 +883,7 @@ char* skipBlock(char*, char*);
 char* indent(char*);
 char* cIdent(char*);
 char* compileExpr(char*, char*, char*);
+char* compileTernary(char*, char*, char*);
 char* compileOr(char*, char*, char*);
 char* compileAnd(char*, char*, char*);
 char* compileEquality(char*, char*, char*);
@@ -867,6 +1041,8 @@ char* isKW(char* word) {
     } else if (kr_truthy(kr_eq(word, kr_str("match")))) {
         return kr_str("1");
     } else if (kr_truthy(kr_eq(word, kr_str("do")))) {
+        return kr_str("1");
+    } else if (kr_truthy(kr_eq(word, kr_str("const")))) {
         return kr_str("1");
     } else if (kr_truthy(kr_eq(word, kr_str("module")))) {
         return kr_str("1");
@@ -1035,6 +1211,9 @@ char* tokenize(char* text) {
                 out = kr_plus(out, kr_str("MOD\n"));
                 i = kr_plus(i, kr_str("1"));
             }
+        } else if (kr_truthy(kr_eq(c, kr_str("?")))) {
+            out = kr_plus(out, kr_str("QUESTION\n"));
+            i = kr_plus(i, kr_str("1"));
         } else {
             i = kr_plus(i, kr_str("1"));
         }
@@ -1308,7 +1487,24 @@ char* cIdent(char* name) {
 }
 
 char* compileExpr(char* tokens, char* pos, char* ntoks) {
-    return compileOr(tokens, pos, ntoks);
+    return compileTernary(tokens, pos, ntoks);
+}
+
+char* compileTernary(char* tokens, char* pos, char* ntoks) {
+    char* pair = compileOr(tokens, pos, ntoks);
+    char* code = pairVal(pair);
+    char* p = pairPos(pair);
+    if (kr_truthy(kr_eq(tokAt(tokens, p), kr_str("QUESTION")))) {
+        char* tp = compileExpr(tokens, kr_plus(p, kr_str("1")), ntoks);
+        char* tcode = pairVal(tp);
+        p = pairPos(tp);
+        p = kr_plus(p, kr_str("1"));
+        char* fp = compileExpr(tokens, p, ntoks);
+        char* fcode = pairVal(fp);
+        p = pairPos(fp);
+        code = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("(kr_truthy("), code), kr_str(") ? ")), tcode), kr_str(" : ")), fcode), kr_str(")"));
+    }
+    return kr_plus(kr_plus(code, kr_str(",")), p);
 }
 
 char* compileOr(char* tokens, char* pos, char* ntoks) {
@@ -1700,6 +1896,51 @@ char* compileCall(char* tokens, char* pos, char* ntoks) {
     if (kr_truthy(kr_eq(fname, kr_str("assert")))) {
         return kr_plus(kr_plus(kr_plus(kr_str("kr_assert("), args), kr_str("),")), p);
     }
+    if (kr_truthy(kr_eq(fname, kr_str("splitBy")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_splitby("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("listIndexOf")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_listindexof("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("insertAt")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_insertat("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("removeAt")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_removeat("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("replaceAt")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_replaceat("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("fill")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_fill("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("zip")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_zip("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("every")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_every("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("some")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_some("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("countOf")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_countof("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("sumList")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_sumlist("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("maxList")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_maxlist("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("minList")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_minlist("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("hex")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_hex("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("bin")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_bin("), args), kr_str("),")), p);
+    }
     return kr_plus(kr_plus(kr_plus(kr_plus(cIdent(fname), kr_str("(")), args), kr_str("),")), p);
 }
 
@@ -1739,6 +1980,9 @@ char* compileStmt(char* tokens, char* pos, char* ntoks, char* depth, char* inFun
     }
     if (kr_truthy(kr_eq(tok, kr_str("KW:do")))) {
         return compileDoWhile(tokens, kr_plus(pos, kr_str("1")), ntoks, depth, inFunc);
+    }
+    if (kr_truthy(kr_eq(tok, kr_str("KW:const")))) {
+        return compileLet(tokens, kr_plus(pos, kr_str("1")), ntoks, depth);
     }
     if (kr_truthy(kr_eq(tokType(tok), kr_str("ID")))) {
         char* nextTok = tokAt(tokens, kr_plus(pos, kr_str("1")));
@@ -2524,6 +2768,164 @@ char* cRuntime() {
     r = kr_sbappend(r, kr_str("        exit(1);\n"));
     r = kr_sbappend(r, kr_str("    }\n"));
     r = kr_sbappend(r, kr_str("    return _K_ONE;\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_splitby(const char* s, const char* delim) {\n"));
+    r = kr_sbappend(r, kr_str("    int slen = (int)strlen(s), dlen = (int)strlen(delim);\n"));
+    r = kr_sbappend(r, kr_str("    if (dlen == 0 || slen == 0) return kr_str(s);\n"));
+    r = kr_sbappend(r, kr_str("    char* out = _K_EMPTY; int first = 1;\n"));
+    r = kr_sbappend(r, kr_str("    const char* p = s;\n"));
+    r = kr_sbappend(r, kr_str("    while (*p) {\n"));
+    r = kr_sbappend(r, kr_str("        const char* f = strstr(p, delim);\n"));
+    r = kr_sbappend(r, kr_str("        if (!f) { \n"));
+    r = kr_sbappend(r, kr_str("            if (first) out = kr_str(p); else out = kr_cat(kr_cat(out, \",\"), kr_str(p));\n"));
+    r = kr_sbappend(r, kr_str("            break;\n"));
+    r = kr_sbappend(r, kr_str("        }\n"));
+    r = kr_sbappend(r, kr_str("        int n = (int)(f - p);\n"));
+    r = kr_sbappend(r, kr_str("        char* chunk = _alloc(n + 1);\n"));
+    r = kr_sbappend(r, kr_str("        memcpy(chunk, p, n); chunk[n] = 0;\n"));
+    r = kr_sbappend(r, kr_str("        if (first) { out = chunk; first = 0; }\n"));
+    r = kr_sbappend(r, kr_str("        else out = kr_cat(kr_cat(out, \",\"), chunk);\n"));
+    r = kr_sbappend(r, kr_str("        p = f + dlen;\n"));
+    r = kr_sbappend(r, kr_str("        if (!*p) { out = kr_cat(kr_cat(out, \",\"), _K_EMPTY); break; }\n"));
+    r = kr_sbappend(r, kr_str("    }\n"));
+    r = kr_sbappend(r, kr_str("    return out;\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_listindexof(const char* lst, const char* item) {\n"));
+    r = kr_sbappend(r, kr_str("    if (!*lst) return kr_itoa(-1);\n"));
+    r = kr_sbappend(r, kr_str("    int cnt = kr_listlen(lst);\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 0; i < cnt; i++) {\n"));
+    r = kr_sbappend(r, kr_str("        if (strcmp(kr_split(lst, kr_itoa(i)), item) == 0) return kr_itoa(i);\n"));
+    r = kr_sbappend(r, kr_str("    }\n"));
+    r = kr_sbappend(r, kr_str("    return kr_itoa(-1);\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_insertat(const char* lst, const char* idxs, const char* item) {\n"));
+    r = kr_sbappend(r, kr_str("    int idx = atoi(idxs);\n"));
+    r = kr_sbappend(r, kr_str("    int cnt = kr_listlen(lst);\n"));
+    r = kr_sbappend(r, kr_str("    if (!*lst && idx == 0) return kr_str(item);\n"));
+    r = kr_sbappend(r, kr_str("    if (idx < 0) idx = 0;\n"));
+    r = kr_sbappend(r, kr_str("    if (idx >= cnt) return kr_cat(kr_cat(lst, \",\"), item);\n"));
+    r = kr_sbappend(r, kr_str("    char* out = _K_EMPTY; int first = 1;\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 0; i < cnt; i++) {\n"));
+    r = kr_sbappend(r, kr_str("        if (i == idx) {\n"));
+    r = kr_sbappend(r, kr_str("            if (first) { out = kr_str(item); first = 0; }\n"));
+    r = kr_sbappend(r, kr_str("            else out = kr_cat(kr_cat(out, \",\"), item);\n"));
+    r = kr_sbappend(r, kr_str("        }\n"));
+    r = kr_sbappend(r, kr_str("        char* el = kr_split(lst, kr_itoa(i));\n"));
+    r = kr_sbappend(r, kr_str("        if (first) { out = el; first = 0; }\n"));
+    r = kr_sbappend(r, kr_str("        else out = kr_cat(kr_cat(out, \",\"), el);\n"));
+    r = kr_sbappend(r, kr_str("    }\n"));
+    r = kr_sbappend(r, kr_str("    return out;\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_removeat(const char* lst, const char* idxs) {\n"));
+    r = kr_sbappend(r, kr_str("    int idx = atoi(idxs);\n"));
+    r = kr_sbappend(r, kr_str("    int cnt = kr_listlen(lst);\n"));
+    r = kr_sbappend(r, kr_str("    if (idx < 0 || idx >= cnt) return kr_str(lst);\n"));
+    r = kr_sbappend(r, kr_str("    char* out = _K_EMPTY; int first = 1;\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 0; i < cnt; i++) {\n"));
+    r = kr_sbappend(r, kr_str("        if (i == idx) continue;\n"));
+    r = kr_sbappend(r, kr_str("        char* el = kr_split(lst, kr_itoa(i));\n"));
+    r = kr_sbappend(r, kr_str("        if (first) { out = el; first = 0; }\n"));
+    r = kr_sbappend(r, kr_str("        else out = kr_cat(kr_cat(out, \",\"), el);\n"));
+    r = kr_sbappend(r, kr_str("    }\n"));
+    r = kr_sbappend(r, kr_str("    return out;\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_replaceat(const char* lst, const char* idxs, const char* val) {\n"));
+    r = kr_sbappend(r, kr_str("    int idx = atoi(idxs);\n"));
+    r = kr_sbappend(r, kr_str("    int cnt = kr_listlen(lst);\n"));
+    r = kr_sbappend(r, kr_str("    if (idx < 0 || idx >= cnt) return kr_str(lst);\n"));
+    r = kr_sbappend(r, kr_str("    char* out = _K_EMPTY; int first = 1;\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 0; i < cnt; i++) {\n"));
+    r = kr_sbappend(r, kr_str("        char* el = (i == idx) ? (char*)val : kr_split(lst, kr_itoa(i));\n"));
+    r = kr_sbappend(r, kr_str("        if (first) { out = el; first = 0; }\n"));
+    r = kr_sbappend(r, kr_str("        else out = kr_cat(kr_cat(out, \",\"), el);\n"));
+    r = kr_sbappend(r, kr_str("    }\n"));
+    r = kr_sbappend(r, kr_str("    return out;\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_fill(const char* ns, const char* val) {\n"));
+    r = kr_sbappend(r, kr_str("    int n = atoi(ns);\n"));
+    r = kr_sbappend(r, kr_str("    if (n <= 0) return _K_EMPTY;\n"));
+    r = kr_sbappend(r, kr_str("    char* out = kr_str(val);\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 1; i < n; i++) out = kr_cat(kr_cat(out, \",\"), val);\n"));
+    r = kr_sbappend(r, kr_str("    return out;\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_zip(const char* a, const char* b) {\n"));
+    r = kr_sbappend(r, kr_str("    int ac = kr_listlen(a), bc = kr_listlen(b);\n"));
+    r = kr_sbappend(r, kr_str("    int mc = ac < bc ? ac : bc;\n"));
+    r = kr_sbappend(r, kr_str("    if (!*a || !*b) return _K_EMPTY;\n"));
+    r = kr_sbappend(r, kr_str("    char* out = _K_EMPTY; int first = 1;\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 0; i < mc; i++) {\n"));
+    r = kr_sbappend(r, kr_str("        char* ai = kr_split(a, kr_itoa(i));\n"));
+    r = kr_sbappend(r, kr_str("        char* bi = kr_split(b, kr_itoa(i));\n"));
+    r = kr_sbappend(r, kr_str("        if (first) { out = kr_cat(kr_cat(ai, \",\"), bi); first = 0; }\n"));
+    r = kr_sbappend(r, kr_str("        else { out = kr_cat(kr_cat(out, \",\"), kr_cat(kr_cat(ai, \",\"), bi)); }\n"));
+    r = kr_sbappend(r, kr_str("    }\n"));
+    r = kr_sbappend(r, kr_str("    return out;\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_every(const char* lst, const char* val) {\n"));
+    r = kr_sbappend(r, kr_str("    if (!*lst) return _K_ONE;\n"));
+    r = kr_sbappend(r, kr_str("    int cnt = kr_listlen(lst);\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 0; i < cnt; i++) {\n"));
+    r = kr_sbappend(r, kr_str("        if (strcmp(kr_split(lst, kr_itoa(i)), val) != 0) return _K_ZERO;\n"));
+    r = kr_sbappend(r, kr_str("    }\n"));
+    r = kr_sbappend(r, kr_str("    return _K_ONE;\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_some(const char* lst, const char* val) {\n"));
+    r = kr_sbappend(r, kr_str("    if (!*lst) return _K_ZERO;\n"));
+    r = kr_sbappend(r, kr_str("    int cnt = kr_listlen(lst);\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 0; i < cnt; i++) {\n"));
+    r = kr_sbappend(r, kr_str("        if (strcmp(kr_split(lst, kr_itoa(i)), val) == 0) return _K_ONE;\n"));
+    r = kr_sbappend(r, kr_str("    }\n"));
+    r = kr_sbappend(r, kr_str("    return _K_ZERO;\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_countof(const char* lst, const char* item) {\n"));
+    r = kr_sbappend(r, kr_str("    if (!*lst) return _K_ZERO;\n"));
+    r = kr_sbappend(r, kr_str("    int cnt = kr_listlen(lst), c = 0;\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 0; i < cnt; i++) {\n"));
+    r = kr_sbappend(r, kr_str("        if (strcmp(kr_split(lst, kr_itoa(i)), item) == 0) c++;\n"));
+    r = kr_sbappend(r, kr_str("    }\n"));
+    r = kr_sbappend(r, kr_str("    return kr_itoa(c);\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_sumlist(const char* lst) {\n"));
+    r = kr_sbappend(r, kr_str("    if (!*lst) return _K_ZERO;\n"));
+    r = kr_sbappend(r, kr_str("    int cnt = kr_listlen(lst), s = 0;\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 0; i < cnt; i++) s += atoi(kr_split(lst, kr_itoa(i)));\n"));
+    r = kr_sbappend(r, kr_str("    return kr_itoa(s);\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_maxlist(const char* lst) {\n"));
+    r = kr_sbappend(r, kr_str("    if (!*lst) return _K_ZERO;\n"));
+    r = kr_sbappend(r, kr_str("    int cnt = kr_listlen(lst);\n"));
+    r = kr_sbappend(r, kr_str("    int m = atoi(kr_split(lst, _K_ZERO));\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 1; i < cnt; i++) {\n"));
+    r = kr_sbappend(r, kr_str("        int v = atoi(kr_split(lst, kr_itoa(i)));\n"));
+    r = kr_sbappend(r, kr_str("        if (v > m) m = v;\n"));
+    r = kr_sbappend(r, kr_str("    }\n"));
+    r = kr_sbappend(r, kr_str("    return kr_itoa(m);\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_minlist(const char* lst) {\n"));
+    r = kr_sbappend(r, kr_str("    if (!*lst) return _K_ZERO;\n"));
+    r = kr_sbappend(r, kr_str("    int cnt = kr_listlen(lst);\n"));
+    r = kr_sbappend(r, kr_str("    int m = atoi(kr_split(lst, _K_ZERO));\n"));
+    r = kr_sbappend(r, kr_str("    for (int i = 1; i < cnt; i++) {\n"));
+    r = kr_sbappend(r, kr_str("        int v = atoi(kr_split(lst, kr_itoa(i)));\n"));
+    r = kr_sbappend(r, kr_str("        if (v < m) m = v;\n"));
+    r = kr_sbappend(r, kr_str("    }\n"));
+    r = kr_sbappend(r, kr_str("    return kr_itoa(m);\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_hex(const char* s) {\n"));
+    r = kr_sbappend(r, kr_str("    int v = atoi(s);\n"));
+    r = kr_sbappend(r, kr_str("    char buf[32];\n"));
+    r = kr_sbappend(r, kr_str("    snprintf(buf, sizeof(buf), \"%x\", v < 0 ? -v : v);\n"));
+    r = kr_sbappend(r, kr_str("    if (v < 0) return kr_cat(\"-\", kr_str(buf));\n"));
+    r = kr_sbappend(r, kr_str("    return kr_str(buf);\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_bin(const char* s) {\n"));
+    r = kr_sbappend(r, kr_str("    int v = atoi(s);\n"));
+    r = kr_sbappend(r, kr_str("    if (v == 0) return _K_ZERO;\n"));
+    r = kr_sbappend(r, kr_str("    int neg = v < 0; if (neg) v = -v;\n"));
+    r = kr_sbappend(r, kr_str("    char buf[64]; int i = 63; buf[i] = 0;\n"));
+    r = kr_sbappend(r, kr_str("    while (v > 0) { buf[--i] = '0' + (v & 1); v >>= 1; }\n"));
+    r = kr_sbappend(r, kr_str("    if (neg) return kr_cat(\"-\", kr_str(&buf[i]));\n"));
+    r = kr_sbappend(r, kr_str("    return kr_str(&buf[i]);\n"));
     r = kr_sbappend(r, kr_str("}\n\n"));
     r = kr_sbappend(r, kr_str("typedef struct EnvEntry { char* name; char* value; struct EnvEntry* prev; } EnvEntry;\n\n"));
     r = kr_sbappend(r, kr_str("static char* kr_envnew() { return (char*)0; }\n\n"));
