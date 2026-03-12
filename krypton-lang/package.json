@@ -1,0 +1,37 @@
+{
+  "name": "krypton-lang",
+  "displayName": "Krypton",
+  "description": "Syntax highlighting for the Krypton programming language",
+  "version": "0.1.0",
+  "publisher": "krypton-lang",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/krypton-lang/krypton"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "krypton",
+        "aliases": ["Krypton", "krypton"],
+        "extensions": [".k"],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icon.png",
+          "dark": "./icon.png"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "krypton",
+        "scopeName": "source.krypton",
+        "path": "./syntaxes/krypton.tmLanguage.json"
+      }
+    ]
+  }
+}

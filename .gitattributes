@@ -1,5 +1,12 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 
-# Force GitHub Linguist to treat .k files as K (avoid KCL mis-detection)
-*.k linguist-language=Go
+# Krypton language — use vendor grammar for .k files
+*.k linguist-language=Krypton
+*.k linguist-detectable
+
+# Generated C output — not first-class source
+*.c linguist-generated=true
+compile_self.c linguist-generated=true
+run_self.c linguist-generated=true
+run.c linguist-generated=true
