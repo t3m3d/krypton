@@ -2,13 +2,12 @@
 * text=auto
 
 # ── Krypton (.k) is the primary language ──
-# .k auto-detects as KCL — override until Krypton is registered in linguist.
-# Using linguist-detectable=false hides .k from the language bar.
-*.k linguist-detectable=false
+# Override .k detection so it appears in the language bar.
+# Once Krypton is registered in linguist, this can be simplified.
+*.k linguist-language=Krypton
 
-# C++ bootstrap compiler — vendored (not primary source)
-compiler/** linguist-vendored
-tests/** linguist-vendored
+# C++ bootstrap compiler
+compiler/** linguist-language=C++
 
 # Generated C output from the Krypton compiler
 *.c linguist-generated=true
