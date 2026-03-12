@@ -704,7 +704,7 @@ func compileMult(tokens, pos, ntoks) {
     let pair = compileUnary(tokens, pos, ntoks)
     let code = pairVal(pair)
     let p = pairPos(pair)
-    while tokAt(tokens, p) == "STAR" || tokAt(tokens, p) == "SLASH" || tokAt(tokens, p) == "PERCENT" {
+    while tokAt(tokens, p) == "STAR" || tokAt(tokens, p) == "SLASH" || tokAt(tokens, p) == "MOD" {
         let op = tokAt(tokens, p)
         let rp = compileUnary(tokens, p + 1, ntoks)
         let rcode = pairVal(rp)

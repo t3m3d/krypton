@@ -1399,7 +1399,7 @@ char* compileMult(char* tokens, char* pos, char* ntoks) {
     char* pair = compileUnary(tokens, pos, ntoks);
     char* code = pairVal(pair);
     char* p = pairPos(pair);
-    while (kr_truthy((kr_truthy((kr_truthy(kr_eq(tokAt(tokens, p), kr_str("STAR"))) || kr_truthy(kr_eq(tokAt(tokens, p), kr_str("SLASH"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(tokAt(tokens, p), kr_str("PERCENT"))) ? kr_str("1") : kr_str("0")))) {
+    while (kr_truthy((kr_truthy((kr_truthy(kr_eq(tokAt(tokens, p), kr_str("STAR"))) || kr_truthy(kr_eq(tokAt(tokens, p), kr_str("SLASH"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(tokAt(tokens, p), kr_str("MOD"))) ? kr_str("1") : kr_str("0")))) {
         char* op = tokAt(tokens, p);
         char* rp = compileUnary(tokens, kr_plus(p, kr_str("1")), ntoks);
         char* rcode = pairVal(rp);
