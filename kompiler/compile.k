@@ -117,6 +117,8 @@ func isKW(word) {
     else if word == "else" { emit 1 }
     else if word == "while" { emit 1 }
     else if word == "break" { emit 1 }
+    else if word == "for" { emit 1 }
+    else if word == "in" { emit 1 }
     else if word == "module" { emit 1 }
     else if word == "quantum" { emit 1 }
     else if word == "qpute" { emit 1 }
@@ -168,12 +170,21 @@ func tokenize(text) {
             }
         }
         else if c == "+" {
-            out = out + "PLUS\n"
-            i = i + 1
+            if i + 1 < len(text) && text[i + 1] == "=" {
+                out = out + "PLUSEQ\n"
+                i = i + 2
+            } else {
+                out = out + "PLUS\n"
+                i = i + 1
+            }
         }
         else if c == "-" {
             if i + 1 < len(text) && text[i + 1] == ">" {
                 out = out + "ARROW\n"
+                i = i + 2
+            }
+            else if i + 1 < len(text) && text[i + 1] == "=" {
+                out = out + "MINUSEQ\n"
                 i = i + 2
             }
             else {
@@ -182,12 +193,22 @@ func tokenize(text) {
             }
         }
         else if c == "*" {
-            out = out + "STAR\n"
-            i = i + 1
+            if i + 1 < len(text) && text[i + 1] == "=" {
+                out = out + "STAREQ\n"
+                i = i + 2
+            } else {
+                out = out + "STAR\n"
+                i = i + 1
+            }
         }
         else if c == "/" {
-            out = out + "SLASH\n"
-            i = i + 1
+            if i + 1 < len(text) && text[i + 1] == "=" {
+                out = out + "SLASHEQ\n"
+                i = i + 2
+            } else {
+                out = out + "SLASH\n"
+                i = i + 1
+            }
         }
         else if c == "(" {
             out = out + "LPAREN\n"
@@ -284,8 +305,13 @@ func tokenize(text) {
             }
         }
         else if c == "%" {
-            out = out + "MOD\n"
-            i = i + 1
+            if i + 1 < len(text) && text[i + 1] == "=" {
+                out = out + "MODEQ\n"
+                i = i + 2
+            } else {
+                out = out + "MOD\n"
+                i = i + 1
+            }
         }
         else {
             i = i + 1
@@ -944,12 +970,24 @@ func compileStmt(tokens, pos, ntoks, depth, inFunc) {
         emit compileWhile(tokens, pos + 1, ntoks, depth, inFunc)
     }
 
+    if tok == "KW:for" {
+        emit compileFor(tokens, pos + 1, ntoks, depth, inFunc)
+    }
+
     if tok == "KW:break" {
         let p = pos + 1
         if tokAt(tokens, p) == "SEMI" {
             p = p + 1
         }
         emit indent(depth) + "break;\n," + p
+    }
+
+    // Check for compound assignment: ID PLUSEQ/MINUSEQ/STAREQ/SLASHEQ/MODEQ
+    if tokType(tok) == "ID" {
+        let nextTok = tokAt(tokens, pos + 1)
+        if nextTok == "PLUSEQ" || nextTok == "MINUSEQ" || nextTok == "STAREQ" || nextTok == "SLASHEQ" || nextTok == "MODEQ" {
+            emit compileCompoundAssign(tokens, pos, ntoks, depth)
+        }
     }
 
     // Check for assignment: ID ASSIGN
