@@ -122,6 +122,7 @@ func isKW(word) {
     else if word == "in" { emit 1 }
     else if word == "match" { emit 1 }
     else if word == "do" { emit 1 }
+    else if word == "const" { emit 1 }
     else if word == "module" { emit 1 }
     else if word == "quantum" { emit 1 }
     else if word == "qpute" { emit 1 }
@@ -315,6 +316,10 @@ func tokenize(text) {
                 out = out + "MOD\n"
                 i = i + 1
             }
+        }
+        else if c == "?" {
+            out = out + "QUESTION\n"
+            i = i + 1
         }
         else {
             i = i + 1
@@ -613,7 +618,25 @@ func cIdent(name) {
 // =============================================
 
 func compileExpr(tokens, pos, ntoks) {
-    emit compileOr(tokens, pos, ntoks)
+    emit compileTernary(tokens, pos, ntoks)
+}
+
+func compileTernary(tokens, pos, ntoks) {
+    let pair = compileOr(tokens, pos, ntoks)
+    let code = pairVal(pair)
+    let p = pairPos(pair)
+    if tokAt(tokens, p) == "QUESTION" {
+        let tp = compileExpr(tokens, p + 1, ntoks)
+        let tcode = pairVal(tp)
+        p = pairPos(tp)
+        // expect COLON
+        p = p + 1
+        let fp = compileExpr(tokens, p, ntoks)
+        let fcode = pairVal(fp)
+        p = pairPos(fp)
+        code = "(kr_truthy(" + code + ") ? " + tcode + " : " + fcode + ")"
+    }
+    emit code + "," + p
 }
 
 func compileOr(tokens, pos, ntoks) {
@@ -1030,6 +1053,53 @@ func compileCall(tokens, pos, ntoks) {
         emit "kr_assert(" + args + ")," + p
     }
 
+    // v0.5.0 builtins
+    if fname == "splitBy" {
+        emit "kr_splitby(" + args + ")," + p
+    }
+    if fname == "listIndexOf" {
+        emit "kr_listindexof(" + args + ")," + p
+    }
+    if fname == "insertAt" {
+        emit "kr_insertat(" + args + ")," + p
+    }
+    if fname == "removeAt" {
+        emit "kr_removeat(" + args + ")," + p
+    }
+    if fname == "replaceAt" {
+        emit "kr_replaceat(" + args + ")," + p
+    }
+    if fname == "fill" {
+        emit "kr_fill(" + args + ")," + p
+    }
+    if fname == "zip" {
+        emit "kr_zip(" + args + ")," + p
+    }
+    if fname == "every" {
+        emit "kr_every(" + args + ")," + p
+    }
+    if fname == "some" {
+        emit "kr_some(" + args + ")," + p
+    }
+    if fname == "countOf" {
+        emit "kr_countof(" + args + ")," + p
+    }
+    if fname == "sumList" {
+        emit "kr_sumlist(" + args + ")," + p
+    }
+    if fname == "maxList" {
+        emit "kr_maxlist(" + args + ")," + p
+    }
+    if fname == "minList" {
+        emit "kr_minlist(" + args + ")," + p
+    }
+    if fname == "hex" {
+        emit "kr_hex(" + args + ")," + p
+    }
+    if fname == "bin" {
+        emit "kr_bin(" + args + ")," + p
+    }
+
     // User-defined function call
     emit cIdent(fname) + "(" + args + ")," + p
 }
@@ -1084,6 +1154,10 @@ func compileStmt(tokens, pos, ntoks, depth, inFunc) {
 
     if tok == "KW:do" {
         emit compileDoWhile(tokens, pos + 1, ntoks, depth, inFunc)
+    }
+
+    if tok == "KW:const" {
+        emit compileLet(tokens, pos + 1, ntoks, depth)
     }
 
     // Check for compound assignment: ID PLUSEQ/MINUSEQ/STAREQ/SLASHEQ/MODEQ
@@ -1966,6 +2040,180 @@ func cRuntime() {
     r = sbAppend(r, "        exit(1);\n")
     r = sbAppend(r, "    }\n")
     r = sbAppend(r, "    return _K_ONE;\n")
+    r = sbAppend(r, "}\n\n")
+
+    // v0.5.0 builtins: list operations, data, conversion
+    r = sbAppend(r, "static char* kr_splitby(const char* s, const char* delim) {\n")
+    r = sbAppend(r, "    int slen = (int)strlen(s), dlen = (int)strlen(delim);\n")
+    r = sbAppend(r, "    if (dlen == 0 || slen == 0) return kr_str(s);\n")
+    r = sbAppend(r, "    char* out = _K_EMPTY; int first = 1;\n")
+    r = sbAppend(r, "    const char* p = s;\n")
+    r = sbAppend(r, "    while (*p) {\n")
+    r = sbAppend(r, "        const char* f = strstr(p, delim);\n")
+    r = sbAppend(r, "        if (!f) { \n")
+    r = sbAppend(r, "            if (first) out = kr_str(p); else out = kr_cat(kr_cat(out, \",\"), kr_str(p));\n")
+    r = sbAppend(r, "            break;\n")
+    r = sbAppend(r, "        }\n")
+    r = sbAppend(r, "        int n = (int)(f - p);\n")
+    r = sbAppend(r, "        char* chunk = _alloc(n + 1);\n")
+    r = sbAppend(r, "        memcpy(chunk, p, n); chunk[n] = 0;\n")
+    r = sbAppend(r, "        if (first) { out = chunk; first = 0; }\n")
+    r = sbAppend(r, "        else out = kr_cat(kr_cat(out, \",\"), chunk);\n")
+    r = sbAppend(r, "        p = f + dlen;\n")
+    r = sbAppend(r, "        if (!*p) { out = kr_cat(kr_cat(out, \",\"), _K_EMPTY); break; }\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    return out;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_listindexof(const char* lst, const char* item) {\n")
+    r = sbAppend(r, "    if (!*lst) return kr_itoa(-1);\n")
+    r = sbAppend(r, "    int cnt = kr_listlen(lst);\n")
+    r = sbAppend(r, "    for (int i = 0; i < cnt; i++) {\n")
+    r = sbAppend(r, "        if (strcmp(kr_split(lst, kr_itoa(i)), item) == 0) return kr_itoa(i);\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    return kr_itoa(-1);\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_insertat(const char* lst, const char* idxs, const char* item) {\n")
+    r = sbAppend(r, "    int idx = atoi(idxs);\n")
+    r = sbAppend(r, "    int cnt = kr_listlen(lst);\n")
+    r = sbAppend(r, "    if (!*lst && idx == 0) return kr_str(item);\n")
+    r = sbAppend(r, "    if (idx < 0) idx = 0;\n")
+    r = sbAppend(r, "    if (idx >= cnt) return kr_cat(kr_cat(lst, \",\"), item);\n")
+    r = sbAppend(r, "    char* out = _K_EMPTY; int first = 1;\n")
+    r = sbAppend(r, "    for (int i = 0; i < cnt; i++) {\n")
+    r = sbAppend(r, "        if (i == idx) {\n")
+    r = sbAppend(r, "            if (first) { out = kr_str(item); first = 0; }\n")
+    r = sbAppend(r, "            else out = kr_cat(kr_cat(out, \",\"), item);\n")
+    r = sbAppend(r, "        }\n")
+    r = sbAppend(r, "        char* el = kr_split(lst, kr_itoa(i));\n")
+    r = sbAppend(r, "        if (first) { out = el; first = 0; }\n")
+    r = sbAppend(r, "        else out = kr_cat(kr_cat(out, \",\"), el);\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    return out;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_removeat(const char* lst, const char* idxs) {\n")
+    r = sbAppend(r, "    int idx = atoi(idxs);\n")
+    r = sbAppend(r, "    int cnt = kr_listlen(lst);\n")
+    r = sbAppend(r, "    if (idx < 0 || idx >= cnt) return kr_str(lst);\n")
+    r = sbAppend(r, "    char* out = _K_EMPTY; int first = 1;\n")
+    r = sbAppend(r, "    for (int i = 0; i < cnt; i++) {\n")
+    r = sbAppend(r, "        if (i == idx) continue;\n")
+    r = sbAppend(r, "        char* el = kr_split(lst, kr_itoa(i));\n")
+    r = sbAppend(r, "        if (first) { out = el; first = 0; }\n")
+    r = sbAppend(r, "        else out = kr_cat(kr_cat(out, \",\"), el);\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    return out;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_replaceat(const char* lst, const char* idxs, const char* val) {\n")
+    r = sbAppend(r, "    int idx = atoi(idxs);\n")
+    r = sbAppend(r, "    int cnt = kr_listlen(lst);\n")
+    r = sbAppend(r, "    if (idx < 0 || idx >= cnt) return kr_str(lst);\n")
+    r = sbAppend(r, "    char* out = _K_EMPTY; int first = 1;\n")
+    r = sbAppend(r, "    for (int i = 0; i < cnt; i++) {\n")
+    r = sbAppend(r, "        char* el = (i == idx) ? (char*)val : kr_split(lst, kr_itoa(i));\n")
+    r = sbAppend(r, "        if (first) { out = el; first = 0; }\n")
+    r = sbAppend(r, "        else out = kr_cat(kr_cat(out, \",\"), el);\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    return out;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_fill(const char* ns, const char* val) {\n")
+    r = sbAppend(r, "    int n = atoi(ns);\n")
+    r = sbAppend(r, "    if (n <= 0) return _K_EMPTY;\n")
+    r = sbAppend(r, "    char* out = kr_str(val);\n")
+    r = sbAppend(r, "    for (int i = 1; i < n; i++) out = kr_cat(kr_cat(out, \",\"), val);\n")
+    r = sbAppend(r, "    return out;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_zip(const char* a, const char* b) {\n")
+    r = sbAppend(r, "    int ac = kr_listlen(a), bc = kr_listlen(b);\n")
+    r = sbAppend(r, "    int mc = ac < bc ? ac : bc;\n")
+    r = sbAppend(r, "    if (!*a || !*b) return _K_EMPTY;\n")
+    r = sbAppend(r, "    char* out = _K_EMPTY; int first = 1;\n")
+    r = sbAppend(r, "    for (int i = 0; i < mc; i++) {\n")
+    r = sbAppend(r, "        char* ai = kr_split(a, kr_itoa(i));\n")
+    r = sbAppend(r, "        char* bi = kr_split(b, kr_itoa(i));\n")
+    r = sbAppend(r, "        if (first) { out = kr_cat(kr_cat(ai, \",\"), bi); first = 0; }\n")
+    r = sbAppend(r, "        else { out = kr_cat(kr_cat(out, \",\"), kr_cat(kr_cat(ai, \",\"), bi)); }\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    return out;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_every(const char* lst, const char* val) {\n")
+    r = sbAppend(r, "    if (!*lst) return _K_ONE;\n")
+    r = sbAppend(r, "    int cnt = kr_listlen(lst);\n")
+    r = sbAppend(r, "    for (int i = 0; i < cnt; i++) {\n")
+    r = sbAppend(r, "        if (strcmp(kr_split(lst, kr_itoa(i)), val) != 0) return _K_ZERO;\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    return _K_ONE;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_some(const char* lst, const char* val) {\n")
+    r = sbAppend(r, "    if (!*lst) return _K_ZERO;\n")
+    r = sbAppend(r, "    int cnt = kr_listlen(lst);\n")
+    r = sbAppend(r, "    for (int i = 0; i < cnt; i++) {\n")
+    r = sbAppend(r, "        if (strcmp(kr_split(lst, kr_itoa(i)), val) == 0) return _K_ONE;\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    return _K_ZERO;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_countof(const char* lst, const char* item) {\n")
+    r = sbAppend(r, "    if (!*lst) return _K_ZERO;\n")
+    r = sbAppend(r, "    int cnt = kr_listlen(lst), c = 0;\n")
+    r = sbAppend(r, "    for (int i = 0; i < cnt; i++) {\n")
+    r = sbAppend(r, "        if (strcmp(kr_split(lst, kr_itoa(i)), item) == 0) c++;\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    return kr_itoa(c);\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_sumlist(const char* lst) {\n")
+    r = sbAppend(r, "    if (!*lst) return _K_ZERO;\n")
+    r = sbAppend(r, "    int cnt = kr_listlen(lst), s = 0;\n")
+    r = sbAppend(r, "    for (int i = 0; i < cnt; i++) s += atoi(kr_split(lst, kr_itoa(i)));\n")
+    r = sbAppend(r, "    return kr_itoa(s);\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_maxlist(const char* lst) {\n")
+    r = sbAppend(r, "    if (!*lst) return _K_ZERO;\n")
+    r = sbAppend(r, "    int cnt = kr_listlen(lst);\n")
+    r = sbAppend(r, "    int m = atoi(kr_split(lst, _K_ZERO));\n")
+    r = sbAppend(r, "    for (int i = 1; i < cnt; i++) {\n")
+    r = sbAppend(r, "        int v = atoi(kr_split(lst, kr_itoa(i)));\n")
+    r = sbAppend(r, "        if (v > m) m = v;\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    return kr_itoa(m);\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_minlist(const char* lst) {\n")
+    r = sbAppend(r, "    if (!*lst) return _K_ZERO;\n")
+    r = sbAppend(r, "    int cnt = kr_listlen(lst);\n")
+    r = sbAppend(r, "    int m = atoi(kr_split(lst, _K_ZERO));\n")
+    r = sbAppend(r, "    for (int i = 1; i < cnt; i++) {\n")
+    r = sbAppend(r, "        int v = atoi(kr_split(lst, kr_itoa(i)));\n")
+    r = sbAppend(r, "        if (v < m) m = v;\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    return kr_itoa(m);\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_hex(const char* s) {\n")
+    r = sbAppend(r, "    int v = atoi(s);\n")
+    r = sbAppend(r, "    char buf[32];\n")
+    r = sbAppend(r, "    snprintf(buf, sizeof(buf), \"%x\", v < 0 ? -v : v);\n")
+    r = sbAppend(r, "    if (v < 0) return kr_cat(\"-\", kr_str(buf));\n")
+    r = sbAppend(r, "    return kr_str(buf);\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_bin(const char* s) {\n")
+    r = sbAppend(r, "    int v = atoi(s);\n")
+    r = sbAppend(r, "    if (v == 0) return _K_ZERO;\n")
+    r = sbAppend(r, "    int neg = v < 0; if (neg) v = -v;\n")
+    r = sbAppend(r, "    char buf[64]; int i = 63; buf[i] = 0;\n")
+    r = sbAppend(r, "    while (v > 0) { buf[--i] = '0' + (v & 1); v >>= 1; }\n")
+    r = sbAppend(r, "    if (neg) return kr_cat(\"-\", kr_str(&buf[i]));\n")
+    r = sbAppend(r, "    return kr_str(&buf[i]);\n")
     r = sbAppend(r, "}\n\n")
 
     // Native env (linked-list of entries, cast to char*)
