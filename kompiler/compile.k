@@ -28,6 +28,273 @@ func pairPos(pair) {
     emit toInt(substring(pair, c + 1, len(pair)))
 }
 
+// === Lexer helpers ===
+
+func isDigit(c) {
+    emit c >= "0" && c <= "9"
+}
+
+func isAlpha(c) {
+    emit (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c == "_"
+}
+
+func isAlphaNum(c) {
+    emit isAlpha(c) || isDigit(c)
+}
+
+func readNumber(text, i) {
+    let start = i
+    while i < len(text) && isDigit(text[i]) {
+        i = i + 1
+    }
+    emit substring(text, start, i) + "," + i
+}
+
+func readIdent(text, i) {
+    let start = i
+    while i < len(text) && isAlphaNum(text[i]) {
+        i = i + 1
+    }
+    emit substring(text, start, i) + "," + i
+}
+
+func readString(text, i) {
+    i = i + 1
+    let start = i
+    let s = ""
+    while i < len(text) && text[i] != "\"" {
+        if text[i] == "\\" && i + 1 < len(text) {
+            if i > start {
+                s = s + substring(text, start, i)
+            }
+            s = s + substring(text, i, i + 2)
+            i = i + 2
+            start = i
+        }
+        else {
+            i = i + 1
+        }
+    }
+    if i > start {
+        s = s + substring(text, start, i)
+    }
+    emit s + "," + (i + 1)
+}
+
+func skipWS(text, i) {
+    while i < len(text) && (text[i] == " " || text[i] == "\n" || text[i] == "\t" || text[i] == "\r") {
+        i = i + 1
+    }
+    emit i
+}
+
+func skipComment(text, i) {
+    if i + 1 < len(text) && text[i] == "/" && text[i + 1] == "/" {
+        while i < len(text) && text[i] != "\n" {
+            i = i + 1
+        }
+        emit i
+    }
+    else if i + 1 < len(text) && text[i] == "/" && text[i + 1] == "*" {
+        i = i + 2
+        while i + 1 < len(text) && (text[i] != "*" || text[i + 1] != "/") {
+            i = i + 1
+        }
+        emit i + 2
+    }
+    emit i
+}
+
+func isKW(word) {
+    if word == "just" { emit 1 }
+    else if word == "go" { emit 1 }
+    else if word == "func" { emit 1 }
+    else if word == "fn" { emit 1 }
+    else if word == "let" { emit 1 }
+    else if word == "emit" { emit 1 }
+    else if word == "return" { emit 1 }
+    else if word == "if" { emit 1 }
+    else if word == "else" { emit 1 }
+    else if word == "while" { emit 1 }
+    else if word == "break" { emit 1 }
+    else if word == "module" { emit 1 }
+    else if word == "quantum" { emit 1 }
+    else if word == "qpute" { emit 1 }
+    else if word == "process" { emit 1 }
+    else if word == "true" { emit 1 }
+    else if word == "false" { emit 1 }
+    else if word == "measure" { emit 1 }
+    else if word == "prepare" { emit 1 }
+    else { emit 0 }
+}
+
+func tokenize(text) {
+    let out = ""
+    let i = 0
+
+    while i < len(text) {
+        i = skipWS(text, i)
+
+        if i >= len(text) {
+            break
+        }
+
+        let c = text[i]
+
+        if c == "/" && i + 1 < len(text) && (text[i + 1] == "/" || text[i + 1] == "*") {
+            i = skipComment(text, i)
+        }
+        else if isDigit(c) {
+            let pair = readNumber(text, i)
+            let num = pairVal(pair)
+            i = pairPos(pair)
+            out = out + "INT:" + num + "\n"
+        }
+        else if c == "\"" {
+            let pair = readString(text, i)
+            let str = pairVal(pair)
+            i = pairPos(pair)
+            out = out + "STR:" + str + "\n"
+        }
+        else if isAlpha(c) {
+            let pair = readIdent(text, i)
+            let id = pairVal(pair)
+            i = pairPos(pair)
+            if isKW(id) {
+                out = out + "KW:" + id + "\n"
+            }
+            else {
+                out = out + "ID:" + id + "\n"
+            }
+        }
+        else if c == "+" {
+            out = out + "PLUS\n"
+            i = i + 1
+        }
+        else if c == "-" {
+            if i + 1 < len(text) && text[i + 1] == ">" {
+                out = out + "ARROW\n"
+                i = i + 2
+            }
+            else {
+                out = out + "MINUS\n"
+                i = i + 1
+            }
+        }
+        else if c == "*" {
+            out = out + "STAR\n"
+            i = i + 1
+        }
+        else if c == "/" {
+            out = out + "SLASH\n"
+            i = i + 1
+        }
+        else if c == "(" {
+            out = out + "LPAREN\n"
+            i = i + 1
+        }
+        else if c == ")" {
+            out = out + "RPAREN\n"
+            i = i + 1
+        }
+        else if c == "{" {
+            out = out + "LBRACE\n"
+            i = i + 1
+        }
+        else if c == "}" {
+            out = out + "RBRACE\n"
+            i = i + 1
+        }
+        else if c == "[" {
+            out = out + "LBRACK\n"
+            i = i + 1
+        }
+        else if c == "]" {
+            out = out + "RBRACK\n"
+            i = i + 1
+        }
+        else if c == ":" {
+            out = out + "COLON\n"
+            i = i + 1
+        }
+        else if c == ";" {
+            out = out + "SEMI\n"
+            i = i + 1
+        }
+        else if c == "," {
+            out = out + "COMMA\n"
+            i = i + 1
+        }
+        else if c == "=" {
+            if i + 1 < len(text) && text[i + 1] == "=" {
+                out = out + "EQ\n"
+                i = i + 2
+            }
+            else {
+                out = out + "ASSIGN\n"
+                i = i + 1
+            }
+        }
+        else if c == "!" {
+            if i + 1 < len(text) && text[i + 1] == "=" {
+                out = out + "NEQ\n"
+                i = i + 2
+            }
+            else {
+                out = out + "BANG\n"
+                i = i + 1
+            }
+        }
+        else if c == "<" {
+            if i + 1 < len(text) && text[i + 1] == "=" {
+                out = out + "LTE\n"
+                i = i + 2
+            }
+            else {
+                out = out + "LT\n"
+                i = i + 1
+            }
+        }
+        else if c == ">" {
+            if i + 1 < len(text) && text[i + 1] == "=" {
+                out = out + "GTE\n"
+                i = i + 2
+            }
+            else {
+                out = out + "GT\n"
+                i = i + 1
+            }
+        }
+        else if c == "&" {
+            if i + 1 < len(text) && text[i + 1] == "&" {
+                out = out + "AND\n"
+                i = i + 2
+            }
+            else {
+                i = i + 1
+            }
+        }
+        else if c == "|" {
+            if i + 1 < len(text) && text[i + 1] == "|" {
+                out = out + "OR\n"
+                i = i + 2
+            }
+            else {
+                i = i + 1
+            }
+        }
+        else if c == "%" {
+            out = out + "MOD\n"
+            i = i + 1
+        }
+        else {
+            i = i + 1
+        }
+    }
+
+    emit out
+}
+
 // === Token access ===
 
 func tokAt(tokens, idx) {
@@ -831,7 +1098,16 @@ func cRuntime() {
     r = sbAppend(r, "    _arena->used += n;\n")
     r = sbAppend(r, "    return p;\n")
     r = sbAppend(r, "}\n\n")
+
+    // Pre-allocated constant strings — eliminates billions of allocations
+    r = sbAppend(r, "static char _K_EMPTY[] = \"\";\n")
+    r = sbAppend(r, "static char _K_ZERO[] = \"0\";\n")
+    r = sbAppend(r, "static char _K_ONE[] = \"1\";\n\n")
+
     r = sbAppend(r, "static char* kr_str(const char* s) {\n")
+    r = sbAppend(r, "    if (!s[0]) return _K_EMPTY;\n")
+    r = sbAppend(r, "    if (s[0] == '0' && !s[1]) return _K_ZERO;\n")
+    r = sbAppend(r, "    if (s[0] == '1' && !s[1]) return _K_ONE;\n")
     r = sbAppend(r, "    int n = (int)strlen(s) + 1;\n")
     r = sbAppend(r, "    char* p = _alloc(n);\n")
     r = sbAppend(r, "    memcpy(p, s, n);\n")
@@ -853,6 +1129,8 @@ func cRuntime() {
     r = sbAppend(r, "    return 1;\n")
     r = sbAppend(r, "}\n\n")
     r = sbAppend(r, "static char* kr_itoa(int v) {\n")
+    r = sbAppend(r, "    if (v == 0) return _K_ZERO;\n")
+    r = sbAppend(r, "    if (v == 1) return _K_ONE;\n")
     r = sbAppend(r, "    char buf[32];\n")
     r = sbAppend(r, "    snprintf(buf, sizeof(buf), \"%d\", v);\n")
     r = sbAppend(r, "    return kr_str(buf);\n")
@@ -868,26 +1146,26 @@ func cRuntime() {
     r = sbAppend(r, "static char* kr_div(const char* a, const char* b) { return kr_itoa(atoi(a) / atoi(b)); }\n")
     r = sbAppend(r, "static char* kr_mod(const char* a, const char* b) { return kr_itoa(atoi(a) % atoi(b)); }\n")
     r = sbAppend(r, "static char* kr_neg(const char* a) { return kr_itoa(-atoi(a)); }\n")
-    r = sbAppend(r, "static char* kr_not(const char* a) { return kr_str(atoi(a) ? \"0\" : \"1\"); }\n\n")
+    r = sbAppend(r, "static char* kr_not(const char* a) { return atoi(a) ? _K_ZERO : _K_ONE; }\n\n")
     r = sbAppend(r, "static char* kr_eq(const char* a, const char* b) {\n")
-    r = sbAppend(r, "    return kr_str(strcmp(a, b) == 0 ? \"1\" : \"0\");\n")
+    r = sbAppend(r, "    return strcmp(a, b) == 0 ? _K_ONE : _K_ZERO;\n")
     r = sbAppend(r, "}\n")
     r = sbAppend(r, "static char* kr_neq(const char* a, const char* b) {\n")
-    r = sbAppend(r, "    return kr_str(strcmp(a, b) != 0 ? \"1\" : \"0\");\n")
+    r = sbAppend(r, "    return strcmp(a, b) != 0 ? _K_ONE : _K_ZERO;\n")
     r = sbAppend(r, "}\n")
     r = sbAppend(r, "static char* kr_lt(const char* a, const char* b) {\n")
-    r = sbAppend(r, "    if (kr_isnum(a) && kr_isnum(b)) return kr_str(atoi(a) < atoi(b) ? \"1\" : \"0\");\n")
-    r = sbAppend(r, "    return kr_str(strcmp(a, b) < 0 ? \"1\" : \"0\");\n")
+    r = sbAppend(r, "    if (kr_isnum(a) && kr_isnum(b)) return atoi(a) < atoi(b) ? _K_ONE : _K_ZERO;\n")
+    r = sbAppend(r, "    return strcmp(a, b) < 0 ? _K_ONE : _K_ZERO;\n")
     r = sbAppend(r, "}\n")
     r = sbAppend(r, "static char* kr_gt(const char* a, const char* b) {\n")
-    r = sbAppend(r, "    if (kr_isnum(a) && kr_isnum(b)) return kr_str(atoi(a) > atoi(b) ? \"1\" : \"0\");\n")
-    r = sbAppend(r, "    return kr_str(strcmp(a, b) > 0 ? \"1\" : \"0\");\n")
+    r = sbAppend(r, "    if (kr_isnum(a) && kr_isnum(b)) return atoi(a) > atoi(b) ? _K_ONE : _K_ZERO;\n")
+    r = sbAppend(r, "    return strcmp(a, b) > 0 ? _K_ONE : _K_ZERO;\n")
     r = sbAppend(r, "}\n")
     r = sbAppend(r, "static char* kr_lte(const char* a, const char* b) {\n")
-    r = sbAppend(r, "    return kr_str(strcmp(kr_gt(a, b), \"0\") == 0 ? \"1\" : \"0\");\n")
+    r = sbAppend(r, "    return kr_gt(a, b) == _K_ZERO ? _K_ONE : _K_ZERO;\n")
     r = sbAppend(r, "}\n")
     r = sbAppend(r, "static char* kr_gte(const char* a, const char* b) {\n")
-    r = sbAppend(r, "    return kr_str(strcmp(kr_lt(a, b), \"0\") == 0 ? \"1\" : \"0\");\n")
+    r = sbAppend(r, "    return kr_lt(a, b) == _K_ZERO ? _K_ONE : _K_ZERO;\n")
     r = sbAppend(r, "}\n\n")
     r = sbAppend(r, "static int kr_truthy(const char* s) {\n")
     r = sbAppend(r, "    if (!s || !*s) return 0;\n")
@@ -896,7 +1174,7 @@ func cRuntime() {
     r = sbAppend(r, "}\n\n")
     r = sbAppend(r, "static char* kr_print(const char* s) {\n")
     r = sbAppend(r, "    printf(\"%s\\n\", s);\n")
-    r = sbAppend(r, "    return kr_str(\"\");\n")
+    r = sbAppend(r, "    return _K_EMPTY;\n")
     r = sbAppend(r, "}\n\n")
     r = sbAppend(r, "static char* kr_len(const char* s) { return kr_itoa((int)strlen(s)); }\n\n")
     r = sbAppend(r, "static char* kr_idx(const char* s, int i) {\n")
@@ -926,7 +1204,7 @@ func cRuntime() {
     r = sbAppend(r, "    return kr_str(\"\");\n")
     r = sbAppend(r, "}\n\n")
     r = sbAppend(r, "static char* kr_startswith(const char* s, const char* prefix) {\n")
-    r = sbAppend(r, "    return kr_str(strncmp(s, prefix, strlen(prefix)) == 0 ? \"1\" : \"0\");\n")
+    r = sbAppend(r, "    return strncmp(s, prefix, strlen(prefix)) == 0 ? _K_ONE : _K_ZERO;\n")
     r = sbAppend(r, "}\n\n")
     r = sbAppend(r, "static char* kr_substr(const char* s, const char* starts, const char* ends) {\n")
     r = sbAppend(r, "    int st = atoi(starts), en = atoi(ends);\n")
@@ -1050,8 +1328,8 @@ func cRuntime() {
 
     r = sbAppend(r, "static char* kr_istruthy(const char* s) {\n")
     r = sbAppend(r, "    if (!s || !*s || strcmp(s, \"0\") == 0 || strcmp(s, \"false\") == 0)\n")
-    r = sbAppend(r, "        return kr_str(\"0\");\n")
-    r = sbAppend(r, "    return kr_str(\"1\");\n")
+    r = sbAppend(r, "        return _K_ZERO;\n")
+    r = sbAppend(r, "    return _K_ONE;\n")
     r = sbAppend(r, "}\n\n")
 
     // StringBuilder: handle-based, mutable buffer with capacity doubling

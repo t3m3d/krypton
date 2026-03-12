@@ -20,7 +20,14 @@ static char* _alloc(int n) {
     return p;
 }
 
+static char _K_EMPTY[] = "";
+static char _K_ZERO[] = "0";
+static char _K_ONE[] = "1";
+
 static char* kr_str(const char* s) {
+    if (!s[0]) return _K_EMPTY;
+    if (s[0] == '0' && !s[1]) return _K_ZERO;
+    if (s[0] == '1' && !s[1]) return _K_ONE;
     int n = (int)strlen(s) + 1;
     char* p = _alloc(n);
     memcpy(p, s, n);
@@ -45,6 +52,8 @@ static int kr_isnum(const char* s) {
 }
 
 static char* kr_itoa(int v) {
+    if (v == 0) return _K_ZERO;
+    if (v == 1) return _K_ONE;
     char buf[32];
     snprintf(buf, sizeof(buf), "%d", v);
     return kr_str(buf);
@@ -63,27 +72,27 @@ static char* kr_mul(const char* a, const char* b) { return kr_itoa(atoi(a) * ato
 static char* kr_div(const char* a, const char* b) { return kr_itoa(atoi(a) / atoi(b)); }
 static char* kr_mod(const char* a, const char* b) { return kr_itoa(atoi(a) % atoi(b)); }
 static char* kr_neg(const char* a) { return kr_itoa(-atoi(a)); }
-static char* kr_not(const char* a) { return kr_str(atoi(a) ? "0" : "1"); }
+static char* kr_not(const char* a) { return atoi(a) ? _K_ZERO : _K_ONE; }
 
 static char* kr_eq(const char* a, const char* b) {
-    return kr_str(strcmp(a, b) == 0 ? "1" : "0");
+    return strcmp(a, b) == 0 ? _K_ONE : _K_ZERO;
 }
 static char* kr_neq(const char* a, const char* b) {
-    return kr_str(strcmp(a, b) != 0 ? "1" : "0");
+    return strcmp(a, b) != 0 ? _K_ONE : _K_ZERO;
 }
 static char* kr_lt(const char* a, const char* b) {
-    if (kr_isnum(a) && kr_isnum(b)) return kr_str(atoi(a) < atoi(b) ? "1" : "0");
-    return kr_str(strcmp(a, b) < 0 ? "1" : "0");
+    if (kr_isnum(a) && kr_isnum(b)) return atoi(a) < atoi(b) ? _K_ONE : _K_ZERO;
+    return strcmp(a, b) < 0 ? _K_ONE : _K_ZERO;
 }
 static char* kr_gt(const char* a, const char* b) {
-    if (kr_isnum(a) && kr_isnum(b)) return kr_str(atoi(a) > atoi(b) ? "1" : "0");
-    return kr_str(strcmp(a, b) > 0 ? "1" : "0");
+    if (kr_isnum(a) && kr_isnum(b)) return atoi(a) > atoi(b) ? _K_ONE : _K_ZERO;
+    return strcmp(a, b) > 0 ? _K_ONE : _K_ZERO;
 }
 static char* kr_lte(const char* a, const char* b) {
-    return kr_str(strcmp(kr_gt(a, b), "0") == 0 ? "1" : "0");
+    return kr_gt(a, b) == _K_ZERO ? _K_ONE : _K_ZERO;
 }
 static char* kr_gte(const char* a, const char* b) {
-    return kr_str(strcmp(kr_lt(a, b), "0") == 0 ? "1" : "0");
+    return kr_lt(a, b) == _K_ZERO ? _K_ONE : _K_ZERO;
 }
 
 static int kr_truthy(const char* s) {
@@ -94,7 +103,7 @@ static int kr_truthy(const char* s) {
 
 static char* kr_print(const char* s) {
     printf("%s\n", s);
-    return kr_str("");
+    return _K_EMPTY;
 }
 
 static char* kr_len(const char* s) { return kr_itoa((int)strlen(s)); }
@@ -128,7 +137,7 @@ static char* kr_split(const char* s, const char* idxs) {
 }
 
 static char* kr_startswith(const char* s, const char* prefix) {
-    return kr_str(strncmp(s, prefix, strlen(prefix)) == 0 ? "1" : "0");
+    return strncmp(s, prefix, strlen(prefix)) == 0 ? _K_ONE : _K_ZERO;
 }
 
 static char* kr_substr(const char* s, const char* starts, const char* ends) {
@@ -258,8 +267,8 @@ static char* kr_getresultpos(const char* r) {
 
 static char* kr_istruthy(const char* s) {
     if (!s || !*s || strcmp(s, "0") == 0 || strcmp(s, "false") == 0)
-        return kr_str("0");
-    return kr_str("1");
+        return _K_ZERO;
+    return _K_ONE;
 }
 
 typedef struct { int cap; int len; } SBHdr;
