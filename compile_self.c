@@ -453,6 +453,13 @@ static char* kr_parseint(const char* s) {
 
 static char* kr_tostr(const char* s) { return kr_str(s); }
 
+static int kr_listlen(const char* s) {
+    if (!*s) return 0;
+    int cnt = 1;
+    while (*s) { if (*s == ',') cnt++; s++; }
+    return cnt;
+}
+
 typedef struct EnvEntry { char* name; char* value; struct EnvEntry* prev; } EnvEntry;
 
 static char* kr_envnew() { return (char*)0; }
@@ -1672,7 +1679,7 @@ char* compileFor(char* tokens, char* pos, char* ntoks, char* depth, char* inFunc
     char* cvar = cIdent(varName);
     char* out = kr_plus(indent(depth), kr_str("{\n"));
     out = kr_plus(kr_plus(kr_plus(kr_plus(out, indent(kr_plus(depth, kr_str("1")))), kr_str("char* _for_col = ")), collection), kr_str(";\n"));
-    out = kr_plus(kr_plus(out, indent(kr_plus(depth, kr_str("1")))), kr_str("int _for_cnt = kr_atoi(kr_linecount(_for_col));\n"));
+    out = kr_plus(kr_plus(out, indent(kr_plus(depth, kr_str("1")))), kr_str("int _for_cnt = kr_listlen(_for_col);\n"));
     out = kr_plus(kr_plus(out, indent(kr_plus(depth, kr_str("1")))), kr_str("for (int _for_i = 0; _for_i < _for_cnt; _for_i++) {\n"));
     out = kr_plus(kr_plus(kr_plus(kr_plus(out, indent(kr_plus(depth, kr_str("2")))), kr_str("char* ")), cvar), kr_str(" = kr_split(_for_col, kr_itoa(_for_i));\n"));
     out = kr_plus(out, bcode);
@@ -2152,6 +2159,12 @@ char* cRuntime() {
     r = kr_sbappend(r, kr_str("    return kr_itoa(atoi(p));\n"));
     r = kr_sbappend(r, kr_str("}\n\n"));
     r = kr_sbappend(r, kr_str("static char* kr_tostr(const char* s) { return kr_str(s); }\n\n"));
+    r = kr_sbappend(r, kr_str("static int kr_listlen(const char* s) {\n"));
+    r = kr_sbappend(r, kr_str("    if (!*s) return 0;\n"));
+    r = kr_sbappend(r, kr_str("    int cnt = 1;\n"));
+    r = kr_sbappend(r, kr_str("    while (*s) { if (*s == ',') cnt++; s++; }\n"));
+    r = kr_sbappend(r, kr_str("    return cnt;\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
     r = kr_sbappend(r, kr_str("typedef struct EnvEntry { char* name; char* value; struct EnvEntry* prev; } EnvEntry;\n\n"));
     r = kr_sbappend(r, kr_str("static char* kr_envnew() { return (char*)0; }\n\n"));
     r = kr_sbappend(r, kr_str("static char* kr_envset(char* envp, const char* name, const char* val) {\n"));

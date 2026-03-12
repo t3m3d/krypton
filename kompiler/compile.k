@@ -1178,7 +1178,7 @@ func compileFor(tokens, pos, ntoks, depth, inFunc) {
     let cvar = cIdent(varName)
     let out = indent(depth) + "{\n"
     out = out + indent(depth + 1) + "char* _for_col = " + collection + ";\n"
-    out = out + indent(depth + 1) + "int _for_cnt = kr_atoi(kr_linecount(_for_col));\n"
+    out = out + indent(depth + 1) + "int _for_cnt = kr_listlen(_for_col);\n"
     out = out + indent(depth + 1) + "for (int _for_i = 0; _for_i < _for_cnt; _for_i++) {\n"
     out = out + indent(depth + 2) + "char* " + cvar + " = kr_split(_for_col, kr_itoa(_for_i));\n"
     out = out + bcode
@@ -1704,6 +1704,13 @@ func cRuntime() {
     r = sbAppend(r, "}\n\n")
 
     r = sbAppend(r, "static char* kr_tostr(const char* s) { return kr_str(s); }\n\n")
+
+    r = sbAppend(r, "static int kr_listlen(const char* s) {\n")
+    r = sbAppend(r, "    if (!*s) return 0;\n")
+    r = sbAppend(r, "    int cnt = 1;\n")
+    r = sbAppend(r, "    while (*s) { if (*s == ',') cnt++; s++; }\n")
+    r = sbAppend(r, "    return cnt;\n")
+    r = sbAppend(r, "}\n\n")
 
     // Native env (linked-list of entries, cast to char*)
     r = sbAppend(r, "typedef struct EnvEntry { char* name; char* value; struct EnvEntry* prev; } EnvEntry;\n\n")
