@@ -2,9 +2,8 @@
 * text=auto
 
 # ── Krypton (.k) is the primary language ──
-# Override .k detection so it appears in the language bar.
-# Once Krypton is registered in linguist, this can be simplified.
-*.k linguist-language=Krypton
+# Let .k files be auto-detected for now.
+# Once Krypton is registered in linguist, add: *.k linguist-language=Krypton
 
 # C++ bootstrap compiler
 compiler/** linguist-language=C++
