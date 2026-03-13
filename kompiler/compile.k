@@ -106,6 +106,12 @@ func skipComment(text, i) {
 }
 
 func isKW(word) {
+            else if word == "struct" { emit 1 }
+            else if word == "class" { emit 1 }
+            else if word == "type" { emit 1 }
+        else if word == "try" { emit 1 }
+        else if word == "catch" { emit 1 }
+        else if word == "throw" { emit 1 }
     if word == "just" { emit 1 }
     else if word == "go" { emit 1 }
     else if word == "func" { emit 1 }
@@ -124,6 +130,8 @@ func isKW(word) {
     else if word == "do" { emit 1 }
     else if word == "const" { emit 1 }
     else if word == "module" { emit 1 }
+    else if word == "import" { emit 1 }
+    else if word == "export" { emit 1 }
     else if word == "quantum" { emit 1 }
     else if word == "qpute" { emit 1 }
     else if word == "process" { emit 1 }
@@ -1110,6 +1118,39 @@ func compileCall(tokens, pos, ntoks) {
 // =============================================
 
 func compileStmt(tokens, pos, ntoks, depth, inFunc) {
+            if tok == "KW:struct" || tok == "KW:class" || tok == "KW:type" {
+                // struct/class/type declaration
+                let name = tokVal(tokAt(tokens, pos + 1))
+                let p = pos + 2
+                let bp = compileBlock(tokens, p, ntoks, depth, inFunc)
+                let bcode = pairVal(bp)
+                p = pairPos(bp)
+                emit indent(depth) + "// struct/class/type declaration\n" + indent(depth) + "typedef struct " + cIdent(name) + " {\n" + bcode + indent(depth) + "} " + cIdent(name) + ";\n," + p
+            }
+        if tok == "KW:try" {
+            // try { ... } catch { ... }
+            let bp = compileBlock(tokens, pos + 1, ntoks, depth, inFunc)
+            let bcode = pairVal(bp)
+            let p = pairPos(bp)
+            if tokAt(tokens, p) == "KW:catch" {
+                p = p + 1
+                let cbp = compileBlock(tokens, p, ntoks, depth, inFunc)
+                let cbcode = pairVal(cbp)
+                p = pairPos(cbp)
+                emit indent(depth) + "// try-catch\n" + indent(depth) + "try {\n" + bcode + indent(depth) + "} catch {\n" + cbcode + indent(depth) + "}\n," + p
+            } else {
+                emit indent(depth) + "// try block\n" + indent(depth) + "try {\n" + bcode + indent(depth) + "}\n," + p
+            }
+        }
+        if tok == "KW:throw" {
+            let ep = compileExpr(tokens, pos + 1, ntoks)
+            let ecode = pairVal(ep)
+            let p = pairPos(ep)
+            if tokAt(tokens, p) == "SEMI" {
+                p = p + 1
+            }
+            emit indent(depth) + "// throw statement\n" + indent(depth) + "throw " + ecode + ";\n," + p
+        }
     let tok = tokAt(tokens, pos)
 
     if tok == "KW:let" {
@@ -1158,6 +1199,23 @@ func compileStmt(tokens, pos, ntoks, depth, inFunc) {
 
     if tok == "KW:const" {
         emit compileLet(tokens, pos + 1, ntoks, depth)
+    }
+
+    // Module/import/export support
+    if tok == "KW:module" {
+        // No-op for now, could set module context
+        let p = pos + 1
+        emit indent(depth) + "// module declaration\n," + p
+    }
+    if tok == "KW:import" {
+        // No-op for now, could load/import other files
+        let p = pos + 1
+        emit indent(depth) + "// import statement\n," + p
+    }
+    if tok == "KW:export" {
+        // No-op for now, could mark exportable symbols
+        let p = pos + 1
+        emit indent(depth) + "// export statement\n," + p
     }
 
     // Check for compound assignment: ID PLUSEQ/MINUSEQ/STAREQ/SLASHEQ/MODEQ
