@@ -2,6 +2,20 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [0.8.0] - 2026-03-13
+
+### Language
+ - Module/import/export support
+ - Error handling: try, catch, throw
+ - Struct/class/type declarations
+ - Foundation for advanced features (lambdas, pattern matching, concurrency)
+
+### Compiler
+ - Updated kompiler/compile.k with new keywords and statement support
+ - Ready for full release testing
+
+---
+
 ## [0.5.0] - 2026-03-12
 
 ### Language
