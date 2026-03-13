@@ -1117,41 +1117,126 @@ func compileCall(tokens, pos, ntoks) {
 // Each returns pair: "cCode,pos"
 // =============================================
 
+
 func compileStmt(tokens, pos, ntoks, depth, inFunc) {
-            if tok == "KW:struct" || tok == "KW:class" || tok == "KW:type" {
-                // struct/class/type declaration
-                let name = tokVal(tokAt(tokens, pos + 1))
-                let p = pos + 2
-                let bp = compileBlock(tokens, p, ntoks, depth, inFunc)
-                let bcode = pairVal(bp)
-                p = pairPos(bp)
-                emit indent(depth) + "// struct/class/type declaration\n" + indent(depth) + "typedef struct " + cIdent(name) + " {\n" + bcode + indent(depth) + "} " + cIdent(name) + ";\n," + p
-            }
-        if tok == "KW:try" {
-            // try { ... } catch { ... }
-            let bp = compileBlock(tokens, pos + 1, ntoks, depth, inFunc)
-            let bcode = pairVal(bp)
-            let p = pairPos(bp)
-            if tokAt(tokens, p) == "KW:catch" {
-                p = p + 1
-                let cbp = compileBlock(tokens, p, ntoks, depth, inFunc)
-                let cbcode = pairVal(cbp)
-                p = pairPos(cbp)
-                emit indent(depth) + "// try-catch\n" + indent(depth) + "try {\n" + bcode + indent(depth) + "} catch {\n" + cbcode + indent(depth) + "}\n," + p
-            } else {
-                emit indent(depth) + "// try block\n" + indent(depth) + "try {\n" + bcode + indent(depth) + "}\n," + p
-            }
-        }
-        if tok == "KW:throw" {
-            let ep = compileExpr(tokens, pos + 1, ntoks)
-            let ecode = pairVal(ep)
-            let p = pairPos(ep)
-            if tokAt(tokens, p) == "SEMI" {
-                p = p + 1
-            }
-            emit indent(depth) + "// throw statement\n" + indent(depth) + "throw " + ecode + ";\n," + p
-        }
     let tok = tokAt(tokens, pos)
+    if tok == "KW:struct" || tok == "KW:class" || tok == "KW:type" {
+        // struct/class/type declaration
+        let name = tokVal(tokAt(tokens, pos + 1))
+        let p = pos + 2
+        let bp = compileBlock(tokens, p, ntoks, depth, inFunc)
+        let bcode = pairVal(bp)
+        p = pairPos(bp)
+        emit indent(depth) + "// struct/class/type declaration\n" + indent(depth) + "typedef struct " + cIdent(name) + " {\n" + bcode + indent(depth) + "} " + cIdent(name) + ";\n," + p
+    }
+    if tok == "KW:try" {
+        // try { ... } catch { ... }
+        let bp = compileBlock(tokens, pos + 1, ntoks, depth, inFunc)
+        let bcode = pairVal(bp)
+        let p = pairPos(bp)
+        if tokAt(tokens, p) == "KW:catch" {
+            p = p + 1
+            let cbp = compileBlock(tokens, p, ntoks, depth, inFunc)
+            let cbcode = pairVal(cbp)
+            p = pairPos(cbp)
+            emit indent(depth) + "// try-catch\n" + indent(depth) + "try {\n" + bcode + indent(depth) + "} catch {\n" + cbcode + indent(depth) + "}\n," + p
+        } else {
+            emit indent(depth) + "// try block\n" + indent(depth) + "try {\n" + bcode + indent(depth) + "}\n," + p
+        }
+    }
+    if tok == "KW:throw" {
+        let ep = compileExpr(tokens, pos + 1, ntoks)
+        let ecode = pairVal(ep)
+        let p = pairPos(ep)
+        if tokAt(tokens, p) == "SEMI" {
+            p = p + 1
+        }
+        emit indent(depth) + "// throw statement\n" + indent(depth) + "throw " + ecode + ";\n," + p
+    }
+
+    if tok == "KW:let" {
+        emit compileLet(tokens, pos + 1, ntoks, depth)
+    }
+
+    if tok == "KW:emit" || tok == "KW:return" {
+        emit compileEmit(tokens, pos + 1, ntoks, depth, inFunc)
+    }
+
+    if tok == "KW:if" {
+        emit compileIf(tokens, pos + 1, ntoks, depth, inFunc)
+    }
+
+    if tok == "KW:while" {
+        emit compileWhile(tokens, pos + 1, ntoks, depth, inFunc)
+    }
+
+    if tok == "KW:for" {
+        emit compileFor(tokens, pos + 1, ntoks, depth, inFunc)
+    }
+
+    if tok == "KW:break" {
+        let p = pos + 1
+        if tokAt(tokens, p) == "SEMI" {
+            p = p + 1
+        }
+        emit indent(depth) + "break;\n," + p
+    }
+
+    if tok == "KW:continue" {
+        let p = pos + 1
+        if tokAt(tokens, p) == "SEMI" {
+            p = p + 1
+        }
+        emit indent(depth) + "continue;\n," + p
+    }
+
+    if tok == "KW:match" {
+        emit compileMatch(tokens, pos + 1, ntoks, depth, inFunc)
+    }
+
+    if tok == "KW:do" {
+        emit compileDoWhile(tokens, pos + 1, ntoks, depth, inFunc)
+    }
+
+    if tok == "KW:const" {
+        emit compileLet(tokens, pos + 1, ntoks, depth)
+    }
+
+    // Module/import/export support
+    if tok == "KW:module" {
+        // No-op for now, could set module context
+        let p = pos + 1
+        emit indent(depth) + "// module declaration\n," + p
+    }
+    if tok == "KW:import" {
+        // No-op for now, could load/import other files
+        let p = pos + 1
+        emit indent(depth) + "// import statement\n," + p
+    }
+    if tok == "KW:export" {
+        // No-op for now, could mark exportable symbols
+        let p = pos + 1
+        emit indent(depth) + "// export statement\n," + p
+    }
+
+    // Check for compound assignment: ID PLUSEQ/MINUSEQ/STAREQ/SLASHEQ/MODEQ
+    if tokType(tok) == "ID" {
+        let nextTok = tokAt(tokens, pos + 1)
+        if nextTok == "PLUSEQ" || nextTok == "MINUSEQ" || nextTok == "STAREQ" || nextTok == "SLASHEQ" || nextTok == "MODEQ" {
+            emit compileCompoundAssign(tokens, pos, ntoks, depth)
+        }
+    }
+
+    // Check for assignment: ID ASSIGN
+    if tokType(tok) == "ID" {
+        if tokAt(tokens, pos + 1) == "ASSIGN" {
+            emit compileAssign(tokens, pos, ntoks, depth)
+        }
+    }
+
+    // Expression statement (e.g. bare function call)
+    emit compileExprStmt(tokens, pos, ntoks, depth)
+}
 
     if tok == "KW:let" {
         emit compileLet(tokens, pos + 1, ntoks, depth)
