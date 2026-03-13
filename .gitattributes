@@ -2,9 +2,8 @@
 * text=auto
 
 # ── Krypton (.k) is the primary language ──
-# Hide .k from auto-detection (mis-detects as KCL).
-# Once Krypton is registered in linguist, replace with: *.k linguist-language=Krypton
-*.k linguist-detectable=false
+# Override detection so GitHub shows .k files as Krypton (not KCL)
+*.k linguist-language=Krypton
 
 # C++ bootstrap compiler
 compiler/** linguist-language=C++

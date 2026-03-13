@@ -16,7 +16,7 @@ just run {
     const nums = "10,20,30,40,50,60,70,80"
     print("\nFull list: " + nums)
     print("Slice 2-5: " + slice(nums, 2, 5))
-    print("Last 3:    " + slice(nums, -3, -0))
+    print("First 4:   " + slice(nums, 0, 4))
 
     // --- join ---
     const words = "Krypton,is,a,self-hosting,language"

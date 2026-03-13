@@ -7,23 +7,20 @@ just run {
     print(repeat("=", len(title)))
 
     // Header
-    const header = padRight("Dec", 6, " ") + padRight("Hex", 8, " ") + padRight("Bin", 12, " ") + "Oct"
+    const header = padRight("Dec", 6, " ") + padRight("Hex", 8, " ") + "Bin"
     print(header)
-    print(repeat("-", 32))
+    print(repeat("-", 28))
 
     // Print table for 0-31
     for n in range(0, 32) {
         const decStr = padRight(toStr(n), 6, " ")
         const hexStr = padRight("0x" + padLeft(hex(n), 2, "0"), 8, " ")
-        const binStr = padRight(padLeft(bin(n), 8, "0"), 12, " ")
+        const binStr = padLeft(bin(n), 8, "0")
 
-        // Manual octal: n / 8 and n % 8
-        const octStr = n / 8 + "" + n % 8
-
-        print(decStr + hexStr + binStr + octStr)
+        print(decStr + hexStr + binStr)
     }
 
-    print(repeat("-", 32))
+    print(repeat("-", 28))
 
     // Show some larger values
     print("\nNotable values:")
