@@ -37,6 +37,7 @@ go lexer {
         else if word == "qbit" emit 1;
         else if word == "print" emit 1;
         else if word == "kp" emit 1;
+            else if word == "const" emit 1;
         else emit 0;
     }
 

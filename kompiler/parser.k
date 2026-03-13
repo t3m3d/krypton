@@ -70,6 +70,54 @@ go parser {
                 pos = toInt(split(pair2, 1));
                 left = "(sub " + left + " " + right + ")";
             }
+                else if tok == "EQ" {
+                    let pair2 = parseTerm(tokens, pos + 1);
+                    let right = split(pair2, 0);
+                    pos = toInt(split(pair2, 1));
+                    left = "(eq " + left + " " + right + ")";
+                }
+                else if tok == "NEQ" {
+                    let pair2 = parseTerm(tokens, pos + 1);
+                    let right = split(pair2, 0);
+                    pos = toInt(split(pair2, 1));
+                    left = "(neq " + left + " " + right + ")";
+                }
+                else if tok == "LT" {
+                    let pair2 = parseTerm(tokens, pos + 1);
+                    let right = split(pair2, 0);
+                    pos = toInt(split(pair2, 1));
+                    left = "(lt " + left + " " + right + ")";
+                }
+                else if tok == "LTE" {
+                    let pair2 = parseTerm(tokens, pos + 1);
+                    let right = split(pair2, 0);
+                    pos = toInt(split(pair2, 1));
+                    left = "(le " + left + " " + right + ")";
+                }
+                else if tok == "GT" {
+                    let pair2 = parseTerm(tokens, pos + 1);
+                    let right = split(pair2, 0);
+                    pos = toInt(split(pair2, 1));
+                    left = "(gt " + left + " " + right + ")";
+                }
+                else if tok == "GTE" {
+                    let pair2 = parseTerm(tokens, pos + 1);
+                    let right = split(pair2, 0);
+                    pos = toInt(split(pair2, 1));
+                    left = "(ge " + left + " " + right + ")";
+                }
+                else if tok == "AND" {
+                    let pair2 = parseTerm(tokens, pos + 1);
+                    let right = split(pair2, 0);
+                    pos = toInt(split(pair2, 1));
+                    left = "(and " + left + " " + right + ")";
+                }
+                else if tok == "OR" {
+                    let pair2 = parseTerm(tokens, pos + 1);
+                    let right = split(pair2, 0);
+                    pos = toInt(split(pair2, 1));
+                    left = "(or " + left + " " + right + ")";
+                }
             else {
                 break;
             }
