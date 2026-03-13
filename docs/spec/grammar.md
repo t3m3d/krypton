@@ -1,67 +1,163 @@
-program ::= module_decl? decl*
+# Krypton Grammar
 
-module_decl ::= "module" IDENT
+**Version 0.5.0** — Complete EBNF grammar for the Krypton language.
 
-decl ::= fn_decl
-       | qpute_decl
-       | process_decl
-       | main_decl
+```ebnf
+(* ===== Top-Level ===== *)
 
-fn_decl ::= "fn" IDENT "(" params? ")" "->" type block
+program     ::= decl* entry_block
 
-qpute_decl ::= "quantum" "qpute" IDENT "(" params? ")" block
+decl        ::= func_decl
 
-process_decl ::= "go" IDENT block
+func_decl   ::= ("func" | "fn") IDENT "(" params? ")" block
 
-main_decl ::= "run" block
+params      ::= IDENT ("," IDENT)*
 
-params ::= param ("," param)*
-param  ::= IDENT ":" type
+entry_block ::= ("just" | "go") "run" block
 
-block ::= "{" statement* "}"
 
-statement ::= let_stmt
-            | emit_stmt
-            | kp_stmt
-            | if_stmt
-            | expr_stmt
+(* ===== Blocks ===== *)
 
-let_stmt ::= "let" IDENT "=" expr ";"
+block       ::= "{" stmt* "}"
 
-emit_stmt ::= "emit" expr ";"
 
-kp_stmt ::= "kp" expr ";"
+(* ===== Statements ===== *)
 
-if_stmt ::= "if" "(" expr ")" block ("else" block)?
+stmt        ::= let_stmt
+              | const_stmt
+              | assign_stmt
+              | compound_assign
+              | if_stmt
+              | while_stmt
+              | do_while_stmt
+              | for_in_stmt
+              | match_stmt
+              | break_stmt
+              | continue_stmt
+              | emit_stmt
+              | expr_stmt
 
-expr_stmt ::= expr ";"
+let_stmt        ::= "let" IDENT "=" expr ";"?
+const_stmt      ::= "const" IDENT "=" expr ";"?
+assign_stmt     ::= IDENT "=" expr ";"?
+compound_assign ::= IDENT ("+=" | "-=" | "*=" | "/=" | "%=") expr ";"?
 
-expr ::= or_expr
+if_stmt         ::= "if" expr block ("else" if_stmt | "else" block)?
+while_stmt      ::= "while" expr block
+do_while_stmt   ::= "do" block "while" expr ";"?
+for_in_stmt     ::= "for" IDENT "in" expr block
+match_stmt      ::= "match" expr "{" match_arm* "}"
+match_arm       ::= (expr | "else") block
 
-or_expr ::= and_expr ("||" and_expr)*
+break_stmt      ::= "break" ";"?
+continue_stmt   ::= "continue" ";"?
+emit_stmt       ::= ("emit" | "return") expr ";"?
+expr_stmt       ::= expr ";"?
 
-and_expr ::= equality_expr ("&&" equality_expr)*
 
-equality_expr ::= rel_expr (("==" | "!=") rel_expr)*
+(* ===== Expressions ===== *)
 
-rel_expr ::= add_expr (("<" | ">" | "<=" | ">=") add_expr)*
+expr            ::= ternary_expr
+ternary_expr    ::= or_expr ("?" expr ":" expr)?
+or_expr         ::= and_expr ("||" and_expr)*
+and_expr        ::= eq_expr ("&&" eq_expr)*
+eq_expr         ::= rel_expr (("==" | "!=") rel_expr)*
+rel_expr        ::= add_expr (("<" | ">" | "<=" | ">=") add_expr)*
+add_expr        ::= mul_expr (("+" | "-") mul_expr)*
+mul_expr        ::= unary_expr (("*" | "/" | "%") unary_expr)*
+unary_expr      ::= ("-" | "!") unary_expr | postfix_expr
+postfix_expr    ::= primary ("[" expr "]")*
+primary         ::= INT
+                   | STRING
+                   | "true"
+                   | "false"
+                   | IDENT "(" args? ")"
+                   | IDENT
+                   | "(" expr ")"
 
-add_expr ::= mul_expr (("+" | "-") mul_expr)*
+args            ::= expr ("," expr)*
 
-mul_expr ::= unary_expr (("*" | "/") unary_expr)*
 
-unary_expr ::= ("!" | "+" | "-") unary_expr
-             | primary
+(* ===== Tokens ===== *)
 
-primary ::= literal
-          | IDENT
-          | call
-          | "(" expr ")"
-          | "prepare" IDENT
-          | "measure" IDENT
+INT             ::= [0-9]+
+STRING          ::= '"' (char | escape)* '"'
+IDENT           ::= [a-zA-Z_][a-zA-Z0-9_]*
+escape          ::= "\\" | "\"" | "\n" | "\t" | "\r"
 
-call ::= IDENT "(" args? ")"
+COMMENT         ::= "//" [^\n]* | "/*" .* "*/"
+WHITESPACE      ::= [ \t\n\r]+
+```
 
-args ::= expr ("," expr)*
+## Operator Precedence
 
-literal ::= INT | FLOAT | STRING | "true" | "false"
+From highest to lowest:
+
+| Precedence | Category | Operators | Associativity |
+|------------|----------|-----------|---------------|
+| 1 | Postfix | `[i]`, `f()` | Left-to-right |
+| 2 | Unary | `-`, `!` | Right-to-left |
+| 3 | Multiplicative | `*`, `/`, `%` | Left-to-right |
+| 4 | Additive | `+`, `-` | Left-to-right |
+| 5 | Relational | `<`, `>`, `<=`, `>=` | Left-to-right |
+| 6 | Equality | `==`, `!=` | Left-to-right |
+| 7 | Logical AND | `&&` | Left-to-right |
+| 8 | Logical OR | `\|\|` | Left-to-right |
+| 9 | Ternary | `? :` | Right-to-left |
+| 10 | Assignment | `=`, `+=`, `-=`, `*=`, `/=`, `%=` | Right-to-left |
+
+## Keywords
+
+```
+just  go  func  fn  let  const  emit  return
+if  else  while  break  continue  for  in
+match  do  module  true  false
+```
+
+### Reserved (future)
+```
+quantum  qpute  process  prepare  measure
+struct  enum  trait  async  await  gate
+```
+
+## Token Types
+
+The lexer produces the following token types:
+
+| Token | Pattern |
+|-------|---------|
+| `INT:n` | Integer literal |
+| `STR:s` | String literal (contents, no quotes) |
+| `KW:word` | Keyword |
+| `ID:name` | Identifier |
+| `PLUS` | `+` |
+| `MINUS` | `-` |
+| `STAR` | `*` |
+| `SLASH` | `/` |
+| `MOD` | `%` |
+| `ASSIGN` | `=` |
+| `EQ` | `==` |
+| `NEQ` | `!=` |
+| `LT` | `<` |
+| `GT` | `>` |
+| `LTE` | `<=` |
+| `GTE` | `>=` |
+| `AND` | `&&` |
+| `OR` | `\|\|` |
+| `BANG` | `!` |
+| `PLUSEQ` | `+=` |
+| `MINUSEQ` | `-=` |
+| `STAREQ` | `*=` |
+| `SLASHEQ` | `/=` |
+| `MODEQ` | `%=` |
+| `QUESTION` | `?` |
+| `COLON` | `:` |
+| `COMMA` | `,` |
+| `SEMI` | `;` |
+| `ARROW` | `->` |
+| `LPAREN` | `(` |
+| `RPAREN` | `)` |
+| `LBRACE` | `{` |
+| `RBRACE` | `}` |
+| `LBRACK` | `[` |
+| `RBRACK` | `]` |
