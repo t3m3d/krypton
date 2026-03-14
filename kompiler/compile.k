@@ -815,14 +815,26 @@ func compilePrimary(tokens, pos, ntoks) {
         emit ecode + "," + (p + 1)
     }
 
+
     if tt == "ID" {
         let name = tv
         // check for function call
         if tokAt(tokens, pos + 1) == "LPAREN" {
             emit compileCall(tokens, pos, ntoks)
         }
-        // bare variable reference
-        emit cIdent(name) + "," + (pos + 1)
+        // symbol resolution: check imported/exported symbols
+        let resolved = ""
+        if defined(importedSymbols) && indexOf(importedSymbols, name) >= 0 {
+            // Reference to imported symbol (scaffold: just use name for now)
+            resolved = name
+        } else if defined(exportedSymbols) && indexOf(exportedSymbols, name) >= 0 {
+            // Reference to exported symbol (scaffold: just use name for now)
+            resolved = name
+        } else {
+            // Local or undefined symbol
+            resolved = name
+        }
+        emit cIdent(resolved) + "," + (pos + 1)
     }
 
     emit "kr_str(\"\")," + (pos + 1)
@@ -1120,6 +1132,7 @@ func compileCall(tokens, pos, ntoks) {
 
 func compileStmt(tokens, pos, ntoks, depth, inFunc) {
     let tok = tokAt(tokens, pos)
+    // 'tok' must be declared before any use below for valid C codegen
     if tok == "KW:struct" || tok == "KW:class" || tok == "KW:type" {
         // struct/class/type declaration
         let name = tokVal(tokAt(tokens, pos + 1))
@@ -1202,21 +1215,104 @@ func compileStmt(tokens, pos, ntoks, depth, inFunc) {
         emit compileLet(tokens, pos + 1, ntoks, depth)
     }
 
-    // Module/import/export support
+    // --- Module/import/export support (step 1: scaffolding) ---
+    // Track current module name
+    if not defined(currentModule) {
+        let currentModule = ""
+    }
+    // Track imported modules
+    if not defined(importedModules) {
+        let importedModules = ""
+    }
+    // Track exported symbols
+    if not defined(exportedSymbols) {
+        let exportedSymbols = ""
+    }
     if tok == "KW:module" {
-        // No-op for now, could set module context
-        let p = pos + 1
-        emit indent(depth) + "// module declaration\n," + p
+        // Set current module name
+        let nameTok = tokAt(tokens, pos + 1)
+        let name = tokVal(nameTok)
+        currentModule = name
+        let p = pos + 2
+        emit indent(depth) + "// module " + name + "\n," + p
     }
     if tok == "KW:import" {
-        // No-op for now, could load/import other files
-        let p = pos + 1
-        emit indent(depth) + "// import statement\n," + p
+        // Register imported module and load file
+        let nameTok = tokAt(tokens, pos + 1)
+        let name = tokVal(nameTok)
+        importedModules = importedModules + name + ","
+        // Try to load the module file (name.k)
+        let importPath = name + ".k"
+        let importSource = readFile(importPath)
+        if importSource != "" {
+            // Tokenize and parse the imported file
+            let importTokens = tokenize(importSource)
+            let importNtoks = lineCount(importTokens)
+            let i = 0
+            while i < importNtoks {
+                let t = tokAt(importTokens, i)
+                // Recursively process imports in the imported file
+                if t == "KW:import" {
+                    let subNameTok = tokAt(importTokens, i + 1)
+                    let subName = tokVal(subNameTok)
+                    // Avoid duplicate imports
+                    if indexOf(importedModules, subName) < 0 {
+                        importedModules = importedModules + subName + ","
+                        // Recursive import: load and process
+                        let subPath = subName + ".k"
+                        let subSource = readFile(subPath)
+                        if subSource != "" {
+                            // Recursive: tokenize and scan for exports
+                            let subTokens = tokenize(subSource)
+                            let subNtoks = lineCount(subTokens)
+                            let j = 0
+                            while j < subNtoks {
+                                let st = tokAt(subTokens, j)
+                                if st == "KW:export" {
+                                    let snameTok = tokAt(subTokens, j + 1)
+                                    let sname = tokVal(snameTok)
+                                    if not defined(importedSymbols) {
+                                        let importedSymbols = ""
+                                    }
+                                    importedSymbols = importedSymbols + sname + ","
+                                }
+                                j = j + 1
+                            }
+                        }
+                    }
+                }
+                // Collect exports from this import
+                if t == "KW:export" {
+                    let nameTok = tokAt(importTokens, i + 1)
+                    let name = tokVal(nameTok)
+                    if not defined(importedSymbols) {
+                        let importedSymbols = ""
+                    }
+                    importedSymbols = importedSymbols + name + ","
+                }
+                i = i + 1
+            }
+        } else {
+            // Optionally, print a warning about missing import file
+        }
+        let p = pos + 2
+        emit indent(depth) + "// import " + name + "\n," + p
     }
     if tok == "KW:export" {
-        // No-op for now, could mark exportable symbols
-        let p = pos + 1
-        emit indent(depth) + "// export statement\n," + p
+        // Register exported symbol, check for conflicts
+        let nameTok = tokAt(tokens, pos + 1)
+        let name = tokVal(nameTok)
+        if defined(exportedSymbols) && indexOf(exportedSymbols, name) >= 0 {
+            // Conflict: already exported in this module
+            emit indent(depth) + "// WARNING: symbol '" + name + "' already exported\n," + (pos + 2)
+        } else if defined(importedSymbols) && indexOf(importedSymbols, name) >= 0 {
+            // Conflict: imported symbol with same name
+            emit indent(depth) + "// WARNING: symbol '" + name + "' imported from another module and exported here\n," + (pos + 2)
+        } else {
+            exportedSymbols = exportedSymbols + name + ","
+            let p = pos + 2
+            emit indent(depth) + "// export " + name + "\n," + p
+        }
     }
 
     // Check for compound assignment: ID PLUSEQ/MINUSEQ/STAREQ/SLASHEQ/MODEQ
