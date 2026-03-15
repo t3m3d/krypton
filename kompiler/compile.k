@@ -2617,7 +2617,7 @@ just run {
     // Find and compile the entry block
     let entry = findEntry(tokens, ntoks)
     if entry < 0 {
-        print("No entry point found")
+        // print("No entry point found")
         emit 1
     }
 
