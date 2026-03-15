@@ -135,4 +135,39 @@ All notable changes to the Krypton language and compiler.
 
 ### Compiler
 - C++ bootstrap → self-hosted fixed-point achieved
-- Bootstrap chain preserved in `build/versions/`
+- Bootstrap chain preserved in `build/versions/`## [0.7.2] - 2026-03-15
+
+### Critical Fix
+- `struct`, `class`, `type`, `try`, `catch`, `throw` were missing from `isKW()` — the tokenizer was producing `ID:struct` instead of `KW:struct`, meaning structs and try/catch were silently broken in any real program. Fixed.
+
+### Language
+- String interpolation: `` `Hello {name}, version {ver}!` `` — backtick strings with `{identifier}` placeholders compile to `kr_cat()` chains
+
+### Docs
+- `docs/spec/functions.md` — fully updated to v0.7.2 with all 127 functions
+- `docs/spec/grammar.md` — updated with structs, try/catch, interpolation, DOT token
+- `docs/spec/types.md` — completely rewritten to accurately describe Krypton's string-based type model (old version described a fictional static type system)
+- `docs/roadmap.md` — updated with accurate history and near-term plans
+
+### Tutorials
+- `21_structs.k` — struct declaration, literals, dot access, dynamic structs
+- `22_try_catch.k` — try/catch/throw with nesting and rethrow
+- `23_for_in.k` — for-in with nesting, counters, range
+- `24_string_interpolation.k` — backtick strings with expressions
+- `25_match.k` — match statement pattern matching
+
+### Tests
+- `tests/test_structs.k` — full struct coverage
+- `tests/test_try_catch.k` — exception handling coverage
+- `tests/test_interpolation.k` — string interpolation coverage
+- `tests/test_for_in.k` — for-in loop coverage including triple nesting
+
+### Examples Updated
+- `fibonacci.k`, `fizzbuzz.k`, `hello.k`, `factorial.k` modernized to use `+=`, `for-in`, string interpolation
+
+### Compiler
+- Self-host verified with kcc_v071.exe
+
+---
+
+
