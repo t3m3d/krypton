@@ -1,49 +1,126 @@
 # Krypton Type System
 
-Krypton uses a simple, explicit, statically‑checked type system. All values have
-a known type at compile time, and no implicit conversions occur.
+**Version 0.7.2**
 
-## Primitive Types
+Krypton uses a **dynamic, string-based value model**. All values are strings at runtime. There are no separate integer, boolean, or float types — numeric and boolean operations work by inspecting and converting string content.
 
-| Type   | Description                     |
-|--------|---------------------------------|
-| int    | 64‑bit signed integer           |
-| float  | 64‑bit floating‑point number    |
-| bool   | Boolean (`true` or `false`)     |
-| string | UTF‑8 encoded string            |
+---
 
-## Quantum Types
+## The String Model
 
-| Type  | Description                   |
-|-------|-------------------------------|
-| qubit | A single quantum bit          |
-| qreg  | A fixed‑size quantum register |
+Every value in Krypton is a `char*` string in the generated C code.
 
-Quantum types may only be manipulated inside quantum contexts such as
-`quantum qpute` blocks or quantum intrinsics (`prepare`, `measure`).
+```
+let x = 42          // x holds the string "42"
+let name = "hello"  // name holds the string "hello"
+let flag = true     // flag holds the string "1"
+let no = false      // no holds the string "0"
+```
 
-## Function Types
+---
 
-Functions declare parameter types and a return type:
+## Numeric Strings
 
-fn add(a: int, b: int) -> int
+Arithmetic operators detect when both operands look like numbers and perform integer arithmetic. Otherwise `+` concatenates.
 
-The returned value is produced using `emit`.
+```
+10 + 20        // "30"  (both numeric)
+"10" + "20"    // "30"  (both numeric)
+"hello" + "!"  // "hello!"  (not numeric)
+10 + " items"  // "10 items"  (one not numeric → concat)
+```
 
-## Process Types
+Numeric detection uses: optional leading `-`, then all digits.
 
-Processes declared with `go` do not specify a return type:
+---
 
-go run {
-    emit 42;
+## Truthiness
+
+A value is **falsy** if it is:
+- `""` — empty string
+- `"0"` — zero
+- `"false"` — the word false
+
+Everything else is **truthy**, including `"1"`, any non-zero number, any non-empty string.
+
+```
+if ""    { }   // never runs
+if "0"   { }   // never runs
+if "1"   { }   // runs
+if "hi"  { }   // runs
+if 0     { }   // never runs
+if 1     { }   // runs
+```
+
+---
+
+## Boolean Results
+
+Comparison and logical operators return `"1"` (true) or `"0"` (false):
+
+```
+10 > 5     // "1"
+10 < 5     // "0"
+"a" == "a" // "1"
+!true      // "0"
+```
+
+---
+
+## Structs
+
+Structs are dynamic — fields are string name/value pairs stored in arena memory. All field values are strings.
+
+```
+struct Point {
+    let x
+    let y
 }
 
-If a process uses `emit`, the emitted value becomes the process result.
+let p = Point { x: "10", y: "20" }
+kp(p.x)   // "10"
+```
 
-## Type Rules
+There are no typed fields. A field holds whatever string you assign to it.
 
-- All variables must be declared using `let`.
-- Types must match exactly; no implicit conversions occur.
-- Quantum values cannot be copied or cloned.
-- Function parameters and return types must be explicitly typed.
-- Expressions must resolve to a well‑defined type at compile time.
+---
+
+## Lists
+
+Lists are comma-separated strings:
+
+```
+let items = "apple,banana,cherry"
+kp(split(items, 0))   // "apple"
+kp(length(items))     // "3"
+```
+
+---
+
+## Maps
+
+Maps are interleaved key-value comma-separated strings:
+
+```
+let m = "name,Alice,age,30"
+kp(keys(m))      // "name,age"
+kp(values(m))    // "Alice,30"
+```
+
+---
+
+## Type Checking
+
+The `type()` builtin returns `"number"` or `"string"`:
+
+```
+type("42")    // "number"
+type("hello") // "string"
+type(true)    // "number"  (true is "1")
+```
+
+---
+
+## Future
+
+Static type annotations are planned as an optional feature. The runtime model will remain string-based for compatibility.

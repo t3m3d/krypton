@@ -1,8 +1,8 @@
 # Krypton Built-in Functions Reference
 
-Complete reference for all 72 built-in functions in Krypton v0.5.0.
+**Version 0.7.2** — Complete reference for all 127 built-in functions.
 
-All values in Krypton are strings. Functions that operate on numbers parse their arguments with `atoi` and return numeric strings. Lists are comma-separated strings (`"a,b,c"`). Maps are interleaved key-value lists (`"name,Alice,age,30"`).
+All values in Krypton are strings. Functions that operate on numbers parse their arguments and return numeric strings. Lists are comma-separated strings (`"a,b,c"`). Maps are interleaved key-value lists (`"name,Alice,age,30"`).
 
 ---
 
@@ -10,54 +10,51 @@ All values in Krypton are strings. Functions that operate on numbers parse their
 
 ### print(s) / kp(s)
 Prints `s` followed by a newline to stdout.
-```krypton
-print("hello")    // prints: hello
-kp("world")       // prints: world
+```
+print("hello")
+kp("world")
 ```
 
 ### printErr(s)
 Prints `s` followed by a newline to stderr.
-```krypton
-printErr("warning: something happened")
+```
+printErr("warning: file not found")
 ```
 
 ### readLine(prompt)
 Displays `prompt` then reads a line from stdin. Returns the input without the trailing newline.
-```krypton
+```
 let name = readLine("Enter your name: ")
 ```
 
 ### input()
-Reads a line from stdin (no prompt). Returns the input without the trailing newline.
-```krypton
+Reads a line from stdin with no prompt.
+```
 let line = input()
 ```
 
 ### readFile(path)
-Reads the entire contents of a file. Returns empty string if the file doesn't exist.
-```krypton
+Reads the entire contents of a file. Returns `""` if the file does not exist.
+```
 let src = readFile("hello.k")
-print(len(src) + " bytes")
 ```
 
 ### writeFile(path, data)
-Writes `data` to the file at `path`. Returns `"1"` on success, `"0"` on failure.
-```krypton
-writeFile("output.txt", "hello world")
+Writes `data` to a file. Returns `"1"` on success, `"0"` on failure.
+```
+writeFile("out.txt", "hello\n")
 ```
 
 ### arg(n)
-Returns command-line argument at index `n` (0-based, after the program name).
-```krypton
+Returns command-line argument at index `n` (0-based, skipping the program name).
+```
 let filename = arg(0)
 ```
 
 ### argCount()
-Returns the number of command-line arguments (excluding the program name).
-```krypton
-if argCount() < 1 {
-    print("Usage: program <file>")
-}
+Returns the number of command-line arguments passed.
+```
+let n = argCount()
 ```
 
 ---
@@ -66,117 +63,154 @@ if argCount() < 1 {
 
 ### len(s)
 Returns the length of string `s`.
-```krypton
-len("hello")     // "5"
+```
+len("hello")    // "5"
 ```
 
 ### substring(s, start, end)
-Returns the substring from index `start` (inclusive) to `end` (exclusive).
-```krypton
-substring("hello", 1, 4)    // "ell"
+Returns the substring from index `start` to `end` (exclusive).
+```
+substring("hello", 1, 3)    // "el"
 ```
 
 ### charAt(s, i)
-Returns the character at index `i`. Returns empty string if out of bounds.
-```krypton
+Returns the character at index `i`.
+```
 charAt("hello", 0)    // "h"
-charAt("hello", 4)    // "o"
 ```
 
 ### indexOf(s, sub)
-Returns the index of the first occurrence of `sub` in `s`, or `"-1"` if not found.
-```krypton
+Returns the position of `sub` in `s`, or `"-1"` if not found.
+```
 indexOf("hello world", "world")    // "6"
-indexOf("hello", "xyz")            // "-1"
 ```
 
 ### contains(s, sub)
-Returns `"1"` if `s` contains `sub`, `"0"` otherwise.
-```krypton
-contains("hello world", "world")    // "1"
+Returns `"1"` if `s` contains `sub`, otherwise `"0"`.
+```
+contains("hello", "ell")    // "1"
 ```
 
 ### startsWith(s, prefix)
 Returns `"1"` if `s` starts with `prefix`.
-```krypton
-startsWith("hello", "hel")    // "1"
+```
+startsWith("hello", "he")    // "1"
 ```
 
 ### endsWith(s, suffix)
 Returns `"1"` if `s` ends with `suffix`.
-```krypton
-endsWith("hello.k", ".k")    // "1"
+```
+endsWith("hello", "lo")    // "1"
 ```
 
 ### replace(s, old, new)
 Replaces all occurrences of `old` with `new` in `s`.
-```krypton
-replace("hello world", "world", "krypton")    // "hello krypton"
+```
+replace("aabbcc", "bb", "XX")    // "aaXXcc"
 ```
 
 ### trim(s)
-Removes leading and trailing whitespace (spaces, tabs, newlines).
-```krypton
+Strips leading and trailing whitespace.
+```
 trim("  hello  ")    // "hello"
+```
+
+### lstrip(s)
+Strips leading whitespace only.
+```
+lstrip("  hello  ")    // "hello  "
+```
+
+### rstrip(s)
+Strips trailing whitespace only.
+```
+rstrip("  hello  ")    // "  hello"
+```
+
+### center(s, width, pad)
+Centers `s` within `width` characters, padding with `pad`.
+```
+center("hi", 8, "-")    // "---hi---"
 ```
 
 ### toLower(s)
 Converts to lowercase.
-```krypton
-toLower("Hello World")    // "hello world"
+```
+toLower("Hello")    // "hello"
 ```
 
 ### toUpper(s)
 Converts to uppercase.
-```krypton
+```
 toUpper("hello")    // "HELLO"
 ```
 
 ### repeat(s, n)
-Returns `s` repeated `n` times.
-```krypton
+Repeats `s` exactly `n` times.
+```
 repeat("ab", 3)    // "ababab"
-repeat("-", 20)    // "--------------------"
 ```
 
 ### padLeft(s, width, pad)
-Left-pads `s` to `width` using `pad` character(s). No-op if `s` is already wide enough.
-```krypton
-padLeft("42", 5, "0")     // "00042"
-padLeft("hi", 6, ".")     // "....hi"
+Left-pads `s` to `width` using `pad` character.
+```
+padLeft("42", 6, "0")    // "000042"
 ```
 
 ### padRight(s, width, pad)
-Right-pads `s` to `width` using `pad` character(s).
-```krypton
+Right-pads `s` to `width` using `pad` character.
+```
 padRight("hi", 6, ".")    // "hi...."
 ```
 
 ### charCode(s)
 Returns the ASCII code of the first character of `s`.
-```krypton
+```
 charCode("A")    // "65"
-charCode("0")    // "48"
 ```
 
 ### fromCharCode(n)
 Returns the character with ASCII code `n`.
-```krypton
+```
 fromCharCode(65)    // "A"
-fromCharCode(10)    // newline
 ```
 
 ### splitBy(s, delim)
-Splits `s` by the delimiter `delim` and returns a comma-separated list.
-```krypton
+Splits `s` by the string delimiter `delim` into a comma-separated list.
+```
 splitBy("one::two::three", "::")    // "one,two,three"
-splitBy("a-b-c", "-")              // "a,b,c"
 ```
 
 ### format(fmt, arg)
 Replaces the first `{}` in `fmt` with `arg`.
-```krypton
-format("Hello, {}!", "world")    // "Hello, world!"
+```
+format("Hello {}!", "world")    // "Hello world!"
+```
+
+### strReverse(s)
+Reverses a string.
+```
+strReverse("hello")    // "olleh"
+```
+
+### isAlpha(s)
+Returns `"1"` if all characters in `s` are alphabetic.
+```
+isAlpha("abc")    // "1"
+isAlpha("ab1")    // "0"
+```
+
+### isDigit(s)
+Returns `"1"` if all characters in `s` are numeric digits.
+```
+isDigit("123")    // "1"
+isDigit("12x")    // "0"
+```
+
+### isSpace(s)
+Returns `"1"` if all characters in `s` are whitespace.
+```
+isSpace("   ")    // "1"
 ```
 
 ---
@@ -184,272 +218,342 @@ format("Hello, {}!", "world")    // "Hello, world!"
 ## Numbers and Math
 
 ### toInt(s)
-Parses `s` as an integer.
-```krypton
-toInt("42")    // "42"
-toInt("abc")   // "0"
+Parses a string to its integer representation.
+```
+toInt("42")      // "42"
+toInt("  7  ")   // "7"
 ```
 
 ### parseInt(s)
-Like `toInt` but tolerates leading whitespace.
-```krypton
+Parses a string to integer with leading whitespace tolerance.
+```
 parseInt("  42")    // "42"
 ```
 
 ### abs(n)
-Returns the absolute value.
-```krypton
+Returns the absolute value of `n`.
+```
 abs(-5)    // "5"
-abs(3)     // "3"
 ```
 
 ### min(a, b)
-Returns the smaller of two numbers.
-```krypton
+Returns the smaller of `a` and `b`.
+```
 min(3, 7)    // "3"
 ```
 
 ### max(a, b)
-Returns the larger of two numbers.
-```krypton
+Returns the larger of `a` and `b`.
+```
 max(3, 7)    // "7"
 ```
 
 ### pow(base, exp)
-Returns `base` raised to the power `exp`.
-```krypton
-pow(2, 10)    // "1024"
-pow(3, 3)     // "27"
+Returns `base` raised to the power `exp` (integer).
+```
+pow(2, 8)    // "256"
 ```
 
 ### sqrt(n)
-Returns the integer square root (floor).
-```krypton
-sqrt(16)    // "4"
-sqrt(10)    // "3"
+Returns the integer square root of `n`.
+```
+sqrt(144)    // "12"
 ```
 
 ### sign(n)
-Returns `"1"` if positive, `"-1"` if negative, `"0"` if zero.
-```krypton
-sign(42)     // "1"
-sign(-3)     // "-1"
-sign(0)      // "0"
+Returns `"-1"`, `"0"`, or `"1"` depending on the sign of `n`.
+```
+sign(-5)    // "-1"
+sign(0)     // "0"
+sign(3)     // "1"
 ```
 
 ### clamp(val, lo, hi)
 Clamps `val` to the range `[lo, hi]`.
-```krypton
+```
 clamp(15, 0, 10)    // "10"
-clamp(-5, 0, 10)    // "0"
-clamp(7, 0, 10)     // "7"
+clamp(-3, 0, 10)    // "0"
 ```
 
 ### hex(n)
-Converts a number to its hexadecimal string representation.
-```krypton
+Returns the hexadecimal string representation of `n`.
+```
 hex(255)    // "ff"
 hex(16)     // "10"
 ```
 
 ### bin(n)
-Converts a number to its binary string representation.
-```krypton
+Returns the binary string representation of `n`.
+```
 bin(10)     // "1010"
 bin(255)    // "11111111"
+```
+
+### floor(n)
+Returns the floor of `n` (integer, same as `toInt` for integer inputs).
+```
+floor(42)    // "42"
+```
+
+### ceil(n)
+Returns the ceiling of `n`.
+```
+ceil(42)    // "42"
+```
+
+### round(n)
+Returns `n` rounded to the nearest integer.
+```
+round(42)    // "42"
 ```
 
 ---
 
 ## Lists
 
-Lists in Krypton are comma-separated strings. `"apple,banana,cherry"` is a 3-element list.
+Lists are comma-separated strings: `"a,b,c"`
 
 ### split(s, i)
 Returns the item at index `i` from a comma-separated list.
-```krypton
-let fruits = "apple,banana,cherry"
-split(fruits, 0)    // "apple"
-split(fruits, 2)    // "cherry"
+```
+split("a,b,c", 1)    // "b"
 ```
 
 ### length(lst)
 Returns the number of items in a list.
-```krypton
+```
 length("a,b,c")    // "3"
-length("")          // "0"
+```
+
+### first(lst)
+Returns the first item in a list.
+```
+first("a,b,c")    // "a"
+```
+
+### last(lst)
+Returns the last item in a list.
+```
+last("a,b,c")    // "c"
+```
+
+### head(lst, n)
+Returns the first `n` items as a list.
+```
+head("a,b,c,d", 2)    // "a,b"
+```
+
+### tail(lst, n)
+Returns the last `n` items as a list.
+```
+tail("a,b,c,d", 2)    // "c,d"
 ```
 
 ### append(lst, item)
 Appends `item` to the end of the list.
-```krypton
+```
 append("a,b", "c")    // "a,b,c"
-append("", "first")   // "first"
 ```
 
 ### insertAt(lst, i, item)
 Inserts `item` at position `i`.
-```krypton
+```
 insertAt("a,b,d", 2, "c")    // "a,b,c,d"
 ```
 
 ### removeAt(lst, i)
 Removes the item at position `i`.
-```krypton
-removeAt("a,b,c,d", 1)    // "a,c,d"
+```
+removeAt("a,b,c", 1)    // "a,c"
 ```
 
 ### remove(lst, item)
-Removes all occurrences of `item` from the list.
-```krypton
-remove("a,b,a,c", "a")    // "b,c"
+Removes the first occurrence of `item`.
+```
+remove("a,b,a,c", "a")    // "b,a,c"
 ```
 
 ### replaceAt(lst, i, val)
 Replaces the item at position `i` with `val`.
-```krypton
+```
 replaceAt("a,b,c", 1, "X")    // "a,X,c"
 ```
 
 ### slice(lst, start, end)
-Returns a sublist from index `start` (inclusive) to `end` (exclusive). Supports negative indices.
-```krypton
-slice("a,b,c,d,e", 1, 4)     // "b,c,d"
-slice("a,b,c,d,e", -3, -1)   // "c,d"
+Returns items from index `start` to `end` (exclusive).
+```
+slice("a,b,c,d", 1, 3)    // "b,c"
 ```
 
 ### join(lst, sep)
-Joins list items with `sep` (replaces commas with `sep`).
-```krypton
-join("a,b,c", " - ")    // "a - b - c"
-join("1,2,3", "+")       // "1+2+3"
+Joins list items with separator `sep`.
+```
+join("a,b,c", "-")    // "a-b-c"
 ```
 
 ### reverse(lst)
 Reverses the order of items.
-```krypton
+```
 reverse("a,b,c")    // "c,b,a"
 ```
 
 ### sort(lst)
-Sorts items. Numeric-aware: numbers sort numerically, strings sort lexicographically.
-```krypton
-sort("3,1,2")         // "1,2,3"
-sort("banana,apple")  // "apple,banana"
+Sorts items. Numeric-aware: numbers sort by value, strings lexicographically.
+```
+sort("3,1,4,1,5")    // "1,1,3,4,5"
 ```
 
 ### unique(lst)
 Removes duplicate items, preserving first occurrence order.
-```krypton
+```
 unique("a,b,a,c,b")    // "a,b,c"
 ```
 
 ### fill(n, val)
 Creates a list of `n` copies of `val`.
-```krypton
-fill(4, "x")    // "x,x,x,x"
-fill(3, "0")    // "0,0,0"
+```
+fill(4, "hi")    // "hi,hi,hi,hi"
 ```
 
 ### zip(a, b)
-Interleaves two lists element by element. Truncates to the shorter list.
-```krypton
+Interleaves two lists element by element.
+```
 zip("1,2,3", "a,b,c")    // "1,a,2,b,3,c"
 ```
 
 ### listIndexOf(lst, item)
 Returns the index of `item` in the list, or `"-1"` if not found.
-```krypton
+```
 listIndexOf("a,b,c", "b")    // "1"
-listIndexOf("a,b,c", "z")    // "-1"
 ```
 
 ### every(lst, val)
 Returns `"1"` if every item in the list equals `val`.
-```krypton
+```
 every("5,5,5", "5")    // "1"
-every("5,3,5", "5")    // "0"
+every("5,5,3", "5")    // "0"
 ```
 
 ### some(lst, val)
 Returns `"1"` if any item in the list equals `val`.
-```krypton
+```
 some("1,2,3", "2")    // "1"
 some("1,2,3", "9")    // "0"
 ```
 
 ### countOf(lst, item)
-Counts how many times `item` appears in the list.
-```krypton
+Returns the number of times `item` appears in the list.
+```
 countOf("a,b,a,c,a", "a")    // "3"
 ```
 
 ### sumList(lst)
 Returns the sum of all numeric items.
-```krypton
+```
 sumList("10,20,30")    // "60"
 ```
 
 ### maxList(lst)
 Returns the maximum numeric value in the list.
-```krypton
+```
 maxList("5,1,9,3")    // "9"
 ```
 
 ### minList(lst)
 Returns the minimum numeric value in the list.
-```krypton
+```
 minList("5,1,9,3")    // "1"
 ```
 
 ### range(start, end)
-Generates a list of numbers from `start` (inclusive) to `end` (exclusive).
-```krypton
-range(0, 5)    // "0,1,2,3,4"
-range(3, 7)    // "3,4,5,6"
+Returns a comma-separated list of integers from `start` to `end` (exclusive).
+```
+range(1, 5)    // "1,2,3,4"
+```
+
+### words(s)
+Splits a string on whitespace into a comma-separated list.
+```
+words("hello world foo")    // "hello,world,foo"
+```
+
+### lines(s)
+Splits a string on newlines into a comma-separated list.
+```
+lines("a\nb\nc")    // "a,b,c"
 ```
 
 ---
 
-## Map Operations
+## Maps
 
-Maps in Krypton are interleaved key-value lists: `"name,Alice,age,30"` has keys `name`, `age` and values `Alice`, `30`.
+Maps are interleaved key-value comma-separated strings: `"name,Alice,age,30"`
 
 ### keys(map)
-Returns a comma-separated list of all keys (even-indexed items).
-```krypton
+Returns a list of all keys.
+```
 keys("name,Alice,age,30")    // "name,age"
 ```
 
 ### values(map)
-Returns a comma-separated list of all values (odd-indexed items).
-```krypton
+Returns a list of all values.
+```
 values("name,Alice,age,30")    // "Alice,30"
 ```
 
 ### hasKey(map, key)
-Returns `"1"` if the key exists in the map.
-```krypton
-hasKey("name,Alice,age,30", "age")     // "1"
-hasKey("name,Alice,age,30", "email")   // "0"
+Returns `"1"` if `key` exists in the map.
+```
+hasKey("name,Alice,age,30", "name")    // "1"
+```
+
+---
+
+## Structs
+
+### structNew()
+Creates a new empty dynamic struct.
+```
+let obj = structNew()
+```
+
+### setField(obj, name, val)
+Sets field `name` to `val` on the struct. Returns the struct.
+```
+setField(obj, "x", "10")
+```
+
+### getField(obj, name)
+Returns the value of field `name`, or `""` if not set.
+```
+getField(obj, "x")    // "10"
+```
+
+### hasField(obj, name)
+Returns `"1"` if the struct has a field named `name`.
+```
+hasField(obj, "x")    // "1"
+```
+
+### structFields(obj)
+Returns a comma-separated list of all field names.
+```
+structFields(obj)    // "x,y"
 ```
 
 ---
 
 ## Line Operations
 
-These operate on newline-separated strings (as opposed to comma-separated lists).
-
 ### getLine(s, i)
-Returns line number `i` (0-based) from a newline-separated string.
-```krypton
-let text = "alpha\nbeta\ngamma"
-getLine(text, 1)    // "beta"
+Returns the line at index `i` from a newline-separated string.
+```
+getLine("a\nb\nc", 1)    // "b"
 ```
 
 ### lineCount(s)
-Returns the number of lines.
-```krypton
+Returns the number of lines in a newline-separated string.
+```
 lineCount("a\nb\nc")    // "3"
 ```
 
@@ -458,39 +562,67 @@ Alias for `lineCount`.
 
 ---
 
+## System
+
+### random(n)
+Returns a random integer from `0` to `n-1`.
+```
+random(10)    // "7"  (example)
+```
+
+### timestamp()
+Returns the current Unix timestamp as a string.
+```
+timestamp()    // "1742000000"  (example)
+```
+
+### environ(name)
+Returns the value of environment variable `name`, or `""` if not set.
+```
+environ("PATH")
+```
+
+### exit(code)
+Exits the program with the given exit code.
+```
+exit(1)
+```
+
+---
+
+## Exceptions
+
+### throw(msg)
+Throws an exception with message `msg`. Can also be used as a statement: `throw "msg"`.
+```
+throw("something went wrong")
+```
+
+---
+
 ## Type and Conversion
 
 ### type(s)
-Returns `"number"` if `s` is a valid integer, `"string"` otherwise.
-```krypton
-type("42")       // "number"
-type("hello")    // "string"
-type("-7")       // "number"
+Returns `"number"` if `s` looks like a number, otherwise `"string"`.
+```
+type("42")      // "number"
+type("hello")   // "string"
 ```
 
 ### toStr(s)
-Identity function — all values are already strings.
-```krypton
-toStr(42)    // "42"
-```
+Returns `s` unchanged (identity function — all values are already strings).
 
 ### isTruthy(s)
-Returns `"0"` if `s` is empty, `"0"`, or `"false"`. Returns `"1"` otherwise.
-```krypton
+Returns `"1"` if `s` is truthy, `"0"` if falsy.
+```
 isTruthy("hello")    // "1"
 isTruthy("")         // "0"
 isTruthy("0")        // "0"
 ```
 
-### exit(code)
-Exits the program with the given exit code.
-```krypton
-exit(1)
-```
-
 ### assert(cond, msg)
-If `cond` is falsy, prints `msg` to stderr and exits with code 1. Returns `"1"` on success.
-```krypton
+If `cond` is falsy, prints `msg` to stderr and exits with code 1.
+```
 assert(x > 0, "x must be positive")
 ```
 
@@ -498,24 +630,24 @@ assert(x > 0, "x must be positive")
 
 ## StringBuilder
 
-For efficient string construction in loops. Uses mutable handles internally.
+StringBuilders allow efficient string assembly without repeated concatenation.
 
 ### sbNew()
-Creates a new string builder. Returns a handle string.
-```krypton
+Creates a new StringBuilder. Returns a handle string.
+```
 let sb = sbNew()
 ```
 
 ### sbAppend(sb, s)
-Appends `s` to the builder. Returns the handle.
-```krypton
-sb = sbAppend(sb, "hello ")
-sb = sbAppend(sb, "world")
+Appends `s` to the StringBuilder. Returns the same handle.
+```
+sb = sbAppend(sb, "hello")
+sb = sbAppend(sb, " world")
 ```
 
 ### sbToString(sb)
-Returns the accumulated string.
-```krypton
+Returns the accumulated string from the StringBuilder.
+```
 let result = sbToString(sb)    // "hello world"
 ```
 
@@ -523,19 +655,28 @@ let result = sbToString(sb)    // "hello world"
 
 ## Environment (Low-level)
 
-These power the compiler's own interpreter. They implement a linked-list environment for variable binding.
+These are used internally by the interpreter and for advanced use cases.
 
 ### envNew()
-Creates an empty environment.
+Creates a new empty environment (linked-list of bindings).
 
 ### envSet(env, key, val)
-Returns a new environment with `key` bound to `val`.
+Adds a binding to the environment. Returns the new environment.
 
 ### envGet(env, key)
-Looks up `key` in the environment. Prints an error to stderr if not found.
+Looks up `key` in the environment. Returns `""` if not found.
 
 ### makeResult(tag, val, env, pos)
-Packs a tagged result (used by the interpreter for parse results).
+Packs a tag, value, environment, and position into a result struct.
 
-### getResultTag(r), getResultVal(r), getResultEnv(r), getResultPos(r)
-Unpack fields from a result struct.
+### getResultTag(r)
+Unpacks the tag from a result.
+
+### getResultVal(r)
+Unpacks the value from a result.
+
+### getResultEnv(r)
+Unpacks the environment from a result.
+
+### getResultPos(r)
+Unpacks the position from a result.

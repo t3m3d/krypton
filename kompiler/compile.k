@@ -126,6 +126,12 @@ func isKW(word) {
     else if word == "module" { emit 1 }
     else if word == "import" { emit 1 }
     else if word == "export" { emit 1 }
+    else if word == "struct" { emit 1 }
+    else if word == "class" { emit 1 }
+    else if word == "type" { emit 1 }
+    else if word == "try" { emit 1 }
+    else if word == "catch" { emit 1 }
+    else if word == "throw" { emit 1 }
     else if word == "quantum" { emit 1 }
     else if word == "qpute" { emit 1 }
     else if word == "process" { emit 1 }
@@ -134,6 +140,17 @@ func isKW(word) {
     else if word == "measure" { emit 1 }
     else if word == "prepare" { emit 1 }
     else { emit 0 }
+}
+
+func readBacktickString(text, i) {
+    // read from ` to next ` preserving {expr} markers
+    i += 1
+    let s = ""
+    while i < len(text) && text[i] != "`" {
+        s = s + text[i]
+        i += 1
+    }
+    emit s + "," + (i + 1)
 }
 
 func tokenize(text) {
@@ -326,6 +343,13 @@ func tokenize(text) {
         else if c == "." {
             out = out + "DOT\n"
             i += 1
+        }
+        else if c == "`" {
+            // backtick string: `text {expr} text`
+            let pair = readBacktickString(text, i)
+            let str = pairVal(pair)
+            i = pairPos(pair)
+            out = out + "INTERP:" + str + "\n"
         }
         else {
             i += 1
@@ -792,6 +816,11 @@ func compilePrimary(tokens, pos, ntoks) {
     let tok = tokAt(tokens, pos)
     let tt = tokType(tok)
     let tv = tokVal(tok)
+
+    // Backtick string interpolation: `Hello {name}!`
+    if tt == "INTERP" {
+        emit compileInterp(tv) + "," + (pos + 1)
+    }
 
     if tt == "INT" {
         emit "kr_str(\"" + tv + "\")," + (pos + 1)
@@ -1453,6 +1482,82 @@ func compileWhile(tokens, pos, ntoks, depth, inFunc) {
 
     let out = indent(depth) + "while (kr_truthy(" + cond + ")) {\n" + bcode + indent(depth) + "}\n"
     emit out + "," + p
+}
+
+// compileInterp: compile a backtick interpolation string
+// Input: raw string like "Hello {name}, you are {age} years old"
+// Output: C expression like kr_cat(kr_cat(kr_str("Hello "), name), ...)
+func compileInterp(s) {
+    let parts = ""
+    let pc = 0
+    let i = 0
+    let seg = ""
+    while i < len(s) {
+        if s[i] == "{" {
+            // flush literal segment
+            if len(seg) > 0 {
+                let escaped = cEscape(seg)
+                if pc > 0 {
+                    parts = parts + "\n" + "L:" + escaped
+                } else {
+                    parts = "L:" + escaped
+                }
+                pc += 1
+                seg = ""
+            }
+            // read expression until }
+            i += 1
+            let expr = ""
+            while i < len(s) && s[i] != "}" {
+                expr = expr + s[i]
+                i += 1
+            }
+            i += 1
+            if pc > 0 {
+                parts = parts + "\n" + "E:" + expr
+            } else {
+                parts = "E:" + expr
+            }
+            pc += 1
+        } else {
+            seg = seg + s[i]
+            i += 1
+        }
+    }
+    // flush final segment
+    if len(seg) > 0 {
+        let escaped = cEscape(seg)
+        if pc > 0 {
+            parts = parts + "\n" + "L:" + escaped
+        } else {
+            parts = "L:" + escaped
+        }
+        pc += 1
+    }
+    if pc == 0 {
+        emit "kr_str(\"\")"
+    }
+    // build kr_cat chain from parts
+    let result = ""
+    let j = 0
+    while j < pc {
+        let part = getLine(parts, j)
+        let ptype = substring(part, 0, 2)
+        let pval = substring(part, 2, len(part))
+        let cpart = ""
+        if ptype == "L:" {
+            cpart = "kr_str(\"" + pval + "\")"
+        } else {
+            cpart = cIdent(pval)
+        }
+        if j == 0 {
+            result = cpart
+        } else {
+            result = "kr_cat(" + result + ", " + cpart + ")"
+        }
+        j += 1
+    }
+    emit result
 }
 
 // === Struct compiler helpers ===
