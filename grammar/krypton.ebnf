@@ -1,24 +1,32 @@
-(* Krypton Language Grammar v2 — krypton.ebnf *)
-(* Matches the self-hosting compiler (kompiler/) implementation. *)
+(* Krypton Language Grammar v3 *)
+(* Version 0.7.1 — March 2026                  *)
+(* Matches kompiler/compile.k implementation.  *)
 
 (* ═══════════════════════════════════════════════════════════════ *)
 (*  Program Structure                                              *)
 (* ═══════════════════════════════════════════════════════════════ *)
 
-Program       ::= TopLevel* ;
+Program       ::= TopLevel* EntryPoint ;
 
 TopLevel      ::= FuncDecl
-                | EntryPoint ;
+                | StructDecl ;
 
 (* Entry point — exactly one required per program *)
 EntryPoint    ::= ( "just" | "go" ) "run" Block ;
 
 (* ═══════════════════════════════════════════════════════════════ *)
-(*  Functions                                                      *)
+(*  Declarations                                                   *)
 (* ═══════════════════════════════════════════════════════════════ *)
 
-FuncDecl      ::= "func" Identifier "(" Params? ")" Block ;
+FuncDecl      ::= ( "func" | "fn" ) Identifier "(" Params? ")" Block ;
 Params        ::= Identifier ( "," Identifier )* ;
+
+(* Struct names must start with an uppercase letter *)
+StructDecl    ::= ( "struct" | "class" | "type" ) UpperIdentifier "{"
+                      StructField*
+                  "}" ;
+
+StructField   ::= "let" Identifier ( "=" Expr )? ;
 
 (* ═══════════════════════════════════════════════════════════════ *)
 (*  Blocks & Statements                                            *)
@@ -27,31 +35,56 @@ Params        ::= Identifier ( "," Identifier )* ;
 Block         ::= "{" Stmt* "}" ;
 
 Stmt          ::= LetStmt
+                | ConstStmt
+                | FieldAssignStmt
                 | AssignStmt
+                | CompoundAssignStmt
                 | EmitStmt
                 | IfStmt
                 | WhileStmt
+                | DoWhileStmt
+                | ForInStmt
+                | MatchStmt
+                | TryStmt
+                | ThrowStmt
                 | BreakStmt
+                | ContinueStmt
                 | ExprStmt ;
 
-LetStmt       ::= "let" Identifier "=" Expr ;
-AssignStmt    ::= Identifier "=" Expr ;
-EmitStmt      ::= "emit" Expr ;
-BreakStmt     ::= "break" ;
+LetStmt            ::= "let" Identifier "=" Expr ";"? ;
+ConstStmt          ::= "const" Identifier "=" Expr ";"? ;
+AssignStmt         ::= Identifier "=" Expr ";"? ;
+FieldAssignStmt    ::= Identifier "." Identifier "=" Expr ";"? ;
+CompoundAssignStmt ::= Identifier ( "+=" | "-=" | "*=" | "/=" | "%=" ) Expr ";"? ;
+EmitStmt           ::= ( "emit" | "return" ) Expr ";"? ;
+BreakStmt          ::= "break" ";"? ;
+ContinueStmt       ::= "continue" ";"? ;
+ThrowStmt          ::= "throw" Expr ";"? ;
 
 IfStmt        ::= "if" Expr Block
-                   ( "else" "if" Expr Block )*
-                   ( "else" Block )? ;
+                  ( "else" "if" Expr Block )*
+                  ( "else" Block )? ;
 
 WhileStmt     ::= "while" Expr Block ;
 
-ExprStmt      ::= Expr ;
+DoWhileStmt   ::= "do" Block "while" Expr ";"? ;
+
+ForInStmt     ::= "for" Identifier "in" Expr Block ;
+
+MatchStmt     ::= "match" Expr "{" MatchArm* "}" ;
+MatchArm      ::= ( Expr | "else" ) Block ;
+
+TryStmt       ::= "try" Block ( "catch" Identifier? Block )? ;
+
+ExprStmt      ::= Expr ";"? ;
 
 (* ═══════════════════════════════════════════════════════════════ *)
 (*  Expressions (lowest to highest precedence)                     *)
 (* ═══════════════════════════════════════════════════════════════ *)
 
-Expr          ::= OrExpr ;
+Expr          ::= TernaryExpr ;
+
+TernaryExpr   ::= OrExpr ( "?" Expr ":" Expr )? ;
 
 OrExpr        ::= AndExpr ( "||" AndExpr )* ;
 AndExpr       ::= EqualityExpr ( "&&" EqualityExpr )* ;
@@ -63,16 +96,22 @@ MulExpr       ::= UnaryExpr ( ( "*" | "/" | "%" ) UnaryExpr )* ;
 UnaryExpr     ::= ( "-" | "!" ) UnaryExpr
                 | PostfixExpr ;
 
-PostfixExpr   ::= PrimaryExpr ( "[" Expr "]" )* ;
+(* Postfix: string index and struct field access, chainable *)
+PostfixExpr   ::= PrimaryExpr ( "[" Expr "]" | "." Identifier )* ;
 
 PrimaryExpr   ::= IntLiteral
                 | StringLiteral
-                | "true" | "false"
-                | CallExpr
-                | Identifier
-                | "(" Expr ")" ;
+                | "true"
+                | "false"
+                | UpperIdentifier "(" Args? ")"        (* struct constructor *)
+                | UpperIdentifier "{" FieldInits? "}"  (* struct literal     *)
+                | Identifier "(" Args? ")"             (* function call      *)
+                | Identifier                           (* variable           *)
+                | "(" Expr ")" ;                       (* grouped expression *)
 
-CallExpr      ::= Identifier "(" Args? ")" ;
+FieldInits    ::= FieldInit ( "," FieldInit )* ;
+FieldInit     ::= Identifier ":" Expr ;
+
 Args          ::= Expr ( "," Expr )* ;
 
 (* ═══════════════════════════════════════════════════════════════ *)
@@ -82,7 +121,8 @@ Args          ::= Expr ( "," Expr )* ;
 Comment       ::= "//" { any except newline }
                 | "/*" { any } "*/" ;
 
-Identifier    ::= Letter ( Letter | Digit | "_" )* ;
+Identifier      ::= Letter ( Letter | Digit | "_" )* ;
+UpperIdentifier ::= "A".."Z" ( Letter | Digit | "_" )* ;
 
 IntLiteral    ::= Digit+ ;
 
@@ -94,52 +134,51 @@ Letter        ::= 'a'..'z' | 'A'..'Z' | '_' ;
 Digit         ::= '0'..'9' ;
 
 (* ═══════════════════════════════════════════════════════════════ *)
-(*  Token Types                                                    *)
+(*  Keywords                                                       *)
 (* ═══════════════════════════════════════════════════════════════ *)
 (*                                                                 *)
-(*  INT       integer literal          42                          *)
-(*  STR       string literal           "hello"                     *)
-(*  ID        identifier               myVar                       *)
-(*  KW:x      keyword                  if, while, func, ...        *)
-(*  PLUS      +       MINUS    -       STAR     *                  *)
-(*  SLASH     /       PERCENT  %       BANG     !                  *)
-(*  EQ        ==      NEQ      !=      ASSIGN   =                 *)
-(*  LT        <       GT       >       LTE      <=                *)
-(*  GTE       >=      AND      &&      OR       ||                *)
-(*  LPAREN    (       RPAREN   )                                   *)
-(*  LBRACE    {       RBRACE   }                                   *)
-(*  LBRACK    [       RBRACK   ]                                   *)
-(*  COMMA     ,       COLON    :       SEMI     ;                  *)
+(*  just  go  func  fn  let  const  emit  return                  *)
+(*  if  else  while  do  for  in  break  continue                 *)
+(*  match  struct  class  type  try  catch  throw                  *)
+(*  module  import  export  true  false                            *)
+(*                                                                 *)
+(*  Reserved for future use:                                       *)
+(*  quantum  qpute  process  prepare  measure                     *)
 (*                                                                 *)
 (* ═══════════════════════════════════════════════════════════════ *)
 
 (* ═══════════════════════════════════════════════════════════════ *)
-(*  Builtin Functions                                              *)
+(*  Token Types                                                    *)
 (* ═══════════════════════════════════════════════════════════════ *)
 (*                                                                 *)
-(*  I/O                                                            *)
-(*    print(s)              Write s + newline to stdout             *)
-(*    kp(s)                 Alias for print                        *)
-(*    readFile(path)        Read file contents as string           *)
-(*    arg(index)            Command-line argument by index         *)
-(*    argCount()            Number of command-line arguments       *)
+(*  INT        integer literal        42                           *)
+(*  STR        string literal         "hello"                      *)
+(*  ID         identifier             myVar                        *)
+(*  KW:x       keyword                if, while, func, ...         *)
 (*                                                                 *)
-(*  String operations                                              *)
-(*    len(s)                String length                          *)
-(*    substring(s, st, en)  Substring from st to en (exclusive)    *)
-(*    split(s, index)       Split on comma, return part by index   *)
-(*    startsWith(s, pfx)    "1" if s starts with pfx, else "0"    *)
-(*    getLine(s, index)     Get line by index from multiline str   *)
-(*    lineCount(s)          Number of lines in string              *)
-(*    count(s)              Alias for lineCount                    *)
+(*  Arithmetic                                                     *)
+(*  PLUS    +      MINUS    -      STAR     *                      *)
+(*  SLASH   /      MOD      %                                      *)
 (*                                                                 *)
-(*  Type conversion                                                *)
-(*    toInt(s)              Parse string to integer string          *)
+(*  Compound assignment                                            *)
+(*  PLUSEQ  +=     MINUSEQ  -=     STAREQ   *=                    *)
+(*  SLASHEQ /=     MODEQ    %=                                     *)
 (*                                                                 *)
-(*  StringBuilder                                                  *)
-(*    sbNew()               Create new string builder              *)
-(*    sbAppend(sb, s)       Append s to builder, return handle     *)
-(*    sbToString(sb)        Finalize builder to string             *)
+(*  Comparison                                                     *)
+(*  EQ      ==     NEQ      !=     ASSIGN   =                      *)
+(*  LT      <      GT       >      LTE      <=     GTE   >=        *)
+(*                                                                 *)
+(*  Logical                                                        *)
+(*  AND     &&     OR       ||     BANG     !                      *)
+(*                                                                 *)
+(*  Grouping                                                       *)
+(*  LPAREN  (      RPAREN   )                                      *)
+(*  LBRACE  {      RBRACE   }                                      *)
+(*  LBRACK  [      RBRACK   ]                                      *)
+(*                                                                 *)
+(*  Other                                                          *)
+(*  COMMA   ,      COLON    :      SEMI     ;                      *)
+(*  DOT     .      QUESTION ?      ARROW    ->                     *)
 (*                                                                 *)
 (* ═══════════════════════════════════════════════════════════════ *)
 
@@ -156,6 +195,76 @@ Digit         ::= '0'..'9' ;
 (*  All other values are truthy.                                   *)
 (*                                                                 *)
 (*  The + operator is overloaded: if both operands are numeric     *)
-(*  strings it performs addition; otherwise concatenation.          *)
+(*  strings it performs addition; otherwise concatenation.         *)
+(*                                                                 *)
+(* ═══════════════════════════════════════════════════════════════ *)
+
+(* ═══════════════════════════════════════════════════════════════ *)
+(*  Built-in Functions (127 total)                                 *)
+(* ═══════════════════════════════════════════════════════════════ *)
+(*                                                                 *)
+(*  I/O (8)                                                        *)
+(*    print(s)  kp(s)  printErr(s)  readLine(prompt)              *)
+(*    input()  readFile(path)  writeFile(path, data)               *)
+(*    arg(n)  argCount()                                           *)
+(*                                                                 *)
+(*  Strings (19)                                                   *)
+(*    len(s)  substring(s, st, en)  charAt(s, i)                  *)
+(*    indexOf(s, sub)  contains(s, sub)                            *)
+(*    startsWith(s, pfx)  endsWith(s, sfx)                        *)
+(*    replace(s, old, new)  trim(s)  lstrip(s)  rstrip(s)         *)
+(*    center(s, width, pad)  toLower(s)  toUpper(s)               *)
+(*    repeat(s, n)  padLeft(s, w, pad)  padRight(s, w, pad)       *)
+(*    charCode(s)  fromCharCode(n)                                 *)
+(*                                                                 *)
+(*  String Formatting (3)                                          *)
+(*    splitBy(s, delim)  format(fmt, arg)  strReverse(s)          *)
+(*                                                                 *)
+(*  String Testing (3)                                             *)
+(*    isAlpha(s)  isDigit(s)  isSpace(s)                          *)
+(*                                                                 *)
+(*  Numbers (14)                                                   *)
+(*    toInt(s)  parseInt(s)  abs(n)  min(a, b)  max(a, b)         *)
+(*    pow(base, exp)  sqrt(n)  sign(n)  clamp(v, lo, hi)          *)
+(*    hex(n)  bin(n)  floor(n)  ceil(n)  round(n)                 *)
+(*                                                                 *)
+(*  Lists (28)                                                     *)
+(*    split(s, i)  length(lst)  first(lst)  last(lst)             *)
+(*    head(lst, n)  tail(lst, n)  append(lst, item)               *)
+(*    insertAt(lst, i, item)  removeAt(lst, i)  remove(lst, item) *)
+(*    replaceAt(lst, i, val)  slice(lst, st, en)                  *)
+(*    join(lst, sep)  reverse(lst)  sort(lst)  unique(lst)        *)
+(*    fill(n, val)  zip(a, b)  listIndexOf(lst, item)             *)
+(*    every(lst, val)  some(lst, val)  countOf(lst, item)         *)
+(*    sumList(lst)  maxList(lst)  minList(lst)  range(st, en)     *)
+(*    words(s)  lines(s)                                           *)
+(*                                                                 *)
+(*  Maps (3)                                                       *)
+(*    keys(map)  values(map)  hasKey(map, key)                    *)
+(*                                                                 *)
+(*  Structs (5)                                                    *)
+(*    structNew()  getField(obj, name)  setField(obj, name, val)  *)
+(*    hasField(obj, name)  structFields(obj)                       *)
+(*                                                                 *)
+(*  Lines (3)                                                      *)
+(*    getLine(s, i)  lineCount(s)  count(s)                       *)
+(*                                                                 *)
+(*  System (4)                                                     *)
+(*    random(n)  timestamp()  environ(name)  exit(code)           *)
+(*                                                                 *)
+(*  Exceptions (1)                                                 *)
+(*    throw(msg)                                                   *)
+(*                                                                 *)
+(*  Type / Conversion (4)                                          *)
+(*    type(s)  toStr(s)  isTruthy(s)  assert(cond, msg)           *)
+(*                                                                 *)
+(*  StringBuilder (3)                                              *)
+(*    sbNew()  sbAppend(sb, s)  sbToString(sb)                    *)
+(*                                                                 *)
+(*  Environment / Low-level (8)                                    *)
+(*    envNew()  envSet(env, k, v)  envGet(env, k)                 *)
+(*    makeResult(tag, val, env, pos)                               *)
+(*    getResultTag(r)  getResultVal(r)                             *)
+(*    getResultEnv(r)  getResultPos(r)                             *)
 (*                                                                 *)
 (* ═══════════════════════════════════════════════════════════════ *)
