@@ -1,4 +1,6 @@
+// Hello World in Krypton
+
 just run {
-    kp("Hello World")
-    emit "ok"
+    let name = "World"
+    kp(`Hello, {name}!`)
 }

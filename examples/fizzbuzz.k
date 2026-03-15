@@ -1,5 +1,4 @@
 // FizzBuzz - classic programming challenge
-// Print numbers 1-100 with fizz/buzz substitutions
 
 just run {
     let i = 1
@@ -13,7 +12,6 @@ just run {
         } else {
             kp(i)
         }
-        i = i + 1
+        i += 1
     }
-    emit "ok"
 }
