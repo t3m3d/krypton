@@ -1,6 +1,6 @@
 # Krypton Language Specification
 
-**Version 0.5.0** — March 2026
+**Version 0.7.1** — March 2026
 
 ---
 
@@ -21,10 +21,10 @@ Krypton is a dynamically typed programming language that compiles to C. The comp
 
 Every value in Krypton is a string. Numbers are strings that happen to contain digit characters. Arithmetic operations detect numeric operands and compute accordingly; otherwise they concatenate.
 
-```krypton
-let x = 10 + 20       // "30" (numeric addition)
-let y = "hello" + " " + "world"  // "hello world" (concatenation)
-let z = "10" + "20"   // "30" (both are numeric → addition)
+```
+let x = 10 + 20              // "30" (numeric addition)
+let y = "hello" + " world"   // "hello world" (concatenation)
+let z = "10" + "20"          // "30" (both are numeric → addition)
 ```
 
 Truthiness: `""`, `"0"`, and `"false"` are falsy. Everything else is truthy.
@@ -39,7 +39,7 @@ Krypton source files use UTF-8 encoding.
 
 ### 2.2 Comments
 
-```krypton
+```
 // Single-line comment
 /* Multi-line
    comment */
@@ -50,7 +50,8 @@ Krypton source files use UTF-8 encoding.
 ```
 just  go  func  fn  let  const  emit  return
 if  else  while  break  continue  for  in
-match  do  module  true  false
+match  do  struct  class  type  try  catch  throw
+module  import  export  true  false
 ```
 
 Reserved for future use:
@@ -61,6 +62,8 @@ quantum  qpute  process  prepare  measure
 ### 2.4 Identifiers
 
 Start with a letter or underscore, followed by letters, digits, or underscores. Case-sensitive.
+
+> **Convention:** struct names must start with an uppercase letter — `Point`, `Person`, `Rect`. This is how the compiler distinguishes a struct literal from a block statement.
 
 ### 2.5 Literals
 
@@ -76,6 +79,7 @@ Start with a letter or underscore, followed by letters, digits, or underscores. 
 &&  ||  !
 =  +=  -=  *=  /=  %=
 ?  :
+.
 ```
 
 ### 2.7 Punctuation
@@ -90,7 +94,7 @@ Start with a letter or underscore, followed by letters, digits, or underscores. 
 
 ### 3.1 Variables
 
-```krypton
+```
 let name = expr
 ```
 
@@ -98,15 +102,15 @@ Declares a mutable variable initialized to the value of `expr`.
 
 ### 3.2 Constants
 
-```krypton
+```
 const name = expr
 ```
 
-Declares a variable. Semantically identical to `let` at the compiler level (no enforcement of immutability yet).
+Semantically identical to `let` at the compiler level. Immutability is not enforced yet.
 
 ### 3.3 Functions
 
-```krypton
+```
 func name(param1, param2) {
     // body
     emit value
@@ -118,11 +122,49 @@ func name(param1, param2) {
 - `emit` or `return` returns a value from the function
 - Functions without an explicit `emit` return `""`
 
-### 3.4 Entry Point
+### 3.4 Structs
+
+```
+struct Point {
+    let x
+    let y
+}
+```
+
+Declares a named struct type with zero or more string fields. The compiler generates a C `typedef struct` and a zero-argument constructor.
+
+**Constructor:**
+```
+let p = Point()
+```
+
+**Struct literal** (inline initialization):
+```
+let p = Point { x: "10", y: "20" }
+```
+
+**Field access:**
+```
+let val = p.x
+```
+
+**Field assignment:**
+```
+p.x = "42"
+```
+
+**Dynamic struct** (no declaration needed):
+```
+let obj = structNew()
+setField(obj, "lang", "Krypton")
+let lang = getField(obj, "lang")
+```
+
+### 3.5 Entry Point
 
 Every program must have exactly one entry block:
 
-```krypton
+```
 just run {
     // program body
 }
@@ -136,30 +178,38 @@ just run {
 
 ### 4.1 Variable Declaration
 
-```krypton
+```
 let x = 42
 const y = "hello"
 ```
 
 ### 4.2 Assignment
 
-```krypton
+```
 x = newValue
 ```
 
-### 4.3 Compound Assignment
+### 4.3 Field Assignment
 
-```krypton
-x += 10     // x = x + 10
-x -= 5      // x = x - 5
-x *= 2      // x = x * 2
-x /= 3      // x = x / 3
-x %= 7      // x = x % 7
+```
+p.field = newValue
 ```
 
-### 4.4 If / Else
+Assigns a value to a named field on a struct.
 
-```krypton
+### 4.4 Compound Assignment
+
+```
+x += 10
+x -= 5
+x *= 2
+x /= 3
+x %= 7
+```
+
+### 4.5 If / Else
+
+```
 if condition {
     // ...
 } else if otherCondition {
@@ -169,71 +219,81 @@ if condition {
 }
 ```
 
-Conditions are evaluated for truthiness.
+### 4.6 While Loop
 
-### 4.5 While Loop
-
-```krypton
+```
 while condition {
     // body
 }
 ```
 
-### 4.6 Do-While Loop
+### 4.7 Do-While Loop
 
-```krypton
+```
 do {
     // body runs at least once
 } while condition
 ```
 
-### 4.7 For-In Loop
+### 4.8 For-In Loop
 
-```krypton
+```
 for item in collection {
     // item is bound to each element
 }
 ```
 
-`collection` is a comma-separated list string. The loop iterates over each comma-delimited element.
+`collection` is a comma-separated list string. Nesting is supported — loop variables are depth-scoped to prevent collision.
 
-### 4.8 Break and Continue
+### 4.9 Break and Continue
 
-```krypton
+```
 while condition {
     if done { break }
     if skip { continue }
 }
 ```
 
-`break` exits the innermost loop. `continue` skips to the next iteration.
+### 4.10 Match
 
-### 4.9 Match Statement
-
-```krypton
+```
 match expr {
     "value1" { /* ... */ }
     "value2" { /* ... */ }
-    else { /* default */ }
+    else     { /* default */ }
 }
 ```
 
-Compares `expr` against each case value using string equality. Falls through to `else` if no match. Only the first matching branch executes.
+Compares `expr` against each case using string equality. Only the first matching branch executes.
 
-### 4.10 Emit / Return
+### 4.11 Try / Catch / Throw
 
-```krypton
+```
+try {
+    throw "something went wrong"
+} catch e {
+    kp("caught: " + e)
+}
+```
+
+- The catch variable is optional — `catch { }` is valid
+- `throw` works as both a statement and a function call: `throw("msg")`
+- Nesting and rethrowing are supported
+- Uncaught exceptions print to stderr and exit with code 1
+- Implemented via `setjmp`/`longjmp` in the generated C runtime (256-deep stack)
+
+### 4.12 Emit / Return
+
+```
 emit value
 return value
 ```
 
 Returns `value` from the current function. In the entry block, causes program exit.
 
-### 4.11 Expression Statement
+### 4.13 Expression Statement
 
-Any expression can be used as a statement (typically function calls):
-
-```krypton
+```
 print("hello")
 myFunction(arg1, arg2)
 ```
@@ -246,7 +306,7 @@ myFunction(arg1, arg2)
 
 | Precedence | Operators | Associativity |
 |------------|-----------|---------------|
-| 1 | Postfix: `[i]`, `f()` | Left |
+| 1 | Postfix: `[i]`, `f()`, `.field` | Left |
 | 2 | Unary: `-`, `!` | Right |
 | 3 | Multiplicative: `*`, `/`, `%` | Left |
 | 4 | Additive: `+`, `-` | Left |
@@ -258,7 +318,7 @@ myFunction(arg1, arg2)
 
 ### 5.2 Arithmetic
 
-```krypton
+```
 a + b    // addition if both numeric, concatenation otherwise
 a - b    // subtraction
 a * b    // multiplication
@@ -269,7 +329,7 @@ a % b    // modulo
 
 ### 5.3 Comparison
 
-```krypton
+```
 a == b    // string equality → "1" or "0"
 a != b    // string inequality
 a < b     // numeric if both numeric, lexicographic otherwise
@@ -280,33 +340,39 @@ a >= b
 
 ### 5.4 Logical
 
-```krypton
-a && b    // short-circuit AND (truthy → "1", falsy → "0")
-a || b    // short-circuit OR
+```
+a && b    // logical AND → "1" or "0"
+a || b    // logical OR  → "1" or "0"
 !a        // logical NOT
 ```
 
 ### 5.5 Ternary
 
-```krypton
+```
 condition ? trueExpr : falseExpr
 ```
 
-Evaluates `condition` for truthiness. Nestable:
+Nestable:
 
-```krypton
+```
 x > 0 ? "positive" : x == 0 ? "zero" : "negative"
 ```
 
 ### 5.6 String Indexing
 
-```krypton
+```
 s[i]    // returns single character at index i
 ```
 
-### 5.7 Function Calls
+### 5.7 Field Access
 
-```krypton
+```
+obj.field    // returns the string value of the named field
+```
+
+### 5.8 Function Calls
+
+```
 functionName(arg1, arg2, arg3)
 ```
 
@@ -317,59 +383,98 @@ functionName(arg1, arg2, arg3)
 ### 6.1 Pipeline
 
 ```
-source.k → kcc → output.c → C compiler → native executable
+source.k → kcc → output.c → gcc → native executable
 ```
 
 1. Krypton source is tokenized and parsed
-2. The compiler emits C source code with an embedded runtime
-3. Any standard C compiler produces the final binary
+2. The compiler emits C source with an embedded runtime
+3. GCC (or compatible C compiler) produces the final binary
 
 ### 6.2 C Runtime
 
 The generated C includes a complete runtime:
 
 - **Arena allocator** — 256 MB bump-allocation blocks
-- **String constants** — `""`, `"0"`, `"1"` are pre-allocated (no heap allocation)
-- **72 built-in functions** — `kr_*` prefixed C functions
+- **String constants** — `""`, `"0"`, `"1"` are pre-allocated
+- **127 built-in functions** — `kr_*` prefixed C functions
 - **Handle-based StringBuilder** — mutable buffers for efficient string building
-- **Linked-list environments** — for the interpreter's variable binding
+- **Linked-list environments** — for variable binding in interpreter mode
+- **Exception stack** — 256-deep `setjmp`/`longjmp` stack for try/catch/throw
+- **Dynamic struct system** — field name/value pairs stored in arena memory
 
 ### 6.3 Self-Hosting
 
-The compiler (`kompiler/compile.k`) compiles itself:
+The compiler (`kompiler/compile.k`) compiles itself. The bootstrap chain is:
 
-1. C++ bootstrap compiles `compile.k` → `compile_self.c`
-2. C compiler builds `compile_self.c` → `kcc.exe`
-3. `kcc.exe` compiles `compile.k` → identical `compile_self.c` (fixed-point)
+```
+kcc (C++) → v010 → v020 → v030 → v040 → v050 → v060 → v070 → v071
+```
 
 ---
 
 ## 7. Built-in Functions
 
-See [docs/spec/functions.md](docs/spec/functions.md) for the complete reference of all 72 built-in functions, organized by category:
+127 built-in functions across 10 categories.
 
-- **I/O** (8): print, printErr, readLine, input, readFile, writeFile, arg, argCount
-- **Strings** (17): len, substring, charAt, indexOf, contains, startsWith, endsWith, replace, trim, toLower, toUpper, repeat, padLeft, padRight, charCode, fromCharCode, splitBy, format
-- **Numbers** (11): toInt, parseInt, abs, min, max, pow, sqrt, sign, clamp, hex, bin
-- **Lists** (22): split, length, append, insertAt, removeAt, remove, replaceAt, slice, join, reverse, sort, unique, fill, zip, listIndexOf, every, some, countOf, sumList, maxList, minList, range
-- **Maps** (3): keys, values, hasKey
-- **Lines** (3): getLine, lineCount, count
-- **Type/Conversion** (5): type, toStr, isTruthy, exit, assert
-- **StringBuilder** (3): sbNew, sbAppend, sbToString
-- **Environment** (8): envNew, envSet, envGet, makeResult, getResultTag, getResultVal, getResultEnv, getResultPos
+### I/O (8)
+`print` / `kp`, `printErr`, `readLine`, `input`, `readFile`, `writeFile`, `arg`, `argCount`
+
+### Strings (19)
+`len`, `substring`, `charAt`, `indexOf`, `contains`, `startsWith`, `endsWith`, `replace`,
+`trim`, `lstrip`, `rstrip`, `toLower`, `toUpper`, `repeat`, `padLeft`, `padRight`, `center`,
+`charCode`, `fromCharCode`
+
+### String Formatting (3)
+`splitBy`, `format`, `strReverse`
+
+### String Testing (3)
+`isAlpha`, `isDigit`, `isSpace`
+
+### Numbers (14)
+`toInt`, `parseInt`, `abs`, `min`, `max`, `pow`, `sqrt`, `sign`, `clamp`,
+`hex`, `bin`, `floor`, `ceil`, `round`
+
+### Lists (24)
+`split`, `length`, `append`, `insertAt`, `removeAt`, `remove`, `replaceAt`, `slice`,
+`join`, `reverse`, `sort`, `unique`, `fill`, `zip`, `listIndexOf`, `every`, `some`,
+`countOf`, `sumList`, `maxList`, `minList`, `range`, `first`, `last`
+
+### List Navigation (4)
+`head`, `tail`, `words`, `lines`
+
+### Maps (3)
+`keys`, `values`, `hasKey`
+
+### Lines (3)
+`getLine`, `lineCount`, `count`
+
+### Structs (5)
+`structNew`, `getField`, `setField`, `hasField`, `structFields`
+
+### Type / Conversion (5)
+`type`, `toStr`, `isTruthy`, `exit`, `assert`
+
+### System (4)
+`random`, `timestamp`, `environ`, `throw`
+
+### StringBuilder (3)
+`sbNew`, `sbAppend`, `sbToString`
+
+### Environment (8)
+`envNew`, `envSet`, `envGet`, `makeResult`, `getResultTag`, `getResultVal`, `getResultEnv`, `getResultPos`
 
 ---
 
 ## 8. Future Features
 
-The following are reserved in the grammar but not yet implemented:
-
-- **Quantum blocks** (`quantum`, `qpute`) — isolated quantum computations
-- **Quantum operations** (`prepare`, `measure`) — qubit manipulation
-- **Modules** (`module`) — namespace organization
-- **Static typing** — optional type annotations
-- **Structs and enums**
+- **String interpolation** — `"Hello {name}!"`
+- **Typed struct fields** — fields with declared types beyond `char*`
+- **Struct nesting** — structs as field values
+- **Float support** — floating-point arithmetic
+- **Modules** — `module` / `import` / `export` (currently parsed, emits stubs)
+- **List and map literals** — `[1, 2, 3]` syntax
 - **Pattern matching with destructuring**
+- **Quantum blocks** — `quantum`, `qpute`, `prepare`, `measure`
 - **Concurrency / process model**
 
 ---
@@ -379,9 +484,13 @@ The following are reserved in the grammar but not yet implemented:
 ```ebnf
 program     ::= decl* entry_block
 
-decl        ::= func_decl
+decl        ::= func_decl | struct_decl
 
 func_decl   ::= ("func" | "fn") IDENT "(" params? ")" block
+
+struct_decl ::= ("struct" | "class" | "type") IDENT "{" struct_field* "}"
+
+struct_field ::= "let" IDENT ("=" expr)?
 
 params      ::= IDENT ("," IDENT)*
 
@@ -392,31 +501,37 @@ block       ::= "{" stmt* "}"
 stmt        ::= let_stmt
               | const_stmt
               | assign_stmt
+              | field_assign_stmt
               | compound_assign
               | if_stmt
               | while_stmt
               | do_while_stmt
               | for_in_stmt
               | match_stmt
+              | try_stmt
+              | throw_stmt
               | break_stmt
               | continue_stmt
               | emit_stmt
               | expr_stmt
 
-let_stmt        ::= "let" IDENT "=" expr ";"?
-const_stmt      ::= "const" IDENT "=" expr ";"?
-assign_stmt     ::= IDENT "=" expr ";"?
-compound_assign ::= IDENT ("+=" | "-=" | "*=" | "/=" | "%=") expr ";"?
-if_stmt         ::= "if" expr block ("else" if_stmt | "else" block)?
-while_stmt      ::= "while" expr block
-do_while_stmt   ::= "do" block "while" expr ";"?
-for_in_stmt     ::= "for" IDENT "in" expr block
-match_stmt      ::= "match" expr "{" match_arm* "}"
-match_arm       ::= (expr | "else") block
-break_stmt      ::= "break" ";"?
-continue_stmt   ::= "continue" ";"?
-emit_stmt       ::= ("emit" | "return") expr ";"?
-expr_stmt       ::= expr ";"?
+let_stmt          ::= "let" IDENT "=" expr ";"?
+const_stmt        ::= "const" IDENT "=" expr ";"?
+assign_stmt       ::= IDENT "=" expr ";"?
+field_assign_stmt ::= IDENT "." IDENT "=" expr ";"?
+compound_assign   ::= IDENT ("+=" | "-=" | "*=" | "/=" | "%=") expr ";"?
+if_stmt           ::= "if" expr block ("else" if_stmt | "else" block)?
+while_stmt        ::= "while" expr block
+do_while_stmt     ::= "do" block "while" expr ";"?
+for_in_stmt       ::= "for" IDENT "in" expr block
+match_stmt        ::= "match" expr "{" match_arm* "}"
+match_arm         ::= (expr | "else") block
+try_stmt          ::= "try" block ("catch" IDENT? block)?
+throw_stmt        ::= "throw" expr ";"?
+break_stmt        ::= "break" ";"?
+continue_stmt     ::= "continue" ";"?
+emit_stmt         ::= ("emit" | "return") expr ";"?
+expr_stmt         ::= expr ";"?
 
 expr            ::= ternary_expr
 ternary_expr    ::= or_expr ("?" expr ":" expr)?
@@ -427,17 +542,25 @@ rel_expr        ::= add_expr (("<" | ">" | "<=" | ">=") add_expr)*
 add_expr        ::= mul_expr (("+" | "-") mul_expr)*
 mul_expr        ::= unary_expr (("*" | "/" | "%") unary_expr)*
 unary_expr      ::= ("-" | "!") unary_expr | postfix_expr
-postfix_expr    ::= primary ("[" expr "]")*
-primary         ::= INT | STRING | "true" | "false"
-                   | IDENT "(" args? ")"
-                   | IDENT
-                   | "(" expr ")"
+postfix_expr    ::= primary ("[" expr "]" | "." IDENT)*
+primary         ::= INT
+                  | STRING
+                  | "true" | "false"
+                  | UPPER_IDENT "(" args? ")"
+                  | UPPER_IDENT "{" field_inits? "}"
+                  | IDENT "(" args? ")"
+                  | IDENT
+                  | "(" expr ")"
+
+field_inits     ::= field_init ("," field_init)*
+field_init      ::= IDENT ":" expr
 
 args            ::= expr ("," expr)*
 
 INT             ::= [0-9]+
 STRING          ::= '"' (char | escape)* '"'
 IDENT           ::= [a-zA-Z_][a-zA-Z0-9_]*
+UPPER_IDENT     ::= [A-Z][a-zA-Z0-9_]*
 escape          ::= "\\" | "\"" | "\n" | "\t" | "\r"
 ```
 
@@ -445,6 +568,7 @@ escape          ::= "\\" | "\"" | "\n" | "\t" | "\r"
 
 ```
 just  go  func  fn  let  const  emit  return  if  else  while
-break  continue  for  in  match  do  module  true  false
+break  continue  for  in  match  do  struct  class  type
+try  catch  throw  module  import  export  true  false
 quantum  qpute  process  prepare  measure
 ```
