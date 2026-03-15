@@ -1,4 +1,4 @@
-1 ICON "krypton.ico"
+1 ICON "assets/krypton.ico"
 
 #include <winver.h>
 
