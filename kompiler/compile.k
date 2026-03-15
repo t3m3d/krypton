@@ -1,3 +1,7 @@
+// compile.k — Krypton-to-C compiler written in Krypton
+// Usage: kcc kompiler/compile.k <source.k> > output.c
+//   then: gcc -o program output.c
+
 // === Pair helpers (value,pos) ===
 
 func findLastComma(s) {
@@ -6,7 +10,7 @@ func findLastComma(s) {
         if s[i] == "," {
             emit i
         }
-        i = i - 1
+        i -= 1
     }
     emit -1
 }
@@ -41,7 +45,7 @@ func isAlphaNum(c) {
 func readNumber(text, i) {
     let start = i
     while i < len(text) && isDigit(text[i]) {
-        i = i + 1
+        i += 1
     }
     emit substring(text, start, i) + "," + i
 }
@@ -49,13 +53,13 @@ func readNumber(text, i) {
 func readIdent(text, i) {
     let start = i
     while i < len(text) && isAlphaNum(text[i]) {
-        i = i + 1
+        i += 1
     }
     emit substring(text, start, i) + "," + i
 }
 
 func readString(text, i) {
-    i = i + 1
+    i += 1
     let start = i
     let s = ""
     while i < len(text) && text[i] != "\"" {
@@ -68,7 +72,7 @@ func readString(text, i) {
             start = i
         }
         else {
-            i = i + 1
+            i += 1
         }
     }
     if i > start {
@@ -79,7 +83,7 @@ func readString(text, i) {
 
 func skipWS(text, i) {
     while i < len(text) && (text[i] == " " || text[i] == "\n" || text[i] == "\t" || text[i] == "\r") {
-        i = i + 1
+        i += 1
     }
     emit i
 }
@@ -87,14 +91,14 @@ func skipWS(text, i) {
 func skipComment(text, i) {
     if i + 1 < len(text) && text[i] == "/" && text[i + 1] == "/" {
         while i < len(text) && text[i] != "\n" {
-            i = i + 1
+            i += 1
         }
         emit i
     }
     else if i + 1 < len(text) && text[i] == "/" && text[i + 1] == "*" {
         i = i + 2
         while i + 1 < len(text) && (text[i] != "*" || text[i + 1] != "/") {
-            i = i + 1
+            i += 1
         }
         emit i + 2
     }
@@ -177,7 +181,7 @@ func tokenize(text) {
                 i = i + 2
             } else {
                 out = out + "PLUS\n"
-                i = i + 1
+                i += 1
             }
         }
         else if c == "-" {
@@ -191,7 +195,7 @@ func tokenize(text) {
             }
             else {
                 out = out + "MINUS\n"
-                i = i + 1
+                i += 1
             }
         }
         else if c == "*" {
@@ -200,7 +204,7 @@ func tokenize(text) {
                 i = i + 2
             } else {
                 out = out + "STAR\n"
-                i = i + 1
+                i += 1
             }
         }
         else if c == "/" {
@@ -209,44 +213,44 @@ func tokenize(text) {
                 i = i + 2
             } else {
                 out = out + "SLASH\n"
-                i = i + 1
+                i += 1
             }
         }
         else if c == "(" {
             out = out + "LPAREN\n"
-            i = i + 1
+            i += 1
         }
         else if c == ")" {
             out = out + "RPAREN\n"
-            i = i + 1
+            i += 1
         }
         else if c == "{" {
             out = out + "LBRACE\n"
-            i = i + 1
+            i += 1
         }
         else if c == "}" {
             out = out + "RBRACE\n"
-            i = i + 1
+            i += 1
         }
         else if c == "[" {
             out = out + "LBRACK\n"
-            i = i + 1
+            i += 1
         }
         else if c == "]" {
             out = out + "RBRACK\n"
-            i = i + 1
+            i += 1
         }
         else if c == ":" {
             out = out + "COLON\n"
-            i = i + 1
+            i += 1
         }
         else if c == ";" {
             out = out + "SEMI\n"
-            i = i + 1
+            i += 1
         }
         else if c == "," {
             out = out + "COMMA\n"
-            i = i + 1
+            i += 1
         }
         else if c == "=" {
             if i + 1 < len(text) && text[i + 1] == "=" {
@@ -255,7 +259,7 @@ func tokenize(text) {
             }
             else {
                 out = out + "ASSIGN\n"
-                i = i + 1
+                i += 1
             }
         }
         else if c == "!" {
@@ -265,7 +269,7 @@ func tokenize(text) {
             }
             else {
                 out = out + "BANG\n"
-                i = i + 1
+                i += 1
             }
         }
         else if c == "<" {
@@ -275,7 +279,7 @@ func tokenize(text) {
             }
             else {
                 out = out + "LT\n"
-                i = i + 1
+                i += 1
             }
         }
         else if c == ">" {
@@ -285,7 +289,7 @@ func tokenize(text) {
             }
             else {
                 out = out + "GT\n"
-                i = i + 1
+                i += 1
             }
         }
         else if c == "&" {
@@ -294,7 +298,7 @@ func tokenize(text) {
                 i = i + 2
             }
             else {
-                i = i + 1
+                i += 1
             }
         }
         else if c == "|" {
@@ -303,7 +307,7 @@ func tokenize(text) {
                 i = i + 2
             }
             else {
-                i = i + 1
+                i += 1
             }
         }
         else if c == "%" {
@@ -312,15 +316,19 @@ func tokenize(text) {
                 i = i + 2
             } else {
                 out = out + "MOD\n"
-                i = i + 1
+                i += 1
             }
         }
         else if c == "?" {
             out = out + "QUESTION\n"
-            i = i + 1
+            i += 1
+        }
+        else if c == "." {
+            out = out + "DOT\n"
+            i += 1
         }
         else {
-            i = i + 1
+            i += 1
         }
     }
 
@@ -339,7 +347,7 @@ func tokType(tok) {
         if tok[i] == ":" {
             emit substring(tok, 0, i)
         }
-        i = i + 1
+        i += 1
     }
     emit tok
 }
@@ -350,7 +358,7 @@ func tokVal(tok) {
         if tok[i] == ":" {
             emit substring(tok, i + 1, len(tok))
         }
-        i = i + 1
+        i += 1
     }
     emit ""
 }
@@ -380,7 +388,7 @@ func cEscape(s) {
             }
             start = i + 1
         }
-        i = i + 1
+        i += 1
     }
     if i > start {
         out = out + substring(s, start, i)
@@ -399,7 +407,7 @@ func expandEscapes(s) {
             if i > start {
                 out = out + substring(s, start, i)
             }
-            i = i + 1
+            i += 1
             if i < len(s) {
                 let c = s[i]
                 if c == "n" {
@@ -418,7 +426,7 @@ func expandEscapes(s) {
             }
             start = i + 1
         }
-        i = i + 1
+        i += 1
     }
     if i > start {
         out = out + substring(s, start, i)
@@ -448,15 +456,15 @@ func scanFunctions(tokens, ntoks) {
                     } else {
                         params = tokVal(pt)
                     }
-                    pc = pc + 1
+                    pc += 1
                 }
-                j = j + 1
+                j += 1
             }
             // j is at RPAREN, j+1 is LBRACE
             let bodyStart = j + 1
             table = table + fname + "~" + pc + "~" + params + "~" + bodyStart + "\n"
         }
-        i = i + 1
+        i += 1
     }
     emit table
 }
@@ -471,7 +479,7 @@ func funcLookup(table, name) {
             if table[nl] == "\n" {
                 break
             }
-            nl = nl + 1
+            nl += 1
         }
         let line = substring(table, i, nl)
         // find first ~
@@ -480,7 +488,7 @@ func funcLookup(table, name) {
             if line[t1] == "~" {
                 break
             }
-            t1 = t1 + 1
+            t1 += 1
         }
         let fnom = substring(line, 0, t1)
         if fnom == name {
@@ -497,7 +505,7 @@ func funcParamCount(info) {
         if info[i] == "~" {
             emit toInt(substring(info, 0, i))
         }
-        i = i + 1
+        i += 1
     }
     emit 0
 }
@@ -512,11 +520,11 @@ func funcParams(info) {
                 if rest[j] == "~" {
                     emit substring(rest, 0, j)
                 }
-                j = j + 1
+                j += 1
             }
             emit rest
         }
-        i = i + 1
+        i += 1
     }
     emit ""
 }
@@ -527,7 +535,7 @@ func funcStart(info) {
         if info[i] == "~" {
             emit toInt(substring(info, i + 1, len(info)))
         }
-        i = i - 1
+        i -= 1
     }
     emit 0
 }
@@ -541,10 +549,10 @@ func getNthParam(params, idx) {
             if count == idx {
                 emit substring(params, start, i)
             }
-            count = count + 1
+            count += 1
             start = i + 1
         }
-        i = i + 1
+        i += 1
     }
     if count == idx {
         emit substring(params, start, len(params))
@@ -566,7 +574,7 @@ func findEntry(tokens, ntoks) {
                 }
             }
         }
-        i = i + 1
+        i += 1
     }
     emit 0 - 1
 }
@@ -577,12 +585,12 @@ func skipBlock(tokens, pos) {
     while depth > 0 {
         let t = tokAt(tokens, p)
         if t == "LBRACE" {
-            depth = depth + 1
+            depth += 1
         }
         if t == "RBRACE" {
-            depth = depth - 1
+            depth -= 1
         }
-        p = p + 1
+        p += 1
     }
     emit p
 }
@@ -594,7 +602,7 @@ func indent(depth) {
     let i = 0
     while i < depth {
         out = out + "    "
-        i = i + 1
+        i += 1
     }
     emit out
 }
@@ -628,7 +636,7 @@ func compileTernary(tokens, pos, ntoks) {
         let tcode = pairVal(tp)
         p = pairPos(tp)
         // expect COLON
-        p = p + 1
+        p += 1
         let fp = compileExpr(tokens, p, ntoks)
         let fcode = pairVal(fp)
         p = pairPos(fp)
@@ -762,13 +770,20 @@ func compilePostfix(tokens, pos, ntoks) {
     let pair = compilePrimary(tokens, pos, ntoks)
     let code = pairVal(pair)
     let p = pairPos(pair)
-    while tokAt(tokens, p) == "LBRACK" {
-        let ip = compileExpr(tokens, p + 1, ntoks)
-        let icode = pairVal(ip)
-        p = pairPos(ip)
-        // expect RBRACK
-        p = p + 1
-        code = "kr_idx(" + code + ", kr_atoi(" + icode + "))"
+    while tokAt(tokens, p) == "LBRACK" || tokAt(tokens, p) == "DOT" {
+        if tokAt(tokens, p) == "LBRACK" {
+            let ip = compileExpr(tokens, p + 1, ntoks)
+            let icode = pairVal(ip)
+            p = pairPos(ip)
+            // expect RBRACK
+            p += 1
+            code = "kr_idx(" + code + ", kr_atoi(" + icode + "))"
+        } else {
+            // DOT field access: expr.field -> kr_getfield(expr, "field")
+            let field = tokVal(tokAt(tokens, p + 1))
+            p = p + 2
+            code = "kr_getfield(" + code + ", \"" + field + "\")"
+        }
     }
     emit code + "," + p
 }
@@ -812,6 +827,14 @@ func compilePrimary(tokens, pos, ntoks) {
         if tokAt(tokens, pos + 1) == "LPAREN" {
             emit compileCall(tokens, pos, ntoks)
         }
+        // check for struct literal: Name { field: val, ... }
+        // Only trigger if name starts with uppercase (struct convention)
+        if tokAt(tokens, pos + 1) == "LBRACE" {
+            let firstChar = name[0]
+            if firstChar >= "A" && firstChar <= "Z" {
+                emit compileStructLiteral(tokens, pos, ntoks)
+            }
+        }
         emit cIdent(name) + "," + (pos + 1)
     }
 
@@ -829,7 +852,7 @@ func compileCall(tokens, pos, ntoks) {
     while tokAt(tokens, p) != "RPAREN" {
         if argc > 0 {
             // skip COMMA
-            p = p + 1
+            p += 1
         }
         let ap = compileExpr(tokens, p, ntoks)
         let acode = pairVal(ap)
@@ -839,9 +862,9 @@ func compileCall(tokens, pos, ntoks) {
         } else {
             args = acode
         }
-        argc = argc + 1
+        argc += 1
     }
-    p = p + 1
+    p += 1
 
     // Map builtins to C runtime calls
     if fname == "kp" || fname == "print" {
@@ -1098,6 +1121,85 @@ func compileCall(tokens, pos, ntoks) {
         emit "kr_bin(" + args + ")," + p
     }
 
+    // v0.7.0 builtins
+    if fname == "strReverse" {
+        emit "kr_strreverse(" + args + ")," + p
+    }
+    if fname == "words" {
+        emit "kr_words(" + args + ")," + p
+    }
+    if fname == "lines" {
+        emit "kr_lines(" + args + ")," + p
+    }
+    if fname == "first" {
+        emit "kr_first(" + args + ")," + p
+    }
+    if fname == "last" {
+        emit "kr_last(" + args + ")," + p
+    }
+    if fname == "head" {
+        emit "kr_head(" + args + ")," + p
+    }
+    if fname == "tail" {
+        emit "kr_tail(" + args + ")," + p
+    }
+    if fname == "lstrip" {
+        emit "kr_lstrip(" + args + ")," + p
+    }
+    if fname == "rstrip" {
+        emit "kr_rstrip(" + args + ")," + p
+    }
+    if fname == "center" {
+        emit "kr_center(" + args + ")," + p
+    }
+    if fname == "isAlpha" {
+        emit "kr_isalpha(" + args + ")," + p
+    }
+    if fname == "isDigit" {
+        emit "kr_isdigit(" + args + ")," + p
+    }
+    if fname == "isSpace" {
+        emit "kr_isspace(" + args + ")," + p
+    }
+    if fname == "random" {
+        emit "kr_random(" + args + ")," + p
+    }
+    if fname == "timestamp" {
+        emit "kr_timestamp()," + p
+    }
+    if fname == "environ" {
+        emit "kr_environ(" + args + ")," + p
+    }
+    if fname == "floor" {
+        emit "kr_floor(" + args + ")," + p
+    }
+    if fname == "ceil" {
+        emit "kr_ceil(" + args + ")," + p
+    }
+    if fname == "round" {
+        emit "kr_round(" + args + ")," + p
+    }
+    if fname == "throw" {
+        emit "kr_throw(" + args + ")," + p
+    }
+
+    // v0.7.1 struct builtins
+    if fname == "structNew" {
+        emit "kr_structnew()," + p
+    }
+    if fname == "getField" {
+        emit "kr_getfield(" + args + ")," + p
+    }
+    if fname == "setField" {
+        emit "kr_setfield(" + args + ")," + p
+    }
+    if fname == "hasField" {
+        emit "kr_hasfield(" + args + ")," + p
+    }
+    if fname == "structFields" {
+        emit "kr_structfields(" + args + ")," + p
+    }
+
     // User-defined function call
     emit cIdent(fname) + "(" + args + ")," + p
 }
@@ -1112,27 +1214,46 @@ func compileStmt(tokens, pos, ntoks, depth, inFunc) {
     let tok = tokAt(tokens, pos)
     // 'tok' must be declared before any use below for valid C codegen
     if tok == "KW:struct" || tok == "KW:class" || tok == "KW:type" {
-        // struct/class/type declaration
-        let name = tokVal(tokAt(tokens, pos + 1))
-        let p = pos + 2
-        let bp = compileBlock(tokens, p, ntoks, depth, inFunc)
-        let bcode = pairVal(bp)
-        p = pairPos(bp)
-        emit indent(depth) + "// struct/class/type declaration\n" + indent(depth) + "typedef struct " + cIdent(name) + " {\n" + bcode + indent(depth) + "} " + cIdent(name) + ";\n," + p
+        emit compileStructDecl(tokens, pos + 1, ntoks, depth)
     }
     if tok == "KW:try" {
-        // try { ... } catch { ... }
+        // try { ... } catch { ... } using setjmp/longjmp
         let bp = compileBlock(tokens, pos + 1, ntoks, depth, inFunc)
         let bcode = pairVal(bp)
         let p = pairPos(bp)
         if tokAt(tokens, p) == "KW:catch" {
-            p = p + 1
+            p += 1
+            // check for optional catch variable: catch e { }
+            let catchVar = "__err"
+            if tokType(tokAt(tokens, p)) == "ID" {
+                catchVar = tokVal(tokAt(tokens, p))
+                p += 1
+            }
             let cbp = compileBlock(tokens, p, ntoks, depth, inFunc)
             let cbcode = pairVal(cbp)
             p = pairPos(cbp)
-            emit indent(depth) + "// try-catch\n" + indent(depth) + "try {\n" + bcode + indent(depth) + "} catch {\n" + cbcode + indent(depth) + "}\n," + p
+            let ind = indent(depth)
+            let ind1 = indent(depth + 1)
+            let out = ind + "{\n"
+            out = out + ind1 + "if (setjmp(*_kr_pushtry()) == 0) {\n"
+            out = out + bcode
+            out = out + ind1 + "_kr_poptry();\n"
+            out = out + ind1 + "} else {\n"
+            out = out + ind1 + "    char* " + catchVar + " = _kr_poptry();\n"
+            out = out + cbcode
+            out = out + ind1 + "}\n"
+            out = out + ind + "}\n"
+            emit out + "," + p
         } else {
-            emit indent(depth) + "// try block\n" + indent(depth) + "try {\n" + bcode + indent(depth) + "}\n," + p
+            let ind = indent(depth)
+            let ind1 = indent(depth + 1)
+            let out = ind + "{\n"
+            out = out + ind1 + "if (setjmp(*_kr_pushtry()) == 0) {\n"
+            out = out + bcode
+            out = out + ind1 + "_kr_poptry();\n"
+            out = out + ind1 + "}\n"
+            out = out + ind + "}\n"
+            emit out + "," + p
         }
     }
     if tok == "KW:throw" {
@@ -1140,9 +1261,9 @@ func compileStmt(tokens, pos, ntoks, depth, inFunc) {
         let ecode = pairVal(ep)
         let p = pairPos(ep)
         if tokAt(tokens, p) == "SEMI" {
-            p = p + 1
+            p += 1
         }
-        emit indent(depth) + "// throw statement\n" + indent(depth) + "throw " + ecode + ";\n," + p
+        emit indent(depth) + "_kr_throw(" + ecode + ");\n," + p
     }
 
     if tok == "KW:let" {
@@ -1168,7 +1289,7 @@ func compileStmt(tokens, pos, ntoks, depth, inFunc) {
     if tok == "KW:break" {
         let p = pos + 1
         if tokAt(tokens, p) == "SEMI" {
-            p = p + 1
+            p += 1
         }
         emit indent(depth) + "break;\n," + p
     }
@@ -1176,7 +1297,7 @@ func compileStmt(tokens, pos, ntoks, depth, inFunc) {
     if tok == "KW:continue" {
         let p = pos + 1
         if tokAt(tokens, p) == "SEMI" {
-            p = p + 1
+            p += 1
         }
         emit indent(depth) + "continue;\n," + p
     }
@@ -1218,6 +1339,17 @@ func compileStmt(tokens, pos, ntoks, depth, inFunc) {
         }
     }
 
+    // Check for field assignment: ID DOT ID ASSIGN
+    if tokType(tok) == "ID" {
+        if tokAt(tokens, pos + 1) == "DOT" {
+            if tokType(tokAt(tokens, pos + 2)) == "ID" {
+                if tokAt(tokens, pos + 3) == "ASSIGN" {
+                    emit compileFieldAssign(tokens, pos, ntoks, depth)
+                }
+            }
+        }
+    }
+
     // Check for assignment: ID ASSIGN
     if tokType(tok) == "ID" {
         if tokAt(tokens, pos + 1) == "ASSIGN" {
@@ -1237,7 +1369,7 @@ func compileLet(tokens, pos, ntoks, depth) {
     let ecode = pairVal(ep)
     p = pairPos(ep)
     if tokAt(tokens, p) == "SEMI" {
-        p = p + 1
+        p += 1
     }
     emit indent(depth) + "char* " + cIdent(name) + " = " + ecode + ";\n," + p
 }
@@ -1250,7 +1382,7 @@ func compileAssign(tokens, pos, ntoks, depth) {
     let ecode = pairVal(ep)
     p = pairPos(ep)
     if tokAt(tokens, p) == "SEMI" {
-        p = p + 1
+        p += 1
     }
     emit indent(depth) + cIdent(name) + " = " + ecode + ";\n," + p
 }
@@ -1260,7 +1392,7 @@ func compileEmit(tokens, pos, ntoks, depth, inFunc) {
     let ecode = pairVal(ep)
     let p = pairPos(ep)
     if tokAt(tokens, p) == "SEMI" {
-        p = p + 1
+        p += 1
     }
     if inFunc == "1" {
         emit indent(depth) + "return " + ecode + ";\n," + p
@@ -1284,7 +1416,7 @@ func compileIf(tokens, pos, ntoks, depth, inFunc) {
 
     // check for else
     if tokAt(tokens, p) == "KW:else" {
-        p = p + 1
+        p += 1
         if tokAt(tokens, p) == "KW:if" {
             // else if — compile the rest as an if statement
             let eip = compileIf(tokens, p + 1, ntoks, depth, inFunc)
@@ -1323,6 +1455,128 @@ func compileWhile(tokens, pos, ntoks, depth, inFunc) {
     emit out + "," + p
 }
 
+// === Struct compiler helpers ===
+
+// compileStructDecl: struct Name { let field1 let field2 ... }
+// Emits: typedef struct { char* field1; char* field2; } Name_t;
+//        + constructor: char* Name(char* field1, char* field2) { ... }
+func compileStructDecl(tokens, pos, ntoks, depth) {
+    let name = tokVal(tokAt(tokens, pos))
+    let p = pos + 1
+    // skip LBRACE
+    p += 1
+    // collect field names from let declarations
+    let fields = ""
+    let fc = 0
+    while tokAt(tokens, p) != "RBRACE" {
+        if tokAt(tokens, p) == "KW:let" {
+            let fname = tokVal(tokAt(tokens, p + 1))
+            if fc > 0 {
+                fields = fields + "," + fname
+            } else {
+                fields = fname
+            }
+            fc += 1
+            // skip let name and optional = value
+            p = p + 2
+            if tokAt(tokens, p) == "ASSIGN" {
+                // skip default value expression
+                let ep = compileExpr(tokens, p + 1, ntoks)
+                p = pairPos(ep)
+            }
+        } else {
+            p += 1
+        }
+    }
+    p += 1
+    let cname = cIdent(name)
+    // emit typedef struct
+    let out = "typedef struct " + cname + "_s {\n"
+    let i = 0
+    while i < fc {
+        let fn = getNthParam(fields, i)
+        out = out + "    char* " + cIdent(fn) + ";\n"
+        i += 1
+    }
+    out = out + "} " + cname + "_t;\n\n"
+    // emit constructor function: Name() returns a new empty struct
+    out = out + "static char* " + cname + "() {\n"
+    out = out + "    " + cname + "_t* _s = (" + cname + "_t*)_alloc(sizeof(" + cname + "_t));\n"
+    let i2 = 0
+    while i2 < fc {
+        let fn2 = getNthParam(fields, i2)
+        out = out + "    _s->" + cIdent(fn2) + " = _K_EMPTY;\n"
+        i2 += 1
+    }
+    out = out + "    return (char*)_s;\n"
+    out = out + "}\n\n"
+    emit out + "," + p
+}
+
+// compileFieldAssign: obj.field = expr
+// Emits: kr_setfield(obj, "field", expr);
+func compileFieldAssign(tokens, pos, ntoks, depth) {
+    let objName = tokVal(tokAt(tokens, pos))
+    let field = tokVal(tokAt(tokens, pos + 2))
+    let p = pos + 4
+    let ep = compileExpr(tokens, p, ntoks)
+    let ecode = pairVal(ep)
+    p = pairPos(ep)
+    if tokAt(tokens, p) == "SEMI" {
+        p += 1
+    }
+    emit indent(depth) + "kr_setfield(" + cIdent(objName) + ", \"" + field + "\", " + ecode + ");\n," + p
+}
+
+// compileStructLiteral: Name { field: expr, field2: expr2 }
+// Emits: a stack block that creates and populates the struct
+func compileStructLiteral(tokens, pos, ntoks) {
+    let name = tokVal(tokAt(tokens, pos))
+    let cname = cIdent(name)
+    let p = pos + 2
+    // parse field: value pairs
+    let fields = ""
+    let vals = ""
+    let fc = 0
+    while tokAt(tokens, p) != "RBRACE" {
+        if tokType(tokAt(tokens, p)) == "ID" {
+            let fname = tokVal(tokAt(tokens, p))
+            // skip field name and COLON
+            p = p + 2
+            let ep = compileExpr(tokens, p, ntoks)
+            let ecode = pairVal(ep)
+            p = pairPos(ep)
+            if tokAt(tokens, p) == "COMMA" {
+                p += 1
+            }
+            if fc > 0 {
+                fields = fields + "," + fname
+                vals = vals + ecode + "\n"
+            } else {
+                fields = fname
+                vals = ecode + "\n"
+            }
+            fc += 1
+        } else {
+            p += 1
+        }
+    }
+    // skip RBRACE
+    p += 1
+    // Emit a GNU statement-expression block: ({ Type* _s = ...; set fields; _s; })
+    // This works as an expression in both GCC and clang (C99 extension)
+    let out = "({ char* _sl = kr_structnew();"
+    let i3 = 0
+    while i3 < fc {
+        let fn3 = getNthParam(fields, i3)
+        let fv3 = getLine(vals, i3)
+        out = out + " kr_setfield(_sl, \"" + fn3 + "\", " + fv3 + ");"
+        i3 += 1
+    }
+    out = out + " _sl; })"
+    emit out + "," + p
+}
+
 func compileCompoundAssign(tokens, pos, ntoks, depth) {
     let name = tokVal(tokAt(tokens, pos))
     let op = tokAt(tokens, pos + 1)
@@ -1331,7 +1585,7 @@ func compileCompoundAssign(tokens, pos, ntoks, depth) {
     let ecode = pairVal(ep)
     p = pairPos(ep)
     if tokAt(tokens, p) == "SEMI" {
-        p = p + 1
+        p += 1
     }
     let cname = cIdent(name)
     if op == "PLUSEQ" {
@@ -1366,11 +1620,16 @@ func compileFor(tokens, pos, ntoks, depth, inFunc) {
     p = pairPos(bp)
 
     let cvar = cIdent(varName)
+    // Use depth-unique names to allow nested for-in loops
+    let dstr = depth + ""
+    let colVar = "_for_col_" + dstr
+    let cntVar = "_for_cnt_" + dstr
+    let idxVar = "_for_i_" + dstr
     let out = indent(depth) + "{\n"
-    out = out + indent(depth + 1) + "char* _for_col = " + collection + ";\n"
-    out = out + indent(depth + 1) + "int _for_cnt = kr_listlen(_for_col);\n"
-    out = out + indent(depth + 1) + "for (int _for_i = 0; _for_i < _for_cnt; _for_i++) {\n"
-    out = out + indent(depth + 2) + "char* " + cvar + " = kr_split(_for_col, kr_itoa(_for_i));\n"
+    out = out + indent(depth + 1) + "char* " + colVar + " = " + collection + ";\n"
+    out = out + indent(depth + 1) + "int " + cntVar + " = kr_listlen(" + colVar + ");\n"
+    out = out + indent(depth + 1) + "for (int " + idxVar + " = 0; " + idxVar + " < " + cntVar + "; " + idxVar + "++) {\n"
+    out = out + indent(depth + 2) + "char* " + cvar + " = kr_split(" + colVar + ", kr_itoa(" + idxVar + "));\n"
     out = out + bcode
     out = out + indent(depth + 1) + "}\n"
     out = out + indent(depth) + "}\n"
@@ -1383,7 +1642,7 @@ func compileMatch(tokens, pos, ntoks, depth, inFunc) {
     let mexpr = pairVal(ep)
     let p = pairPos(ep)
     // skip LBRACE
-    p = p + 1
+    p += 1
 
     let out = indent(depth) + "{\n"
     out = out + indent(depth + 1) + "char* _match_val = " + mexpr + ";\n"
@@ -1391,7 +1650,7 @@ func compileMatch(tokens, pos, ntoks, depth, inFunc) {
     while tokAt(tokens, p) != "RBRACE" {
         let ct = tokAt(tokens, p)
         if ct == "KW:else" {
-            p = p + 1
+            p += 1
             let bp = compileBlock(tokens, p, ntoks, depth + 1, inFunc)
             let bcode = pairVal(bp)
             p = pairPos(bp)
@@ -1417,7 +1676,7 @@ func compileMatch(tokens, pos, ntoks, depth, inFunc) {
         }
     }
     // skip RBRACE
-    p = p + 1
+    p += 1
     out = out + "\n" + indent(depth) + "}\n"
     emit out + "," + p
 }
@@ -1428,12 +1687,12 @@ func compileDoWhile(tokens, pos, ntoks, depth, inFunc) {
     let bcode = pairVal(bp)
     let p = pairPos(bp)
     // skip KW:while
-    p = p + 1
+    p += 1
     let cp = compileExpr(tokens, p, ntoks)
     let cond = pairVal(cp)
     p = pairPos(cp)
     if tokAt(tokens, p) == "SEMI" {
-        p = p + 1
+        p += 1
     }
     let out = indent(depth) + "do {\n" + bcode + indent(depth) + "} while (kr_truthy(" + cond + "));\n"
     emit out + "," + p
@@ -1444,7 +1703,7 @@ func compileExprStmt(tokens, pos, ntoks, depth) {
     let ecode = pairVal(ep)
     let p = pairPos(ep)
     if tokAt(tokens, p) == "SEMI" {
-        p = p + 1
+        p += 1
     }
     emit indent(depth) + ecode + ";\n," + p
 }
@@ -1458,7 +1717,7 @@ func compileBlock(tokens, pos, ntoks, depth, inFunc) {
     while tokAt(tokens, p) != "RBRACE" {
         // skip stray semicolons
         if tokAt(tokens, p) == "SEMI" {
-            p = p + 1
+            p += 1
         } else {
             let sp = compileStmt(tokens, p, ntoks, depth + 1, inFunc)
             let sCode = pairVal(sp)
@@ -1467,7 +1726,7 @@ func compileBlock(tokens, pos, ntoks, depth, inFunc) {
         }
     }
     // skip RBRACE
-    p = p + 1
+    p += 1
     emit code + "," + p
 }
 
@@ -1489,12 +1748,12 @@ func compileFunc(tokens, pos, ntoks) {
             } else {
                 params = "char* " + cIdent(tokVal(pt))
             }
-            pc = pc + 1
+            pc += 1
         }
-        p = p + 1
+        p += 1
     }
     // skip RPAREN
-    p = p + 1
+    p += 1
 
     // compile body block
     let bp = compileBlock(tokens, p, ntoks, 0, "1")
@@ -1524,7 +1783,9 @@ func cRuntime() {
     let r = sbNew()
     r = sbAppend(r, "#include <stdio.h>\n")
     r = sbAppend(r, "#include <stdlib.h>\n")
-    r = sbAppend(r, "#include <string.h>\n\n")
+    r = sbAppend(r, "#include <string.h>\n")
+    r = sbAppend(r, "#include <time.h>\n")
+    r = sbAppend(r, "#include <ctype.h>\n\n")
     r = sbAppend(r, "static int _argc; static char** _argv;\n\n")
     r = sbAppend(r, "typedef struct ABlock { struct ABlock* next; int cap; int used; } ABlock;\n")
     r = sbAppend(r, "static ABlock* _arena = 0;\n")
@@ -2360,6 +2621,230 @@ func cRuntime() {
     r = sbAppend(r, "    return (char*)(h + 1);\n")
     r = sbAppend(r, "}\n\n")
 
+
+    // v0.7.0: setjmp/longjmp exception support
+    r = sbAppend(r, "#include <setjmp.h>\n")
+    r = sbAppend(r, "#define _KR_TRY_MAX 256\n")
+    r = sbAppend(r, "static jmp_buf _kr_try_stack[_KR_TRY_MAX];\n")
+    r = sbAppend(r, "static char*   _kr_err_stack[_KR_TRY_MAX];\n")
+    r = sbAppend(r, "static int     _kr_try_depth = 0;\n\n")
+    r = sbAppend(r, "static jmp_buf* _kr_pushtry() {\n")
+    r = sbAppend(r, "    _kr_err_stack[_kr_try_depth] = _K_EMPTY;\n")
+    r = sbAppend(r, "    return &_kr_try_stack[_kr_try_depth++];\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* _kr_poptry() {\n")
+    r = sbAppend(r, "    if (_kr_try_depth > 0) _kr_try_depth--;\n")
+    r = sbAppend(r, "    return _kr_err_stack[_kr_try_depth];\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* _kr_throw(const char* msg) {\n")
+    r = sbAppend(r, "    if (_kr_try_depth > 0) {\n")
+    r = sbAppend(r, "        _kr_err_stack[_kr_try_depth - 1] = (char*)msg;\n")
+    r = sbAppend(r, "        longjmp(_kr_try_stack[_kr_try_depth - 1], 1);\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    fprintf(stderr, \"Uncaught exception: %s\\n\", msg);\n")
+    r = sbAppend(r, "    exit(1);\n")
+    r = sbAppend(r, "    return _K_EMPTY;\n")
+    r = sbAppend(r, "}\n\n")
+
+    // v0.7.0 builtins
+    r = sbAppend(r, "static char* kr_strreverse(const char* s) {\n")
+    r = sbAppend(r, "    int n = (int)strlen(s);\n")
+    r = sbAppend(r, "    char* out = _alloc(n + 1);\n")
+    r = sbAppend(r, "    for (int i = 0; i < n; i++) out[i] = s[n - 1 - i];\n")
+    r = sbAppend(r, "    out[n] = 0;\n")
+    r = sbAppend(r, "    return out;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_words(const char* s) {\n")
+    r = sbAppend(r, "    if (!*s) return _K_EMPTY;\n")
+    r = sbAppend(r, "    char* out = _K_EMPTY; int first = 1;\n")
+    r = sbAppend(r, "    const char* p = s;\n")
+    r = sbAppend(r, "    while (*p == ' ' || *p == '\\t') p++;\n")
+    r = sbAppend(r, "    const char* start = p;\n")
+    r = sbAppend(r, "    while (1) {\n")
+    r = sbAppend(r, "        if (*p == ' ' || *p == '\\t' || *p == 0) {\n")
+    r = sbAppend(r, "            if (p > start) {\n")
+    r = sbAppend(r, "                int n = (int)(p - start);\n")
+    r = sbAppend(r, "                char* w = _alloc(n + 1);\n")
+    r = sbAppend(r, "                memcpy(w, start, n); w[n] = 0;\n")
+    r = sbAppend(r, "                if (first) { out = w; first = 0; }\n")
+    r = sbAppend(r, "                else out = kr_cat(kr_cat(out, \",\"), w);\n")
+    r = sbAppend(r, "            }\n")
+    r = sbAppend(r, "            if (!*p) break;\n")
+    r = sbAppend(r, "            while (*p == ' ' || *p == '\\t') p++;\n")
+    r = sbAppend(r, "            start = p;\n")
+    r = sbAppend(r, "        } else { p++; }\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    return out;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_lines(const char* s) {\n")
+    r = sbAppend(r, "    if (!*s) return _K_EMPTY;\n")
+    r = sbAppend(r, "    char* out = _K_EMPTY; int first = 1;\n")
+    r = sbAppend(r, "    const char* p = s, *start = s;\n")
+    r = sbAppend(r, "    while (1) {\n")
+    r = sbAppend(r, "        if (*p == '\\n' || *p == 0) {\n")
+    r = sbAppend(r, "            int n = (int)(p - start);\n")
+    r = sbAppend(r, "            if (n > 0 && start[n-1] == '\\r') n--;\n")
+    r = sbAppend(r, "            char* ln = _alloc(n + 1);\n")
+    r = sbAppend(r, "            memcpy(ln, start, n); ln[n] = 0;\n")
+    r = sbAppend(r, "            if (first) { out = ln; first = 0; }\n")
+    r = sbAppend(r, "            else out = kr_cat(kr_cat(out, \",\"), ln);\n")
+    r = sbAppend(r, "            if (!*p) break;\n")
+    r = sbAppend(r, "            start = p + 1;\n")
+    r = sbAppend(r, "        }\n")
+    r = sbAppend(r, "        p++;\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    return out;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_first(const char* lst) { return kr_split(lst, _K_ZERO); }\n\n")
+
+    r = sbAppend(r, "static char* kr_last(const char* lst) {\n")
+    r = sbAppend(r, "    int cnt = kr_listlen(lst);\n")
+    r = sbAppend(r, "    if (cnt == 0) return _K_EMPTY;\n")
+    r = sbAppend(r, "    return kr_split(lst, kr_itoa(cnt - 1));\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_head(const char* lst, const char* ns) {\n")
+    r = sbAppend(r, "    int n = atoi(ns), cnt = kr_listlen(lst);\n")
+    r = sbAppend(r, "    if (n <= 0 || !*lst) return _K_EMPTY;\n")
+    r = sbAppend(r, "    if (n >= cnt) return kr_str(lst);\n")
+    r = sbAppend(r, "    char* out = kr_split(lst, _K_ZERO);\n")
+    r = sbAppend(r, "    for (int i = 1; i < n; i++) out = kr_cat(kr_cat(out, \",\"), kr_split(lst, kr_itoa(i)));\n")
+    r = sbAppend(r, "    return out;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_tail(const char* lst, const char* ns) {\n")
+    r = sbAppend(r, "    int n = atoi(ns), cnt = kr_listlen(lst);\n")
+    r = sbAppend(r, "    if (n <= 0 || !*lst) return _K_EMPTY;\n")
+    r = sbAppend(r, "    if (n >= cnt) return kr_str(lst);\n")
+    r = sbAppend(r, "    int start = cnt - n;\n")
+    r = sbAppend(r, "    char* out = kr_split(lst, kr_itoa(start));\n")
+    r = sbAppend(r, "    for (int i = start + 1; i < cnt; i++) out = kr_cat(kr_cat(out, \",\"), kr_split(lst, kr_itoa(i)));\n")
+    r = sbAppend(r, "    return out;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_lstrip(const char* s) {\n")
+    r = sbAppend(r, "    while (*s == ' ' || *s == '\\t' || *s == '\\n' || *s == '\\r') s++;\n")
+    r = sbAppend(r, "    return kr_str(s);\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_rstrip(const char* s) {\n")
+    r = sbAppend(r, "    int len = (int)strlen(s);\n")
+    r = sbAppend(r, "    while (len > 0 && (s[len-1]==' '||s[len-1]=='\\t'||s[len-1]=='\\n'||s[len-1]=='\\r')) len--;\n")
+    r = sbAppend(r, "    char* r = _alloc(len + 1);\n")
+    r = sbAppend(r, "    memcpy(r, s, len); r[len] = 0;\n")
+    r = sbAppend(r, "    return r;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_center(const char* s, const char* ws, const char* pad) {\n")
+    r = sbAppend(r, "    int w = atoi(ws), slen = (int)strlen(s), plen = (int)strlen(pad);\n")
+    r = sbAppend(r, "    if (slen >= w || plen == 0) return kr_str(s);\n")
+    r = sbAppend(r, "    int total = w - slen;\n")
+    r = sbAppend(r, "    int left = total / 2, right = total - left;\n")
+    r = sbAppend(r, "    char* out = _alloc(w + 1);\n")
+    r = sbAppend(r, "    for (int i = 0; i < left; i++) out[i] = pad[i % plen];\n")
+    r = sbAppend(r, "    memcpy(out + left, s, slen);\n")
+    r = sbAppend(r, "    for (int i = 0; i < right; i++) out[left + slen + i] = pad[i % plen];\n")
+    r = sbAppend(r, "    out[w] = 0;\n")
+    r = sbAppend(r, "    return out;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_isalpha(const char* s) {\n")
+    r = sbAppend(r, "    if (!*s) return _K_ZERO;\n")
+    r = sbAppend(r, "    for (const char* p = s; *p; p++) if (!isalpha((unsigned char)*p)) return _K_ZERO;\n")
+    r = sbAppend(r, "    return _K_ONE;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_isdigit(const char* s) {\n")
+    r = sbAppend(r, "    if (!*s) return _K_ZERO;\n")
+    r = sbAppend(r, "    for (const char* p = s; *p; p++) if (!isdigit((unsigned char)*p)) return _K_ZERO;\n")
+    r = sbAppend(r, "    return _K_ONE;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_isspace(const char* s) {\n")
+    r = sbAppend(r, "    if (!*s) return _K_ZERO;\n")
+    r = sbAppend(r, "    for (const char* p = s; *p; p++) if (!isspace((unsigned char)*p)) return _K_ZERO;\n")
+    r = sbAppend(r, "    return _K_ONE;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_random(const char* ns) {\n")
+    r = sbAppend(r, "    int n = atoi(ns);\n")
+    r = sbAppend(r, "    if (n <= 0) return _K_ZERO;\n")
+    r = sbAppend(r, "    return kr_itoa(rand() % n);\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_timestamp() {\n")
+    r = sbAppend(r, "    return kr_itoa((int)time(NULL));\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_environ(const char* name) {\n")
+    r = sbAppend(r, "    const char* v = getenv(name);\n")
+    r = sbAppend(r, "    if (!v) return _K_EMPTY;\n")
+    r = sbAppend(r, "    return kr_str(v);\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_floor(const char* s) { return kr_itoa((int)atoi(s)); }\n")
+    r = sbAppend(r, "static char* kr_ceil(const char* s)  { return kr_itoa((int)atoi(s)); }\n")
+    r = sbAppend(r, "static char* kr_round(const char* s) { return kr_itoa((int)atoi(s)); }\n\n")
+
+    r = sbAppend(r, "static char* kr_throw(const char* msg) { return _kr_throw(msg); }\n\n")
+
+
+    // v0.7.1: struct field access via tagged field array
+    // Structs are stored as: count|name1|val1|name2|val2|...
+    // All in arena memory, cast to char*
+    r = sbAppend(r, "static char* kr_structnew() {\n")
+    r = sbAppend(r, "    // 2 slots for count + up to 32 fields (name+val pairs)\n")
+    r = sbAppend(r, "    char** s = (char**)_alloc(66 * sizeof(char*));\n")
+    r = sbAppend(r, "    s[0] = _K_ZERO; // field count\n")
+    r = sbAppend(r, "    return (char*)s;\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_setfield(char* obj, const char* name, const char* val) {\n")
+    r = sbAppend(r, "    char** s = (char**)obj;\n")
+    r = sbAppend(r, "    int cnt = atoi(s[0]);\n")
+    r = sbAppend(r, "    // search for existing field\n")
+    r = sbAppend(r, "    for (int i = 0; i < cnt; i++) {\n")
+    r = sbAppend(r, "        if (strcmp(s[1 + i*2], name) == 0) {\n")
+    r = sbAppend(r, "            s[2 + i*2] = (char*)val;\n")
+    r = sbAppend(r, "            return obj;\n")
+    r = sbAppend(r, "        }\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    // add new field\n")
+    r = sbAppend(r, "    s[1 + cnt*2] = (char*)name;\n")
+    r = sbAppend(r, "    s[2 + cnt*2] = (char*)val;\n")
+    r = sbAppend(r, "    s[0] = kr_itoa(cnt + 1);\n")
+    r = sbAppend(r, "    return obj;\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_getfield(char* obj, const char* name) {\n")
+    r = sbAppend(r, "    if (!obj) return _K_EMPTY;\n")
+    r = sbAppend(r, "    char** s = (char**)obj;\n")
+    r = sbAppend(r, "    int cnt = atoi(s[0]);\n")
+    r = sbAppend(r, "    for (int i = 0; i < cnt; i++) {\n")
+    r = sbAppend(r, "        if (strcmp(s[1 + i*2], name) == 0) return s[2 + i*2];\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    return _K_EMPTY;\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_hasfield(char* obj, const char* name) {\n")
+    r = sbAppend(r, "    if (!obj) return _K_ZERO;\n")
+    r = sbAppend(r, "    char** s = (char**)obj;\n")
+    r = sbAppend(r, "    int cnt = atoi(s[0]);\n")
+    r = sbAppend(r, "    for (int i = 0; i < cnt; i++) {\n")
+    r = sbAppend(r, "        if (strcmp(s[1 + i*2], name) == 0) return _K_ONE;\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    return _K_ZERO;\n")
+    r = sbAppend(r, "}\n\n")
+    r = sbAppend(r, "static char* kr_structfields(char* obj) {\n")
+    r = sbAppend(r, "    if (!obj) return _K_EMPTY;\n")
+    r = sbAppend(r, "    char** s = (char**)obj;\n")
+    r = sbAppend(r, "    int cnt = atoi(s[0]);\n")
+    r = sbAppend(r, "    if (cnt == 0) return _K_EMPTY;\n")
+    r = sbAppend(r, "    char* out = s[1];\n")
+    r = sbAppend(r, "    for (int i = 1; i < cnt; i++) out = kr_cat(kr_cat(out, \",\"), s[1 + i*2]);\n")
+    r = sbAppend(r, "    return out;\n")
+    r = sbAppend(r, "}\n\n")
+
     emit sbToString(r)
 }
 
@@ -2398,12 +2883,12 @@ just run {
                     decl = decl + ", "
                 }
                 decl = decl + "char*"
-                pi = pi + 1
+                pi += 1
             }
             decl = decl + ");\n"
             sb = sbAppend(sb, decl)
         }
-        i = i + 1
+        i += 1
     }
     sb = sbAppend(sb, "\n")
 
@@ -2418,7 +2903,7 @@ just run {
             // skip past the function in token stream
             i = pairPos(fp)
         } else {
-            i = i + 1
+            i += 1
         }
     }
 
@@ -2431,6 +2916,7 @@ just run {
 
     sb = sbAppend(sb, "int main(int argc, char** argv) {\n")
     sb = sbAppend(sb, "    _argc = argc; _argv = argv;\n")
+    sb = sbAppend(sb, "    srand((unsigned)time(NULL));\n")
 
     let bp = compileBlock(tokens, entry, ntoks, 0, "0")
     let bcode = pairVal(bp)

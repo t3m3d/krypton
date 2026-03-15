@@ -21,7 +21,7 @@ bld/
 [Ll]og/
 [Ll]ogs/
 build/
-
+versions/
 .vs/
 #wwwroot/
 Generated\ Files/
@@ -56,6 +56,7 @@ StyleCopReport.xml
 *.pgc
 *.pgd
 *.rsp
+*.res
 # but not Directory.Build.rsp, as it configures directory-level build defaults
 !Directory.Build.rsp
 *.sbr
