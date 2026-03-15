@@ -2631,5 +2631,4 @@ just run {
     sb = sbAppend(sb, "}\n")
 
     print(sbToString(sb))
-    emit "ok"
 }
