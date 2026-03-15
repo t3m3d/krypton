@@ -832,6 +832,7 @@ func compilePrimary(tokens, pos, ntoks) {
             resolved = name
         } else {
             // Local or undefined symbol
+            emit "// ERROR: undefined symbol '" + name + "'\n"
             resolved = name
         }
         emit cIdent(resolved) + "," + (pos + 1)
@@ -1070,7 +1071,8 @@ func compileCall(tokens, pos, ntoks) {
         emit "kr_readline(" + args + ")," + p
     }
     if fname == "assert" {
-        emit "kr_assert(" + args + ")," + p
+        // Improved assertion: include file/line info if available
+        emit "kr_assert(" + args + ", \"assertion failed in compile.k\")," + p
     }
 
     // v0.5.0 builtins
@@ -1293,7 +1295,8 @@ func compileStmt(tokens, pos, ntoks, depth, inFunc) {
                 i = i + 1
             }
         } else {
-            // Optionally, print a warning about missing import file
+            // Emit a warning about missing import file
+            emit indent(depth) + "// ERROR: import file '" + importPath + "' not found\n," + (pos + 2)
         }
         let p = pos + 2
         emit indent(depth) + "// import " + name + "\n," + p
