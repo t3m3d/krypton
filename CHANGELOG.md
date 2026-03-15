@@ -2,6 +2,33 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [0.6.0] - 2026-03-14
+
+### Language
+- `for item in list { ... }` — for-in loop over comma-separated lists
+- `do { ... } while cond` — do-while loop
+- `match expr { val { } ... else { } }` — pattern matching
+- `continue` statement in loops
+- Compound assignment: `+=`, `-=`, `*=`, `/=`, `%=`
+- `const` declarations: `const x = value`
+- Ternary operator: `cond ? trueExpr : falseExpr` (nestable)
+
+### Built-in Functions (30 new, 72 total)
+- **Math:** `range`, `pow`, `sqrt`, `sign`, `clamp`
+- **Strings:** `padLeft`, `padRight`, `charCode`, `fromCharCode`, `trim`, `toLower`, `toUpper`, `contains`, `endsWith`, `indexOf`, `replace`, `charAt`, `repeat`, `format`
+- **Lists:** `append`, `join`, `reverse`, `sort`, `slice`, `length`, `unique`, `splitBy`, `listIndexOf`, `insertAt`, `removeAt`, `replaceAt`, `fill`, `zip`, `every`, `some`, `countOf`, `sumList`, `maxList`, `minList`
+- **Conversion:** `hex`, `bin`, `parseInt`, `toStr`
+- **I/O:** `printErr`, `readLine`, `writeFile`, `input`, `exit`
+
+### Compiler
+- Fixed `isKW` — `struct/class/type/try/catch/throw` were orphaned before keyword chain
+- Fixed duplicate dead code block outside `compileStmt` (85 stray lines)
+- Removed `defined()`/`not defined()` fake syntax from module scaffolding
+- Clean module/import/export comment stubs
+- Self-host verified
+
+---
+
 ## [0.8.0] - 2026-03-13
 
 ### Language
