@@ -38,7 +38,7 @@ go stack {
                 sb = sbAppend(sb, ",")
             }
             sb = sbAppend(sb, split(stk, i))
-            i = i + 1
+            i += 1
         }
         emit top + "|" + sbToString(sb)
     }
@@ -66,7 +66,7 @@ go stack {
         let i = size - 1
         while i >= 0 {
             kp("  " + split(stk, i))
-            i = i - 1
+            i -= 1
         }
         kp("-----------------------------")
     }
@@ -84,7 +84,7 @@ go stack {
             if split(stk, i) == val {
                 emit 1
             }
-            i = i + 1
+            i += 1
         }
         emit 0
     }

@@ -6,9 +6,9 @@ just run {
   while i < srcLen {
     let ch = src[i]
     if ch == " " || ch == "\n" || ch == "\r" || ch == "\t" {
-      i = i + 1
+      i += 1
     } else {
-      i = i + 1
+      i += 1
     }
   }
   kp("src length: " + srcLen)

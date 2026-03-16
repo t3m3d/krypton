@@ -12,26 +12,26 @@ go file_utils {
             let ch = content[i]
             if ch == " " {
                 if inWord {
-                    cnt = cnt + 1
+                    cnt += 1
                     inWord = 0
                 }
             } else if ch == "\n" {
                 if inWord {
-                    cnt = cnt + 1
+                    cnt += 1
                     inWord = 0
                 }
             } else if ch == "\t" {
                 if inWord {
-                    cnt = cnt + 1
+                    cnt += 1
                     inWord = 0
                 }
             } else {
                 inWord = 1
             }
-            i = i + 1
+            i += 1
         }
         if inWord {
-            cnt = cnt + 1
+            cnt += 1
         }
         emit cnt
     }
@@ -43,10 +43,10 @@ go file_utils {
         while i < len(content) {
             if content[i] != "\n" {
                 if content[i] != "\r" {
-                    cnt = cnt + 1
+                    cnt += 1
                 }
             }
-            i = i + 1
+            i += 1
         }
         emit cnt
     }
@@ -58,7 +58,7 @@ go file_utils {
             if filename[i] == "." {
                 emit substring(filename, i + 1, len(filename))
             }
-            i = i - 1
+            i -= 1
         }
         emit ""
     }
@@ -73,7 +73,7 @@ go file_utils {
             if path[i] == "\\" {
                 emit substring(path, i + 1, len(path))
             }
-            i = i - 1
+            i -= 1
         }
         emit path
     }
@@ -88,7 +88,7 @@ go file_utils {
             if path[i] == "\\" {
                 emit substring(path, 0, i)
             }
-            i = i - 1
+            i -= 1
         }
         emit "."
     }
@@ -101,9 +101,9 @@ go file_utils {
         while i < lines {
             let line = getLine(content, i)
             if len(line) > 0 {
-                cnt = cnt + 1
+                cnt += 1
             }
-            i = i + 1
+            i += 1
         }
         emit cnt
     }
@@ -118,7 +118,7 @@ go file_utils {
             if len(line) > maxLen {
                 maxLen = len(line)
             }
-            i = i + 1
+            i += 1
         }
         emit maxLen
     }
@@ -135,7 +135,7 @@ go file_utils {
         while i < limit {
             sb = sbAppend(sb, getLine(content, i))
             sb = sbAppend(sb, "\n")
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }
@@ -152,7 +152,7 @@ go file_utils {
         while i < lines {
             sb = sbAppend(sb, getLine(content, i))
             sb = sbAppend(sb, "\n")
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }

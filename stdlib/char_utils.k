@@ -135,7 +135,7 @@ go char_utils {
             if isDigit(s[i]) == 0 {
                 emit 0
             }
-            i = i + 1
+            i += 1
         }
         emit 1
     }
@@ -150,7 +150,7 @@ go char_utils {
             if isAlpha(s[i]) == 0 {
                 emit 0
             }
-            i = i + 1
+            i += 1
         }
         emit 1
     }

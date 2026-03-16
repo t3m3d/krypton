@@ -31,7 +31,7 @@ func toPigLatin(word) {
             let moved = substring(word, 0, i)
             emit rest + moved + "ay"
         }
-        i = i + 1
+        i += 1
     }
     // No vowels found
     emit word + "ay"
@@ -57,7 +57,7 @@ func translateSentence(sentence) {
         } else {
             wordBuf = sbAppend(wordBuf, ch)
         }
-        i = i + 1
+        i += 1
     }
     let lastWord = sbToString(wordBuf)
     if len(lastWord) > 0 {
@@ -94,7 +94,7 @@ just run {
         kp("  \"" + s + "\"")
         kp("  -> \"" + translateSentence(s) + "\"")
         kp("")
-        i = i + 1
+        i += 1
     }
     emit "ok"
 }

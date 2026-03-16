@@ -55,7 +55,7 @@ go csv {
                     result = result + "," + val
                 }
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -97,7 +97,7 @@ go csv {
                     }
                 }
             }
-            i = i + 1
+            i += 1
         }
         // Format each row
         i = 0
@@ -122,7 +122,7 @@ go csv {
                 }
                 sb = sbAppend(sb, "\n")
             }
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }

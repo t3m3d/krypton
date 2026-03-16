@@ -14,7 +14,7 @@ go lines {
                 sb = sbAppend(sb, line)
                 sb = sbAppend(sb, "\n")
             }
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }
@@ -36,7 +36,7 @@ go lines {
                         found = 1
                         break
                     }
-                    j = j + 1
+                    j += 1
                 }
             }
             if found == 0 {
@@ -48,7 +48,7 @@ go lines {
                     seen = seen + "," + line
                 }
             }
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }
@@ -61,7 +61,7 @@ go lines {
         while i >= 0 {
             sb = sbAppend(sb, getLine(text, i))
             sb = sbAppend(sb, "\n")
-            i = i - 1
+            i -= 1
         }
         emit sbToString(sb)
     }
@@ -78,7 +78,7 @@ go lines {
         while i < limit {
             sb = sbAppend(sb, getLine(text, i))
             sb = sbAppend(sb, "\n")
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }
@@ -91,7 +91,7 @@ go lines {
         while i < total {
             sb = sbAppend(sb, getLine(text, i))
             sb = sbAppend(sb, "\n")
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }
@@ -103,9 +103,9 @@ go lines {
         let i = 0
         while i < total {
             if startsWith(getLine(text, i), prefix) {
-                cnt = cnt + 1
+                cnt += 1
             }
-            i = i + 1
+            i += 1
         }
         emit cnt
     }
@@ -120,7 +120,7 @@ go lines {
                 sb = sbAppend(sb, sep)
             }
             sb = sbAppend(sb, getLine(text, i))
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }
@@ -149,9 +149,9 @@ go lines {
                 if substring(line, j, j + nLen) == needle {
                     emit i
                 }
-                j = j + 1
+                j += 1
             }
-            i = i + 1
+            i += 1
         }
         emit 0 - 1
     }

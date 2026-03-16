@@ -17,7 +17,7 @@ func stackPop(stack) {
     while i < n - 1 {
         if i > 0 { sb = sbAppend(sb, ",") }
         sb = sbAppend(sb, split(stack, i))
-        i = i + 1
+        i += 1
     }
     emit top + "|" + sbToString(sb)
 }
@@ -28,7 +28,7 @@ func getVal(popResult) {
         if popResult[i] == "|" {
             emit substring(popResult, 0, i)
         }
-        i = i + 1
+        i += 1
     }
     emit popResult
 }
@@ -39,7 +39,7 @@ func getRest(popResult) {
         if popResult[i] == "|" {
             emit substring(popResult, i + 1, len(popResult))
         }
-        i = i + 1
+        i += 1
     }
     emit ""
 }
@@ -64,7 +64,7 @@ func evalRPN(tokens) {
         } else {
             stack = stackPush(stack, tok)
         }
-        i = i + 1
+        i += 1
     }
     let final = stackPop(stack)
     emit getVal(final)

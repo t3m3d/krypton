@@ -6,7 +6,7 @@ func printSpaces(n) {
     let i = 0
     while i < n {
         sb = sbAppend(sb, " ")
-        i = i + 1
+        i += 1
     }
     emit sbToString(sb)
 }
@@ -16,7 +16,7 @@ func printStars(n) {
     let i = 0
     while i < n {
         sb = sbAppend(sb, "*")
-        i = i + 1
+        i += 1
     }
     emit sbToString(sb)
 }
@@ -28,7 +28,7 @@ func diamond(size) {
         let spaces = printSpaces(size - i)
         let stars = printStars(2 * i - 1)
         kp(spaces + stars)
-        i = i + 1
+        i += 1
     }
     // Bottom half
     i = size - 1
@@ -36,7 +36,7 @@ func diamond(size) {
         let spaces = printSpaces(size - i)
         let stars = printStars(2 * i - 1)
         kp(spaces + stars)
-        i = i - 1
+        i -= 1
     }
 }
 
@@ -50,7 +50,7 @@ func hollowDiamond(size) {
         let spaces = printSpaces(size - i)
         let inner = printSpaces(2 * i - 3)
         kp(spaces + "*" + inner + "*")
-        i = i + 1
+        i += 1
     }
 
     // Middle
@@ -64,7 +64,7 @@ func hollowDiamond(size) {
         let spaces = printSpaces(size - i)
         let inner = printSpaces(2 * i - 3)
         kp(spaces + "*" + inner + "*")
-        i = i - 1
+        i -= 1
     }
 
     // Bottom point

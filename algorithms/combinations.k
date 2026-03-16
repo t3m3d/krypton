@@ -8,7 +8,7 @@ func combine(prefix, chars, start, k) {
         let i = start
         while i < len(chars) {
             combine(prefix + chars[i], chars, i + 1, k)
-            i = i + 1
+            i += 1
         }
     }
 }

@@ -43,7 +43,7 @@ func checkBrackets(s) {
             stack = substring(stack, 0, stackSize - 1)
             stackSize = stackSize - 1
         }
-        i = i + 1
+        i += 1
     }
     if stackSize > 0 {
         emit "Unclosed brackets: " + stackSize + " remaining"
@@ -67,7 +67,7 @@ just run {
             label = label + " "
         }
         kp("  " + label + " => " + result)
-        i = i + 1
+        i += 1
     }
     emit "ok"
 }

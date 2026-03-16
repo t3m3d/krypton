@@ -10,7 +10,7 @@ func selectionSort(list) {
             if toInt(split(list, j)) < toInt(split(list, minIdx)) {
                 minIdx = j
             }
-            j = j + 1
+            j += 1
         }
         if minIdx != i {
             // Swap
@@ -25,11 +25,11 @@ func selectionSort(list) {
                 } else {
                     sb = sbAppend(sb, split(list, k))
                 }
-                k = k + 1
+                k += 1
             }
             list = sbToString(sb)
         }
-        i = i + 1
+        i += 1
     }
     emit list
 }

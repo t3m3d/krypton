@@ -7,7 +7,7 @@ func makeSieve(n) {
     let i = 2
     while i <= n {
         result = result + ",1"
-        i = i + 1
+        i += 1
     }
     emit result
 }
@@ -25,7 +25,7 @@ func sieveSet(sieve, idx, val) {
         } else {
             sb = sbAppend(sb, split(sieve, i))
         }
-        i = i + 1
+        i += 1
     }
     emit sbToString(sb)
 }
@@ -64,7 +64,7 @@ just run {
             }
             primeCount = primeCount + 1
         }
-        i = i + 1
+        i += 1
     }
 
     kp("Primes: " + primes)

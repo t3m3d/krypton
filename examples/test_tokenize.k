@@ -5,7 +5,7 @@ just run {
   let i = 0
   while i < lineCount(toks) {
     kp("[" + i + "] " + tokAt(toks, i))
-    i = i + 1
+    i += 1
   }
   emit "ok"
 }

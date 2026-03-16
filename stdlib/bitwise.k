@@ -90,7 +90,7 @@ go bitwise {
         let i = 0
         while i < n {
             result = result * 2
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -101,7 +101,7 @@ go bitwise {
         let i = 0
         while i < n {
             result = result / 2
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -112,7 +112,7 @@ go bitwise {
         let x = n
         while x > 0 {
             if x % 2 == 1 {
-                cnt = cnt + 1
+                cnt += 1
             }
             x = x / 2
         }
@@ -136,7 +136,7 @@ go bitwise {
         let x = n
         while x > 1 {
             x = x / 2
-            pos = pos + 1
+            pos += 1
         }
         emit pos
     }

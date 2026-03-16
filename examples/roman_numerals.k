@@ -84,11 +84,11 @@ func fromRoman(s) {
                 i = i + 2
             } else {
                 result = result + current
-                i = i + 1
+                i += 1
             }
         } else {
             result = result + current
-            i = i + 1
+            i += 1
         }
     }
     emit result
@@ -111,7 +111,7 @@ just run {
             label = " " + label
         }
         kp("  " + label + " = " + roman + " (back to: " + back + ")")
-        i = i + 1
+        i += 1
     }
     emit "ok"
 }

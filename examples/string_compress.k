@@ -14,7 +14,7 @@ func compress(s) {
             if s[i + cnt] != ch {
                 break
             }
-            cnt = cnt + 1
+            cnt += 1
         }
         sb = sbAppend(sb, "" + cnt)
         sb = sbAppend(sb, ch)
@@ -34,7 +34,7 @@ func decompress(s) {
             if ch >= "0" {
                 if ch <= "9" {
                     numStr = numStr + ch
-                    i = i + 1
+                    i += 1
                 } else {
                     break
                 }
@@ -49,9 +49,9 @@ func decompress(s) {
             let j = 0
             while j < cnt {
                 sb = sbAppend(sb, ch)
-                j = j + 1
+                j += 1
             }
-            i = i + 1
+            i += 1
         }
     }
     emit sbToString(sb)
@@ -80,7 +80,7 @@ just run {
         }
         kp("  Verify:       " + match)
         kp("")
-        i = i + 1
+        i += 1
     }
     emit "ok"
 }

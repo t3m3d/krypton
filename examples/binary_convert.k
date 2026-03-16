@@ -23,7 +23,7 @@ func fromBinary(s) {
         if s[i] == "1" {
             result = result + 1
         }
-        i = i + 1
+        i += 1
     }
     emit result
 }
@@ -49,7 +49,7 @@ just run {
         let n = toInt(split(nums, i))
         let bin = toBinary(n)
         kp("  " + n + " => " + padBinary(bin, 12))
-        i = i + 1
+        i += 1
     }
 
     kp("")
@@ -61,7 +61,7 @@ just run {
         let b = split(bins, i)
         let dec = fromBinary(b)
         kp("  " + padBinary(b, 12) + " => " + dec)
-        i = i + 1
+        i += 1
     }
 
     // Powers of 2 in binary

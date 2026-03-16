@@ -19,7 +19,7 @@ just run {
     let i = 0
     while i < 5 {
         kp(i)
-        i = i + 1
+        i += 1
     }
 
     // Test if/else if/else

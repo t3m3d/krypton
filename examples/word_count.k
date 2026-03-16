@@ -15,10 +15,10 @@ func countWords(text) {
         } else {
             inWord = 1
         }
-        i = i + 1
+        i += 1
     }
     if inWord {
-        cnt = cnt + 1
+        cnt += 1
     }
     emit cnt
 }
@@ -28,9 +28,9 @@ func countLines(text) {
     let i = 0
     while i < len(text) {
         if text[i] == "\n" {
-            cnt = cnt + 1
+            cnt += 1
         }
-        i = i + 1
+        i += 1
     }
     emit cnt
 }

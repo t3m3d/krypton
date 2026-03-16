@@ -50,7 +50,7 @@ go io_utils {
         while i < size {
             let num = i + 1
             kp("" + num + ". " + split(list, i))
-            i = i + 1
+            i += 1
         }
     }
 
@@ -60,7 +60,7 @@ go io_utils {
         let i = 0
         while i < len(title) + 4 {
             line = line + "="
-            i = i + 1
+            i += 1
         }
         kp(line)
         kp("  " + title)
@@ -85,7 +85,7 @@ go io_utils {
         let i = 0
         while i < argCount() {
             kp("arg[" + i + "] = " + arg(i))
-            i = i + 1
+            i += 1
         }
     }
 }

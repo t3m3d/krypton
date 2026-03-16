@@ -23,15 +23,15 @@ func insertionSort(list) {
                     } else {
                         sb = sbAppend(sb, split(list, k))
                     }
-                    k = k + 1
+                    k += 1
                 }
                 list = sbToString(sb)
-                j = j - 1
+                j -= 1
             } else {
                 shifted = 0
             }
         }
-        i = i + 1
+        i += 1
     }
     emit list
 }

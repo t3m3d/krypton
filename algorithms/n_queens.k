@@ -11,7 +11,7 @@ func isSafe(queens, row, col, n) {
         let qCol = toInt(split(queens, i))
         if qCol == col { emit 0 }
         if abs(qCol - col) == abs(i - row) { emit 0 }
-        i = i + 1
+        i += 1
     }
     emit 1
 }
@@ -25,7 +25,7 @@ func solveQueens(queens, row, n, maxSolutions) {
         while i < n {
             if i > 0 { sb = sbAppend(sb, ", ") }
             sb = sbAppend(sb, split(queens, i))
-            i = i + 1
+            i += 1
         }
         sb = sbAppend(sb, "]")
         print(sbToString(sb))

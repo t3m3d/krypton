@@ -12,7 +12,7 @@ just run {
         if c == "\r" {
             kp("CR at " + i)
         }
-        i = i + 1
+        i += 1
     }
     kp("done")
     emit "ok"

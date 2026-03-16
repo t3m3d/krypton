@@ -16,16 +16,16 @@ func matrixMultiply(a, b, aRows, aCols, bCols) {
             let k = 0
             while k < aCols {
                 sum = sum + matrixGet(a, i, k) * matrixGet(b, k, j)
-                k = k + 1
+                k += 1
             }
             if j > 0 {
                 sb = sbAppend(sb, ",")
             }
             sb = sbAppend(sb, "" + sum)
-            j = j + 1
+            j += 1
         }
         sb = sbAppend(sb, "\n")
-        i = i + 1
+        i += 1
     }
     emit sbToString(sb)
 }
@@ -45,11 +45,11 @@ func printMatrix(label, matrix, rows) {
                 val = " " + val
             }
             sb = sbAppend(sb, val)
-            j = j + 1
+            j += 1
         }
         sb = sbAppend(sb, " ]")
         kp(sbToString(sb))
-        i = i + 1
+        i += 1
     }
 }
 

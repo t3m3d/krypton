@@ -43,7 +43,7 @@ go text {
             } else {
                 sb = sbAppend(sb, ch)
             }
-            i = i + 1
+            i += 1
         }
         let last = sbToString(sb)
         if len(last) > 0 {
@@ -87,7 +87,7 @@ go text {
                 sb = sbAppend(sb, ch)
                 lineLen = lineLen + 1
             }
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }
@@ -98,7 +98,7 @@ go text {
         let i = 0
         while i < n {
             prefix = prefix + " "
-            i = i + 1
+            i += 1
         }
         let sb = sbNew()
         let lines = lineCount(text)
@@ -107,7 +107,7 @@ go text {
             sb = sbAppend(sb, prefix)
             sb = sbAppend(sb, getLine(text, i))
             sb = sbAppend(sb, "\n")
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }
@@ -126,11 +126,11 @@ go text {
                         break
                     }
                 }
-                j = j + 1
+                j += 1
             }
             sb = sbAppend(sb, substring(line, j, len(line)))
             sb = sbAppend(sb, "\n")
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }
@@ -149,7 +149,7 @@ go text {
             sb = sbAppend(sb, prefix + " | ")
             sb = sbAppend(sb, getLine(text, i))
             sb = sbAppend(sb, "\n")
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }
@@ -165,7 +165,7 @@ go text {
                 sb = sbAppend(sb, line)
                 sb = sbAppend(sb, "\n")
             }
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }

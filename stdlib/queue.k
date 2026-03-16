@@ -35,7 +35,7 @@ go queue {
                 sb = sbAppend(sb, ",")
             }
             sb = sbAppend(sb, split(q, i))
-            i = i + 1
+            i += 1
         }
         emit front + "|" + sbToString(sb)
     }
@@ -63,7 +63,7 @@ go queue {
         let i = 0
         while i < size {
             kp("  " + split(q, i))
-            i = i + 1
+            i += 1
         }
         kp("-----------------------------")
     }
@@ -82,7 +82,7 @@ go queue {
             if split(q, i) == val {
                 emit 1
             }
-            i = i + 1
+            i += 1
         }
         emit 0
     }

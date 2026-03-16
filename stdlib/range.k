@@ -13,7 +13,7 @@ go range {
             } else {
                 result = result + "," + i
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -45,7 +45,7 @@ go range {
             } else {
                 result = result + "," + i
             }
-            i = i - 1
+            i -= 1
         }
         emit result
     }
@@ -61,7 +61,7 @@ go range {
             } else {
                 result = result + "," + val
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -76,7 +76,7 @@ go range {
             } else {
                 result = result + "," + (i * i)
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -93,7 +93,7 @@ go range {
                 result = result + "," + val
             }
             val = val * 2
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -104,13 +104,13 @@ go range {
         let sum = 0
         let i = 1
         while i <= n {
-            sum = sum + i
+            sum += i
             if result == "" {
                 result = "" + sum
             } else {
                 result = result + "," + sum
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }

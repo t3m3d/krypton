@@ -7,7 +7,7 @@ just run {
     kp("i=" + i)
     let ch = src[i]
     kp("ch=" + ch)
-    i = i + 1
+    i += 1
   }
   kp("looped to i=" + i)
   emit "ok"

@@ -882,6 +882,11 @@ func evalPrimary(tokens, pos, env, ftable) {
         emit expandEscapes(tv) + "," + (pos + 1)
     }
 
+    // backtick interpolation string
+    if tt == "INTERP" {
+        emit evalInterp(tv, env, ftable) + "," + (pos + 1)
+    }
+
     // boolean
     if tok == "KW:true" {
         emit "1," + (pos + 1)
@@ -1431,6 +1436,40 @@ func execExprStmt(tokens, pos, env, ftable) {
 }
 
 // ── Entry Point ───────────────────────────────────────────
+
+// ── String Interpolation ─────────────────────────────────────
+
+func evalInterp(s, env, ftable) {
+    let result = ""
+    let i = 0
+    let seg = ""
+    while i < len(s) {
+        if s[i] == "{" {
+            // flush literal segment with escape expansion
+            result = result + expandEscapes(seg)
+            seg = ""
+            i += 1
+            let expr = ""
+            while i < len(s) && s[i] != "}" {
+                expr = expr + s[i]
+                i += 1
+            }
+            i += 1
+            // tokenize and evaluate the expression
+            let exprToks = tokenize(expr)
+            let exprNtoks = lineCount(exprToks)
+            if exprNtoks > 0 {
+                let ep = evalExpr(exprToks, 0, env, ftable)
+                result = result + pairVal(ep)
+            }
+        } else {
+            seg = seg + s[i]
+            i += 1
+        }
+    }
+    result = result + expandEscapes(seg)
+    emit result
+}
 
 just run {
     let file = arg(0)

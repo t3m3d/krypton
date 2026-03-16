@@ -1212,6 +1212,29 @@ func compileCall(tokens, pos, ntoks) {
         emit "kr_throw(" + args + ")," + p
     }
 
+    // v0.7.5 builtins
+    if fname == "mapGet" {
+        emit "kr_mapget(" + args + ")," + p
+    }
+    if fname == "mapSet" {
+        emit "kr_mapset(" + args + ")," + p
+    }
+    if fname == "mapDel" {
+        emit "kr_mapdel(" + args + ")," + p
+    }
+    if fname == "sprintf" {
+        emit "kr_sprintf(" + args + ")," + p
+    }
+    if fname == "listMap" {
+        emit "kr_listmap(" + args + ")," + p
+    }
+    if fname == "listFilter" {
+        emit "kr_listfilter(" + args + ")," + p
+    }
+    if fname == "strSplit" {
+        emit "kr_strsplit(" + args + ")," + p
+    }
+
     // v0.7.1 struct builtins
     if fname == "structNew" {
         emit "kr_structnew()," + p
@@ -1548,7 +1571,15 @@ func compileInterp(s) {
         if ptype == "L:" {
             cpart = "kr_str(\"" + pval + "\")"
         } else {
-            cpart = cIdent(pval)
+            // Tokenize and compile the expression inside {}
+            let exprToks = tokenize(pval)
+            let exprNtoks = lineCount(exprToks)
+            if exprNtoks > 0 {
+                let ep = compileExpr(exprToks, 0, exprNtoks)
+                cpart = pairVal(ep)
+            } else {
+                cpart = "kr_str(\"\")"
+            }
         }
         if j == 0 {
             result = cpart
@@ -1890,7 +1921,8 @@ func cRuntime() {
     r = sbAppend(r, "#include <stdlib.h>\n")
     r = sbAppend(r, "#include <string.h>\n")
     r = sbAppend(r, "#include <time.h>\n")
-    r = sbAppend(r, "#include <ctype.h>\n\n")
+    r = sbAppend(r, "#include <ctype.h>\n")
+    r = sbAppend(r, "#include <stdarg.h>\n\n")
     r = sbAppend(r, "static int _argc; static char** _argv;\n\n")
     r = sbAppend(r, "typedef struct ABlock { struct ABlock* next; int cap; int used; } ABlock;\n")
     r = sbAppend(r, "static ABlock* _arena = 0;\n")
@@ -2947,6 +2979,95 @@ func cRuntime() {
     r = sbAppend(r, "    if (cnt == 0) return _K_EMPTY;\n")
     r = sbAppend(r, "    char* out = s[1];\n")
     r = sbAppend(r, "    for (int i = 1; i < cnt; i++) out = kr_cat(kr_cat(out, \",\"), s[1 + i*2]);\n")
+    r = sbAppend(r, "    return out;\n")
+    r = sbAppend(r, "}\n\n")
+
+
+    // v0.7.5 builtins
+    r = sbAppend(r, "static char* kr_mapget(const char* map, const char* key) {\n")
+    r = sbAppend(r, "    if (!*map) return _K_EMPTY;\n")
+    r = sbAppend(r, "    int cnt = kr_listlen(map);\n")
+    r = sbAppend(r, "    for (int i = 0; i < cnt - 1; i += 2) {\n")
+    r = sbAppend(r, "        if (strcmp(kr_split(map, kr_itoa(i)), key) == 0)\n")
+    r = sbAppend(r, "            return kr_split(map, kr_itoa(i + 1));\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    return _K_EMPTY;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_mapset(const char* map, const char* key, const char* val) {\n")
+    r = sbAppend(r, "    if (!*map) return kr_cat(kr_cat(kr_str(key), \",\"), val);\n")
+    r = sbAppend(r, "    int cnt = kr_listlen(map);\n")
+    r = sbAppend(r, "    char* out = _K_EMPTY; int first = 1; int found = 0;\n")
+    r = sbAppend(r, "    for (int i = 0; i < cnt - 1; i += 2) {\n")
+    r = sbAppend(r, "        char* k = kr_split(map, kr_itoa(i));\n")
+    r = sbAppend(r, "        char* v = (strcmp(k, key) == 0) ? (char*)val : kr_split(map, kr_itoa(i+1));\n")
+    r = sbAppend(r, "        if (strcmp(k, key) == 0) found = 1;\n")
+    r = sbAppend(r, "        if (first) { out = kr_cat(k, kr_cat(\",\", v)); first = 0; }\n")
+    r = sbAppend(r, "        else out = kr_cat(out, kr_cat(\",\", kr_cat(k, kr_cat(\",\", v))));\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    if (!found) {\n")
+    r = sbAppend(r, "        if (first) out = kr_cat(kr_str(key), kr_cat(\",\", val));\n")
+    r = sbAppend(r, "        else out = kr_cat(out, kr_cat(\",\", kr_cat(kr_str(key), kr_cat(\",\", val))));\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    return out;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_mapdel(const char* map, const char* key) {\n")
+    r = sbAppend(r, "    if (!*map) return _K_EMPTY;\n")
+    r = sbAppend(r, "    int cnt = kr_listlen(map);\n")
+    r = sbAppend(r, "    char* out = _K_EMPTY; int first = 1;\n")
+    r = sbAppend(r, "    for (int i = 0; i < cnt - 1; i += 2) {\n")
+    r = sbAppend(r, "        char* k = kr_split(map, kr_itoa(i));\n")
+    r = sbAppend(r, "        if (strcmp(k, key) != 0) {\n")
+    r = sbAppend(r, "            char* v = kr_split(map, kr_itoa(i+1));\n")
+    r = sbAppend(r, "            if (first) { out = kr_cat(k, kr_cat(\",\", v)); first = 0; }\n")
+    r = sbAppend(r, "            else out = kr_cat(out, kr_cat(\",\", kr_cat(k, kr_cat(\",\", v))));\n")
+    r = sbAppend(r, "        }\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    return out;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_sprintf(const char* fmt, ...) {\n")
+    r = sbAppend(r, "    char buf[4096];\n")
+    r = sbAppend(r, "    va_list args;\n")
+    r = sbAppend(r, "    va_start(args, fmt);\n")
+    r = sbAppend(r, "    vsnprintf(buf, sizeof(buf), fmt, args);\n")
+    r = sbAppend(r, "    va_end(args);\n")
+    r = sbAppend(r, "    return kr_str(buf);\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_strsplit(const char* s, const char* delim) {\n")
+    r = sbAppend(r, "    return kr_splitby(s, delim);\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_listmap(const char* lst, const char* prefix, const char* suffix) {\n")
+    r = sbAppend(r, "    if (!*lst) return _K_EMPTY;\n")
+    r = sbAppend(r, "    int cnt = kr_listlen(lst);\n")
+    r = sbAppend(r, "    char* out = _K_EMPTY; int first = 1;\n")
+    r = sbAppend(r, "    for (int i = 0; i < cnt; i++) {\n")
+    r = sbAppend(r, "        char* item = kr_split(lst, kr_itoa(i));\n")
+    r = sbAppend(r, "        char* mapped = kr_cat(kr_cat(kr_str(prefix), item), suffix);\n")
+    r = sbAppend(r, "        if (first) { out = mapped; first = 0; }\n")
+    r = sbAppend(r, "        else out = kr_cat(out, kr_cat(\",\", mapped));\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    return out;\n")
+    r = sbAppend(r, "}\n\n")
+
+    r = sbAppend(r, "static char* kr_listfilter(const char* lst, const char* val) {\n")
+    r = sbAppend(r, "    if (!*lst) return _K_EMPTY;\n")
+    r = sbAppend(r, "    int cnt = kr_listlen(lst), negate = 0;\n")
+    r = sbAppend(r, "    const char* match = val;\n")
+    r = sbAppend(r, "    if (val[0] == '!') { negate = 1; match = val + 1; }\n")
+    r = sbAppend(r, "    char* out = _K_EMPTY; int first = 1;\n")
+    r = sbAppend(r, "    for (int i = 0; i < cnt; i++) {\n")
+    r = sbAppend(r, "        char* item = kr_split(lst, kr_itoa(i));\n")
+    r = sbAppend(r, "        int eq = (strcmp(item, match) == 0);\n")
+    r = sbAppend(r, "        int keep = negate ? !eq : eq;\n")
+    r = sbAppend(r, "        if (keep) {\n")
+    r = sbAppend(r, "            if (first) { out = item; first = 0; }\n")
+    r = sbAppend(r, "            else out = kr_cat(out, kr_cat(\",\", item));\n")
+    r = sbAppend(r, "        }\n")
+    r = sbAppend(r, "    }\n")
     r = sbAppend(r, "    return out;\n")
     r = sbAppend(r, "}\n\n")
 

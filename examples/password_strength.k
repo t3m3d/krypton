@@ -10,7 +10,7 @@ func hasUppercase(s) {
                 emit 1
             }
         }
-        i = i + 1
+        i += 1
     }
     emit 0
 }
@@ -24,7 +24,7 @@ func hasLowercase(s) {
                 emit 1
             }
         }
-        i = i + 1
+        i += 1
     }
     emit 0
 }
@@ -38,7 +38,7 @@ func hasDigit(s) {
                 emit 1
             }
         }
-        i = i + 1
+        i += 1
     }
     emit 0
 }
@@ -53,9 +53,9 @@ func hasSpecial(s) {
             if ch == specials[j] {
                 emit 1
             }
-            j = j + 1
+            j += 1
         }
-        i = i + 1
+        i += 1
     }
     emit 0
 }
@@ -68,7 +68,7 @@ func hasRepeat(s) {
                 emit 1
             }
         }
-        i = i + 1
+        i += 1
     }
     emit 0
 }

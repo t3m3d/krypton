@@ -44,7 +44,7 @@ just run {
             while i < n {
                 if i > 1 { sb = sbAppend(sb, ",") }
                 sb = sbAppend(sb, split(queue, i))
-                i = i + 1
+                i += 1
             }
             queue = sbToString(sb)
         } else {
@@ -67,7 +67,7 @@ just run {
                     }
                     order = order + "," + nb
                 }
-                i = i + 1
+                i += 1
             }
         }
     }

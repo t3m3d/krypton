@@ -19,7 +19,7 @@ go counter {
                     already = 1
                     break
                 }
-                j = j + 1
+                j += 1
             }
             if already == 0 {
                 // Count this character
@@ -27,14 +27,14 @@ go counter {
                 let k = 0
                 while k < len(s) {
                     if s[k] == ch {
-                        cnt = cnt + 1
+                        cnt += 1
                     }
-                    k = k + 1
+                    k += 1
                 }
                 result = result + ch + "=" + cnt + "\n"
                 counted = counted + ch
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -60,7 +60,7 @@ go counter {
             } else {
                 sb = sbAppend(sb, ch)
             }
-            i = i + 1
+            i += 1
         }
         let lastWord = sbToString(sb)
         if len(lastWord) > 0 {
@@ -87,7 +87,7 @@ go counter {
                         already = 1
                         break
                     }
-                    j = j + 1
+                    j += 1
                 }
             }
             if already == 0 {
@@ -95,9 +95,9 @@ go counter {
                 let k = 0
                 while k < total {
                     if split(words, k) == w {
-                        cnt = cnt + 1
+                        cnt += 1
                     }
-                    k = k + 1
+                    k += 1
                 }
                 result = result + w + "=" + cnt + "\n"
                 if seen == "" {
@@ -106,7 +106,7 @@ go counter {
                     seen = seen + "," + w
                 }
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -128,7 +128,7 @@ go counter {
                         already = 1
                         break
                     }
-                    j = j + 1
+                    j += 1
                 }
             }
             if already == 0 {
@@ -136,9 +136,9 @@ go counter {
                 let k = 0
                 while k < size {
                     if split(list, k) == item {
-                        cnt = cnt + 1
+                        cnt += 1
                     }
-                    k = k + 1
+                    k += 1
                 }
                 result = result + item + "=" + cnt + "\n"
                 if seen == "" {
@@ -147,7 +147,7 @@ go counter {
                     seen = seen + "," + item
                 }
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }

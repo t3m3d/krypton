@@ -24,7 +24,7 @@ go validate {
             if ch > "9" {
                 emit 0
             }
-            i = i + 1
+            i += 1
         }
         emit 1
     }
@@ -51,7 +51,7 @@ go validate {
                     }
                 }
             }
-            i = i + 1
+            i += 1
         }
         emit 1
     }
@@ -75,13 +75,13 @@ go validate {
         while i < len(s) {
             let ch = s[i]
             if ch == "_" {
-                i = i + 1
+                i += 1
             } else if ch >= "0" {
                 if ch <= "9" {
-                    i = i + 1
+                    i += 1
                 } else if ch >= "A" {
                     if ch <= "z" {
-                        i = i + 1
+                        i += 1
                     } else {
                         emit 0
                     }
@@ -90,7 +90,7 @@ go validate {
                 }
             } else if ch >= "A" {
                 if ch <= "z" {
-                    i = i + 1
+                    i += 1
                 } else {
                     emit 0
                 }
@@ -141,7 +141,7 @@ go validate {
             if s[i] == "\\" {
                 hasSlash = 1
             }
-            i = i + 1
+            i += 1
         }
         if hasDot {
             emit 1
@@ -164,7 +164,7 @@ go validate {
                     }
                 }
             }
-            i = i + 1
+            i += 1
         }
         emit 1
     }

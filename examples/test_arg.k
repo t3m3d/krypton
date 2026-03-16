@@ -5,7 +5,7 @@ just run {
   kp("len=" + srcLen)
   while i < srcLen {
     let ch = src[i]
-    i = i + 1
+    i += 1
   }
   kp("done, i=" + i)
   emit "ok"

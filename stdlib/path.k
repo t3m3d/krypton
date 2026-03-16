@@ -30,7 +30,7 @@ go path {
             } else {
                 sb = sbAppend(sb, p[i])
             }
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }
@@ -58,10 +58,10 @@ go path {
         // Skip trailing separator
         if i >= 0 {
             if p[i] == "/" {
-                i = i - 1
+                i -= 1
             }
             if p[i] == "\\" {
-                i = i - 1
+                i -= 1
             }
         }
         while i >= 0 {
@@ -71,7 +71,7 @@ go path {
             if p[i] == "\\" {
                 emit substring(p, 0, i)
             }
-            i = i - 1
+            i -= 1
         }
         emit "."
     }
@@ -90,7 +90,7 @@ go path {
                 name = substring(p, i + 1, len(p))
                 break
             }
-            i = i - 1
+            i -= 1
         }
         // Remove extension
         i = len(name) - 1
@@ -98,7 +98,7 @@ go path {
             if name[i] == "." {
                 emit substring(name, 0, i)
             }
-            i = i - 1
+            i -= 1
         }
         emit name
     }
@@ -116,7 +116,7 @@ go path {
             if p[i] == "\\" {
                 emit ""
             }
-            i = i - 1
+            i -= 1
         }
         emit ""
     }
@@ -127,12 +127,12 @@ go path {
         let i = 0
         while i < len(p) {
             if p[i] == "/" {
-                cnt = cnt + 1
+                cnt += 1
             }
             if p[i] == "\\" {
-                cnt = cnt + 1
+                cnt += 1
             }
-            i = i + 1
+            i += 1
         }
         emit cnt
     }

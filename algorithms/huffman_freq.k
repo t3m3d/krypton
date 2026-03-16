@@ -19,7 +19,7 @@ func charFrequency(text) {
         } else {
             freq = envSet(freq, ch, "" + (toInt(prev) + 1))
         }
-        i = i + 1
+        i += 1
     }
     // Print sorted by frequency (simple selection)
     let printed = ""
@@ -38,7 +38,7 @@ func charFrequency(text) {
                     alreadyPrinted = 1
                     break
                 }
-                k = k + 1
+                k += 1
             }
             if !alreadyPrinted {
                 let f = toInt(envGet(freq, ch))
@@ -47,7 +47,7 @@ func charFrequency(text) {
                     maxCh = ch
                 }
             }
-            j = j + 1
+            j += 1
         }
         if len(maxCh) > 0 {
             print("  '" + maxCh + "': " + maxFreq)

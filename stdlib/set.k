@@ -20,7 +20,7 @@ go set {
             if split(s, i) == item {
                 emit s
             }
-            i = i + 1
+            i += 1
         }
         emit s + "," + item
     }
@@ -39,7 +39,7 @@ go set {
                     result = result + "," + elem
                 }
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -55,7 +55,7 @@ go set {
             if split(s, i) == item {
                 emit 1
             }
-            i = i + 1
+            i += 1
         }
         emit 0
     }
@@ -78,7 +78,7 @@ go set {
         let i = 0
         while i < bSize {
             result = setAdd(result, split(b, i))
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -103,7 +103,7 @@ go set {
                     result = result + "," + item
                 }
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -125,7 +125,7 @@ go set {
                     result = result + "," + item
                 }
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -141,7 +141,7 @@ go set {
             if setContains(b, split(a, i)) == 0 {
                 emit 0
             }
-            i = i + 1
+            i += 1
         }
         emit 1
     }

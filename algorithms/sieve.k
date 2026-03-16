@@ -6,7 +6,7 @@ func sieve(limit) {
     let i = 2
     while i <= limit {
         isPrime = envSet(isPrime, "" + i, "1")
-        i = i + 1
+        i += 1
     }
 
     i = 2
@@ -18,7 +18,7 @@ func sieve(limit) {
                 j = j + i
             }
         }
-        i = i + 1
+        i += 1
     }
 
     // Collect primes
@@ -31,9 +31,9 @@ func sieve(limit) {
                 primes = primes + ","
             }
             primes = primes + "" + i
-            count = count + 1
+            count += 1
         }
-        i = i + 1
+        i += 1
     }
     print("Found " + count + " primes up to " + limit)
     emit primes
