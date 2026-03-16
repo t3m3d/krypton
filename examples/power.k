@@ -6,7 +6,7 @@ func powerSimple(base, exp) {
     let i = 0
     while i < exp {
         result = result * base
-        i = i + 1
+        i += 1
     }
     emit result
 }
@@ -51,7 +51,7 @@ just run {
     let i = 0
     while i <= 15 {
         kp("  2^" + i + " = " + powerFast(2, i))
-        i = i + 1
+        i += 1
     }
     kp("")
 
@@ -59,7 +59,7 @@ just run {
     i = 0
     while i <= 10 {
         kp("  3^" + i + " = " + powerFast(3, i))
-        i = i + 1
+        i += 1
     }
     kp("")
 

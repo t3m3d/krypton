@@ -26,9 +26,9 @@ func lcsLength(a, b) {
                     dp = envSet(dp, key, "" + left)
                 }
             }
-            j = j + 1
+            j += 1
         }
-        i = i + 1
+        i += 1
     }
 
     emit toInt(envGet(dp, "" + m + "_" + n))

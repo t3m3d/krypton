@@ -59,7 +59,7 @@ just run {
         while len(bStr) < 8 { bStr = bStr + " " }
 
         kp(wStr + "  " + hStr + "  " + bStr + " " + cat)
-        i = i + 1
+        i += 1
     }
 
     kp("")

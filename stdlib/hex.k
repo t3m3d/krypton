@@ -48,7 +48,7 @@ go hex {
                     result = result + toInt(ch) - 55
                 }
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -96,7 +96,7 @@ go hex {
             if valid == 0 {
                 emit 0
             }
-            i = i + 1
+            i += 1
         }
         emit 1
     }

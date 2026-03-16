@@ -38,7 +38,7 @@ just run {
         let b = toInt(split(pairs, i * 2 + 1))
         print("  gcd(" + a + ", " + b + ") = " + gcd(a, b))
         print("  lcm(" + a + ", " + b + ") = " + lcm(a, b))
-        i = i + 1
+        i += 1
     }
 
     print("")

@@ -8,7 +8,7 @@ func encode(s) {
         let ch = s[i]
         let cnt = 1
         while i + cnt < len(s) && s[i + cnt] == ch {
-            cnt = cnt + 1
+            cnt += 1
         }
         if cnt > 1 {
             sb = sbAppend(sb, "" + cnt)
@@ -29,16 +29,16 @@ func decode(s) {
         while i < len(s) && s[i] >= "0" && s[i] <= "9" {
             num = num * 10 + toInt(s[i])
             hasNum = 1
-            i = i + 1
+            i += 1
         }
         if i < len(s) {
             if !hasNum { num = 1 }
             let j = 0
             while j < num {
                 sb = sbAppend(sb, s[i])
-                j = j + 1
+                j += 1
             }
-            i = i + 1
+            i += 1
         }
     }
     emit sbToString(sb)
@@ -57,6 +57,6 @@ just run {
         } else {
             print("  [FAIL] Mismatch!")
         }
-        i = i + 1
+        i += 1
     }
 }

@@ -36,7 +36,7 @@ go random {
             } else {
                 result = result + "," + val
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -67,10 +67,10 @@ go random {
                 } else {
                     sb = sbAppend(sb, split(arr, k))
                 }
-                k = k + 1
+                k += 1
             }
             arr = sbToString(sb)
-            i = i - 1
+            i -= 1
         }
         emit arr
     }
@@ -93,7 +93,7 @@ go random {
             current = nextRandom(current)
             let idx = current % 26
             sb = sbAppend(sb, chars[idx])
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }

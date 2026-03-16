@@ -11,7 +11,7 @@ func sortString(s) {
         } else {
             arr = arr + "," + s[i]
         }
-        i = i + 1
+        i += 1
     }
 
     let size = count(arr)
@@ -35,12 +35,12 @@ func sortString(s) {
                     } else {
                         sb = sbAppend(sb, split(arr, j))
                     }
-                    j = j + 1
+                    j += 1
                 }
                 arr = sbToString(sb)
                 swapped = 1
             }
-            i = i + 1
+            i += 1
         }
     }
 
@@ -49,7 +49,7 @@ func sortString(s) {
     i = 0
     while i < size {
         result = sbAppend(result, split(arr, i))
-        i = i + 1
+        i += 1
     }
     emit sbToString(result)
 }
@@ -69,14 +69,14 @@ func toLower(s) {
                 found = 1
                 break
             }
-            j = j + 1
+            j += 1
         }
         if found == 0 {
             if ch != " " {
                 sb = sbAppend(sb, ch)
             }
         }
-        i = i + 1
+        i += 1
     }
     emit sbToString(sb)
 }

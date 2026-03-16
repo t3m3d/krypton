@@ -25,7 +25,7 @@ go builder {
         let i = 0
         while i < indent {
             b2 = sbAppend(b2, "    ")
-            i = i + 1
+            i += 1
         }
         b2 = sbAppend(b2, text)
         emit sbAppend(b2, "\n")
@@ -55,7 +55,7 @@ go builder {
         while i < n {
             b2 = sbAppend(b2, text)
             b2 = sbAppend(b2, "\n")
-            i = i + 1
+            i += 1
         }
         emit b2
     }
@@ -66,7 +66,7 @@ go builder {
         let i = 0
         while i < len(title) + 6 {
             border = border + "="
-            i = i + 1
+            i += 1
         }
         let b2 = sbAppend(b, border + "\n")
         b2 = sbAppend(b2, "   " + title + "\n")

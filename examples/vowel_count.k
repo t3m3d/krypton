@@ -45,7 +45,7 @@ func analyzeText(text) {
         } else {
             punct = punct + 1
         }
-        i = i + 1
+        i += 1
     }
     kp("  Vowels:     " + vowels)
     kp("  Consonants: " + consonants)
@@ -62,7 +62,7 @@ func vowelPositions(text) {
         if isVowel(text[i]) {
             sb = sbAppend(sb, "" + i + ":" + text[i] + " ")
         }
-        i = i + 1
+        i += 1
     }
     emit sbToString(sb)
 }
@@ -81,7 +81,7 @@ just run {
         analyzeText(text)
         kp("  Vowel positions: " + vowelPositions(text))
         kp("")
-        i = i + 1
+        i += 1
     }
     emit "ok"
 }

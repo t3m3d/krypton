@@ -9,10 +9,10 @@ func rightTriangle(n) {
         let j = 0
         while j < i {
             sb = sbAppend(sb, "*")
-            j = j + 1
+            j += 1
         }
         kp(sbToString(sb))
-        i = i + 1
+        i += 1
     }
 }
 
@@ -24,10 +24,10 @@ func invertedTriangle(n) {
         let j = 0
         while j < i {
             sb = sbAppend(sb, "*")
-            j = j + 1
+            j += 1
         }
         kp(sbToString(sb))
-        i = i - 1
+        i -= 1
     }
 }
 
@@ -40,15 +40,15 @@ func centeredTriangle(n) {
         let j = 0
         while j < spaces {
             sb = sbAppend(sb, " ")
-            j = j + 1
+            j += 1
         }
         j = 0
         while j < 2 * i - 1 {
             sb = sbAppend(sb, "*")
-            j = j + 1
+            j += 1
         }
         kp(sbToString(sb))
-        i = i + 1
+        i += 1
     }
 }
 
@@ -60,10 +60,10 @@ func numberTriangle(n) {
         let j = 1
         while j <= i {
             sb = sbAppend(sb, "" + j)
-            j = j + 1
+            j += 1
         }
         kp(sbToString(sb))
-        i = i + 1
+        i += 1
     }
 }
 
@@ -78,7 +78,7 @@ func pascalTriangle(n) {
         let j = 0
         while j < spaces {
             sb = sbAppend(sb, " ")
-            j = j + 1
+            j += 1
         }
         let rSize = count(row)
         j = 0
@@ -87,7 +87,7 @@ func pascalTriangle(n) {
                 sb = sbAppend(sb, " ")
             }
             sb = sbAppend(sb, split(row, j))
-            j = j + 1
+            j += 1
         }
         kp(sbToString(sb))
 
@@ -97,11 +97,11 @@ func pascalTriangle(n) {
         while j < rSize - 1 {
             let sum = toInt(split(row, j)) + toInt(split(row, j + 1))
             newRow = newRow + "," + sum
-            j = j + 1
+            j += 1
         }
         newRow = newRow + ",1"
         row = newRow
-        i = i + 1
+        i += 1
     }
 }
 

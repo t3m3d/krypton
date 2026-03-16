@@ -10,7 +10,7 @@ func fibDP(n) {
         let curr = prev1 + prev2
         prev2 = prev1
         prev1 = curr
-        i = i + 1
+        i += 1
     }
     emit prev1
 }

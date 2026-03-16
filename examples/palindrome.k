@@ -19,7 +19,7 @@ func reverseStr(s) {
     let i = len(s) - 1
     while i >= 0 {
         sb = sbAppend(sb, s[i])
-        i = i - 1
+        i -= 1
     }
     emit sbToString(sb)
 }
@@ -39,7 +39,7 @@ just run {
         } else {
             kp("  '" + word + "' -> NOT a palindrome (reversed: " + reversed + ")")
         }
-        i = i + 1
+        i += 1
     }
     emit "ok"
 }

@@ -10,7 +10,7 @@ func permute(prefix, remaining) {
             let ch = remaining[i]
             let rest = substring(remaining, 0, i) + substring(remaining, i + 1, len(remaining))
             permute(prefix + ch, rest)
-            i = i + 1
+            i += 1
         }
     }
 }

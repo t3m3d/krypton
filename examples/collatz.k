@@ -69,7 +69,7 @@ just run {
             longestLen = cLen
             longestN = n
         }
-        n = n + 1
+        n += 1
     }
     kp("")
     kp("Longest sequence: n=" + longestN + " with " + longestLen + " steps")

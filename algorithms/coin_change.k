@@ -22,12 +22,12 @@ func minCoins(coins, amount) {
                     }
                 }
             }
-            j = j + 1
+            j += 1
         }
         if best <= amount {
             dp = envSet(dp, "" + i, "" + best)
         }
-        i = i + 1
+        i += 1
     }
 
     let result = envGet(dp, "" + amount)
@@ -50,6 +50,6 @@ just run {
         } else {
             print("  " + amt + " cents: impossible")
         }
-        i = i + 1
+        i += 1
     }
 }

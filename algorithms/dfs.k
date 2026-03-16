@@ -40,7 +40,7 @@ just run {
             while i < n - 1 {
                 if i > 0 { sb = sbAppend(sb, ",") }
                 sb = sbAppend(sb, split(stack, i))
-                i = i + 1
+                i += 1
             }
             stack = sbToString(sb)
         } else {
@@ -69,7 +69,7 @@ just run {
                             stack = nb
                         }
                     }
-                    i = i - 1
+                    i -= 1
                 }
             }
         }

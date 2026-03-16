@@ -12,7 +12,7 @@ func findLastComma(s) {
         if s[i] == "," {
             emit i
         }
-        i = i - 1
+        i -= 1
     }
     emit -1
 }
@@ -47,7 +47,7 @@ func tokType(tok) {
         if tok[i] == ":" {
             emit substring(tok, 0, i)
         }
-        i = i + 1
+        i += 1
     }
     emit tok
 }
@@ -58,7 +58,7 @@ func tokVal(tok) {
         if tok[i] == ":" {
             emit substring(tok, i + 1, len(tok))
         }
-        i = i + 1
+        i += 1
     }
     emit ""
 }
@@ -94,7 +94,7 @@ func expandEscapes(s) {
             start = i
         }
         else {
-            i = i + 1
+            i += 1
         }
     }
     if i > start {
@@ -118,7 +118,7 @@ func isAlphaNum(c) {
 func readNumber(text, i) {
     let start = i
     while i < len(text) && isDigit(text[i]) {
-        i = i + 1
+        i += 1
     }
     emit substring(text, start, i) + "," + i
 }
@@ -126,13 +126,13 @@ func readNumber(text, i) {
 func readIdent(text, i) {
     let start = i
     while i < len(text) && isAlphaNum(text[i]) {
-        i = i + 1
+        i += 1
     }
     emit substring(text, start, i) + "," + i
 }
 
 func readString(text, i) {
-    i = i + 1
+    i += 1
     let start = i
     let s = ""
     while i < len(text) && text[i] != "\"" {
@@ -145,7 +145,7 @@ func readString(text, i) {
             start = i
         }
         else {
-            i = i + 1
+            i += 1
         }
     }
     if i > start {
@@ -156,7 +156,7 @@ func readString(text, i) {
 
 func skipWS(text, i) {
     while i < len(text) && (text[i] == " " || text[i] == "\n" || text[i] == "\t" || text[i] == "\r") {
-        i = i + 1
+        i += 1
     }
     emit i
 }
@@ -164,14 +164,14 @@ func skipWS(text, i) {
 func skipComment(text, i) {
     if i + 1 < len(text) && text[i] == "/" && text[i + 1] == "/" {
         while i < len(text) && text[i] != "\n" {
-            i = i + 1
+            i += 1
         }
         emit i
     }
     else if i + 1 < len(text) && text[i] == "/" && text[i + 1] == "*" {
         i = i + 2
         while i + 1 < len(text) && (text[i] != "*" || text[i + 1] != "/") {
-            i = i + 1
+            i += 1
         }
         emit i + 2
     }
@@ -242,7 +242,7 @@ func tokenize(text) {
         }
         else if c == "+" {
             out = out + "PLUS\n"
-            i = i + 1
+            i += 1
         }
         else if c == "-" {
             if i + 1 < len(text) && text[i + 1] == ">" {
@@ -251,52 +251,52 @@ func tokenize(text) {
             }
             else {
                 out = out + "MINUS\n"
-                i = i + 1
+                i += 1
             }
         }
         else if c == "*" {
             out = out + "STAR\n"
-            i = i + 1
+            i += 1
         }
         else if c == "/" {
             out = out + "SLASH\n"
-            i = i + 1
+            i += 1
         }
         else if c == "(" {
             out = out + "LPAREN\n"
-            i = i + 1
+            i += 1
         }
         else if c == ")" {
             out = out + "RPAREN\n"
-            i = i + 1
+            i += 1
         }
         else if c == "{" {
             out = out + "LBRACE\n"
-            i = i + 1
+            i += 1
         }
         else if c == "}" {
             out = out + "RBRACE\n"
-            i = i + 1
+            i += 1
         }
         else if c == "[" {
             out = out + "LBRACK\n"
-            i = i + 1
+            i += 1
         }
         else if c == "]" {
             out = out + "RBRACK\n"
-            i = i + 1
+            i += 1
         }
         else if c == ":" {
             out = out + "COLON\n"
-            i = i + 1
+            i += 1
         }
         else if c == ";" {
             out = out + "SEMI\n"
-            i = i + 1
+            i += 1
         }
         else if c == "," {
             out = out + "COMMA\n"
-            i = i + 1
+            i += 1
         }
         else if c == "=" {
             if i + 1 < len(text) && text[i + 1] == "=" {
@@ -305,7 +305,7 @@ func tokenize(text) {
             }
             else {
                 out = out + "ASSIGN\n"
-                i = i + 1
+                i += 1
             }
         }
         else if c == "!" {
@@ -315,7 +315,7 @@ func tokenize(text) {
             }
             else {
                 out = out + "BANG\n"
-                i = i + 1
+                i += 1
             }
         }
         else if c == "<" {
@@ -325,7 +325,7 @@ func tokenize(text) {
             }
             else {
                 out = out + "LT\n"
-                i = i + 1
+                i += 1
             }
         }
         else if c == ">" {
@@ -335,7 +335,7 @@ func tokenize(text) {
             }
             else {
                 out = out + "GT\n"
-                i = i + 1
+                i += 1
             }
         }
         else if c == "&" {
@@ -344,7 +344,7 @@ func tokenize(text) {
                 i = i + 2
             }
             else {
-                i = i + 1
+                i += 1
             }
         }
         else if c == "|" {
@@ -353,11 +353,11 @@ func tokenize(text) {
                 i = i + 2
             }
             else {
-                i = i + 1
+                i += 1
             }
         }
         else {
-            i = i + 1
+            i += 1
         }
     }
 
@@ -477,20 +477,20 @@ func scanFunctions(tokens, ntoks) {
             while i < ntoks {
                 let t = tokAt(tokens, i)
                 if t == "LBRACE" {
-                    depth = depth + 1
+                    depth += 1
                 }
                 else if t == "RBRACE" {
-                    depth = depth - 1
+                    depth -= 1
                     if depth == 0 {
-                        i = i + 1
+                        i += 1
                         break
                     }
                 }
-                i = i + 1
+                i += 1
             }
         }
         else {
-            i = i + 1
+            i += 1
         }
     }
     emit table
@@ -510,7 +510,7 @@ func funcLookup(table, name) {
                 if line[j] == "~" && t1 == -1 {
                     t1 = j
                 }
-                j = j + 1
+                j += 1
             }
             if t1 > 0 {
                 let fName = substring(line, 0, t1)
@@ -520,7 +520,7 @@ func funcLookup(table, name) {
             }
             lineStart = i + 1
         }
-        i = i + 1
+        i += 1
     }
     emit ""
 }
@@ -531,7 +531,7 @@ func funcParamCount(info) {
         if info[i] == "~" {
             emit toInt(substring(info, 0, i))
         }
-        i = i + 1
+        i += 1
     }
     emit 0
 }
@@ -550,7 +550,7 @@ func funcParams(info) {
                 t2 = i
             }
         }
-        i = i + 1
+        i += 1
     }
     if t1 >= 0 && t2 >= 0 {
         emit substring(info, t1 + 1, t2)
@@ -566,7 +566,7 @@ func funcStart(info) {
         if info[i] == "~" {
             last = i
         }
-        i = i + 1
+        i += 1
     }
     if last >= 0 {
         emit toInt(substring(info, last + 1, len(info)))
@@ -584,10 +584,10 @@ func getNthParam(params, idx) {
             if n == idx {
                 emit substring(params, start, i)
             }
-            n = n + 1
+            n += 1
             start = i + 1
         }
-        i = i + 1
+        i += 1
     }
     emit ""
 }
@@ -604,7 +604,7 @@ func findEntry(tokens, ntoks) {
         if (t0 == "KW:go" || t0 == "KW:just") && t1 == "ID:run" && t2 == "LBRACE" {
             emit i + 2
         }
-        i = i + 1
+        i += 1
     }
     print("ERROR: no 'go run' or 'just run' block found")
     emit -1
@@ -620,15 +620,15 @@ func skipBlock(tokens, pos) {
     while i < ntoks {
         let t = tokAt(tokens, i)
         if t == "LBRACE" {
-            depth = depth + 1
+            depth += 1
         }
         else if t == "RBRACE" {
-            depth = depth - 1
+            depth -= 1
             if depth == 0 {
                 emit i + 1
             }
         }
-        i = i + 1
+        i += 1
     }
     emit i
 }
@@ -1112,10 +1112,10 @@ func getArg(args, idx) {
             if n == idx {
                 emit substring(args, start, i)
             }
-            n = n + 1
+            n += 1
             start = i + 1
         }
-        i = i + 1
+        i += 1
     }
     emit ""
 }
@@ -1137,20 +1137,20 @@ func getResultVal(r) {
     // skip past tag| (index 2), find pos end
     let i = 2
     while i < len(r) && r[i] != "|" {
-        i = i + 1
+        i += 1
     }
     // i is at pipe after pos, skip to vlen
     let vlenStart = i + 1
     i = vlenStart
     while i < len(r) && r[i] != "|" {
-        i = i + 1
+        i += 1
     }
     let vlen = toInt(substring(r, vlenStart, i))
     // skip past elen
     let elenStart = i + 1
     i = elenStart
     while i < len(r) && r[i] != "|" {
-        i = i + 1
+        i += 1
     }
     let dataStart = i + 1
     emit substring(r, dataStart, dataStart + vlen)
@@ -1160,18 +1160,18 @@ func getResultEnv(r) {
     // tag|pos|vlen|elen|data...
     let i = 2
     while i < len(r) && r[i] != "|" {
-        i = i + 1
+        i += 1
     }
     let vlenStart = i + 1
     i = vlenStart
     while i < len(r) && r[i] != "|" {
-        i = i + 1
+        i += 1
     }
     let vlen = toInt(substring(r, vlenStart, i))
     let elenStart = i + 1
     i = elenStart
     while i < len(r) && r[i] != "|" {
-        i = i + 1
+        i += 1
     }
     let elen = toInt(substring(r, elenStart, i))
     let dataStart = i + 1

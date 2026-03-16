@@ -15,7 +15,7 @@ func maxSubarray(list) {
         if maxEndingHere > maxSoFar {
             maxSoFar = maxEndingHere
         }
-        i = i + 1
+        i += 1
     }
     emit maxSoFar
 }

@@ -17,7 +17,7 @@ func formatWithCommas(n) {
             }
         }
         sb = sbAppend(sb, s[i])
-        i = i + 1
+        i += 1
     }
     emit sbToString(sb)
 }
@@ -87,7 +87,7 @@ just run {
     while i < total {
         let n = toInt(split(nums, i))
         kp("  " + n + " -> " + formatWithCommas(n))
-        i = i + 1
+        i += 1
     }
     kp("")
 
@@ -95,7 +95,7 @@ just run {
     i = 1
     while i <= 25 {
         kp("  " + toOrdinal(i))
-        i = i + 1
+        i += 1
     }
     kp("")
 
@@ -103,7 +103,7 @@ just run {
     i = 0
     while i <= 20 {
         kp("  " + i + " -> " + numberToWords(i))
-        i = i + 1
+        i += 1
     }
     kp("")
 
@@ -114,7 +114,7 @@ just run {
     while i < total {
         let n = toInt(split(sizes, i))
         kp("  " + n + " -> " + formatBytes(n))
-        i = i + 1
+        i += 1
     }
     emit "ok"
 }

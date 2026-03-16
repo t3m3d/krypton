@@ -14,16 +14,16 @@ func findPattern(text, pattern) {
                 match = 0
                 break
             }
-            j = j + 1
+            j += 1
         }
         if match {
             if count > 0 {
                 results = results + ","
             }
             results = results + "" + i
-            count = count + 1
+            count += 1
         }
-        i = i + 1
+        i += 1
     }
     emit results
 }
@@ -42,7 +42,7 @@ just run {
         while i < n {
             let pos = toInt(split(positions, i))
             print("  Position " + pos + ": " + substring(text, pos, pos + len(pattern)))
-            i = i + 1
+            i += 1
         }
     } else {
         print("Pattern not found")

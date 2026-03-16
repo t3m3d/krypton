@@ -24,7 +24,7 @@ go map {
                     eqPos = j
                     break
                 }
-                j = j + 1
+                j += 1
             }
             let lineKey = substring(line, 0, eqPos)
             if lineKey == key {
@@ -35,7 +35,7 @@ go map {
                     sb = sbAppend(sb, line + "\n")
                 }
             }
-            i = i + 1
+            i += 1
         }
         if found == 0 {
             sb = sbAppend(sb, key + "=" + val + "\n")
@@ -56,13 +56,13 @@ go map {
                     eqPos = j
                     break
                 }
-                j = j + 1
+                j += 1
             }
             let lineKey = substring(line, 0, eqPos)
             if lineKey == key {
                 emit substring(line, eqPos + 1, len(line))
             }
-            i = i + 1
+            i += 1
         }
         emit ""
     }
@@ -76,7 +76,7 @@ go map {
             if startsWith(line, key + "=") {
                 emit 1
             }
-            i = i + 1
+            i += 1
         }
         emit 0
     }
@@ -93,7 +93,7 @@ go map {
                     sb = sbAppend(sb, line + "\n")
                 }
             }
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }
@@ -109,9 +109,9 @@ go map {
         while i < lines {
             let line = getLine(m, i)
             if len(line) > 0 {
-                cnt = cnt + 1
+                cnt += 1
             }
-            i = i + 1
+            i += 1
         }
         emit cnt
     }
@@ -129,7 +129,7 @@ go map {
                     if line[j] == "=" {
                         break
                     }
-                    j = j + 1
+                    j += 1
                 }
                 let key = substring(line, 0, j)
                 if result == "" {
@@ -138,7 +138,7 @@ go map {
                     result = result + "," + key
                 }
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -152,7 +152,7 @@ go map {
             if len(line) > 0 {
                 kp(line)
             }
-            i = i + 1
+            i += 1
         }
     }
 }

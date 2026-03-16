@@ -9,12 +9,12 @@ func editDistance(a, b) {
     let i = 0
     while i <= m {
         dp = envSet(dp, "" + i + "_0", "" + i)
-        i = i + 1
+        i += 1
     }
     let j = 0
     while j <= n {
         dp = envSet(dp, "0_" + j, "" + j)
-        j = j + 1
+        j += 1
     }
 
     // Fill DP table
@@ -35,9 +35,9 @@ func editDistance(a, b) {
                 if rep < best { best = rep }
                 dp = envSet(dp, key, "" + best)
             }
-            j = j + 1
+            j += 1
         }
-        i = i + 1
+        i += 1
     }
 
     emit toInt(envGet(dp, "" + m + "_" + n))
@@ -53,6 +53,6 @@ just run {
         let a = split(pairs, i * 2)
         let b = split(pairs, i * 2 + 1)
         print("  d('" + a + "', '" + b + "') = " + editDistance(a, b))
-        i = i + 1
+        i += 1
     }
 }

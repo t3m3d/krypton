@@ -12,7 +12,7 @@ func encryptChar(ch, shift) {
             let newIdx = (i + shift) % 26
             emit upper[newIdx]
         }
-        i = i + 1
+        i += 1
     }
 
     // Check lowercase
@@ -22,7 +22,7 @@ func encryptChar(ch, shift) {
             let newIdx = (i + shift) % 26
             emit lower[newIdx]
         }
-        i = i + 1
+        i += 1
     }
 
     // Non-letter characters pass through
@@ -34,7 +34,7 @@ func encrypt(text, shift) {
     let i = 0
     while i < len(text) {
         sb = sbAppend(sb, encryptChar(text[i], shift))
-        i = i + 1
+        i += 1
     }
     emit sbToString(sb)
 }

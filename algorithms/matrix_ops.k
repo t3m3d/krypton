@@ -15,7 +15,7 @@ func matSet(mat, cols, row, col, val, totalSize) {
         } else {
             sb = sbAppend(sb, split(mat, i))
         }
-        i = i + 1
+        i += 1
     }
     emit sbToString(sb)
 }
@@ -29,7 +29,7 @@ func matMul(a, aRows, aCols, b, bCols) {
     while i < size {
         if i > 0 { result = result + "," }
         result = result + "0"
-        i = i + 1
+        i += 1
     }
 
     i = 0
@@ -40,12 +40,12 @@ func matMul(a, aRows, aCols, b, bCols) {
             let k = 0
             while k < aCols {
                 sum = sum + matGet(a, aCols, i, k) * matGet(b, bCols, k, j)
-                k = k + 1
+                k += 1
             }
             result = matSet(result, bCols, i, j, sum, size)
-            j = j + 1
+            j += 1
         }
-        i = i + 1
+        i += 1
     }
     emit result
 }
@@ -59,11 +59,11 @@ func printMat(mat, rows, cols) {
         while j < cols {
             if j > 0 { sb = sbAppend(sb, ", ") }
             sb = sbAppend(sb, "" + matGet(mat, cols, i, j))
-            j = j + 1
+            j += 1
         }
         sb = sbAppend(sb, "]")
         print(sbToString(sb))
-        i = i + 1
+        i += 1
     }
 }
 

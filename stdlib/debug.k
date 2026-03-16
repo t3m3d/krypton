@@ -26,7 +26,7 @@ go debug {
         while i < limit {
             let ch = s[i]
             kp("  [" + i + "] '" + ch + "'")
-            i = i + 1
+            i += 1
         }
     }
 
@@ -60,7 +60,7 @@ go debug {
         let i = 0
         while i < size {
             kp("  [" + i + "] = " + split(list, i))
-            i = i + 1
+            i += 1
         }
         kp("  (size: " + size + ")")
     }
@@ -73,7 +73,7 @@ go debug {
         while i < lines {
             let num = i + 1
             kp("  " + num + ": " + getLine(text, i))
-            i = i + 1
+            i += 1
         }
         kp("  (lines: " + lines + ")")
     }

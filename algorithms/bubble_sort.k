@@ -13,7 +13,7 @@ func listSwap(list, i, j, n) {
         } else {
             sb = sbAppend(sb, split(list, k))
         }
-        k = k + 1
+        k += 1
     }
     emit sbToString(sb)
 }
@@ -29,9 +29,9 @@ func bubbleSort(list) {
             if a > b {
                 list = listSwap(list, j, j + 1, n)
             }
-            j = j + 1
+            j += 1
         }
-        i = i + 1
+        i += 1
     }
     emit list
 }

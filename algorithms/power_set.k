@@ -7,7 +7,7 @@ func powerSet(elements) {
     let i = 0
     while i < n {
         total = total * 2
-        i = i + 1
+        i += 1
     }
 
     print("Power set of {" + elements + "} (" + total + " subsets):")
@@ -24,14 +24,14 @@ func powerSet(elements) {
             let j = 0
             while j < i {
                 bit = bit / 2
-                j = j + 1
+                j += 1
             }
             if bit % 2 == 1 {
                 if !first { sb = sbAppend(sb, ",") }
                 sb = sbAppend(sb, elements[i])
                 first = 0
             }
-            i = i + 1
+            i += 1
         }
         sb = sbAppend(sb, "}")
         print("  " + sbToString(sb))

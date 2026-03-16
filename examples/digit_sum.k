@@ -38,7 +38,7 @@ func countDigits(n) {
     if num < 0 { num = 0 - num }
     let cnt = 0
     while num > 0 {
-        cnt = cnt + 1
+        cnt += 1
         num = num / 10
     }
     emit cnt
@@ -66,7 +66,7 @@ just run {
     while i < total {
         let n = toInt(split(nums, i))
         kp("  " + n + " -> digit sum: " + digitSum(n) + ", digital root: " + digitalRoot(n))
-        i = i + 1
+        i += 1
     }
     kp("")
 
@@ -75,7 +75,7 @@ just run {
     while i < total {
         let n = toInt(split(nums, i))
         kp("  " + n + " -> digit product: " + digitProduct(n))
-        i = i + 1
+        i += 1
     }
     kp("")
 
@@ -91,7 +91,7 @@ just run {
             isPalin = "yes"
         }
         kp("  " + n + " -> " + rev + " (palindrome: " + isPalin + ")")
-        i = i + 1
+        i += 1
     }
     kp("")
 
@@ -103,7 +103,7 @@ just run {
         if digitSum(n) == 10 {
             sb = sbAppend(sb, "" + n + " ")
         }
-        n = n + 1
+        n += 1
     }
     kp("  " + sbToString(sb))
     emit "ok"

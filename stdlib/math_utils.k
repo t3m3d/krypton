@@ -32,8 +32,8 @@ go math_utils {
         let result = 1
         let i = 0
         while i < exp {
-            result = result * base
-            i = i + 1
+            result *= base
+            i += 1
         }
         emit result
     }
@@ -105,7 +105,7 @@ go math_utils {
             let temp = a + b
             a = b
             b = temp
-            i = i + 1
+            i += 1
         }
         emit b
     }
@@ -129,7 +129,7 @@ go math_utils {
         let num = abs(n)
         let cnt = 0
         while num > 0 {
-            cnt = cnt + 1
+            cnt += 1
             num = num / 10
         }
         emit cnt

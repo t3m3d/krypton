@@ -6,7 +6,7 @@ func reverseSimple(s) {
     let i = len(s) - 1
     while i >= 0 {
         sb = sbAppend(sb, s[i])
-        i = i - 1
+        i -= 1
     }
     emit sbToString(sb)
 }
@@ -30,7 +30,7 @@ func reverseWords(sentence) {
         } else {
             sb = sbAppend(sb, sentence[i])
         }
-        i = i + 1
+        i += 1
     }
     let lastWord = sbToString(sb)
     if len(lastWord) > 0 {
@@ -50,7 +50,7 @@ func reverseWords(sentence) {
             result = sbAppend(result, " ")
         }
         result = sbAppend(result, split(words, j))
-        j = j - 1
+        j -= 1
     }
     emit sbToString(result)
 }
@@ -67,7 +67,7 @@ func reverseEachWord(sentence) {
         } else {
             wordBuf = sbAppend(wordBuf, sentence[i])
         }
-        i = i + 1
+        i += 1
     }
     sb = sbAppend(sb, reverseSimple(sbToString(wordBuf)))
     emit sbToString(sb)

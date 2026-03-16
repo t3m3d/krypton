@@ -27,7 +27,7 @@ go convert {
             if s[i] == "1" {
                 result = result + 1
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -70,7 +70,7 @@ go convert {
                     result = result + toInt(ch) - toInt("A") + 10
                 }
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -120,12 +120,12 @@ go convert {
                     found = 1
                     break
                 }
-                j = j + 1
+                j += 1
             }
             if found == 0 {
                 sb = sbAppend(sb, ch)
             }
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }

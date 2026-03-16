@@ -11,7 +11,7 @@ go search {
             if split(list, i) == target {
                 emit i
             }
-            i = i + 1
+            i += 1
         }
         emit 0 - 1
     }
@@ -76,9 +76,9 @@ go search {
         let i = 0
         while i < size {
             if split(list, i) == target {
-                cnt = cnt + 1
+                cnt += 1
             }
-            i = i + 1
+            i += 1
         }
         emit cnt
     }
@@ -96,7 +96,7 @@ go search {
                     result = result + "," + i
                 }
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -113,7 +113,7 @@ go search {
                 minVal = val
                 minIdx = i
             }
-            i = i + 1
+            i += 1
         }
         emit minIdx
     }
@@ -130,7 +130,7 @@ go search {
                 maxVal = val
                 maxIdx = i
             }
-            i = i + 1
+            i += 1
         }
         emit maxIdx
     }

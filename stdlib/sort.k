@@ -19,7 +19,7 @@ go sort {
             } else {
                 sb = sbAppend(sb, split(list, k))
             }
-            k = k + 1
+            k += 1
         }
         emit sbToString(sb)
     }
@@ -37,9 +37,9 @@ go sort {
                 if a > b {
                     sorted = listSwap(sorted, j, j + 1)
                 }
-                j = j + 1
+                j += 1
             }
-            i = i + 1
+            i += 1
         }
         emit sorted
     }
@@ -56,12 +56,12 @@ go sort {
                 if toInt(split(sorted, j)) < toInt(split(sorted, minIdx)) {
                     minIdx = j
                 }
-                j = j + 1
+                j += 1
             }
             if minIdx != i {
                 sorted = listSwap(sorted, i, minIdx)
             }
-            i = i + 1
+            i += 1
         }
         emit sorted
     }
@@ -96,13 +96,13 @@ go sort {
                 } else {
                     newResult = newResult + "," + split(result, j)
                 }
-                j = j + 1
+                j += 1
             }
             if inserted == 0 {
                 newResult = newResult + "," + val
             }
             result = newResult
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -115,7 +115,7 @@ go sort {
             if toInt(split(list, i)) > toInt(split(list, i + 1)) {
                 emit 0
             }
-            i = i + 1
+            i += 1
         }
         emit 1
     }
@@ -130,7 +130,7 @@ go sort {
             if val < minVal {
                 minVal = val
             }
-            i = i + 1
+            i += 1
         }
         emit minVal
     }
@@ -145,7 +145,7 @@ go sort {
             if val > maxVal {
                 maxVal = val
             }
-            i = i + 1
+            i += 1
         }
         emit maxVal
     }

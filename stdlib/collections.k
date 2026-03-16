@@ -19,7 +19,7 @@ go collections {
             } else {
                 result = result + "," + val
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -37,7 +37,7 @@ go collections {
             } else {
                 result = result + "," + sq
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -54,7 +54,7 @@ go collections {
             } else {
                 result = result + "," + val
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -73,7 +73,7 @@ go collections {
                     result = result + "," + val
                 }
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -92,7 +92,7 @@ go collections {
                     result = result + "," + val
                 }
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -111,7 +111,7 @@ go collections {
                     result = result + "," + val
                 }
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -123,7 +123,7 @@ go collections {
         let i = 0
         while i < size {
             total = total + toInt(split(list, i))
-            i = i + 1
+            i += 1
         }
         emit total
     }
@@ -135,7 +135,7 @@ go collections {
         let i = 0
         while i < size {
             product = product * toInt(split(list, i))
-            i = i + 1
+            i += 1
         }
         emit product
     }
@@ -148,7 +148,7 @@ go collections {
             if toInt(split(list, i)) <= 0 {
                 emit 0
             }
-            i = i + 1
+            i += 1
         }
         emit 1
     }
@@ -161,7 +161,7 @@ go collections {
             if toInt(split(list, i)) == 0 {
                 emit 1
             }
-            i = i + 1
+            i += 1
         }
         emit 0
     }
@@ -183,7 +183,7 @@ go collections {
             } else {
                 result = result + "," + pair
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }

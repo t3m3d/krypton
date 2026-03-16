@@ -32,6 +32,6 @@ just run {
         } else {
             print("  " + t + " not found")
         }
-        i = i + 1
+        i += 1
     }
 }

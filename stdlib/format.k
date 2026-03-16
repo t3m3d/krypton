@@ -29,7 +29,7 @@ go format {
                 }
             }
             sb = sbAppend(sb, s[i])
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }
@@ -47,13 +47,13 @@ go format {
         let i = 0
         while i < leftPad {
             sb = sbAppend(sb, fillChar)
-            i = i + 1
+            i += 1
         }
         sb = sbAppend(sb, s)
         i = 0
         while i < rightPad {
             sb = sbAppend(sb, fillChar)
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }
@@ -64,7 +64,7 @@ go format {
         let i = 0
         while i < width {
             sb = sbAppend(sb, ch)
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }
@@ -96,12 +96,12 @@ go format {
         let i = 0
         while i < filled {
             sb = sbAppend(sb, "#")
-            i = i + 1
+            i += 1
         }
         i = 0
         while i < empty {
             sb = sbAppend(sb, "-")
-            i = i + 1
+            i += 1
         }
         sb = sbAppend(sb, "] ")
         sb = sbAppend(sb, "" + ((current * 100) / total))

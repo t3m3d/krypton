@@ -3,25 +3,25 @@
 func readNumber(src, pos) {
     let start = pos
     while pos < len(src) && src[pos] >= "0" && src[pos] <= "9" {
-        pos = pos + 1
+        pos += 1
     }
     emit substring(src, start, pos) + "," + pos
 }
 
 func readString(src, pos) {
     let result = ""
-    pos = pos + 1
+    pos += 1
     while pos < len(src) && src[pos] != "\"" {
         if src[pos] == "\\" && pos + 1 < len(src) {
             result = result + src[pos] + src[pos + 1]
             pos = pos + 2
         } else {
             result = result + src[pos]
-            pos = pos + 1
+            pos += 1
         }
     }
     if pos < len(src) {
-        pos = pos + 1
+        pos += 1
     }
     emit result + "," + pos
 }
@@ -31,7 +31,7 @@ func readIdent(src, pos) {
     while pos < len(src) {
         let ch = src[pos]
         if (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || (ch >= "0" && ch <= "9") || ch == "_" {
-            pos = pos + 1
+            pos += 1
         } else {
             emit substring(src, start, pos) + "," + pos
         }
@@ -45,7 +45,7 @@ func findLastComma(s) {
         if s[i] == "," {
             emit i
         }
-        i = i - 1
+        i -= 1
     }
     emit -1
 }
@@ -71,10 +71,10 @@ func tokenize(src) {
         let ch = src[pos]
         // skip whitespace
         if ch == " " || ch == "\t" || ch == "\r" || ch == "\n" {
-            pos = pos + 1
+            pos += 1
         } else if ch == "/" && pos + 1 < srcLen && src[pos + 1] == "/" {
             while pos < srcLen && src[pos] != "\n" {
-                pos = pos + 1
+                pos += 1
             }
         } else if ch >= "0" && ch <= "9" {
             let np = readNumber(src, pos)
@@ -113,53 +113,53 @@ func tokenize(src) {
             pos = pos + 2
         } else if ch == "+" {
             tokens = tokens + "OP:+\n"
-            pos = pos + 1
+            pos += 1
         } else if ch == "-" {
             tokens = tokens + "OP:-\n"
-            pos = pos + 1
+            pos += 1
         } else if ch == "*" {
             tokens = tokens + "OP:*\n"
-            pos = pos + 1
+            pos += 1
         } else if ch == "/" {
             tokens = tokens + "OP:/\n"
-            pos = pos + 1
+            pos += 1
         } else if ch == "%" {
             tokens = tokens + "OP:%\n"
-            pos = pos + 1
+            pos += 1
         } else if ch == "<" {
             tokens = tokens + "OP:<\n"
-            pos = pos + 1
+            pos += 1
         } else if ch == ">" {
             tokens = tokens + "OP:>\n"
-            pos = pos + 1
+            pos += 1
         } else if ch == "=" {
             tokens = tokens + "OP:=\n"
-            pos = pos + 1
+            pos += 1
         } else if ch == "(" {
             tokens = tokens + "LPAREN\n"
-            pos = pos + 1
+            pos += 1
         } else if ch == ")" {
             tokens = tokens + "RPAREN\n"
-            pos = pos + 1
+            pos += 1
         } else if ch == "{" {
             tokens = tokens + "LBRACE\n"
-            pos = pos + 1
+            pos += 1
         } else if ch == "}" {
             tokens = tokens + "RBRACE\n"
-            pos = pos + 1
+            pos += 1
         } else if ch == "," {
             tokens = tokens + "COMMA\n"
-            pos = pos + 1
+            pos += 1
         } else if ch == "[" {
             tokens = tokens + "LBRACK\n"
-            pos = pos + 1
+            pos += 1
         } else if ch == "]" {
             tokens = tokens + "RBRACK\n"
-            pos = pos + 1
+            pos += 1
         } else if ch == ";" {
-            pos = pos + 1
+            pos += 1
         } else {
-            pos = pos + 1
+            pos += 1
         }
     }
     emit tokens

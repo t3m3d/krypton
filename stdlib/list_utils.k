@@ -37,7 +37,7 @@ go list_utils {
             if split(list, i) == item {
                 emit 1
             }
-            i = i + 1
+            i += 1
         }
         emit 0
     }
@@ -50,7 +50,7 @@ go list_utils {
             if split(list, i) == item {
                 emit i
             }
-            i = i + 1
+            i += 1
         }
         emit 0 - 1
     }
@@ -67,7 +67,7 @@ go list_utils {
             } else {
                 result = result + "," + item
             }
-            i = i - 1
+            i -= 1
         }
         emit result
     }
@@ -87,7 +87,7 @@ go list_utils {
             } else {
                 result = result + "," + item
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -104,7 +104,7 @@ go list_utils {
             } else {
                 result = result + "," + item
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -148,7 +148,7 @@ go list_utils {
                         found = 1
                         break
                     }
-                    j = j + 1
+                    j += 1
                 }
             }
             if found == 0 {
@@ -158,7 +158,7 @@ go list_utils {
                     result = result + "," + item
                 }
             }
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -170,7 +170,7 @@ go list_utils {
         let i = 0
         while i < size {
             total = total + toInt(split(list, i))
-            i = i + 1
+            i += 1
         }
         emit total
     }

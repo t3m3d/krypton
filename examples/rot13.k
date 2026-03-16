@@ -13,7 +13,7 @@ func rot13char(ch) {
         if ch == lower[i] {
             emit lower[(i + 13) % 26]
         }
-        i = i + 1
+        i += 1
     }
     emit ch
 }
@@ -23,7 +23,7 @@ func rot13(text) {
     let i = 0
     while i < len(text) {
         sb = sbAppend(sb, rot13char(text[i]))
-        i = i + 1
+        i += 1
     }
     emit sbToString(sb)
 }
@@ -43,7 +43,7 @@ just run {
         kp("  ROT13:    " + encoded)
         kp("  Decoded:  " + decoded)
         kp("")
-        i = i + 1
+        i += 1
     }
 
     // Verify roundtrip

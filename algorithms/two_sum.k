@@ -11,9 +11,9 @@ func twoSum(list, target) {
             if a + b == target {
                 emit "" + i + "," + j
             }
-            j = j + 1
+            j += 1
         }
-        i = i + 1
+        i += 1
     }
     emit "-1,-1"
 }

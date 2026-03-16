@@ -9,7 +9,7 @@ go string_utils {
         let i = 0
         while i < n {
             result = result + s
-            i = i + 1
+            i += 1
         }
         emit result
     }
@@ -44,7 +44,7 @@ go string_utils {
             if substring(haystack, i, i + nLen) == needle {
                 emit 1
             }
-            i = i + 1
+            i += 1
         }
         emit 0
     }
@@ -79,7 +79,7 @@ go string_utils {
             } else {
                 sb = sbAppend(sb, ch)
             }
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }
@@ -98,7 +98,7 @@ go string_utils {
                     }
                 }
             }
-            i = i + 1
+            i += 1
         }
         emit ""
     }
@@ -117,7 +117,7 @@ go string_utils {
                     }
                 }
             }
-            i = i - 1
+            i -= 1
         }
         emit ""
     }
@@ -140,11 +140,11 @@ go string_utils {
                     i = i + oldLen
                 } else {
                     sb = sbAppend(sb, s[i])
-                    i = i + 1
+                    i += 1
                 }
             } else {
                 sb = sbAppend(sb, s[i])
-                i = i + 1
+                i += 1
             }
         }
         emit sbToString(sb)
@@ -158,10 +158,10 @@ go string_utils {
         let i = 0
         while i <= sLen - subLen {
             if substring(s, i, i + subLen) == sub {
-                cnt = cnt + 1
+                cnt += 1
                 i = i + subLen
             } else {
-                i = i + 1
+                i += 1
             }
         }
         emit cnt
@@ -173,7 +173,7 @@ go string_utils {
         let i = len(s) - 1
         while i >= 0 {
             sb = sbAppend(sb, s[i])
-            i = i - 1
+            i -= 1
         }
         emit sbToString(sb)
     }
@@ -188,7 +188,7 @@ go string_utils {
                 sb = sbAppend(sb, delim)
             }
             sb = sbAppend(sb, split(list, i))
-            i = i + 1
+            i += 1
         }
         emit sbToString(sb)
     }

@@ -16,7 +16,7 @@ func readNumber(expr, pos) {
         if isDigit(expr[pos]) == 0 {
             break
         }
-        pos = pos + 1
+        pos += 1
     }
     emit substring(expr, start, pos) + "," + pos
 }
@@ -26,7 +26,7 @@ func skipSpaces(expr, pos) {
         if expr[pos] != " " {
             break
         }
-        pos = pos + 1
+        pos += 1
     }
     emit pos
 }
@@ -46,7 +46,7 @@ func evaluate(expr) {
             break
         }
         let op = expr[pos]
-        pos = pos + 1
+        pos += 1
         pos = skipSpaces(expr, pos)
 
         let pair2 = readNumber(expr, pos)
@@ -82,7 +82,7 @@ just run {
         let expr = split(expressions, i)
         let result = evaluate(expr)
         kp("  " + expr + " = " + result)
-        i = i + 1
+        i += 1
     }
     emit "ok"
 }
