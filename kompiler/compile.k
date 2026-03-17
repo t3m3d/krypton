@@ -481,8 +481,26 @@ func scanFunctions(tokens, ntoks) {
                         params = tokVal(pt)
                     }
                     pc += 1
+                    // skip optional type annotation: param: type
+                    if tokAt(tokens, j + 1) == "COLON" {
+                        j = j + 3
+                        // skip compound type: list[int]
+                        if tokAt(tokens, j) == "LBRACK" {
+                            let std = 1
+                            j += 1
+                            while std > 0 {
+                                if tokAt(tokens, j) == "LBRACK" { std += 1 }
+                                if tokAt(tokens, j) == "RBRACK" { std -= 1 }
+                                j += 1
+                            }
+                        }
+                        if tokAt(tokens, j) == "COMMA" { j += 1 }
+                    } else {
+                        j += 1
+                    }
+                } else {
+                    j += 1
                 }
-                j += 1
             }
             // j is at RPAREN, j+1 is LBRACE
             let bodyStart = j + 1
@@ -639,8 +657,11 @@ func cIdent(name) {
     if name == "int" || name == "char" || name == "void" || name == "return" || name == "if" || name == "else" || name == "while" || name == "break" || name == "for" || name == "do" || name == "switch" || name == "case" || name == "default" || name == "struct" || name == "const" || name == "static" || name == "long" || name == "short" || name == "double" || name == "float" || name == "auto" || name == "register" || name == "extern" || name == "typedef" || name == "union" || name == "enum" || name == "sizeof" || name == "goto" || name == "volatile" || name == "signed" || name == "unsigned" {
         emit "k_" + name
     }
-    // Avoid clashes with C stdlib functions
+    // Avoid clashes with C stdlib functions and C type keywords
     if name == "abs" || name == "exit" || name == "rand" || name == "free" || name == "malloc" || name == "printf" || name == "strlen" || name == "strcmp" || name == "strcpy" || name == "time" {
+        emit "k_" + name
+    }
+    if name == "double" || name == "float" || name == "int" || name == "bool" || name == "string" || name == "list" || name == "map" || name == "any" || name == "void" || name == "num" {
         emit "k_" + name
     }
     emit name
@@ -1445,8 +1466,24 @@ func compileStmt(tokens, pos, ntoks, depth, inFunc) {
 
 func compileLet(tokens, pos, ntoks, depth) {
     let name = tokVal(tokAt(tokens, pos))
-    // skip name, ASSIGN
-    let p = pos + 2
+    let p = pos + 1
+    // optional type annotation: let name: type = expr
+    if tokAt(tokens, p) == "COLON" {
+        // skip COLON and type name (may be ID or KW like int/string)
+        p = p + 2
+        // handle compound types: list[int], map[string, int]
+        if tokAt(tokens, p) == "LBRACK" {
+            let depth2 = 1
+            p += 1
+            while depth2 > 0 {
+                if tokAt(tokens, p) == "LBRACK" { depth2 += 1 }
+                if tokAt(tokens, p) == "RBRACK" { depth2 -= 1 }
+                p += 1
+            }
+        }
+    }
+    // skip ASSIGN
+    p += 1
     let ep = compileExpr(tokens, p, ntoks)
     let ecode = pairVal(ep)
     p = pairPos(ep)
@@ -1685,8 +1722,22 @@ func compileStructDecl(tokens, pos, ntoks, depth) {
                 fields = fname
             }
             fc += 1
-            // skip let name and optional = value
+            // skip let name
             p = p + 2
+            // skip optional type annotation: let name: type
+            if tokAt(tokens, p) == "COLON" {
+                p = p + 2
+                if tokAt(tokens, p) == "LBRACK" {
+                    let sfd = 1
+                    p += 1
+                    while sfd > 0 {
+                        if tokAt(tokens, p) == "LBRACK" { sfd += 1 }
+                        if tokAt(tokens, p) == "RBRACK" { sfd -= 1 }
+                        p += 1
+                    }
+                }
+            }
+            // skip optional = value
             if tokAt(tokens, p) == "ASSIGN" {
                 // skip default value expression
                 let ep = compileExpr(tokens, p + 1, ntoks)
@@ -1698,7 +1749,6 @@ func compileStructDecl(tokens, pos, ntoks, depth) {
     }
     p += 1
     let cname = cIdent(name)
-    // emit typedef struct
     let out = "typedef struct " + cname + "_s {\n"
     let i = 0
     while i < fc {
@@ -1957,11 +2007,44 @@ func compileFunc(tokens, pos, ntoks) {
                 params = "char* " + cIdent(tokVal(pt))
             }
             pc += 1
+            // optional type annotation: param: type
+            if tokAt(tokens, p + 1) == "COLON" {
+                p = p + 3
+                // handle compound types: list[int] etc
+                if tokAt(tokens, p) == "LBRACK" {
+                    let td = 1
+                    p += 1
+                    while td > 0 {
+                        if tokAt(tokens, p) == "LBRACK" { td += 1 }
+                        if tokAt(tokens, p) == "RBRACK" { td -= 1 }
+                        p += 1
+                    }
+                }
+                // skip optional comma
+                if tokAt(tokens, p) == "COMMA" { p += 1 }
+            } else {
+                p += 1
+            }
+        } else {
+            p += 1
         }
-        p += 1
     }
     // skip RPAREN
     p += 1
+    // optional return type annotation: -> type
+    if tokAt(tokens, p) == "ARROW" {
+        p = p + 2
+        // handle compound return types
+        if tokAt(tokens, p) == "LBRACK" {
+            let rd = 1
+            p += 1
+            while rd > 0 {
+                if tokAt(tokens, p) == "LBRACK" { rd += 1 }
+                if tokAt(tokens, p) == "RBRACK" { rd -= 1 }
+                p += 1
+            }
+        }
+    }
 
     // compile body block
     let bp = compileBlock(tokens, p, ntoks, 0, "1")

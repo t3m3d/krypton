@@ -1,6 +1,6 @@
 # Krypton Language Specification
 
-**Version 0.7.1** — March 2026
+**Version 0.8.5** — March 2026
 
 ---
 
@@ -160,7 +160,43 @@ setField(obj, "lang", "Krypton")
 let lang = getField(obj, "lang")
 ```
 
-### 3.5 Entry Point
+### 3.5 Type Annotations (Optional)
+
+Type annotations are optional and non-enforced. They are parsed and discarded by the
+compiler — the generated C always uses `char*` for all values. Annotations exist
+purely for documentation and tooling support.
+
+**Variable annotations:**
+```
+let x: int = 42
+let name: string = "hello"
+let items: list = "a,b,c"
+```
+
+**Function parameter and return type annotations:**
+```
+func add(a: int, b: int) -> int {
+    emit toInt(a) + toInt(b) + ""
+}
+
+func greet(name: string) -> string {
+    emit "Hello " + name
+}
+```
+
+**Struct field annotations:**
+```
+struct Point {
+    let x: float
+    let y: float
+}
+```
+
+**Supported type names:** `int`, `float`, `bool`, `string`, `list`, `map`, `any`, `void`, `num`
+
+**Compound types:** `list[int]`, `map[string, int]` — brackets are parsed and skipped.
+
+### 3.6 Entry Point
 
 Every program must have exactly one entry block:
 

@@ -1694,8 +1694,19 @@ func execStmt(tokens, pos, env, ftable) {
 func execLet(tokens, pos, env, ftable) {
     // pos is at the identifier after 'let'
     let name = tokVal(tokAt(tokens, pos))
-    // skip name, ASSIGN
-    let p = pos + 2
+    let p = pos + 1
+    // skip optional type annotation: let name: type
+    if tokAt(tokens, p) == "COLON" {
+        p = p + 2
+        // skip compound type [int]
+        if tokAt(tokens, p) == "LBRACK" {
+            p += 1
+            while tokAt(tokens, p) != "RBRACK" { p += 1 }
+            p += 1
+        }
+    }
+    // skip ASSIGN
+    p += 1
     let pair = evalExpr(tokens, p, env, ftable)
     let val = pairVal(pair)
     p = pairPos(pair)

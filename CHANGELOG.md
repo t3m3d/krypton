@@ -29,6 +29,56 @@ All notable changes to the Krypton language and compiler.
 
 ---
 
+## [0.8.5] - 2026-03-17
+
+### Language — Optional Type Annotations
+
+Type annotations are now supported everywhere a declaration occurs. They are
+optional, non-enforced, and produce no change in the generated C — the compiler
+parses and discards them. All values remain `char*` at runtime.
+
+**Variable declarations:**
+```
+let x: int = 42
+let name: string = "Krypton"
+let items: list[int] = "1,2,3"
+```
+
+**Function parameters and return types:**
+```
+func add(a: int, b: int) -> int {
+    emit toInt(a) + toInt(b) + ""
+}
+```
+
+**Struct fields:**
+```
+struct Point {
+    let x: float
+    let y: float
+}
+```
+
+**Supported type names:** `int`, `float`, `bool`, `string`, `list`, `map`, `any`, `void`, `num`
+
+**Compound types:** `list[int]`, `map[string, int]` — brackets parsed and skipped.
+
+### Compiler (compile.k)
+- `compileLet` — skips optional `: type` and compound `list[int]` annotations
+- `compileFunc` — skips `: type` on each parameter; skips `-> type` return annotation
+- `compileStructDecl` — skips `: type` on struct field declarations
+- `scanFunctions` — skips type annotations when counting parameters (so param counts stay correct)
+- `isKW` — type keywords `int`, `float`, `bool`, `string`, `list`, `map`, `any`, `void`, `num` added as keywords
+- `cIdent` — added `abs`, `exit`, `rand`, `free`, `malloc`, `printf`, `strlen`, `strcmp`, `strcpy`, `time` to reserved C name list
+
+### Interpreter (run.k)
+- `execLet` — skips optional `: type` annotation on variable declarations
+
+### Docs
+- `Spec.md` — updated to v0.8.5, new section 3.5 for type annotations
+
+---
+
 ## [0.8.0] - 2026-03-13
 
 ### Language
