@@ -1657,9 +1657,33 @@ func execStmt(tokens, pos, env, ftable) {
     }
 
     if tok == "KW:struct" || tok == "KW:class" || tok == "KW:type" {
-        // struct declaration - skip entire block
+        // struct declaration - skip entire block at runtime
         let p = pos + 2
         p = skipBlock(tokens, p)
+        emit makeResult("C", "", env, p)
+    }
+
+    if tok == "KW:import" {
+        // import "file.k" — load file and execute its functions into ftable
+        let importPath = tokVal(tokAt(tokens, pos + 1))
+        let p = pos + 2
+        let importSrc = readFile(importPath)
+        if len(importSrc) > 0 {
+            let iToks = tokenize(importSrc)
+            let iNtoks = lineCount(iToks)
+            let iFtable = scanFunctions(iToks, iNtoks)
+            if len(ftable) > 0 {
+                ftable = ftable + "\n" + iFtable
+            } else {
+                ftable = iFtable
+            }
+        }
+        emit makeResult("C", "", env, p)
+    }
+
+    if tok == "KW:module" || tok == "KW:export" {
+        // module name / export func — skip declaration
+        let p = pos + 2
         emit makeResult("C", "", env, p)
     }
 
