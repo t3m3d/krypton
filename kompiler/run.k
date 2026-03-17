@@ -849,18 +849,25 @@ func evalPostfix(tokens, pos, env, ftable) {
     let val = pairVal(pair)
     let p = pairPos(pair)
 
-    while tokAt(tokens, p) == "LBRACK" {
-        let pair2 = evalExpr(tokens, p + 1, env, ftable)
-        let idx = pairVal(pair2)
-        let p2 = pairPos(pair2)
-        // expect RBRACK
-        p = p2 + 1
-        let ii = toInt(idx)
-        if ii >= 0 && ii < len(val) {
-            val = val[ii]
-        }
-        else {
-            val = ""
+    while tokAt(tokens, p) == "LBRACK" || tokAt(tokens, p) == "DOT" {
+        if tokAt(tokens, p) == "LBRACK" {
+            let pair2 = evalExpr(tokens, p + 1, env, ftable)
+            let idx = pairVal(pair2)
+            let p2 = pairPos(pair2)
+            // expect RBRACK
+            p = p2 + 1
+            let ii = toInt(idx)
+            if ii >= 0 && ii < len(val) {
+                val = val[ii]
+            }
+            else {
+                val = ""
+            }
+        } else {
+            // DOT field access: obj.field
+            let field = tokVal(tokAt(tokens, p + 1))
+            p = p + 2
+            val = getField(val, field)
         }
     }
 
@@ -1092,6 +1099,332 @@ func evalCall(tokens, pos, env, ftable) {
         emit sbToString(sb) + "," + p
     }
 
+    // ── v0.2.0+ builtins ──
+    if fname == "writeFile" {
+        let path = getArg(args, 0)
+        let data = getArg(args, 1)
+        emit writeFile(path, data) + "," + p
+    }
+    if fname == "input" {
+        emit input() + "," + p
+    }
+    if fname == "indexOf" {
+        let s = getArg(args, 0)
+        let sub = getArg(args, 1)
+        emit indexOf(s, sub) + "," + p
+    }
+    if fname == "contains" {
+        let s = getArg(args, 0)
+        let sub = getArg(args, 1)
+        emit contains(s, sub) + "," + p
+    }
+    if fname == "replace" {
+        let s = getArg(args, 0)
+        let old = getArg(args, 1)
+        let rep = getArg(args, 2)
+        emit replace(s, old, rep) + "," + p
+    }
+    if fname == "charAt" {
+        let s = getArg(args, 0)
+        let i = toInt(getArg(args, 1))
+        emit charAt(s, i) + "," + p
+    }
+    if fname == "trim" {
+        let s = getArg(args, 0)
+        emit trim(s) + "," + p
+    }
+    if fname == "toLower" {
+        let s = getArg(args, 0)
+        emit toLower(s) + "," + p
+    }
+    if fname == "toUpper" {
+        let s = getArg(args, 0)
+        emit toUpper(s) + "," + p
+    }
+    if fname == "endsWith" {
+        let s = getArg(args, 0)
+        let sfx = getArg(args, 1)
+        emit endsWith(s, sfx) + "," + p
+    }
+    if fname == "abs" {
+        let n = toInt(getArg(args, 0))
+        if n < 0 { emit (0 - n) + "," + p }
+        emit n + "," + p
+    }
+    if fname == "min" {
+        let a = toInt(getArg(args, 0))
+        let b = toInt(getArg(args, 1))
+        if a <= b { emit a + "," + p }
+        emit b + "," + p
+    }
+    if fname == "max" {
+        let a = toInt(getArg(args, 0))
+        let b = toInt(getArg(args, 1))
+        if a >= b { emit a + "," + p }
+        emit b + "," + p
+    }
+    if fname == "exit" {
+        let code = toInt(getArg(args, 0))
+        emit code
+    }
+    if fname == "type" {
+        let s = getArg(args, 0)
+        let n = toInt(s)
+        if n + "" == s { emit "number," + p }
+        emit "string," + p
+    }
+    if fname == "toStr" {
+        emit getArg(args, 0) + "," + p
+    }
+    if fname == "parseInt" {
+        emit toInt(getArg(args, 0)) + "," + p
+    }
+    if fname == "printErr" {
+        print("ERROR: " + getArg(args, 0))
+        emit "," + p
+    }
+    if fname == "readLine" {
+        let prompt = getArg(args, 0)
+        emit readLine(prompt) + "," + p
+    }
+    if fname == "kp" {
+        if argc > 0 { print(getArg(args, 0)) }
+        emit "," + p
+    }
+    if fname == "append" {
+        let lst = getArg(args, 0)
+        let item = getArg(args, 1)
+        emit append(lst, item) + "," + p
+    }
+    if fname == "join" {
+        let lst = getArg(args, 0)
+        let sep = getArg(args, 1)
+        emit join(lst, sep) + "," + p
+    }
+    if fname == "reverse" {
+        emit reverse(getArg(args, 0)) + "," + p
+    }
+    if fname == "sort" {
+        emit sort(getArg(args, 0)) + "," + p
+    }
+    if fname == "length" {
+        emit length(getArg(args, 0)) + "," + p
+    }
+    if fname == "unique" {
+        emit unique(getArg(args, 0)) + "," + p
+    }
+    if fname == "keys" {
+        emit keys(getArg(args, 0)) + "," + p
+    }
+    if fname == "values" {
+        emit values(getArg(args, 0)) + "," + p
+    }
+    if fname == "hasKey" {
+        emit hasKey(getArg(args, 0), getArg(args, 1)) + "," + p
+    }
+    if fname == "range" {
+        let s = toInt(getArg(args, 0))
+        let e = toInt(getArg(args, 1))
+        emit range(s, e) + "," + p
+    }
+    if fname == "pow" {
+        emit pow(toInt(getArg(args, 0)), toInt(getArg(args, 1))) + "," + p
+    }
+    if fname == "sqrt" {
+        emit sqrt(toInt(getArg(args, 0))) + "," + p
+    }
+    if fname == "hex" {
+        emit hex(toInt(getArg(args, 0))) + "," + p
+    }
+    if fname == "bin" {
+        emit bin(toInt(getArg(args, 0))) + "," + p
+    }
+    if fname == "charCode" {
+        emit charCode(getArg(args, 0)) + "," + p
+    }
+    if fname == "fromCharCode" {
+        emit fromCharCode(toInt(getArg(args, 0))) + "," + p
+    }
+    if fname == "padLeft" {
+        emit padLeft(getArg(args, 0), toInt(getArg(args, 1)), getArg(args, 2)) + "," + p
+    }
+    if fname == "padRight" {
+        emit padRight(getArg(args, 0), toInt(getArg(args, 1)), getArg(args, 2)) + "," + p
+    }
+    if fname == "repeat" {
+        emit repeat(getArg(args, 0), toInt(getArg(args, 1))) + "," + p
+    }
+    if fname == "splitBy" {
+        emit splitBy(getArg(args, 0), getArg(args, 1)) + "," + p
+    }
+    if fname == "strReverse" {
+        emit strReverse(getArg(args, 0)) + "," + p
+    }
+    if fname == "lstrip" {
+        emit lstrip(getArg(args, 0)) + "," + p
+    }
+    if fname == "rstrip" {
+        emit rstrip(getArg(args, 0)) + "," + p
+    }
+    if fname == "isAlpha" {
+        emit isAlpha(getArg(args, 0)) + "," + p
+    }
+    if fname == "isDigit" {
+        emit isDigit(getArg(args, 0)) + "," + p
+    }
+    if fname == "isSpace" {
+        let s = getArg(args, 0)
+        if len(s) == 0 { emit "0," + p }
+        let all = 1
+        let ci = 0
+        while ci < len(s) {
+            let c = s[ci]
+            if c != " " && c != "\t" && c != "\n" && c != "\r" { all = 0 }
+            ci += 1
+        }
+        emit all + "," + p
+    }
+    if fname == "first" {
+        emit split(getArg(args, 0), 0) + "," + p
+    }
+    if fname == "last" {
+        let lst = getArg(args, 0)
+        let cnt = toInt(length(lst))
+        emit split(lst, cnt - 1) + "," + p
+    }
+    if fname == "random" {
+        emit random(toInt(getArg(args, 0))) + "," + p
+    }
+    if fname == "timestamp" {
+        emit timestamp() + "," + p
+    }
+    if fname == "environ" {
+        emit environ(getArg(args, 0)) + "," + p
+    }
+    if fname == "assert" {
+        let cond = getArg(args, 0)
+        let msg = getArg(args, 1)
+        if cond == "0" || cond == "" || cond == "false" {
+            print("ASSERTION FAILED: " + msg)
+            emit 1
+        }
+        emit "," + p
+    }
+    if fname == "isTruthy" {
+        let s = getArg(args, 0)
+        if s == "0" || s == "" || s == "false" { emit "0," + p }
+        emit "1," + p
+    }
+    if fname == "structNew" {
+        emit structNew() + "," + p
+    }
+    if fname == "setField" {
+        let obj = getArg(args, 0)
+        let field = getArg(args, 1)
+        let val = getArg(args, 2)
+        emit setField(obj, field, val) + "," + p
+    }
+    if fname == "getField" {
+        let obj = getArg(args, 0)
+        let field = getArg(args, 1)
+        emit getField(obj, field) + "," + p
+    }
+    if fname == "hasField" {
+        let obj = getArg(args, 0)
+        let field = getArg(args, 1)
+        emit hasField(obj, field) + "," + p
+    }
+    if fname == "structFields" {
+        emit structFields(getArg(args, 0)) + "," + p
+    }
+    if fname == "words" {
+        emit words(getArg(args, 0)) + "," + p
+    }
+    if fname == "lines" {
+        emit lines(getArg(args, 0)) + "," + p
+    }
+    if fname == "listIndexOf" {
+        emit listIndexOf(getArg(args, 0), getArg(args, 1)) + "," + p
+    }
+    if fname == "every" {
+        emit every(getArg(args, 0), getArg(args, 1)) + "," + p
+    }
+    if fname == "some" {
+        emit some(getArg(args, 0), getArg(args, 1)) + "," + p
+    }
+    if fname == "countOf" {
+        emit countOf(getArg(args, 0), getArg(args, 1)) + "," + p
+    }
+    if fname == "sumList" {
+        emit sumList(getArg(args, 0)) + "," + p
+    }
+    if fname == "maxList" {
+        emit maxList(getArg(args, 0)) + "," + p
+    }
+    if fname == "minList" {
+        emit minList(getArg(args, 0)) + "," + p
+    }
+    if fname == "insertAt" {
+        emit insertAt(getArg(args, 0), toInt(getArg(args, 1)), getArg(args, 2)) + "," + p
+    }
+    if fname == "removeAt" {
+        emit removeAt(getArg(args, 0), toInt(getArg(args, 1))) + "," + p
+    }
+    if fname == "replaceAt" {
+        emit replaceAt(getArg(args, 0), toInt(getArg(args, 1)), getArg(args, 2)) + "," + p
+    }
+    if fname == "fill" {
+        emit fill(toInt(getArg(args, 0)), getArg(args, 1)) + "," + p
+    }
+    if fname == "zip" {
+        emit zip(getArg(args, 0), getArg(args, 1)) + "," + p
+    }
+    if fname == "slice" {
+        emit slice(getArg(args, 0), toInt(getArg(args, 1)), toInt(getArg(args, 2))) + "," + p
+    }
+    if fname == "format" {
+        emit format(getArg(args, 0), getArg(args, 1)) + "," + p
+    }
+    if fname == "center" {
+        emit center(getArg(args, 0), toInt(getArg(args, 1)), getArg(args, 2)) + "," + p
+    }
+    if fname == "clamp" {
+        emit clamp(toInt(getArg(args, 0)), toInt(getArg(args, 1)), toInt(getArg(args, 2))) + "," + p
+    }
+    if fname == "sign" {
+        emit sign(toInt(getArg(args, 0))) + "," + p
+    }
+    if fname == "floor" {
+        emit toInt(getArg(args, 0)) + "," + p
+    }
+    if fname == "ceil" {
+        emit toInt(getArg(args, 0)) + "," + p
+    }
+    if fname == "round" {
+        emit toInt(getArg(args, 0)) + "," + p
+    }
+    if fname == "head" {
+        emit head(getArg(args, 0), toInt(getArg(args, 1))) + "," + p
+    }
+    if fname == "tail" {
+        emit tail(getArg(args, 0), toInt(getArg(args, 1))) + "," + p
+    }
+    if fname == "mapGet" {
+        emit mapGet(getArg(args, 0), getArg(args, 1)) + "," + p
+    }
+    if fname == "mapSet" {
+        emit mapSet(getArg(args, 0), getArg(args, 1), getArg(args, 2)) + "," + p
+    }
+    if fname == "mapDel" {
+        emit mapDel(getArg(args, 0), getArg(args, 1)) + "," + p
+    }
+    if fname == "listFilter" {
+        emit listFilter(getArg(args, 0), getArg(args, 1)) + "," + p
+    }
+    if fname == "strSplit" {
+        emit splitBy(getArg(args, 0), getArg(args, 1)) + "," + p
+    }
+
     // ── User-defined functions ──
     let info = funcLookup(ftable, fname)
     if info != "" {
@@ -1233,8 +1566,8 @@ func execBlock(tokens, pos, env, ftable) {
         else {
             let result = execStmt(tokens, p, curEnv, ftable)
             let tag = getResultTag(result)
-            if tag == "R" || tag == "B" {
-                // propagate return/break up
+            if tag == "R" || tag == "B" || tag == "K" {
+                // propagate return/break/continue up
                 emit result
             }
             curEnv = getResultEnv(result)
@@ -1273,9 +1606,61 @@ func execStmt(tokens, pos, env, ftable) {
         emit makeResult("B", "", env, p)
     }
 
+    // field assignment: ID DOT ID ASSIGN
+    if tokType(tok) == "ID" && tokAt(tokens, pos + 1) == "DOT" {
+        if tokType(tokAt(tokens, pos + 2)) == "ID" && tokAt(tokens, pos + 3) == "ASSIGN" {
+            emit execFieldAssign(tokens, pos, env, ftable)
+        }
+    }
+
+    // compound assignment: ID += -= *= /= %=
+    if tokType(tok) == "ID" {
+        let nt = tokAt(tokens, pos + 1)
+        if nt == "PLUSEQ" || nt == "MINUSEQ" || nt == "STAREQ" || nt == "SLASHEQ" || nt == "MODEQ" {
+            emit execCompoundAssign(tokens, pos, env, ftable)
+        }
+    }
+
     // assignment: ID ASSIGN expr
     if tokType(tok) == "ID" && tokAt(tokens, pos + 1) == "ASSIGN" {
         emit execAssign(tokens, pos, env, ftable)
+    }
+
+    if tok == "KW:for" {
+        emit execFor(tokens, pos + 1, env, ftable)
+    }
+
+    if tok == "KW:match" {
+        emit execMatch(tokens, pos + 1, env, ftable)
+    }
+
+    if tok == "KW:do" {
+        emit execDoWhile(tokens, pos + 1, env, ftable)
+    }
+
+    if tok == "KW:continue" {
+        let p = pos + 1
+        if tokAt(tokens, p) == "SEMI" { p = p + 1 }
+        emit makeResult("K", "", env, p)
+    }
+
+    if tok == "KW:const" {
+        emit execLet(tokens, pos + 1, env, ftable)
+    }
+
+    if tok == "KW:try" {
+        emit execTry(tokens, pos + 1, env, ftable)
+    }
+
+    if tok == "KW:throw" {
+        emit execThrow(tokens, pos + 1, env, ftable)
+    }
+
+    if tok == "KW:struct" || tok == "KW:class" || tok == "KW:type" {
+        // struct declaration - skip entire block
+        let p = pos + 2
+        p = skipBlock(tokens, p)
+        emit makeResult("C", "", env, p)
     }
 
     // expression statement (function call etc)
@@ -1421,6 +1806,7 @@ func execWhile(tokens, pos, env, ftable) {
             let endPos = skipBlock(tokens, bodyStart)
             emit makeResult("C", "", curEnv, endPos)
         }
+        // K = continue: just keep looping
     }
 
     emit makeResult("C", "", curEnv, condStart)
@@ -1469,6 +1855,176 @@ func evalInterp(s, env, ftable) {
     }
     result = result + expandEscapes(seg)
     emit result
+}
+
+// ── New statement executors ──────────────────────────────────
+
+func execFieldAssign(tokens, pos, env, ftable) {
+    let objName = tokVal(tokAt(tokens, pos))
+    let field = tokVal(tokAt(tokens, pos + 2))
+    let p = pos + 4
+    let pair = evalExpr(tokens, p, env, ftable)
+    let val = pairVal(pair)
+    p = pairPos(pair)
+    if tokAt(tokens, p) == "SEMI" { p = p + 1 }
+    let obj = envGet(env, objName)
+    setField(obj, field, val)
+    emit makeResult("C", "", env, p)
+}
+
+func execCompoundAssign(tokens, pos, env, ftable) {
+    let name = tokVal(tokAt(tokens, pos))
+    let op = tokAt(tokens, pos + 1)
+    let p = pos + 2
+    let pair = evalExpr(tokens, p, env, ftable)
+    let rval = pairVal(pair)
+    p = pairPos(pair)
+    if tokAt(tokens, p) == "SEMI" { p = p + 1 }
+    let cur = envGet(env, name)
+    let li = toInt(cur)
+    let ri = toInt(rval)
+    let newVal = cur
+    if op == "PLUSEQ" { newVal = li + ri + "" }
+    if op == "MINUSEQ" { newVal = li - ri + "" }
+    if op == "STAREQ" { newVal = li * ri + "" }
+    if op == "SLASHEQ" { newVal = li / ri + "" }
+    if op == "MODEQ" { newVal = li % ri + "" }
+    let newEnv = envSet(env, name, newVal)
+    emit makeResult("C", "", newEnv, p)
+}
+
+func execFor(tokens, pos, env, ftable) {
+    // for varName in expr { body }
+    let varName = tokVal(tokAt(tokens, pos))
+    // skip varName, KW:in
+    let p = pos + 2
+    let pair = evalExpr(tokens, p, env, ftable)
+    let collection = pairVal(pair)
+    p = pairPos(pair)
+    let bodyStart = p
+    let cnt = toInt(length(collection))
+    let idx = 0
+    let curEnv = env
+    while idx < cnt {
+        let item = split(collection, idx)
+        let loopEnv = envSet(curEnv, varName, item)
+        let result = execBlock(tokens, bodyStart, loopEnv, ftable)
+        let tag = getResultTag(result)
+        curEnv = getResultEnv(result)
+        if tag == "R" { emit result }
+        if tag == "B" {
+            let endPos = skipBlock(tokens, bodyStart)
+            emit makeResult("C", "", curEnv, endPos)
+        }
+        idx = idx + 1
+    }
+    let endPos = skipBlock(tokens, bodyStart)
+    emit makeResult("C", "", curEnv, endPos)
+}
+
+func execMatch(tokens, pos, env, ftable) {
+    // match expr { val { body } ... else { body } }
+    let pair = evalExpr(tokens, pos, env, ftable)
+    let matchVal = pairVal(pair)
+    let p = pairPos(pair)
+    // skip LBRACE
+    p = p + 1
+    let ntoks = lineCount(tokens)
+    let matched = 0
+    let curEnv = env
+    while tokAt(tokens, p) != "RBRACE" {
+        let ct = tokAt(tokens, p)
+        if ct == "KW:else" {
+            p = p + 1
+            if matched == 0 {
+                let result = execBlock(tokens, p, curEnv, ftable)
+                let tag = getResultTag(result)
+                curEnv = getResultEnv(result)
+                p = skipBlock(tokens, p)
+                if tag == "R" || tag == "B" { emit result }
+            } else {
+                p = skipBlock(tokens, p)
+            }
+        } else {
+            let vp = evalExpr(tokens, p, curEnv, ftable)
+            let caseVal = pairVal(vp)
+            p = pairPos(vp)
+            if matched == 0 && caseVal == matchVal {
+                let result = execBlock(tokens, p, curEnv, ftable)
+                let tag = getResultTag(result)
+                curEnv = getResultEnv(result)
+                matched = 1
+                p = skipBlock(tokens, p)
+                if tag == "R" || tag == "B" { emit result }
+            } else {
+                p = skipBlock(tokens, p)
+            }
+        }
+    }
+    // skip closing RBRACE of match
+    p = p + 1
+    emit makeResult("C", "", curEnv, p)
+}
+
+func execDoWhile(tokens, pos, env, ftable) {
+    // pos points to LBRACE of body
+    let bodyStart = pos
+    let curEnv = env
+    while 1 {
+        let result = execBlock(tokens, bodyStart, curEnv, ftable)
+        let tag = getResultTag(result)
+        curEnv = getResultEnv(result)
+        if tag == "R" { emit result }
+        if tag == "B" {
+            let endPos = skipBlock(tokens, bodyStart)
+            // skip KW:while and condition
+            let cp = evalExpr(tokens, endPos + 1, curEnv, ftable)
+            let endP = pairPos(cp)
+            if tokAt(tokens, endP) == "SEMI" { endP = endP + 1 }
+            emit makeResult("C", "", curEnv, endP)
+        }
+        // check while condition
+        let endPos = skipBlock(tokens, bodyStart)
+        let cp = evalExpr(tokens, endPos + 1, curEnv, ftable)
+        let condVal = pairVal(cp)
+        let endP = pairPos(cp)
+        if tokAt(tokens, endP) == "SEMI" { endP = endP + 1 }
+        if condVal == "0" || condVal == "" || condVal == "false" {
+            emit makeResult("C", "", curEnv, endP)
+        }
+    }
+    emit makeResult("C", "", curEnv, pos)
+}
+
+func execTry(tokens, pos, env, ftable) {
+    // pos points to LBRACE of try body
+    // Simple implementation: execute try block, catch propagation
+    let result = execBlock(tokens, pos, env, ftable)
+    let tag = getResultTag(result)
+    let renv = getResultEnv(result)
+    let rpos = getResultPos(result)
+    // check for catch
+    if tokAt(tokens, rpos) == "KW:catch" {
+        let cp = rpos + 1
+        // optional catch variable
+        if tokType(tokAt(tokens, cp)) == "ID" { cp = cp + 1 }
+        let cbEnd = skipBlock(tokens, cp)
+        // if try succeeded, skip catch block
+        if tag != "X" { emit makeResult(tag, getResultVal(result), renv, cbEnd) }
+        // if try threw (tag X), run catch
+        let catchResult = execBlock(tokens, cp, renv, ftable)
+        emit catchResult
+    }
+    emit result
+}
+
+func execThrow(tokens, pos, env, ftable) {
+    let pair = evalExpr(tokens, pos, env, ftable)
+    let val = pairVal(pair)
+    let p = pairPos(pair)
+    if tokAt(tokens, p) == "SEMI" { p = p + 1 }
+    print("Uncaught exception: " + val)
+    emit 1
 }
 
 just run {

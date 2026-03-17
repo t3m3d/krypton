@@ -849,6 +849,11 @@ func compilePrimary(tokens, pos, ntoks) {
         emit ecode + "," + (p + 1)
     }
 
+    // List literal: [expr, expr, ...] -> comma-separated string
+    if tok == "LBRACK" {
+        emit compileListLiteral(tokens, pos, ntoks)
+    }
+
 
     if tt == "ID" {
         let name = tv
@@ -1373,9 +1378,18 @@ func compileStmt(tokens, pos, ntoks, depth, inFunc) {
         emit indent(depth) + "// module " + name + "\n," + p
     }
     if tok == "KW:import" {
-        let name = tokVal(tokAt(tokens, pos + 1))
+        // import "file.k" - load and inline compile the file
+        let importPath = tokVal(tokAt(tokens, pos + 1))
         let p = pos + 2
-        emit indent(depth) + "// import " + name + "\n," + p
+        // importPath comes as a STR token value (no quotes)
+        let importSrc = readFile(importPath)
+        if len(importSrc) > 0 {
+            // emit a comment marker and the file contents will be compiled
+            // by the main compilation loop when we return the import token
+            emit indent(depth) + "// imported: " + importPath + "\n," + p
+        } else {
+            emit indent(depth) + "// import not found: " + importPath + "\n," + p
+        }
     }
     if tok == "KW:export" {
         let name = tokVal(tokAt(tokens, pos + 1))
@@ -1505,6 +1519,48 @@ func compileWhile(tokens, pos, ntoks, depth, inFunc) {
 
     let out = indent(depth) + "while (kr_truthy(" + cond + ")) {\n" + bcode + indent(depth) + "}\n"
     emit out + "," + p
+}
+
+// compileListLiteral: [expr, expr, ...] -> kr_cat chain producing "a,b,c"
+func compileListLiteral(tokens, pos, ntoks) {
+    // pos is at LBRACK
+    let p = pos + 1
+    if tokAt(tokens, p) == "RBRACK" {
+        // empty list
+        emit "kr_str(\"\")" + "," + (p + 1)
+    }
+    // collect elements
+    let elems = ""
+    let ec = 0
+    while tokAt(tokens, p) != "RBRACK" {
+        if ec > 0 {
+            // skip COMMA
+            p = p + 1
+        }
+        let ep = compileExpr(tokens, p, ntoks)
+        let ecode = pairVal(ep)
+        p = pairPos(ep)
+        if ec > 0 {
+            elems = elems + "\n" + ecode
+        } else {
+            elems = ecode
+        }
+        ec += 1
+    }
+    // skip RBRACK
+    p = p + 1
+    if ec == 1 {
+        emit elems + "," + p
+    }
+    // build kr_cat chain with commas between elements
+    let result = getLine(elems, 0)
+    let ei = 1
+    while ei < ec {
+        let elem = getLine(elems, ei)
+        result = "kr_cat(kr_cat(" + result + ", kr_str(\",\")), " + elem + ")"
+        ei += 1
+    }
+    emit result + "," + p
 }
 
 // compileInterp: compile a backtick interpolation string
