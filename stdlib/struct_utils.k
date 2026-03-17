@@ -1,5 +1,7 @@
 // struct_utils.k — utilities for working with structs and dynamic objects
 
+module struct_utils
+
 // Convert a struct to a display string: "Name{field1: val1, field2: val2}"
 func structToString(obj, typeName) {
     let fields = structFields(obj)

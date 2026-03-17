@@ -1,6 +1,8 @@
 // json.k — Simple JSON builder for Krypton
 // Produces JSON strings from Krypton values
 
+module json
+
 func jsonStr(s) {
     emit "\"" + replace(replace(s, "\\", "\\\\"), "\"", "\\\"") + "\""
 }

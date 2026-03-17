@@ -1,6 +1,8 @@
 // result.k — Result type for error handling without exceptions
 // A Result is either "ok:VALUE" or "err:MESSAGE"
 
+module result
+
 func ok(val) {
     emit "ok:" + val
 }

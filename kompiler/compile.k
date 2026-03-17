@@ -639,6 +639,10 @@ func cIdent(name) {
     if name == "int" || name == "char" || name == "void" || name == "return" || name == "if" || name == "else" || name == "while" || name == "break" || name == "for" || name == "do" || name == "switch" || name == "case" || name == "default" || name == "struct" || name == "const" || name == "static" || name == "long" || name == "short" || name == "double" || name == "float" || name == "auto" || name == "register" || name == "extern" || name == "typedef" || name == "union" || name == "enum" || name == "sizeof" || name == "goto" || name == "volatile" || name == "signed" || name == "unsigned" {
         emit "k_" + name
     }
+    // Avoid clashes with C stdlib functions
+    if name == "abs" || name == "exit" || name == "rand" || name == "free" || name == "malloc" || name == "printf" || name == "strlen" || name == "strcmp" || name == "strcpy" || name == "time" {
+        emit "k_" + name
+    }
     emit name
 }
 
@@ -1373,9 +1377,10 @@ func compileStmt(tokens, pos, ntoks, depth, inFunc) {
 
     // --- Module/import/export: emit comment stubs ---
     if tok == "KW:module" {
-        let name = tokVal(tokAt(tokens, pos + 1))
+        // module name -- emit comment, advance past name
+        let mname = tokVal(tokAt(tokens, pos + 1))
         let p = pos + 2
-        emit indent(depth) + "// module " + name + "\n," + p
+        emit "// module: " + mname + "\n," + p
     }
     if tok == "KW:import" {
         // import "file.k" - load and inline compile the file
@@ -1392,9 +1397,20 @@ func compileStmt(tokens, pos, ntoks, depth, inFunc) {
         }
     }
     if tok == "KW:export" {
-        let name = tokVal(tokAt(tokens, pos + 1))
+        // export func name(...) or export struct Name
+        // Just skip the export keyword and compile what follows
+        let nextTok = tokAt(tokens, pos + 1)
+        if nextTok == "KW:func" || nextTok == "KW:fn" {
+            // compile the func declaration
+            let fp = compileFunc(tokens, pos + 1, ntoks)
+            emit pairVal(fp) + "," + pairPos(fp)
+        }
+        if nextTok == "KW:struct" || nextTok == "KW:class" || nextTok == "KW:type" {
+            emit compileStructDecl(tokens, pos + 2, ntoks, depth)
+        }
+        // bare export name -- just skip
         let p = pos + 2
-        emit indent(depth) + "// export " + name + "\n," + p
+        emit indent(depth) + "// export\n," + p
     }
 
     // Check for compound assignment: ID PLUSEQ/MINUSEQ/STAREQ/SLASHEQ/MODEQ
@@ -3134,41 +3150,260 @@ func cRuntime() {
 // Main: compile a .k file to C
 // =============================================
 
+
+// ── Module System ─────────────────────────────────────────────
+
+// scanFunctionsInTokens: like scanFunctions but handles "go name { func... }"
+// Returns same ftable format
+func scanModuleFunctions(tokens, ntoks) {
+    // First check if there's a "go name {" wrapper
+    // If so, find the LBRACE and scan functions inside it
+    let i = 0
+    let bodyStart = 0
+    let hasWrapper = 0
+    while i < ntoks {
+        let tok = tokAt(tokens, i)
+        if tok == "KW:go" {
+            // go name { -- check if next two are ID and LBRACE
+            if i + 2 < ntoks {
+                if tokType(tokAt(tokens, i + 1)) == "ID" {
+                    if tokAt(tokens, i + 2) == "LBRACE" {
+                        bodyStart = i + 2
+                        hasWrapper = 1
+                    }
+                }
+            }
+        }
+        i += 1
+    }
+    // Scan functions from bodyStart (works whether wrapper or not)
+    emit scanFunctions(tokens, ntoks)
+}
+
+// compileImportedFunctions: compile all func bodies from a token stream
+// Handles both flat files and "go name { func... }" wrapped files
+// Returns C code string
+func compileImportedFunctions(tokens, ntoks, ftable) {
+    let sb = sbNew()
+    let i = 0
+    // Detect "go name {" wrapper - if found, skip into body
+    let inWrapper = 0
+    let depth = 0
+    while i < ntoks {
+        let tok = tokAt(tokens, i)
+        if tok == "KW:go" {
+            if i + 2 < ntoks {
+                if tokType(tokAt(tokens, i + 1)) == "ID" {
+                    if tokAt(tokens, i + 2) == "LBRACE" {
+                        // skip: go, name, LBRACE
+                        i = i + 3
+                        inWrapper = 1
+                    }
+                }
+            }
+        }
+        // compile func declarations
+        if tok == "KW:func" || tok == "KW:fn" {
+            let fp = compileFunc(tokens, i, ntoks)
+            sb = sbAppend(sb, pairVal(fp))
+            i = pairPos(fp)
+        } else if tok == "KW:export" {
+            // export func ... -- skip the export keyword, compile the func
+            i += 1
+        } else {
+            i += 1
+        }
+    }
+    emit sbToString(sb)
+}
+
+// compileImportedForwardDecls: emit forward declarations from imported file
+func compileImportedForwardDecls(tokens, ntoks, ftable) {
+    let sb = sbNew()
+    let i = 0
+    while i < ntoks {
+        let tok = tokAt(tokens, i)
+        if tok == "KW:func" || tok == "KW:fn" {
+            let nameTok = tokAt(tokens, i + 1)
+            let fname = tokVal(nameTok)
+            let info = funcLookup(ftable, fname)
+            let pc = funcParamCount(info)
+            let decl = "char* " + cIdent(fname) + "("
+            let pi = 0
+            while pi < pc {
+                if pi > 0 { decl = decl + ", " }
+                decl = decl + "char*"
+                pi += 1
+            }
+            decl = decl + ");\n"
+            sb = sbAppend(sb, decl)
+            // skip to end of function
+            let fp = skipBlock(tokens, i + 3 + pc * 2)
+            i = fp
+        } else if tok == "KW:export" {
+            i += 1
+        } else {
+            i += 1
+        }
+    }
+    emit sbToString(sb)
+}
+
 just run {
     let file = arg(0)
     let source = readFile(file)
 
+    if len(source) == 0 {
+        printErr("kcc: cannot read file: " + file)
+        emit 1
+    }
+
     let tokens = tokenize(source)
     let ntoks = lineCount(tokens)
 
+    // Resolve base directory for relative imports
+    let baseDir = ""
+    let lastSlash = 0 - 1
+    let fi = 0
+    while fi < len(file) {
+        if file[fi] == "/" || file[fi] == "\\" {
+            lastSlash = fi
+        }
+        fi += 1
+    }
+    if lastSlash >= 0 {
+        baseDir = substring(file, 0, lastSlash + 1)
+    }
+
+    // Scan functions in main file
     let ftable = scanFunctions(tokens, ntoks)
 
     // Output the C runtime
     let sb = sbNew()
     sb = sbAppend(sb, cRuntime())
 
-    // Compile all func declarations (forward declare then define)
-    // First pass: emit forward declarations
+    // === IMPORT PROCESSING ===
+    // Walk tokens looking for import statements
+    // Track imported files to avoid duplicates
+    let imported = ""
+    let importFwdDecls = ""
+    let importBodies = ""
+
+    let ii = 0
+    while ii < ntoks {
+        let itok = tokAt(tokens, ii)
+        if itok == "KW:import" {
+            let importPath = tokVal(tokAt(tokens, ii + 1))
+            // resolve relative path
+            // Try 1: relative to source file directory
+            // Try 2: as-is (relative to working directory)
+            let fullPath = importPath
+            if len(baseDir) > 0 {
+                if !startsWith(importPath, "/") {
+                    if !startsWith(importPath, "C:") {
+                        let relPath = baseDir + importPath
+                        let testSrc = readFile(relPath)
+                        if len(testSrc) > 0 {
+                            fullPath = relPath
+                        }
+                        // else: fall back to importPath as-is (cwd-relative)
+                    }
+                }
+            }
+            // check cache - skip if already imported
+            if !contains(imported, fullPath + "|") {
+                imported = imported + fullPath + "|"
+                let importSrc = readFile(fullPath)
+                if len(importSrc) > 0 {
+                    let iToks = tokenize(importSrc)
+                    let iNtoks = lineCount(iToks)
+                    let iFtable = scanFunctions(iToks, iNtoks)
+                    // forward declarations
+                    let iDecls = ""
+                    let ij = 0
+                    while ij < iNtoks {
+                        let itk = tokAt(iToks, ij)
+                        if itk == "KW:func" || itk == "KW:fn" {
+                            let iname = tokVal(tokAt(iToks, ij + 1))
+                            if len(iname) > 0 {
+                            let iinfo = funcLookup(iFtable, iname)
+                            let ipc = funcParamCount(iinfo)
+                            let idecl = "char* " + cIdent(iname) + "(char*"
+                            let ipj = 1
+                            while toInt(ipj) < toInt(ipc) {
+                                idecl = idecl + ", char*"
+                                ipj += 1
+                            }
+                            if toInt(ipc) == 0 {
+                                idecl = "char* " + cIdent(iname) + "("
+                            }
+                            idecl = idecl + ");\n"
+                            iDecls = iDecls + idecl
+                            }
+                        }
+                        ij += 1
+                    }
+                    importFwdDecls = importFwdDecls + "// --- imported: " + fullPath + " ---\n"
+                    importFwdDecls = importFwdDecls + iDecls
+                    // function bodies
+                    let iBodies = compileImportedFunctions(iToks, iNtoks, iFtable)
+                    importBodies = importBodies + iBodies
+                    // merge function table
+                    if len(iFtable) > 0 {
+                        if len(ftable) > 0 {
+                            ftable = ftable + "\n" + iFtable
+                        } else {
+                            ftable = iFtable
+                        }
+                    }
+                } else {
+                    printErr("kcc: import not found: " + fullPath)
+                }
+            }
+            ii += 2
+        } else {
+            ii += 1
+        }
+    }
+
+    // Emit import forward declarations
+    if len(importFwdDecls) > 0 {
+        sb = sbAppend(sb, importFwdDecls)
+        sb = sbAppend(sb, "\n")
+    }
+
+    // Emit import function bodies
+    if len(importBodies) > 0 {
+        sb = sbAppend(sb, importBodies)
+    }
+
+    // === MAIN FILE FUNCTIONS ===
+    // First pass: forward declarations
     let i = 0
     while i < ntoks {
         let tok = tokAt(tokens, i)
-        if tok == "KW:func" {
+        if tok == "KW:func" || tok == "KW:fn" {
             let nameTok = tokAt(tokens, i + 1)
             let fname = tokVal(nameTok)
+            if len(fname) > 0 {
             let info = funcLookup(ftable, fname)
             let pc = funcParamCount(info)
-            let paramStr = funcParams(info)
-            let decl = "char* " + cIdent(fname) + "("
-            let pi = 0
-            while pi < pc {
-                if pi > 0 {
-                    decl = decl + ", "
-                }
-                decl = decl + "char*"
+            // Build param list cleanly
+            let decl = "char* " + cIdent(fname) + "(char*"
+            let pi = 1
+            while toInt(pi) < toInt(pc) {
+                decl = decl + ", char*"
                 pi += 1
+            }
+            if toInt(pc) == 0 {
+                decl = "char* " + cIdent(fname) + "("
             }
             decl = decl + ");\n"
             sb = sbAppend(sb, decl)
+            }
+        } else if tok == "KW:export" {
+            // export: just advance past it, KW:func follows on next iteration
+            // do NOT add extra i+=1 here - the bottom i+=1 handles it
         }
         i += 1
     }
@@ -3178,12 +3413,18 @@ just run {
     i = 0
     while i < ntoks {
         let tok = tokAt(tokens, i)
-        if tok == "KW:func" {
+        if tok == "KW:func" || tok == "KW:fn" {
             let fp = compileFunc(tokens, i, ntoks)
             let fcode = pairVal(fp)
             sb = sbAppend(sb, fcode)
-            // skip past the function in token stream
             i = pairPos(fp)
+        } else if tok == "KW:export" {
+            // skip export keyword, compile func on next pass
+            i += 1
+        } else if tok == "KW:struct" || tok == "KW:class" || tok == "KW:type" {
+            let sp = compileStructDecl(tokens, i + 1, ntoks, 0)
+            sb = sbAppend(sb, pairVal(sp))
+            i = pairPos(sp)
         } else {
             i += 1
         }
@@ -3192,8 +3433,9 @@ just run {
     // Find and compile the entry block
     let entry = findEntry(tokens, ntoks)
     if entry < 0 {
-        // print("No entry point found")
-        emit 1
+        // library file with no entry point - that is OK
+        print(sbToString(sb))
+        emit 0
     }
 
     sb = sbAppend(sb, "int main(int argc, char** argv) {\n")

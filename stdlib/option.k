@@ -1,11 +1,13 @@
 // option.k — Option type for nullable values
 // An Option is either "some:VALUE" or "none"
 
-func some(val) {
+module option
+
+func optSome(val) {
     emit "some:" + val
 }
 
-func none() {
+func optNone() {
     emit "none"
 }
 
@@ -35,5 +37,5 @@ func optUnwrapOr(opt, default) {
 
 func optMap(opt, val) {
     if opt == "none" { emit "none" }
-    emit some(val)
+    emit optSome(val)
 }
