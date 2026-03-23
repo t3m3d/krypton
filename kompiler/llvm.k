@@ -1,9 +1,3 @@
-// llvm.k — Krypton IR to LLVM IR backend v3
-// Uses alloca-based stack (always SSA-safe across basic blocks)
-// Usage: _llvmbe.exe source_opt.kir > source.ll
-//        clang source.ll krypton_runtime.o -o program.exe
-
-// ── IR helpers ───────────────────────────────────────────────────
 func irGetOp(line) {
     let t = trim(line)
     let i = 0

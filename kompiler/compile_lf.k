@@ -1,9 +1,3 @@
-// compile.k — Krypton-to-C compiler written in Krypton
-// Usage: kcc kompiler/compile.k <source.k> > output.c
-//   then: gcc -o program output.c
-
-// === Pair helpers (value,pos) ===
-
 func findLastComma(s) {
     let i = len(s) - 1
     while i >= 0 {
