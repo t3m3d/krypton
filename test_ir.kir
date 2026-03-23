@@ -1,0 +1,69 @@
+; Krypton IR
+; Source: test_ir.k
+
+FUNC add 2
+PARAM a
+PARAM b
+LOAD a
+BUILTIN toInt 1
+LOAD b
+BUILTIN toInt 1
+ADD
+PUSH ""
+ADD
+RETURN
+END
+
+FUNC factorial 1
+PARAM n
+LOAD n
+PUSH 1
+LTE
+JUMPIFNOT _endif_0
+PUSH "1"
+RETURN
+LABEL _endif_0
+LOAD n
+BUILTIN toInt 1
+LOAD n
+PUSH 1
+SUB
+CALL factorial 1
+BUILTIN toInt 1
+MUL
+PUSH ""
+ADD
+RETURN
+END
+
+FUNC __main__ 0
+PUSH "3"
+PUSH "4"
+BUILTIN add 2
+BUILTIN kp 1
+POP
+PUSH "5"
+CALL factorial 1
+BUILTIN kp 1
+POP
+LOCAL i
+PUSH 0
+STORE i
+LABEL _wloop_3
+LOAD i
+PUSH 3
+LT
+JUMPIFNOT _wend_3
+PUSH "loop: "
+LOAD i
+ADD
+BUILTIN kp 1
+POP
+LOAD i
+PUSH 1
+ADD
+STORE i
+JUMP _wloop_3
+LABEL _wend_3
+END
+

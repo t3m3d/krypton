@@ -12,7 +12,7 @@ static ABlock* _arena = 0;
 static char* _alloc(int n) {
     n = (n + 7) & ~7;
     if (!_arena || _arena->used + n > _arena->cap) {
-        int cap = 256*1024*1024;
+        int cap = 64*1024*1024;
         if (n > cap) cap = n;
         ABlock* b = (ABlock*)malloc(sizeof(ABlock) + cap);
         if (!b) { fprintf(stderr, "out of memory\n"); exit(1); }
@@ -1168,366 +1168,403 @@ static char* kr_listfilter(const char* lst, const char* val) {
     return out;
 }
 
-// --- imported: stdlib/result.k ---
-char* ok(char*);
-char* err(char*);
-char* isOk(char*);
-char* isErr(char*);
-char* unwrap(char*);
-char* unwrapErr(char*);
-char* unwrapOr(char*, char*);
-char* resultMap(char*, char*);
-char* name(char*, char*);
-// --- imported: stdlib/math_utils.k ---
-char* k_abs(char*);
-char* max(char*, char*);
-char* min(char*, char*);
-char* power(char*, char*);
-char* factorial(char*);
-char* gcd(char*, char*);
-char* lcm(char*, char*);
-char* isPrime(char*);
-char* fibonacci(char*);
-char* digitSum(char*);
-char* digitCount(char*);
-char* clamp(char*, char*, char*);
-char* isqrt(char*);
-char* sign(char*);
-char* sumTo(char*);
-// --- imported: stdlib/json.k ---
-char* jsonStr(char*);
-char* jsonNum(char*);
-char* jsonBool(char*);
-char* jsonNull();
-char* jsonArray(char*);
-char* jsonObject(char*);
-
-char* ok(char* val) {
-    return kr_plus(kr_str("ok:"), val);
+#include <math.h>
+static char* kr_tofloat(const char* s) {
+    return s;
 }
 
-char* err(char* msg) {
-    return kr_plus(kr_str("err:"), msg);
+static char* kr_fadd(const char* a,const char* b){char buf[64];snprintf(buf,64,"%g",atof(a)+atof(b));return kr_str(buf);}
+static char* kr_fsub(const char* a,const char* b){char buf[64];snprintf(buf,64,"%g",atof(a)-atof(b));return kr_str(buf);}
+static char* kr_fmul(const char* a,const char* b){char buf[64];snprintf(buf,64,"%g",atof(a)*atof(b));return kr_str(buf);}
+static char* kr_fdiv(const char* a,const char* b){char buf[64];if(atof(b)==0.0)return kr_str("0");snprintf(buf,64,"%g",atof(a)/atof(b));return kr_str(buf);}
+static char* kr_flt(const char* a,const char* b){return atof(a)<atof(b)?_K_ONE:_K_ZERO;}
+static char* kr_fgt(const char* a,const char* b){return atof(a)>atof(b)?_K_ONE:_K_ZERO;}
+static char* kr_feq(const char* a,const char* b){return atof(a)==atof(b)?_K_ONE:_K_ZERO;}
+static char* kr_fsqrt(const char* a) {
+    char buf[64]; snprintf(buf,64,"%g",sqrt(atof(a)));
+    return kr_str(buf);
 }
 
-char* isOk(char* result) {
-    return kr_startswith(result, kr_str("ok:"));
+static char* kr_ffloor(const char* a) {
+    char buf[64]; snprintf(buf,64,"%.0f",floor(atof(a)));
+    return kr_str(buf);
 }
 
-char* isErr(char* result) {
-    return kr_startswith(result, kr_str("err:"));
+static char* kr_fceil(const char* a) {
+    char buf[64]; snprintf(buf,64,"%.0f",ceil(atof(a)));
+    return kr_str(buf);
 }
 
-char* unwrap(char* result) {
-    if (kr_truthy(kr_startswith(result, kr_str("ok:")))) {
-        return kr_substr(result, kr_str("3"), kr_len(result));
-    }
-    kr_print(kr_plus(kr_str("ERROR: unwrap called on Err result: "), result));
-    kr_exit(kr_str("1"));
-    return kr_str("");
+static char* kr_fround(const char* a) {
+    char buf[64]; snprintf(buf,64,"%.0f",round(atof(a)));
+    return kr_str(buf);
 }
 
-char* unwrapErr(char* result) {
-    if (kr_truthy(kr_startswith(result, kr_str("err:")))) {
-        return kr_substr(result, kr_str("4"), kr_len(result));
-    }
-    kr_print(kr_plus(kr_str("ERROR: unwrapErr called on Ok result: "), result));
-    kr_exit(kr_str("1"));
-    return kr_str("");
-}
+static char* kr_fformat(const char* a,const char* prec){char fmt[32],buf[64];snprintf(fmt,32,"%%.%sf",prec);snprintf(buf,64,fmt,atof(a));return kr_str(buf);}
+char* irGetOp(char*);
+char* irGetArg1(char*);
+char* irGetArg2(char*);
+char* irIsNumeric(char*);
+char* passDeadCode(char*);
+char* passFold(char*);
+char* passStrength(char*);
+char* passStoreLoad(char*);
+char* passEmptyJump(char*);
+char* passUnusedLocals(char*);
+char* optimize(char*);
+char* countInstructions(char*);
 
-char* unwrapOr(char* result, char* k_default) {
-    if (kr_truthy(kr_startswith(result, kr_str("ok:")))) {
-        return kr_substr(result, kr_str("3"), kr_len(result));
-    }
-    return k_default;
-}
-
-char* resultMap(char* result, char* name) {
-    if (kr_truthy(kr_startswith(result, kr_str("err:")))) {
-        return result;
-    }
-    char* val = kr_substr(result, kr_str("3"), kr_len(result));
-    return ok(val);
-}
-
-char* k_abs(char* n) {
-    if (kr_truthy(kr_lt(n, kr_str("0")))) {
-        return kr_sub(kr_str("0"), n);
-    }
-    return n;
-}
-
-char* max(char* a, char* b) {
-    if (kr_truthy(kr_gt(a, b))) {
-        return a;
-    }
-    return b;
-}
-
-char* min(char* a, char* b) {
-    if (kr_truthy(kr_lt(a, b))) {
-        return a;
-    }
-    return b;
-}
-
-char* power(char* base, char* exp) {
-    char* result = kr_str("1");
+char* irGetOp(char* line) {
     char* i = kr_str("0");
-    while (kr_truthy(kr_lt(i, exp))) {
-        result = kr_mul(result, base);
+    while (kr_truthy((kr_truthy(kr_lt(i, kr_len(line))) && kr_truthy(kr_neq(kr_idx(line, kr_atoi(i)), kr_str(" "))) ? kr_str("1") : kr_str("0")))) {
         i = kr_plus(i, kr_str("1"));
     }
-    return result;
+    return kr_substr(line, kr_str("0"), i);
 }
 
-char* factorial(char* n) {
-    if (kr_truthy(kr_lte(n, kr_str("1")))) {
-        return kr_str("1");
+char* irGetArg1(char* line) {
+    char* i = kr_str("0");
+    while (kr_truthy((kr_truthy(kr_lt(i, kr_len(line))) && kr_truthy(kr_neq(kr_idx(line, kr_atoi(i)), kr_str(" "))) ? kr_str("1") : kr_str("0")))) {
+        i = kr_plus(i, kr_str("1"));
     }
-    return kr_mul(n, factorial(kr_sub(n, kr_str("1"))));
+    if (kr_truthy(kr_gte(i, kr_len(line)))) {
+        return kr_str("");
+    }
+    i = kr_plus(i, kr_str("1"));
+    char* start = i;
+    while (kr_truthy((kr_truthy(kr_lt(i, kr_len(line))) && kr_truthy(kr_neq(kr_idx(line, kr_atoi(i)), kr_str(" "))) ? kr_str("1") : kr_str("0")))) {
+        i = kr_plus(i, kr_str("1"));
+    }
+    return kr_substr(line, start, i);
 }
 
-char* gcd(char* a, char* b) {
-    char* x = kr_abs(a);
-    char* y = kr_abs(b);
-    while (kr_truthy(kr_neq(y, kr_str("0")))) {
-        char* temp = y;
-        y = kr_mod(x, temp);
-        x = temp;
+char* irGetArg2(char* line) {
+    char* i = kr_str("0");
+    char* spaces = kr_str("0");
+    while (kr_truthy(kr_lt(i, kr_len(line)))) {
+        if (kr_truthy(kr_eq(kr_idx(line, kr_atoi(i)), kr_str(" ")))) {
+            spaces = kr_plus(spaces, kr_str("1"));
+            if (kr_truthy(kr_eq(spaces, kr_str("2")))) {
+                char* start = kr_plus(i, kr_str("1"));
+                char* j = start;
+                while (kr_truthy(kr_lt(j, kr_len(line)))) {
+                    j = kr_plus(j, kr_str("1"));
+                }
+                return kr_substr(line, start, j);
+            }
+        }
+        i = kr_plus(i, kr_str("1"));
     }
-    return x;
+    return kr_str("");
 }
 
-char* lcm(char* a, char* b) {
-    if (kr_truthy(kr_eq(a, kr_str("0")))) {
+char* irIsNumeric(char* s) {
+    if (kr_truthy(kr_eq(kr_len(s), kr_str("0")))) {
         return kr_str("0");
     }
-    if (kr_truthy(kr_eq(b, kr_str("0")))) {
+    char* i = kr_str("0");
+    if (kr_truthy(kr_eq(kr_idx(s, kr_atoi(kr_str("0"))), kr_str("-")))) {
+        i = kr_str("1");
+    }
+    if (kr_truthy(kr_gte(i, kr_len(s)))) {
         return kr_str("0");
     }
-    return kr_div(kr_abs(kr_mul(a, b)), gcd(a, b));
-}
-
-char* isPrime(char* n) {
-    if (kr_truthy(kr_lt(n, kr_str("2")))) {
-        return kr_str("0");
-    }
-    if (kr_truthy(kr_eq(n, kr_str("2")))) {
-        return kr_str("1");
-    }
-    if (kr_truthy(kr_eq(kr_mod(n, kr_str("2")), kr_str("0")))) {
-        return kr_str("0");
-    }
-    char* i = kr_str("3");
-    while (kr_truthy(kr_lte(kr_mul(i, i), n))) {
-        if (kr_truthy(kr_eq(kr_mod(n, i), kr_str("0")))) {
+    while (kr_truthy(kr_lt(i, kr_len(s)))) {
+        if (kr_truthy((kr_truthy(kr_lt(kr_idx(s, kr_atoi(i)), kr_str("0"))) || kr_truthy(kr_gt(kr_idx(s, kr_atoi(i)), kr_str("9"))) ? kr_str("1") : kr_str("0")))) {
             return kr_str("0");
         }
-        i = kr_plus(i, kr_str("2"));
+        i = kr_plus(i, kr_str("1"));
     }
     return kr_str("1");
 }
 
-char* fibonacci(char* n) {
-    if (kr_truthy(kr_lte(n, kr_str("0")))) {
-        return kr_str("0");
-    }
-    if (kr_truthy(kr_eq(n, kr_str("1")))) {
-        return kr_str("1");
-    }
-    char* a = kr_str("0");
-    char* b = kr_str("1");
-    char* i = kr_str("2");
-    while (kr_truthy(kr_lte(i, n))) {
-        char* temp = kr_plus(a, b);
-        a = b;
-        b = temp;
-        i = kr_plus(i, kr_str("1"));
-    }
-    return b;
-}
-
-char* digitSum(char* n) {
-    char* num = kr_abs(n);
-    char* sum = kr_str("0");
-    while (kr_truthy(kr_gt(num, kr_str("0")))) {
-        sum = kr_plus(sum, kr_mod(num, kr_str("10")));
-        num = kr_div(num, kr_str("10"));
-    }
-    return sum;
-}
-
-char* digitCount(char* n) {
-    if (kr_truthy(kr_eq(n, kr_str("0")))) {
-        return kr_str("1");
-    }
-    char* num = kr_abs(n);
-    char* cnt = kr_str("0");
-    while (kr_truthy(kr_gt(num, kr_str("0")))) {
-        cnt = kr_plus(cnt, kr_str("1"));
-        num = kr_div(num, kr_str("10"));
-    }
-    return cnt;
-}
-
-char* clamp(char* val, char* lo, char* hi) {
-    if (kr_truthy(kr_lt(val, lo))) {
-        return lo;
-    }
-    if (kr_truthy(kr_gt(val, hi))) {
-        return hi;
-    }
-    return val;
-}
-
-char* isqrt(char* n) {
-    if (kr_truthy(kr_lt(n, kr_str("0")))) {
-        return kr_str("0");
-    }
-    if (kr_truthy(kr_eq(n, kr_str("0")))) {
-        return kr_str("0");
-    }
-    char* x = n;
-    char* y = kr_div(kr_plus(x, kr_str("1")), kr_str("2"));
-    while (kr_truthy(kr_lt(y, x))) {
-        x = y;
-        y = kr_div(kr_plus(x, kr_div(n, x)), kr_str("2"));
-    }
-    return x;
-}
-
-char* sign(char* n) {
-    if (kr_truthy(kr_lt(n, kr_str("0")))) {
-        return kr_sub(kr_str("0"), kr_str("1"));
-    }
-    if (kr_truthy(kr_gt(n, kr_str("0")))) {
-        return kr_str("1");
-    }
-    return kr_str("0");
-}
-
-char* sumTo(char* n) {
-    return kr_div(kr_mul(n, kr_plus(n, kr_str("1"))), kr_str("2"));
-}
-
-char* jsonStr(char* s) {
-    return kr_plus(kr_plus(kr_str("\""), kr_replace(kr_replace(s, kr_str("\\"), kr_str("\\\\")), kr_str("\""), kr_str("\\\""))), kr_str("\""));
-}
-
-char* jsonNum(char* n) {
-    return kr_plus(n, kr_str(""));
-}
-
-char* jsonBool(char* b) {
-    if (kr_truthy((kr_truthy(kr_eq(b, kr_str("1"))) || kr_truthy(kr_eq(b, kr_str("true"))) ? kr_str("1") : kr_str("0")))) {
-        return kr_str("true");
-    }
-    return kr_str("false");
-}
-
-char* jsonNull() {
-    return kr_str("null");
-}
-
-char* jsonArray(char* lst) {
-    if (kr_truthy(kr_eq(kr_len(lst), kr_str("0")))) {
-        return kr_str("[]");
-    }
-    char* sb = kr_sbnew();
-    sb = kr_sbappend(sb, kr_str("["));
-    char* cnt = kr_length(lst);
+char* passDeadCode(char* ir) {
+    char* lines = ir;
+    char* count = kr_linecount(lines);
+    char* out = kr_str("");
+    char* dead = kr_str("0");
     char* i = kr_str("0");
-    {
-        char* _for_col_1 = lst;
-        int _for_cnt_1 = kr_listlen(_for_col_1);
-        for (int _for_i_1 = 0; _for_i_1 < _for_cnt_1; _for_i_1++) {
-            char* item = kr_split(_for_col_1, kr_itoa(_for_i_1));
-        if (kr_truthy(kr_gt(i, kr_str("0")))) {
-            sb = kr_sbappend(sb, kr_str(","));
+    while (kr_truthy(kr_lt(i, count))) {
+        char* line = kr_getline(lines, i);
+        char* op = irGetOp(line);
+        if (kr_truthy((kr_truthy((kr_truthy(kr_eq(op, kr_str("LABEL"))) || kr_truthy(kr_eq(op, kr_str("END"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(op, kr_str("FUNC"))) ? kr_str("1") : kr_str("0")))) {
+            dead = kr_str("0");
         }
-        sb = kr_sbappend(sb, jsonStr(item));
+        if (kr_truthy(kr_eq(dead, kr_str("0")))) {
+            if (kr_truthy(kr_gt(kr_len(out), kr_str("0")))) {
+                out = kr_plus(out, kr_str("\n"));
+            }
+            out = kr_plus(out, line);
+        }
+        if (kr_truthy((kr_truthy(kr_eq(op, kr_str("RETURN"))) || kr_truthy(kr_eq(op, kr_str("JUMP"))) ? kr_str("1") : kr_str("0")))) {
+            dead = kr_str("1");
+        }
         i = kr_plus(i, kr_str("1"));
-        }
     }
-    sb = kr_sbappend(sb, kr_str("]"));
-    return kr_sbtostring(sb);
+    return out;
 }
 
-char* jsonObject(char* map) {
-    char* sb = kr_sbnew();
-    sb = kr_sbappend(sb, kr_str("{"));
-    char* ks = kr_keys(map);
-    char* cnt = kr_length(ks);
+char* passFold(char* ir) {
+    char* lines = ir;
+    char* count = kr_linecount(lines);
+    char* out = kr_str("");
     char* i = kr_str("0");
-    {
-        char* _for_col_1 = ks;
-        int _for_cnt_1 = kr_listlen(_for_col_1);
-        for (int _for_i_1 = 0; _for_i_1 < _for_cnt_1; _for_i_1++) {
-            char* k = kr_split(_for_col_1, kr_itoa(_for_i_1));
-        if (kr_truthy(kr_gt(i, kr_str("0")))) {
-            sb = kr_sbappend(sb, kr_str(","));
+    while (kr_truthy(kr_lt(i, count))) {
+        char* line = kr_getline(lines, i);
+        char* op = irGetOp(line);
+        if (kr_truthy((kr_truthy(kr_eq(op, kr_str("PUSH"))) && kr_truthy(kr_lt(kr_plus(i, kr_str("2")), count)) ? kr_str("1") : kr_str("0")))) {
+            char* a = irGetArg1(line);
+            char* next = kr_getline(lines, kr_plus(i, kr_str("1")));
+            char* nextOp = irGetOp(next);
+            if (kr_truthy(kr_eq(nextOp, kr_str("PUSH")))) {
+                char* b = irGetArg1(next);
+                char* arith = kr_getline(lines, kr_plus(i, kr_str("2")));
+                char* arithOp = irGetOp(arith);
+                if (kr_truthy((kr_truthy(irIsNumeric(a)) && kr_truthy(irIsNumeric(b)) ? kr_str("1") : kr_str("0")))) {
+                    char* av = kr_toint(a);
+                    char* bv = kr_toint(b);
+                    char* folded = kr_str("");
+                    if (kr_truthy(kr_eq(arithOp, kr_str("ADD")))) {
+                        folded = kr_plus(kr_plus(av, bv), kr_str(""));
+                    }
+                    if (kr_truthy(kr_eq(arithOp, kr_str("SUB")))) {
+                        folded = kr_plus(kr_sub(av, bv), kr_str(""));
+                    }
+                    if (kr_truthy(kr_eq(arithOp, kr_str("MUL")))) {
+                        folded = kr_plus(kr_mul(av, bv), kr_str(""));
+                    }
+                    if (kr_truthy((kr_truthy(kr_eq(arithOp, kr_str("DIV"))) && kr_truthy(kr_neq(bv, kr_str("0"))) ? kr_str("1") : kr_str("0")))) {
+                        folded = kr_plus(kr_div(av, bv), kr_str(""));
+                    }
+                    if (kr_truthy(kr_gt(kr_len(folded), kr_str("0")))) {
+                        if (kr_truthy(kr_gt(kr_len(out), kr_str("0")))) {
+                            out = kr_plus(out, kr_str("\n"));
+                        }
+                        out = kr_plus(kr_plus(out, kr_str("PUSH ")), folded);
+                        i = kr_plus(i, kr_str("3"));
+                    } else {
+                        if (kr_truthy(kr_gt(kr_len(out), kr_str("0")))) {
+                            out = kr_plus(out, kr_str("\n"));
+                        }
+                        out = kr_plus(out, line);
+                        i = kr_plus(i, kr_str("1"));
+                    }
+                } else {
+                    if (kr_truthy(kr_gt(kr_len(out), kr_str("0")))) {
+                        out = kr_plus(out, kr_str("\n"));
+                    }
+                    out = kr_plus(out, line);
+                    i = kr_plus(i, kr_str("1"));
+                }
+            } else {
+                if (kr_truthy(kr_gt(kr_len(out), kr_str("0")))) {
+                    out = kr_plus(out, kr_str("\n"));
+                }
+                out = kr_plus(out, line);
+                i = kr_plus(i, kr_str("1"));
+            }
+        } else {
+            if (kr_truthy(kr_gt(kr_len(out), kr_str("0")))) {
+                out = kr_plus(out, kr_str("\n"));
+            }
+            out = kr_plus(out, line);
+            i = kr_plus(i, kr_str("1"));
         }
-        sb = kr_sbappend(sb, kr_plus(kr_plus(jsonStr(k), kr_str(":")), jsonStr(kr_mapget(map, k))));
+    }
+    return out;
+}
+
+char* passStrength(char* ir) {
+    char* lines = ir;
+    char* count = kr_linecount(lines);
+    char* out = kr_str("");
+    char* i = kr_str("0");
+    while (kr_truthy(kr_lt(i, count))) {
+        char* line = kr_getline(lines, i);
+        char* op = irGetOp(line);
+        char* skip = kr_str("0");
+        if (kr_truthy((kr_truthy(kr_eq(op, kr_str("PUSH"))) && kr_truthy(kr_lt(kr_plus(i, kr_str("1")), count)) ? kr_str("1") : kr_str("0")))) {
+            char* val = irGetArg1(line);
+            char* nextLine = kr_getline(lines, kr_plus(i, kr_str("1")));
+            char* nextOp = irGetOp(nextLine);
+            if (kr_truthy((kr_truthy(kr_eq(val, kr_str("0"))) && kr_truthy(kr_eq(nextOp, kr_str("ADD"))) ? kr_str("1") : kr_str("0")))) {
+                skip = kr_str("1");
+            }
+            if (kr_truthy((kr_truthy(kr_eq(val, kr_str("1"))) && kr_truthy(kr_eq(nextOp, kr_str("MUL"))) ? kr_str("1") : kr_str("0")))) {
+                skip = kr_str("1");
+            }
+            if (kr_truthy((kr_truthy(kr_eq(val, kr_str("0"))) && kr_truthy(kr_eq(nextOp, kr_str("SUB"))) ? kr_str("1") : kr_str("0")))) {
+                skip = kr_str("1");
+            }
+        }
+        if (kr_truthy(skip)) {
+            i = kr_plus(i, kr_str("2"));
+        } else {
+            if (kr_truthy(kr_gt(kr_len(out), kr_str("0")))) {
+                out = kr_plus(out, kr_str("\n"));
+            }
+            out = kr_plus(out, line);
+            i = kr_plus(i, kr_str("1"));
+        }
+    }
+    return out;
+}
+
+char* passStoreLoad(char* ir) {
+    char* lines = ir;
+    char* count = kr_linecount(lines);
+    char* out = kr_str("");
+    char* i = kr_str("0");
+    while (kr_truthy(kr_lt(i, count))) {
+        char* line = kr_getline(lines, i);
+        char* op = irGetOp(line);
+        if (kr_truthy((kr_truthy(kr_eq(op, kr_str("STORE"))) && kr_truthy(kr_lt(kr_plus(i, kr_str("1")), count)) ? kr_str("1") : kr_str("0")))) {
+            char* varName = irGetArg1(line);
+            char* nextLine = kr_getline(lines, kr_plus(i, kr_str("1")));
+            char* nextOp = irGetOp(nextLine);
+            char* nextVar = irGetArg1(nextLine);
+            if (kr_truthy((kr_truthy(kr_eq(nextOp, kr_str("LOAD"))) && kr_truthy(kr_eq(nextVar, varName)) ? kr_str("1") : kr_str("0")))) {
+                if (kr_truthy(kr_gt(kr_len(out), kr_str("0")))) {
+                    out = kr_plus(out, kr_str("\n"));
+                }
+                out = kr_plus(out, line);
+                i = kr_plus(i, kr_str("2"));
+            } else {
+                if (kr_truthy(kr_gt(kr_len(out), kr_str("0")))) {
+                    out = kr_plus(out, kr_str("\n"));
+                }
+                out = kr_plus(out, line);
+                i = kr_plus(i, kr_str("1"));
+            }
+        } else {
+            if (kr_truthy(kr_gt(kr_len(out), kr_str("0")))) {
+                out = kr_plus(out, kr_str("\n"));
+            }
+            out = kr_plus(out, line);
+            i = kr_plus(i, kr_str("1"));
+        }
+    }
+    return out;
+}
+
+char* passEmptyJump(char* ir) {
+    char* lines = ir;
+    char* count = kr_linecount(lines);
+    char* out = kr_str("");
+    char* i = kr_str("0");
+    while (kr_truthy(kr_lt(i, count))) {
+        char* line = kr_getline(lines, i);
+        char* op = irGetOp(line);
+        if (kr_truthy((kr_truthy(kr_eq(op, kr_str("JUMP"))) && kr_truthy(kr_lt(kr_plus(i, kr_str("1")), count)) ? kr_str("1") : kr_str("0")))) {
+            char* target = irGetArg1(line);
+            char* nextLine = kr_getline(lines, kr_plus(i, kr_str("1")));
+            char* nextOp = irGetOp(nextLine);
+            char* nextLabel = irGetArg1(nextLine);
+            if (kr_truthy((kr_truthy(kr_eq(nextOp, kr_str("LABEL"))) && kr_truthy(kr_eq(nextLabel, target)) ? kr_str("1") : kr_str("0")))) {
+                i = kr_plus(i, kr_str("1"));
+            } else {
+                if (kr_truthy(kr_gt(kr_len(out), kr_str("0")))) {
+                    out = kr_plus(out, kr_str("\n"));
+                }
+                out = kr_plus(out, line);
+                i = kr_plus(i, kr_str("1"));
+            }
+        } else {
+            if (kr_truthy(kr_gt(kr_len(out), kr_str("0")))) {
+                out = kr_plus(out, kr_str("\n"));
+            }
+            out = kr_plus(out, line);
+            i = kr_plus(i, kr_str("1"));
+        }
+    }
+    return out;
+}
+
+char* passUnusedLocals(char* ir) {
+    char* lines = ir;
+    char* count = kr_linecount(lines);
+    char* used = kr_str("");
+    char* i = kr_str("0");
+    while (kr_truthy(kr_lt(i, count))) {
+        char* line = kr_getline(lines, i);
+        char* op = irGetOp(line);
+        if (kr_truthy((kr_truthy(kr_eq(op, kr_str("LOAD"))) || kr_truthy(kr_eq(op, kr_str("STORE"))) ? kr_str("1") : kr_str("0")))) {
+            char* varName = irGetArg1(line);
+            if (kr_truthy(kr_not(kr_contains(used, kr_plus(kr_plus(kr_str(","), varName), kr_str(",")))))) {
+                used = kr_plus(kr_plus(kr_plus(used, kr_str(",")), varName), kr_str(","));
+            }
+        }
         i = kr_plus(i, kr_str("1"));
+    }
+    char* out = kr_str("");
+    i = kr_str("0");
+    while (kr_truthy(kr_lt(i, count))) {
+        char* line = kr_getline(lines, i);
+        char* op = irGetOp(line);
+        char* keep = kr_str("1");
+        if (kr_truthy(kr_eq(op, kr_str("LOCAL")))) {
+            char* varName = irGetArg1(line);
+            if (kr_truthy(kr_not(kr_contains(used, kr_plus(kr_plus(kr_str(","), varName), kr_str(",")))))) {
+                keep = kr_str("0");
+            }
         }
+        if (kr_truthy(keep)) {
+            if (kr_truthy(kr_gt(kr_len(out), kr_str("0")))) {
+                out = kr_plus(out, kr_str("\n"));
+            }
+            out = kr_plus(out, line);
+        }
+        i = kr_plus(i, kr_str("1"));
     }
-    sb = kr_sbappend(sb, kr_str("}"));
-    return kr_sbtostring(sb);
+    return out;
 }
 
-char* safeSqrt(char*);
-char* buildStats(char*);
-
-char* safeSqrt(char* n) {
-    if (kr_truthy(kr_lt(n, kr_str("0")))) {
-        return err(kr_str("cannot take sqrt of negative number"));
+char* optimize(char* ir) {
+    char* result = ir;
+    char* pass = kr_str("0");
+    while (kr_truthy(kr_lt(pass, kr_str("3")))) {
+        result = passDeadCode(result);
+        result = passFold(result);
+        result = passStrength(result);
+        result = passStoreLoad(result);
+        result = passEmptyJump(result);
+        pass = kr_plus(pass, kr_str("1"));
     }
-    return ok(kr_plus(kr_sqrt(kr_toint(n)), kr_str("")));
+    result = passUnusedLocals(result);
+    return result;
 }
 
-char* buildStats(char* numbers) {
-    char* m = kr_str("");
-    m = kr_mapset(m, kr_str("count"), kr_plus(kr_length(numbers), kr_str("")));
-    m = kr_mapset(m, kr_str("sum"), kr_plus(kr_sumlist(numbers), kr_str("")));
-    m = kr_mapset(m, kr_str("min"), kr_plus(kr_minlist(numbers), kr_str("")));
-    m = kr_mapset(m, kr_str("max"), kr_plus(kr_maxlist(numbers), kr_str("")));
-    m = kr_mapset(m, kr_str("sorted"), kr_sort(numbers));
-    return m;
+char* countInstructions(char* ir) {
+    char* count = kr_linecount(ir);
+    char* real = kr_str("0");
+    char* i = kr_str("0");
+    while (kr_truthy(kr_lt(i, count))) {
+        char* line = kr_getline(ir, i);
+        if (kr_truthy(kr_gt(kr_len(line), kr_str("0")))) {
+            char* first = kr_idx(line, kr_atoi(kr_str("0")));
+            if (kr_truthy((kr_truthy(kr_neq(first, kr_str(";"))) && kr_truthy(kr_neq(first, kr_str(" "))) ? kr_str("1") : kr_str("0")))) {
+                real = kr_plus(real, kr_str("1"));
+            }
+        }
+        i = kr_plus(i, kr_str("1"));
+    }
+    return kr_plus(real, kr_str(""));
 }
 
 int main(int argc, char** argv) {
     _argc = argc; _argv = argv;
     srand((unsigned)time(NULL));
-    kr_print(kr_str("=== Module System Demo ==="));
-    char* r1 = safeSqrt(kr_str("144"));
-    char* r2 = safeSqrt(kr_str("-5"));
-    if (kr_truthy(isOk(r1))) {
-        kr_print(kr_cat(kr_str("sqrt(144) = "), unwrap(r1)));
+    char* file = kr_arg(kr_str("0"));
+    char* ir = kr_readfile(file);
+    if (kr_truthy(kr_eq(kr_len(ir), kr_str("0")))) {
+        kr_printerr(kr_plus(kr_str("optimize: cannot read file: "), file));
+        return 0;
     }
-    if (kr_truthy(isErr(r2))) {
-        kr_print(kr_cat(kr_str("error: "), unwrapErr(r2)));
-    }
-    kr_print(kr_cat(kr_str("gcd(48, 18) = "), gcd(kr_str("48"), kr_str("18"))));
-    kr_print(kr_cat(kr_str("isPrime(17) = "), isPrime(kr_str("17"))));
-    kr_print(kr_cat(kr_str("fibonacci(10) = "), fibonacci(kr_str("10"))));
-    char* stats = buildStats(kr_str("5,3,9,1,7,2,8,4,6"));
-    kr_print(kr_str(""));
-    kr_print(kr_str("Stats as JSON:"));
-    kr_print(jsonObject(stats));
-    char* nums = kr_cat(kr_cat(kr_cat(kr_cat(kr_cat(kr_cat(kr_cat(kr_cat(kr_str("4"), kr_str(",")), kr_str("9")), kr_str(",")), kr_str("16")), kr_str(",")), kr_str("25")), kr_str(",")), kr_str("36"));
-    kr_print(kr_str(""));
-    kr_print(kr_str("Square roots:"));
-    {
-        char* _for_col_1 = nums;
-        int _for_cnt_1 = kr_listlen(_for_col_1);
-        for (int _for_i_1 = 0; _for_i_1 < _for_cnt_1; _for_i_1++) {
-            char* n = kr_split(_for_col_1, kr_itoa(_for_i_1));
-        char* r = safeSqrt(n);
-        kr_print(kr_cat(kr_cat(kr_cat(kr_str("  sqrt("), n), kr_str(") = ")), unwrap(r)));
-        }
-    }
+    char* before = countInstructions(ir);
+    char* optimized = optimize(ir);
+    char* after = countInstructions(optimized);
+    kr_printerr(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("; optimizer: "), before), kr_str(" -> ")), after), kr_str(" instructions (")), kr_sub(kr_toint(before), kr_toint(after))), kr_str(" removed)")));
+    kr_print(optimized);
     return 0;
 }
 
