@@ -29,6 +29,54 @@ All notable changes to the Krypton language and compiler.
 
 ---
 
+## [1.0.0] - 2026-03-23
+
+### Krypton 1.0.0
+
+The language is complete. The compiler is self-hosting. Native compilation
+via LLVM is working. This is the first stable release.
+
+**What ships in 1.0.0:**
+
+Language features:
+- Variables, constants, functions, structs, modules
+- Optional type annotations on all declarations
+- String interpolation with backtick syntax
+- All control flow: if/else, while, for-in, do-while, match, break, continue
+- Try/catch/throw with setjmp/longjmp
+- Ternary operator, compound assignment, list literals
+- Float arithmetic (fadd/fsub/fmul/fdiv/fsqrt/fformat)
+- Float literals (3.14 tokenizes correctly)
+- jxt { } block for unified imports and C headers
+
+Compiler:
+- Self-hosting: the compiler is written in Krypton and compiles itself
+- C backend: kcc source.k > source.c && gcc source.c -o source.exe
+- IR backend: kcc --ir source.k > source.kir
+- LLVM backend: build_llvm.bat source.k -> native binary
+- 91 compiler functions, 147 kr_ builtins, 3,539 lines
+
+Standard library: 35 modules including result, option, json,
+math_utils, float_utils, string_utils, list_utils
+
+IR optimizer: 6 passes (dead code, constant folding, strength
+reduction, store/load elimination, empty jump removal, unused locals)
+
+LLVM backend: alloca-based stack, opaque pointer mode, per-function
+string constants, implicit fallthrough br, builtin name mapping
+
+Bootstrap chain:
+kcc (C++) -> v010 -> v020 -> v030 -> v040 -> v050 -> v060
+          -> v070 -> v071 -> v072 -> v075 -> v077 -> v080
+          -> v085 -> v086 -> v090 -> v095 -> v097 -> v098 -> v100
+
+**Known issues in 1.0.0:**
+- Struct + jxt in the same file causes a hang during compilation.
+  Workaround: use `import` instead of `jxt k` when the file also has structs.
+  Fix planned for v1.0.1.
+
+---
+
 ## [0.9.8] - 2026-03-23
 
 ### LLVM Backend
