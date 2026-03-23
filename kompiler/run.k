@@ -1,11 +1,3 @@
-// ============================================================
-// Krypton Bootstrap Compiler/Interpreter
-// Written in Krypton, runs on kcc (the C++ reference compiler)
-// Usage: kcc kompiler/run.k <file.k>
-// ============================================================
-
-// ── String Utilities ──────────────────────────────────────
-
 func findLastComma(s) {
     let i = len(s) - 1
     while i >= 0 {

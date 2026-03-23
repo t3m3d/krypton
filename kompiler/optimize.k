@@ -1,9 +1,3 @@
-// optimize.k — Krypton IR Optimizer
-// Reads .kir from a file, applies optimization passes, writes to stdout
-// Usage: kcc_v095 kompiler/optimize.k source.kir > optimized.kir
-
-// ── IR Instruction Helpers ────────────────────────────────────────
-
 func irGetOp(line) {
     // Get opcode from instruction line (first word)
     let i = 0
