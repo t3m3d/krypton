@@ -29,6 +29,133 @@ All notable changes to the Krypton language and compiler.
 
 ---
 
+## [0.9.7] - 2026-03-22
+
+### Language — jxt Block
+
+New header/import declaration block using family initials j, x, t:
+
+    jxt {
+        c "stdio.h"
+        c "math.h"
+        k "stdlib/result.k"
+        k "stdlib/math_utils.k"
+        t "windows.h"
+    }
+
+Language tags:
+- `k` — Krypton module (same as existing `import` keyword)
+- `c` — C system header, emits `#include <name>` in generated C
+- `t` — alias for `c` (family initial, same behavior)
+- Future: `cpp`, `asm`, `llvm` for other backends
+
+The `jxt` block is processed before function compilation. The old
+`import` keyword still works for backward compatibility.
+
+### Compiler
+- `jxt` added to `isKW`
+- Import loop handles `KW:jxt` blocks, processing each entry by language tag
+- Both passes skip `jxt` blocks cleanly via `skipBlock`
+- `k` entries use full path resolution (relative to source + cwd fallback)
+- `c`/`t` entries with path separators use `"name"`, others use `<name>`
+- Self-host verified with kcc_v095.exe
+
+---
+
+## [0.9.5] - 2026-03-22
+
+### IR Optimizer
+
+New program: `kompiler/optimize.k` — reads .kir files, applies six
+optimization passes, writes optimized .kir to stdout.
+
+Pipeline: `kcc --ir file.k > file.kir && kcc kompiler/optimize.k file.kir > opt.kir`
+
+Passes:
+- Dead code elimination — removes instructions after RETURN/JUMP
+- Constant folding — PUSH 3 / PUSH 4 / ADD -> PUSH 7
+- Strength reduction — removes x+0, x*1, x-0
+- STORE/LOAD elimination — STORE x / LOAD x -> STORE x
+- Empty jump removal — JUMP x / LABEL x -> LABEL x
+- Unused local removal — drops unreferenced LOCAL declarations
+
+Stats printed to stderr: `; optimizer: 87 -> 61 instructions (26 removed)`
+
+---
+
+## [0.9.0] - 2026-03-22
+
+### Krypton IR
+
+New mode: `kcc --ir file.k > file.kir`
+
+Emits .kir (Krypton Intermediate Representation) — a stack-based
+text instruction set, one instruction per line, human-readable.
+
+Instruction set: PUSH LOAD STORE LOCAL POP FUNC PARAM CALL BUILTIN
+RETURN END ADD SUB MUL DIV MOD NEG NOT CAT EQ NEQ LT GT LTE GTE
+JUMP JUMPIF JUMPIFNOT LABEL STRUCTNEW GETFIELD SETFIELD INDEX
+TRY ENDTRY THROW BREAK CONTINUE
+
+All language features produce correct IR: if/else, while, for-in,
+match, do-while, try/catch/throw, structs, interpolation, list literals.
+
+25 new functions added to compile.k for IR emission.
+compile.k: 91 functions, 3492 lines.
+
+---
+
+## [0.8.6] - 2026-03-17
+
+### Bug Fix — Struct + Import
+Top-level struct declarations in files that also use `import` now compile
+correctly. The second pass was using `pairPos` on the struct compiler's output
+to advance past the struct body — but `pairPos` finds the last comma in the
+entire output string, which is unreliable when the generated C code contains
+commas. Fixed by using `skipBlock` to advance past the struct body directly
+from the token stream, bypassing the C code output entirely. The first pass
+now also emits a forward declaration for the struct's constructor function.
+
+### Float Support
+
+Floating-point literals now tokenize correctly:
+
+    let pi = 3.14159
+    let e = 2.71828
+
+Float arithmetic functions (all take and return float strings):
+
+| Function | Description |
+|----------|-------------|
+| `fadd(a, b)` | Float addition |
+| `fsub(a, b)` | Float subtraction |
+| `fmul(a, b)` | Float multiplication |
+| `fdiv(a, b)` | Float division |
+| `fsqrt(a)` | Square root |
+| `ffloor(a)` | Floor |
+| `fceil(a)` | Ceiling |
+| `fround(a)` | Round |
+| `fformat(a, decimals)` | Format to N decimal places |
+| `flt(a, b)` | Float less-than comparison |
+| `fgt(a, b)` | Float greater-than comparison |
+| `feq(a, b)` | Float equality comparison |
+| `toFloat(s)` | Convert string to float (identity) |
+
+Generated C uses `atof`, `snprintf`, and `math.h`. Link with `-lm`.
+
+### New Stdlib Module
+- `stdlib/float_utils.k` — float arithmetic wrappers: `floatAdd`, `floatSub`,
+  `floatMul`, `floatDiv`, `floatSqrt`, `floatFloor`, `floatCeil`, `floatRound`,
+  `floatFormat`, `floatLt`, `floatGt`, `floatEq`, `floatAbs`, `pi()`
+
+### Compiler
+- `readNumber` — now handles float literals (digits `.` digits)
+- `cRuntime` — 12 new `kr_f*` functions, `#include <math.h>` added
+- kr_ builtins: 134 → 147
+- Self-host verified with kcc_v085.exe
+
+---
+
 ## [0.8.5] - 2026-03-17
 
 ### Language — Optional Type Annotations
