@@ -1,15 +1,25 @@
 # Krypton
 
-**A self-hosting programming language that compiles to C.**
+**A self-hosting programming language with a native compilation pipeline.**
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.7.1-green)
+![Version](https://img.shields.io/badge/version-0.9.8-green)
 
-Krypton is a dynamically typed language with a clean syntax, 127 built-in functions, and a compiler written in itself. The compiler (`kcc`) transpiles `.k` source files to C, then you compile the C with GCC to get a native executable.
+Krypton is a dynamically typed language with clean syntax, 147 built-in functions, and a compiler written in itself. It compiles to C for broad compatibility, and to native machine code via LLVM for maximum performance — no GCC in the critical path.
 
 ```
+jxt {
+    k "stdlib/math_utils.k"
+}
+
+func fibonacci(n) {
+    if n <= 1 { emit n }
+    emit toInt(fibonacci(n - 1)) + toInt(fibonacci(n - 2)) + ""
+}
+
 just run {
-    print("Hello, World!")
+    kp(fibonacci("10"))
+    kp(isPrime("17"))
 }
 ```
 
@@ -17,57 +27,95 @@ just run {
 
 ## Quick Start
 
+### Requirements
+
+- [TDM-GCC](https://jmeubank.github.io/tdm-gcc/) — C compilation and linking
+- [LLVM](https://llvm.org/releases/) — native compilation via `winget install LLVM.LLVM`
+
 ### 1. Download
 
-Grab `kcc_v071.exe` from the [Releases](https://github.com/t3m3d/krypton/releases) page.
+Grab `kcc_v098.exe` from the [Releases](https://github.com/t3m3d/krypton/releases) page.
 
 ### 2. Write a program
 
 ```
 // hello.k
 just run {
-    let name = "Krypton"
-    print("Hello from " + name + "!")
+    kp("Hello from Krypton!")
 }
 ```
 
-### 3. Compile and run
+### 3. Compile to C (classic path)
 
-```bash
-kcc_v071.exe hello.k > hello.c
-gcc -O2 -o hello hello.c
-./hello
+```
+kcc_v098.exe hello.k > hello.c
+gcc hello.c -o hello.exe -lm
+hello.exe
 ```
 
-The output is standard C. GCC is required (TDM-GCC recommended on Windows).
+### 4. Compile to native via LLVM
+
+```
+.\build_llvm.bat hello.k
+hello_llvm.exe
+```
 
 ---
 
-## Language Features
+## Language
 
-### Variables and Constants
+### Variables
 
 ```
-let x = 42
+let x = "42"
 let name = "Krypton"
-const pi = "314"
+const pi = "3.14159"
 ```
 
-All values are strings at runtime. Numeric operations auto-detect when both operands are numbers.
+All values are strings at runtime. Arithmetic auto-detects numeric strings.
+
+### Type Annotations (optional)
+
+```
+let x: int = "42"
+let name: string = "Krypton"
+
+func add(a: int, b: int) -> int {
+    emit toInt(a) + toInt(b) + ""
+}
+```
+
+Annotations are parsed and discarded — they document intent for humans and future tooling.
 
 ### Functions
 
 ```
-func add(a, b) {
-    emit a + b
+func greet(name) {
+    emit "Hello, " + name + "!"
 }
 
-func greet(name) {
-    emit "Hello, " + name
+just run {
+    kp(greet("World"))
 }
 ```
 
-`emit` (or `return`) returns a value from a function.
+`emit` (or `return`) returns a value. `just run` is the program entry point.
+
+### Imports — jxt block
+
+```
+jxt {
+    k "stdlib/result.k"
+    k "stdlib/math_utils.k"
+    c "windows.h"
+}
+```
+
+- `k` — Krypton module (full source inlined at compile time)
+- `c` — C header (emits `#include` in generated C)
+- `t` — alias for `c` (family initial)
+
+The legacy `import` keyword still works.
 
 ### Structs
 
@@ -79,16 +127,37 @@ struct Point {
 
 let p = Point { x: "10", y: "20" }
 kp(p.x)
-
 p.x = "42"
-kp(p.x)
 ```
 
-Struct names must start with an uppercase letter. Fields are accessed and assigned with dot notation.
-
-### Exception Handling
+### String Interpolation
 
 ```
+let name = "Krypton"
+kp(`Hello, {name}!`)
+kp(`1 + 1 = {1 + 1}`)
+```
+
+### Control Flow
+
+```
+// if / else if / else
+if x > 10 { kp("big") } else if x > 5 { kp("medium") } else { kp("small") }
+
+// while
+while i < 10 { i += 1 }
+
+// for-in (comma-separated lists)
+for item in "a,b,c" { kp(item) }
+
+// match
+match color {
+    "red"  { kp("warm") }
+    "blue" { kp("cool") }
+    else   { kp("other") }
+}
+
+// try / catch / throw
 try {
     throw "something went wrong"
 } catch e {
@@ -96,245 +165,81 @@ try {
 }
 ```
 
-### Control Flow
+### Floats
 
 ```
-// if / else if / else
-if x > 10 {
-    print("big")
-} else if x > 5 {
-    print("medium")
-} else {
-    print("small")
-}
-
-// while loop
-while i < 10 {
-    i += 1
-}
-
-// for-in loop
-let items = "a,b,c,d"
-for item in items {
-    print(item)
-}
-
-// do-while loop
-let n = 1
-do {
-    n = n * 2
-} while n < 100
-
-// match statement
-match color {
-    "red"  { print("warm") }
-    "blue" { print("cool") }
-    else   { print("unknown") }
-}
-
-// break and continue
-while i < 100 {
-    i += 1
-    if i % 2 == 0 { continue }
-    if i > 50 { break }
-    print(i)
-}
+let result = fadd("3.14", "2.72")
+kp(fformat(result, "2"))   // "5.86"
 ```
 
-### Ternary Operator
-
-```
-let label = score >= 90 ? "A" : score >= 80 ? "B" : "C"
-```
-
-### Compound Assignment
-
-```
-x += 10
-x -= 5
-x *= 2
-x /= 3
-x %= 7
-```
-
-### String Indexing
-
-```
-let s = "hello"
-let first = s[0]    // "h"
-```
-
-### Entry Point
-
-Every program needs an entry block:
-
-```
-just run {
-    // your program here
-}
-```
+Float builtins: `fadd`, `fsub`, `fmul`, `fdiv`, `fsqrt`, `ffloor`, `fceil`, `fround`, `fformat`, `flt`, `fgt`, `feq`
 
 ---
 
-## Built-in Functions (127)
+## Compilation Pipeline
 
-### I/O
-| Function | Description |
-|----------|-------------|
-| `print(s)` / `kp(s)` | Print string with newline |
-| `printErr(s)` | Print to stderr |
-| `readLine(prompt)` | Read line from stdin with prompt |
-| `input()` | Read line from stdin |
-| `readFile(path)` | Read entire file to string |
-| `writeFile(path, data)` | Write string to file |
-| `arg(n)` | Get command-line argument |
-| `argCount()` | Get argument count |
+```
+source.k
+    │
+    ├─ C backend (default):
+    │      kcc source.k > source.c
+    │      gcc source.c -o source.exe -lm
+    │
+    └─ LLVM native backend:
+           .\build_llvm.bat source.k
+           
+           source.k → .kir → .kir (opt) → .ll → .o → source_llvm.exe
+```
 
-### Strings
-| Function | Description |
-|----------|-------------|
-| `len(s)` | String length |
-| `substring(s, start, end)` | Extract substring |
-| `charAt(s, i)` | Character at index |
-| `indexOf(s, sub)` | Find substring position (-1 if absent) |
-| `contains(s, sub)` | Check if string contains substring |
-| `startsWith(s, prefix)` | Check prefix |
-| `endsWith(s, suffix)` | Check suffix |
-| `replace(s, old, new)` | Replace all occurrences |
-| `trim(s)` | Strip leading and trailing whitespace |
-| `lstrip(s)` | Strip leading whitespace |
-| `rstrip(s)` | Strip trailing whitespace |
-| `center(s, width, pad)` | Center string within width |
-| `toLower(s)` | To lowercase |
-| `toUpper(s)` | To uppercase |
-| `repeat(s, n)` | Repeat string n times |
-| `padLeft(s, width, pad)` | Left-pad to width |
-| `padRight(s, width, pad)` | Right-pad to width |
-| `charCode(s)` | ASCII code of first character |
-| `fromCharCode(n)` | Character from ASCII code |
-| `splitBy(s, delim)` | Split by delimiter into list |
-| `format(fmt, arg)` | Replace `{}` in format string |
-| `strReverse(s)` | Reverse a string |
-| `isAlpha(s)` | True if all characters are alphabetic |
-| `isDigit(s)` | True if all characters are numeric |
-| `isSpace(s)` | True if all characters are whitespace |
+### Krypton IR
 
-### Numbers and Math
-| Function | Description |
-|----------|-------------|
-| `toInt(s)` | Parse string to integer |
-| `parseInt(s)` | Parse with whitespace tolerance |
-| `abs(n)` | Absolute value |
-| `min(a, b)` | Minimum of two values |
-| `max(a, b)` | Maximum of two values |
-| `pow(base, exp)` | Exponentiation |
-| `sqrt(n)` | Integer square root |
-| `sign(n)` | Sign: -1, 0, or 1 |
-| `clamp(val, lo, hi)` | Clamp to range |
-| `hex(n)` | Number to hexadecimal string |
-| `bin(n)` | Number to binary string |
-| `floor(n)` | Floor (integer) |
-| `ceil(n)` | Ceiling (integer) |
-| `round(n)` | Round (integer) |
+```
+kcc_v098.exe --ir source.k > source.kir
+```
 
-### Lists
-Lists are comma-separated strings: `"a,b,c"`
+Emits `.kir` — a stack-based intermediate representation, one instruction per line:
 
-| Function | Description |
-|----------|-------------|
-| `split(s, i)` | Get item at index |
-| `length(lst)` | Count items |
-| `first(lst)` | Get first item |
-| `last(lst)` | Get last item |
-| `head(lst, n)` | Get first n items |
-| `tail(lst, n)` | Get last n items |
-| `append(lst, item)` | Append item |
-| `insertAt(lst, i, item)` | Insert at position |
-| `removeAt(lst, i)` | Remove by index |
-| `remove(lst, item)` | Remove first matching item |
-| `replaceAt(lst, i, val)` | Replace at index |
-| `slice(lst, start, end)` | Extract sublist |
-| `join(lst, sep)` | Join with separator |
-| `reverse(lst)` | Reverse list |
-| `sort(lst)` | Sort (numeric-aware) |
-| `unique(lst)` | Remove duplicates |
-| `fill(n, val)` | Create list of n copies |
-| `zip(a, b)` | Interleave two lists |
-| `listIndexOf(lst, item)` | Find item index (-1 if absent) |
-| `every(lst, val)` | Check all items match value |
-| `some(lst, val)` | Check any item matches value |
-| `countOf(lst, item)` | Count occurrences |
-| `sumList(lst)` | Sum numeric items |
-| `maxList(lst)` | Maximum of list |
-| `minList(lst)` | Minimum of list |
-| `range(start, end)` | Generate number list |
-| `words(s)` | Split string on whitespace into list |
-| `lines(s)` | Split string on newlines into list |
+```
+FUNC add 2
+PARAM a
+PARAM b
+LOCAL result
+LOAD a
+BUILTIN toInt 1
+LOAD b
+BUILTIN toInt 1
+ADD
+PUSH ""
+ADD
+RETURN
+END
+```
 
-### Maps
-Maps are interleaved key-value lists: `"name,Alice,age,30"`
+### IR Optimizer
 
-| Function | Description |
-|----------|-------------|
-| `keys(map)` | Get all keys |
-| `values(map)` | Get all values |
-| `hasKey(map, key)` | Check if key exists |
+```
+optimize.exe source.kir > source_opt.kir
+```
 
-### Structs
-| Function | Description |
-|----------|-------------|
-| `structNew()` | Create a new empty dynamic struct |
-| `setField(obj, name, val)` | Set a field value |
-| `getField(obj, name)` | Get a field value |
-| `hasField(obj, name)` | Check if field exists |
-| `structFields(obj)` | Get comma-separated list of field names |
+Six passes: dead code elimination, constant folding, strength reduction,
+STORE/LOAD elimination, empty jump removal, unused local removal.
 
-### Exception Handling
-| Function | Description |
-|----------|-------------|
-| `throw(msg)` | Throw an exception (function form) |
+---
 
-### Line Operations
-| Function | Description |
-|----------|-------------|
-| `getLine(s, i)` | Get line by index |
-| `lineCount(s)` | Count lines |
-| `count(s)` | Alias for lineCount |
+## Standard Library
 
-### System
-| Function | Description |
-|----------|-------------|
-| `random(n)` | Random integer from 0 to n-1 |
-| `timestamp()` | Current Unix timestamp |
-| `environ(name)` | Read environment variable |
-| `exit(code)` | Exit with code |
+35 modules in `stdlib/`:
 
-### Type and Conversion
-| Function | Description |
-|----------|-------------|
-| `type(s)` | Returns `"number"` or `"string"` |
-| `toStr(s)` | Identity (all values are strings) |
-| `isTruthy(s)` | Returns `"1"` or `"0"` |
-| `assert(cond, msg)` | Assert condition or abort |
-
-### StringBuilder
-| Function | Description |
-|----------|-------------|
-| `sbNew()` | Create mutable string builder |
-| `sbAppend(sb, s)` | Append to builder |
-| `sbToString(sb)` | Get final string |
-
-### Environment (Low-level)
-| Function | Description |
-|----------|-------------|
-| `envNew()` | Create environment |
-| `envSet(env, key, val)` | Set variable |
-| `envGet(env, key)` | Get variable |
-| `makeResult(tag, val, env, pos)` | Pack result |
-| `getResultTag(r)` | Unpack tag |
-| `getResultVal(r)` | Unpack value |
-| `getResultEnv(r)` | Unpack environment |
-| `getResultPos(r)` | Unpack position |
+| Module | Contents |
+|--------|----------|
+| `math_utils.k` | gcd, lcm, isPrime, fibonacci, factorial, sqrt, abs, power |
+| `result.k` | ok/err/isOk/isErr/unwrap/unwrapErr/unwrapOr |
+| `option.k` | optSome/optNone/isSome/isNone/optUnwrap |
+| `json.k` | jsonStr/jsonBool/jsonArray/jsonObject/jsonNull |
+| `float_utils.k` | floatAdd/floatMul/floatSqrt/floatFormat/pi() |
+| `string_utils.k` | String manipulation helpers |
+| `list_utils.k` | List processing functions |
+| ... | 29 more modules |
 
 ---
 
@@ -342,47 +247,43 @@ Maps are interleaved key-value lists: `"name,Alice,age,30"`
 
 ```
 krypton/
-├── kompiler/              # Self-hosting compiler (Krypton source)
-│   └── compile.k          # The compiler — written in Krypton
-├── assets/                # Icon and Windows resource file
-├── examples/              # 56 example programs
-├── algorithms/            # 24 classic algorithm implementations
-├── stdlib/                # Standard library modules
-├── tutorial/              # 20-lesson progressive tutorial
+├── kompiler/
+│   ├── compile.k          # Self-hosting compiler (3,567 lines)
+│   ├── optimize.k         # IR optimizer (348 lines)
+│   ├── llvm.k             # LLVM IR backend (437 lines)
+│   └── run.k              # Interpreter (2,092 lines)
+├── runtime/
+│   └── krypton_runtime.c  # C runtime for LLVM-compiled programs
+├── stdlib/                # 35 standard library modules
+├── examples/              # Example programs
+├── algorithms/            # Classic algorithm implementations
+├── tutorial/              # Progressive tutorial
 ├── tests/                 # Test suite
-├── tools/                 # Command-line utilities written in Krypton
-├── docs/                  # Documentation and roadmap
-├── grammar/               # EBNF grammar definition
-├── archive/               # Legacy C++ bootstrap compiler (historical)
+├── assets/                # Icon and Windows resource
+├── versions/              # Bootstrap chain binaries
 ├── Spec.md                # Language specification
-├── CHANGELOG.md           # Version history
+├── CHANGELOG.md           # Full version history
 └── LICENSE                # Apache 2.0
 ```
 
 ---
 
-## Self-Hosting
-
-Krypton's compiler is written in Krypton. The full bootstrap chain:
+## Bootstrap Chain
 
 ```
-kcc (C++) → v010 → v020 → v030 → v040 → v050 → v060 → v070 → v071
+kcc (C++) → v010 → v020 → v030 → v040 → v050 → v060
+          → v070 → v071 → v072 → v075 → v077 → v080
+          → v085 → v086 → v090 → v095 → v097 → v098
 ```
 
-Each version was compiled by the previous one. Compiler binaries are available in [Releases](https://github.com/t3m3d/krypton/releases).
+Each version compiled by the previous. The compiler has been self-hosting since v0.1.0.
 
 ---
 
-## Contributing
+## Built-in Functions (147)
 
-Krypton welcomes contributors who care about:
-
-- Language design and compiler engineering
-- Writing examples, tests, and documentation
-- Trying the language and reporting issues
-
-See [LICENSE](LICENSE) for terms (Apache 2.0).
+I/O, strings, math, lists, maps, structs, floats, exceptions, line operations, system, type utilities, StringBuilder — see [Spec.md](Spec.md) for the full reference.
 
 ---
 
-**Krypton** — Copyright 2026 [t3m3d](https://github.com/t3m3d)
+**Krypton** — Copyright 2026 [t3m3d](https://github.com/t3m3d) — Apache 2.0

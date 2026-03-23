@@ -29,6 +29,44 @@ All notable changes to the Krypton language and compiler.
 
 ---
 
+## [0.9.8] - 2026-03-23
+
+### LLVM Backend
+
+Krypton now compiles to native machine code via LLVM IR.
+
+**New file: `kompiler/llvm.k`** — 437-line Krypton program that reads
+`.kir` files and emits LLVM IR (`.ll`). Key design decisions:
+
+- **Opaque pointer mode** — uses `ptr` throughout, compatible with LLVM 15+
+- **Alloca-based virtual stack** — 32 pre-allocated `alloca ptr` slots per
+  function, avoiding all SSA value lifetime issues across basic blocks
+- **Per-function string globals** — string constants named `@kp_funcname_N`
+  to avoid cross-function naming conflicts
+- **Implicit fallthrough** — `lastWasTerm` flag ensures every basic block
+  ends with a terminator before the next label
+- **Builtin name mapping** — `kp` → `kr_kp`, `toInt` → `kr_toInt` etc.
+
+**New file: `runtime/krypton_runtime.c`** — standalone C runtime for
+LLVM-compiled programs. Provides all `kr_` functions without the embedded
+cRuntime string. Compile once with gcc, link against any Krypton binary.
+
+**New file: `build_llvm.bat`** — full native compilation pipeline:
+
+    .uild_llvm.bat source.k
+    -> source.kir -> source_opt.kir -> source.ll -> source_llvm.exe
+
+**Verified output for `test_ir.k`:**
+```
+7
+120
+loop: 0
+loop: 1
+loop: 2
+```
+
+---
+
 ## [0.9.7] - 2026-03-22
 
 ### Language — jxt Block

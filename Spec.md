@@ -1,6 +1,6 @@
 # Krypton Language Specification
 
-**Version 0.8.5** — March 2026
+**Version 0.9.8** — March 2026
 
 ---
 
