@@ -31,14 +31,54 @@ just run {
 
 ### Requirements
 
-- [TDM-GCC](https://jmeubank.github.io/tdm-gcc/) — C compilation and linking
-- [LLVM](https://llvm.org/releases/) — native compilation via `winget install LLVM.LLVM`
+- **GCC** (or any C99 compiler) — for all platforms
+- **LLVM / clang** (optional) — for native compilation via `build_llvm.bat` / `make native`
 
-### 1. Download
+---
 
-Grab `kcc_v098.exe` from the [Releases](https://github.com/t3m3d/krypton/releases) page.
+### Linux / macOS
 
-### 2. Write a program
+```bash
+git clone https://github.com/t3m3d/krypton
+cd krypton
+chmod +x build.sh
+./build.sh
+```
+
+This bootstraps a native `kcc` binary from source in four steps:
+1. Compiles the C interpreter (`archive/c/run.c`) with GCC
+2. Uses that interpreter to compile the self-hosting compiler (`kompiler/compile.k`) to C
+3. Compiles the resulting C to a fast native `kcc` binary
+4. Builds the IR optimizer and LLVM backend
+
+Or use `make`:
+
+```bash
+make              # build everything
+make run F=hello.k   # compile + run a file
+make test         # run the test suite
+```
+
+---
+
+### Windows
+
+```
+git clone https://github.com/t3m3d/krypton
+cd krypton
+build_v100.bat
+```
+
+Requires [TDM-GCC](https://jmeubank.github.io/tdm-gcc/). For native LLVM compilation:
+
+```
+winget install LLVM.LLVM
+build_llvm.bat hello.k
+```
+
+---
+
+### Write a program
 
 ```
 // hello.k
@@ -47,16 +87,30 @@ just run {
 }
 ```
 
-### 3. Compile to C (classic path)
+### Compile to C (all platforms)
 
+**Linux / macOS:**
+```bash
+./kcc hello.k > hello.c
+gcc hello.c -o hello -lm
+./hello
 ```
-kcc_v098.exe hello.k > hello.c
+
+**Windows:**
+```
+kcc_v100.exe hello.k > hello.c
 gcc hello.c -o hello.exe -lm
 hello.exe
 ```
 
-### 4. Compile to native via LLVM
+### Compile to native via LLVM
 
+**Linux / macOS:**
+```bash
+make native F=hello.k
+```
+
+**Windows:**
 ```
 .\build_llvm.bat hello.k
 hello_llvm.exe
