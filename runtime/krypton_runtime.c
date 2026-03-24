@@ -1,7 +1,3 @@
-// krypton_runtime.c — Krypton C runtime for LLVM-compiled programs
-// Compile: gcc -c krypton_runtime.c -o krypton_runtime.o
-// Link:    clang program.ll krypton_runtime.o -o program.exe
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
