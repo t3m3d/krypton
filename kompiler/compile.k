@@ -454,6 +454,22 @@ func expandEscapes(s) {
                     out = out + "\\"
                 } else if c == "\"" {
                     out = out + "\""
+                } else if c == "x" {
+                    // \xNN hex escape
+                    let h1 = s[i + 1]
+                    let h2 = s[i + 2]
+                    let hex = h1 + h2
+                    let hi = 0
+                    let lo = 0
+                    if h1 >= "0" && h1 <= "9" { hi = toInt(h1) - toInt("0") }
+                    else if h1 >= "a" && h1 <= "f" { hi = toInt(h1) - toInt("a") + 10 }
+                    else if h1 >= "A" && h1 <= "F" { hi = toInt(h1) - toInt("A") + 10 }
+                    if h2 >= "0" && h2 <= "9" { lo = toInt(h2) - toInt("0") }
+                    else if h2 >= "a" && h2 <= "f" { lo = toInt(h2) - toInt("a") + 10 }
+                    else if h2 >= "A" && h2 <= "F" { lo = toInt(h2) - toInt("A") + 10 }
+                    out = out + fromCharCode(hi * 16 + lo + "")
+                    i += 2
+                    start = i + 1
                 } else {
                     out = out + "\\" + c
                 }
