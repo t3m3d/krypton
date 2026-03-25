@@ -29,6 +29,19 @@ All notable changes to the Krypton language and compiler.
 
 ---
 
+## [1.0.1] - 2026-03-25
+
+### Compiler
+
+- Fixed `\x` hex escape sequences not being handled in `expandEscapes()`.
+  Previously `\x1b` (and any `\xNN`) would fall through to the `else` branch,
+  emitting a literal backslash + `x` instead of the actual character. This
+  caused any program using ANSI escape codes (e.g. `"\x1b[34m"`) to produce
+  corrupted or empty output from the compiler.
+- Bootstrap chain extended: ... -> v100 -> v101
+
+---
+
 ## [1.0.0] - 2026-03-23
 
 ### Krypton 1.0.0
