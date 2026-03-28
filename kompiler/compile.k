@@ -454,22 +454,6 @@ func expandEscapes(s) {
                     out = out + "\\"
                 } else if c == "\"" {
                     out = out + "\""
-                } else if c == "x" {
-                    // \xNN hex escape
-                    let h1 = s[i + 1]
-                    let h2 = s[i + 2]
-                    let hex = h1 + h2
-                    let hi = 0
-                    let lo = 0
-                    if h1 >= "0" && h1 <= "9" { hi = toInt(h1) - toInt("0") }
-                    else if h1 >= "a" && h1 <= "f" { hi = toInt(h1) - toInt("a") + 10 }
-                    else if h1 >= "A" && h1 <= "F" { hi = toInt(h1) - toInt("A") + 10 }
-                    if h2 >= "0" && h2 <= "9" { lo = toInt(h2) - toInt("0") }
-                    else if h2 >= "a" && h2 <= "f" { lo = toInt(h2) - toInt("a") + 10 }
-                    else if h2 >= "A" && h2 <= "F" { lo = toInt(h2) - toInt("A") + 10 }
-                    out = out + fromCharCode(hi * 16 + lo + "")
-                    i += 2
-                    start = i + 1
                 } else {
                     out = out + "\\" + c
                 }
@@ -2503,8 +2487,11 @@ func compileImportedFunctions(tokens, ntoks, ftable) {
                 }
             }
         }
-        // compile func declarations
-        if tok == "KW:func" || tok == "KW:fn" {
+        // compile func declarations (skip jxt blocks)
+        if tok == "KW:jxt" {
+            // skip entire jxt block - headers handle their own declarations
+            i = skipBlock(tokens, i + 1)
+        } else if tok == "KW:func" || tok == "KW:fn" {
             let fp = compileFunc(tokens, i, ntoks)
             sb = sbAppend(sb, pairVal(fp))
             i = pairPos(fp)
@@ -3373,8 +3360,42 @@ just run {
                     } else {
                         importFwdDecls = "#include <" + jxtPath + ">\n" + importFwdDecls
                     }
+                    jxtPos += 2
+                } else if lang == "func" {
+                    // jxt func declaration: func name(p1, p2) -> type
+                    // jxtPos is at ID:func, jxtPos+1 is ID:name
+                    let jfName = tokVal(tokAt(tokens, jxtPos + 1))
+                    let jfCName = cIdent(jfName)
+                    // collect params: scan from LPAREN to RPAREN
+                    let jfPos = jxtPos + 3
+                    let jfParams = ""
+                    let jfPc = 0
+                    while tokAt(tokens, jfPos) != "RPAREN" {
+                        if tokType(tokAt(tokens, jfPos)) == "ID" {
+                            if jfPc > 0 { jfParams = jfParams + "," }
+                            jfParams = jfParams + tokVal(tokAt(tokens, jfPos))
+                            jfPc += 1
+                        }
+                        jfPos += 1
+                    }
+                    // emit C forward declaration
+                    let jfDecl = "char* " + jfCName + "(char*"
+                    let jfPi = 1
+                    while jfPi < jfPc { jfDecl = jfDecl + ", char*"  jfPi += 1 }
+                    if jfPc == 0 { jfDecl = "char* " + jfCName + "(" }
+                    jfDecl = jfDecl + ");\n"
+                    importFwdDecls = importFwdDecls + jfDecl
+                    // add to function table
+                    let jfInfo = jfName + ":" + jfPc + ":0"
+                    if len(ftable) > 0 { ftable = ftable + "\n" + jfInfo }
+                    else { ftable = jfInfo }
+                    // advance past: func name ( params ) -> type
+                    jfPos += 1
+                    if tokAt(tokens, jfPos) == "ARROW" { jfPos += 2 }
+                    jxtPos = jfPos
+                } else {
+                    jxtPos += 2
                 }
-                jxtPos += 2
             }
             ii = jxtPos + 1
         } else {

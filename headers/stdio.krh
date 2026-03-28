@@ -1,0 +1,22 @@
+// stdio.krh — Krypton header for C stdio
+// Usage: import "headers/stdio.krh"
+
+jxt {
+    c "stdio.h"
+
+    func printf(fmt)
+    func fprintf(stream, fmt)
+    func sprintf(buf, fmt)
+    func snprintf(buf, size, fmt)
+    func puts(s)
+    func putchar(c)
+    func fopen(path, mode)
+    func fclose(file)
+    func fread(buf, size, count, file)
+    func fwrite(buf, size, count, file)
+    func fgets(buf, size, file)
+    func feof(file)
+    func fflush(file)
+    func remove(path)
+    func rename(old, new)
+}

@@ -42,6 +42,59 @@ All notable changes to the Krypton language and compiler.
 
 ---
 
+## [1.0.3] - 2026-03-28
+
+### Bug Fix — Struct + jxt hang resolved
+
+The long-standing bug where a file containing both a `struct` declaration
+and a `jxt` block caused the compiler to hang is now fixed.
+
+**Root cause:** `scanFunctions` — which builds the function table before
+compilation begins — was not skipping `jxt` blocks. When it encountered
+`func` declarations inside a `jxt` block (as used in `.krh` header files),
+it recorded them with a bogus `bodyStart` position pointing into the middle
+of the jxt block. This corrupted the function table and caused the struct
+compiler to enter an infinite loop when resolving field positions.
+
+**Fix:** Added a `jxt` block skip to `scanFunctions` so it treats `jxt`
+blocks the same way the first and second passes do — skip the entire block
+and move on.
+
+**Verified:** `test_struct_jxt.k` (struct + jxt + field access) now
+compiles and runs correctly, printing `10`.
+
+---
+
+## [1.0.2] - 2026-03-27
+
+### Native .krh Header System
+
+Krypton programs can now declare and call external C functions directly
+using `jxt { func ... }` syntax inside `.krh` header files — no C shim
+files required.
+
+```
+import "headers/windows.krh"
+
+just run {
+    let ticks = GetTickCount64()
+    kp("Uptime ms: " + ticks)
+}
+```
+
+Four built-in headers ship with v1.0.2: `windows.krh`, `stdio.krh`,
+`math.krh`, and `string.krh`.
+
+### Bug Fixes
+
+- **jxt import hang** — `compileImportedFunctions` was attempting to
+  compile `func` declarations inside imported jxt blocks as Krypton
+  function bodies, producing invalid C. Fixed with `else if` branching.
+- **debug printErr** — removed leftover `printErr("DEBUG struct: ...")`
+  from the second-pass struct compiler.
+
+---
+
 ## [1.0.0] - 2026-03-23
 
 ### Krypton 1.0.0
