@@ -25,8 +25,8 @@ krypton.res
 archive/
 test_features.c
 test_features.exe
-test_v*_out.c
-test_v*.exe
+test*.c
+test*.exe
 selfhost_err.txt
 selfhost_out.txt
 *.bak
