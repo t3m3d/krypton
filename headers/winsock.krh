@@ -1,0 +1,33 @@
+// winsock.krh — Krypton header for Windows networking (Winsock2)
+// Usage: import "headers/winsock.krh"
+// Link with: -lws2_32
+
+jxt {
+    c "winsock2.h"
+    c "ws2tcpip.h"
+
+    func WSAStartup(version, data)
+    func WSACleanup()
+    func WSAGetLastError()
+    func socket(af, type, protocol)
+    func closesocket(sock)
+    func bind(sock, addr, addrlen)
+    func listen(sock, backlog)
+    func accept(sock, addr, addrlen)
+    func connect(sock, addr, addrlen)
+    func send(sock, buf, len, flags)
+    func recv(sock, buf, len, flags)
+    func getaddrinfo(node, service, hints, res)
+    func freeaddrinfo(res)
+    func inet_addr(cp)
+    func htons(hostshort)
+    func htonl(hostlong)
+    func ntohs(netshort)
+    func ntohl(netlong)
+    func setsockopt(sock, level, optname, optval, optlen)
+    func getsockname(sock, addr, addrlen)
+    func getpeername(sock, addr, addrlen)
+    func shutdown(sock, how)
+    func select(nfds, readfds, writefds, exceptfds, timeout)
+    func ioctlsocket(sock, cmd, argp)
+}

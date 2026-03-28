@@ -42,6 +42,93 @@ All notable changes to the Krypton language and compiler.
 
 ---
 
+## [1.1.0] - 2026-03-28
+
+### Closures / Lambdas
+
+Anonymous functions can now be assigned to variables and passed as arguments.
+
+```
+// Assign a lambda to a variable
+let double = func(x) { emit toInt(x) * 2 + "" }
+let add = func(a, b) { emit toInt(a) + toInt(b) + "" }
+
+// Call it
+kp(double("5"))      // 10
+kp(add("3", "4"))    // 7
+
+// Pass to higher-order functions
+func applyTwice(f, x) { emit f(f(x)) }
+let inc = func(x) { emit toInt(x) + 1 + "" }
+kp(applyTwice(inc, "5"))   // 7
+```
+
+Implementation: lambdas compile to named static C functions (`_krlam_N`
+where N is the token position) hoisted before the calling scope. The
+variable holds a function pointer cast to `char*`. Calls are emitted as
+indirect casts: `((char*(*)(char*,char*))fn)(args)`.
+
+### New .krh Headers
+
+Three new native headers ship with v1.1.0:
+
+**`headers/winsock.krh`** — Windows networking (Winsock2)
+- socket, bind, listen, accept, connect, send, recv
+- getaddrinfo, WSAStartup/Cleanup, htons/ntohs
+- Link with: `-lws2_32`
+
+**`headers/process.krh`** — Process and thread management
+- CreateProcess, WaitForSingleObject, CreateThread
+- Sleep, GetCurrentProcessId, ShellExecuteA
+
+**`headers/fileio.krh`** — Windows file I/O
+- CreateFile, ReadFile, WriteFile, FindFirstFile/FindNextFile
+- CreateDirectory, GetCurrentDirectory, GetTempPath
+
+---
+
+## [1.1.0] - 2026-03-28
+
+### Closures / Lambdas
+
+Anonymous functions are now first-class values.
+
+```
+let double = func(x) { emit toInt(x) * 2 + "" }
+let add = func(a, b) { emit toInt(a) + toInt(b) + "" }
+
+kp(double("5"))          // 10
+kp(add("3", "4"))        // 7
+
+func applyTwice(f, x) { emit f(f(x)) }
+kp(applyTwice(double, "3"))   // 12
+```
+
+Implementation: a pre-scan pass walks all tokens before compilation
+and compiles any `func`/`fn` that appears after `=`, `(`, `,`, `emit`,
+or `return` into a named static C function (`_krlam_N`). These are
+emitted at file scope before all user functions. The lambda expression
+compiles to a function pointer `(char*)&_krlam_N`. Both the first and
+second compilation passes skip lambda tokens, treating them as
+expressions rather than declarations.
+
+### New .krh Headers
+
+**`headers/winsock.krh`** — Winsock2 TCP/UDP networking
+- socket, bind, listen, accept, connect, send, recv
+- getaddrinfo, WSAStartup/Cleanup, htons/ntohs
+- Link: `-lws2_32`
+
+**`headers/process.krh`** — Process and thread management
+- CreateProcess, WaitForSingleObject, CreateThread
+- Sleep, GetCurrentProcessId, ShellExecuteA
+
+**`headers/fileio.krh`** — Windows file I/O
+- CreateFile, ReadFile, WriteFile, FindFirstFile/FindNextFile
+- CreateDirectory, GetCurrentDirectory, GetTempPath
+
+---
+
 ## [1.0.3] - 2026-03-28
 
 ### Bug Fix — Struct + jxt hang resolved

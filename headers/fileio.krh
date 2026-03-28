@@ -1,0 +1,29 @@
+// fileio.krh — Krypton header for Windows file I/O
+// Usage: import "headers/fileio.krh"
+
+jxt {
+    c "windows.h"
+
+    func CreateFileA(name, access, share, sa, create, flags, template)
+    func ReadFile(handle, buf, toRead, read, overlapped)
+    func WriteFile(handle, buf, toWrite, written, overlapped)
+    func CloseHandle(handle)
+    func GetFileSize(handle, high)
+    func SetFilePointer(handle, dist, high, method)
+    func FlushFileBuffers(handle)
+    func DeleteFileA(path)
+    func CopyFileA(from, to, failIfExists)
+    func MoveFileA(from, to)
+    func CreateDirectoryA(path, sa)
+    func RemoveDirectoryA(path)
+    func GetCurrentDirectoryA(size, buf)
+    func SetCurrentDirectoryA(path)
+    func FindFirstFileA(pattern, data)
+    func FindNextFileA(handle, data)
+    func FindClose(handle)
+    func GetFileAttributesA(path)
+    func SetFileAttributesA(path, attrs)
+    func GetTempPathA(size, buf)
+    func GetTempFileNameA(path, prefix, unique, buf)
+    func GetFullPathNameA(path, size, buf, part)
+}

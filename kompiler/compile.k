@@ -475,7 +475,9 @@ func scanFunctions(tokens, ntoks) {
     let i = 0
     while i < ntoks {
         let tok = tokAt(tokens, i)
-        if tok == "KW:func" {
+        if tok == "KW:jxt" {
+            i = skipBlock(tokens, i + 1)
+        } else if tok == "KW:func" {
             let nameTok = tokAt(tokens, i + 1)
             let fname = tokVal(nameTok)
             // skip name, LPAREN
@@ -887,6 +889,11 @@ func compilePrimary(tokens, pos, ntoks) {
     // List literal: [expr, expr, ...] -> comma-separated string
     if tok == "LBRACK" {
         emit compileListLiteral(tokens, pos, ntoks)
+    }
+
+    // Lambda: func(params) { body } or fn(params) { body }
+    if tok == "KW:func" || tok == "KW:fn" {
+        emit compileLambda(tokens, pos, ntoks)
     }
 
 
@@ -1308,7 +1315,13 @@ func compileCall(tokens, pos, ntoks) {
     }
 
     // User-defined function call
-    emit cIdent(fname) + "(" + args + ")," + p
+    // Try indirect call for lambda variables (function pointers)
+    // Build arg list with types for cast
+    let castArgs = "char*"
+    let ci = 1
+    while ci < argc { castArgs = castArgs + ",char*"  ci += 1 }
+    if argc == 0 { castArgs = "void" }
+    emit "((char*(*)("+castArgs+"))"+cIdent(fname)+")("+args+")," + p
 }
 
 // =============================================
@@ -1600,6 +1613,22 @@ func compileWhile(tokens, pos, ntoks, depth, inFunc) {
 }
 
 // compileListLiteral: [expr, expr, ...] -> kr_cat chain producing "a,b,c"
+
+func compileLambda(tokens, pos, ntoks) {
+    // Lambda was pre-compiled in the pre-scan pass.
+    // Just return the function pointer.
+    let lname = "_krlam" + pos
+    let p = pos + 2
+    // skip past params
+    while tokAt(tokens, p) != "RPAREN" { p += 1 }
+    p += 1  // past RPAREN
+    if tokAt(tokens, p) == "ARROW" { p += 2 }
+    // skip past body block
+    let bp = skipBlock(tokens, p)
+    emit "(char*)&" + lname + "," + bp
+}
+
+
 func compileListLiteral(tokens, pos, ntoks) {
     // pos is at LBRACK
     let p = pos + 1
@@ -2014,6 +2043,34 @@ func compileBlock(tokens, pos, ntoks, depth, inFunc) {
 }
 
 // === Function compiler ===
+
+func hoistLambdas(code) {
+    // Extract /*LS*/body/*LE*/ markers from code, return "hoisted\ncleanCode"
+    let hoisted = ""
+    let clean = ""
+    let i = 0
+    let clen = len(code)
+    while i < clen {
+        if i + 6 <= clen && substring(code, i, i + 6) == "/*LS*/" {
+            let le = indexOf(substring(code, i + 6, clen), "/*LE*/")
+            if toInt(le) >= 0 {
+                let bodyStart = i + 6
+                let bodyEnd = bodyStart + toInt(le)
+                let leEnd = bodyEnd + 6
+                hoisted = hoisted + substring(code, bodyStart, bodyEnd) + "\n"
+                i = leEnd
+            } else {
+                clean = clean + code[i]
+                i += 1
+            }
+        } else {
+            clean = clean + code[i]
+            i += 1
+        }
+    }
+    emit hoisted + "/*SPLIT*/" + clean
+}
+
 
 func compileFunc(tokens, pos, ntoks) {
     // pos is at KW:func
@@ -3249,6 +3306,49 @@ just run {
     let imported = ""
     let importFwdDecls = ""
     let importBodies = ""
+    let lambdaBank = ""  // pre-compiled lambda C functions
+
+    // Pre-scan: find all lambda expressions and compile them to C
+    // A lambda is KW:func/KW:fn preceded by ASSIGN, LPAREN, COMMA, or KW:emit/KW:return
+    let lsi = 0
+    while lsi < ntoks {
+        let lsTok = tokAt(tokens, lsi)
+        if lsTok == "KW:func" || lsTok == "KW:fn" {
+            let prevTok = ""
+            if lsi > 0 { prevTok = tokAt(tokens, lsi - 1) }
+            if prevTok == "ASSIGN" || prevTok == "LPAREN" || prevTok == "COMMA" || prevTok == "KW:emit" || prevTok == "KW:return" || prevTok == "KW:in" {
+                // This is a lambda expression - pre-compile it
+                let lp2 = lsi + 2  // past func and LPAREN
+                let lparams2 = ""
+                let lpc2 = 0
+                while tokAt(tokens, lp2) != "RPAREN" {
+                    if tokType(tokAt(tokens, lp2)) == "ID" {
+                        if lpc2 > 0 { lparams2 = lparams2 + "," }
+                        lparams2 = lparams2 + tokVal(tokAt(tokens, lp2))
+                        lpc2 += 1
+                    }
+                    lp2 += 1
+                }
+                lp2 += 1  // past RPAREN
+                if tokAt(tokens, lp2) == "ARROW" { lp2 += 2 }
+                let lbp = compileBlock(tokens, lp2, ntoks, 1, "_krlam" + lsi)
+                let lbcode = pairVal(lbp)
+                // Build signature with param names
+                let lsig = "char* _krlam" + lsi + "(void)"
+                if lpc2 > 0 {
+                    lsig = "char* _krlam" + lsi + "(char* " + cIdent(getNthParam(lparams2, 0))
+                    let lpii = 1
+                    while lpii < lpc2 {
+                        lsig = lsig + ", char* " + cIdent(getNthParam(lparams2, lpii))
+                        lpii += 1
+                    }
+                    lsig = lsig + ")"
+                }
+                lambdaBank = lambdaBank + "static " + lsig + " {\n" + lbcode + "return _K_EMPTY;\n}\n\n"
+            }
+        }
+        lsi += 1
+    }
 
     let ii = 0
     while ii < ntoks {
@@ -3410,6 +3510,10 @@ just run {
     }
 
     // Emit import function bodies
+    if len(lambdaBank) > 0 {
+        sb = sbAppend(sb, "// --- lambda functions ---\n")
+        sb = sbAppend(sb, lambdaBank)
+    }
     if len(importBodies) > 0 {
         sb = sbAppend(sb, importBodies)
     }
@@ -3420,7 +3524,16 @@ just run {
     while i < ntoks {
         let tok = tokAt(tokens, i)
         if tok == "KW:func" || tok == "KW:fn" {
+            // Skip if this is a lambda (next token is LPAREN, not a name)
             let nameTok = tokAt(tokens, i + 1)
+            if nameTok == "LPAREN" {
+                // lambda expression - skip past body
+                let lskip = i + 2
+                while lskip < ntoks && tokAt(tokens, lskip) != "RPAREN" { lskip += 1 }
+                lskip += 1  // past RPAREN
+                if tokAt(tokens, lskip) == "ARROW" { lskip += 2 }
+                i = skipBlock(tokens, lskip) - 1
+            }
             let fname = tokVal(nameTok)
             if len(fname) > 0 {
             let info = funcLookup(ftable, fname)
@@ -3465,10 +3578,19 @@ just run {
     while i < ntoks {
         let tok = tokAt(tokens, i)
         if tok == "KW:func" || tok == "KW:fn" {
+            // Skip if this is a lambda (next token is LPAREN, not a name)
+            if tokAt(tokens, i + 1) == "LPAREN" {
+                let lskip2 = i + 2
+                while lskip2 < ntoks && tokAt(tokens, lskip2) != "RPAREN" { lskip2 += 1 }
+                lskip2 += 1
+                if tokAt(tokens, lskip2) == "ARROW" { lskip2 += 2 }
+                i = skipBlock(tokens, lskip2)
+            } else {
             let fp = compileFunc(tokens, i, ntoks)
             let fcode = pairVal(fp)
             sb = sbAppend(sb, fcode)
             i = pairPos(fp)
+            }
         } else if tok == "KW:export" {
             // skip export keyword, compile func on next pass
             i += 1
