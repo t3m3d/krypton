@@ -1,0 +1,24 @@
+// process.krh — Krypton header for Windows process management
+// Usage: import "headers/process.krh"
+
+jxt {
+    c "windows.h"
+
+    func CreateProcessA(app, cmd, pa, ta, inherit, flags, env, dir, si, pi)
+    func WaitForSingleObject(handle, ms)
+    func GetExitCodeProcess(handle, code)
+    func TerminateProcess(handle, code)
+    func OpenProcess(access, inherit, pid)
+    func CloseHandle(handle)
+    func GetCurrentProcessId()
+    func GetCurrentThreadId()
+    func CreateThread(ta, stack, fn, param, flags, tid)
+    func WaitForMultipleObjects(count, handles, waitAll, ms)
+    func Sleep(ms)
+    func GetLastError()
+    func SetLastError(code)
+    func ExitProcess(code)
+    func GetCommandLineA()
+    func GetModuleFileNameA(module, buf, size)
+    func ShellExecuteA(hwnd, op, file, params, dir, show)
+}

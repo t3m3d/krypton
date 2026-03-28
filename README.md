@@ -5,7 +5,7 @@
 > Version 1.0.0 — The language is complete. The compiler is self-hosting. Native compilation via LLVM is working.
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.0.3-brightgreen)
+![Version](https://img.shields.io/badge/version-1.1.0-brightgreen)
 
 Krypton is a dynamically typed language with clean syntax, 147 built-in functions, and a compiler written in itself. It compiles to C for broad compatibility, and to native machine code via LLVM for maximum performance — no GCC in the critical path.
 
@@ -173,6 +173,36 @@ jxt {
 
 The legacy `import` keyword still works.
 
+### Closures / Lambdas
+
+```
+// Assign anonymous functions to variables
+let double = func(x) { emit toInt(x) * 2 + "" }
+let add = func(a, b) { emit toInt(a) + toInt(b) + "" }
+
+kp(double("5"))      // 10
+kp(add("3", "4"))    // 7
+
+// Pass as arguments to higher-order functions
+func applyTwice(f, x) { emit f(f(x)) }
+kp(applyTwice(double, "3"))   // 12
+```
+
+### Closures / Lambdas
+
+```
+// Assign anonymous functions to variables
+let double = func(x) { emit toInt(x) * 2 + "" }
+let add = func(a, b) { emit toInt(a) + toInt(b) + "" }
+
+kp(double("5"))      // 10
+kp(add("3", "4"))    // 7
+
+// Pass to higher-order functions
+func applyTwice(f, x) { emit f(f(x)) }
+kp(applyTwice(double, "3"))   // 12
+```
+
 ### Structs
 
 ```
@@ -333,6 +363,24 @@ kcc (C++) → v010 → v020 → v030 → v040 → v050 → v060
 ```
 
 Each version compiled by the previous. The compiler has been self-hosting since v0.1.0.
+
+---
+
+## Native Headers (.krh)
+
+Seven headers ship in `headers/`:
+
+| Header | Contents |
+|--------|----------|
+| `windows.krh` | Win32 system info, registry, console |
+| `stdio.krh` | C stdio — printf, fopen, fread |
+| `math.krh` | libm — sin, cos, sqrt, pow |
+| `string.krh` | C strings — strlen, strcpy, strstr |
+| `winsock.krh` | TCP/UDP networking (Winsock2) |
+| `process.krh` | Process and thread management |
+| `fileio.krh` | Windows file I/O — CreateFile, ReadFile |
+
+Usage: `import "headers/windows.krh"` then call functions directly.
 
 ---
 
