@@ -1,0 +1,24 @@
+// math.krh — Krypton header for C math library
+// Usage: import "headers/math.krh"
+// Link with: -lm
+
+jxt {
+    c "math.h"
+
+    func sin(x)
+    func cos(x)
+    func tan(x)
+    func asin(x)
+    func acos(x)
+    func atan(x)
+    func atan2(y, x)
+    func sqrt(x)
+    func pow(base, exp)
+    func exp(x)
+    func log(x)
+    func log10(x)
+    func floor(x)
+    func ceil(x)
+    func fabs(x)
+    func fmod(x, y)
+}

@@ -1,0 +1,21 @@
+// string.krh — Krypton header for C string functions
+// Usage: import "headers/string.krh"
+
+jxt {
+    c "string.h"
+
+    func strlen(s)
+    func strcpy(dst, src)
+    func strncpy(dst, src, n)
+    func strcat(dst, src)
+    func strncat(dst, src, n)
+    func strcmp(a, b)
+    func strncmp(a, b, n)
+    func strchr(s, c)
+    func strrchr(s, c)
+    func strstr(haystack, needle)
+    func strtok(s, delim)
+    func memcpy(dst, src, n)
+    func memset(buf, val, n)
+    func memcmp(a, b, n)
+}
