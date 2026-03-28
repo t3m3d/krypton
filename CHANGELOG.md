@@ -104,6 +104,18 @@ func applyTwice(f, x) { emit f(f(x)) }
 kp(applyTwice(double, "3"))   // 12
 ```
 
+True closures capture outer variables:
+
+```
+func makeAdder(n) {
+    emit func(x) { emit toInt(x) + toInt(n) + "" }
+}
+
+let add5 = makeAdder("5")
+kp(add5("3"))    // 8
+kp(add5("10"))   // 15
+```
+
 Implementation: a pre-scan pass walks all tokens before compilation
 and compiles any `func`/`fn` that appears after `=`, `(`, `,`, `emit`,
 or `return` into a named static C function (`_krlam_N`). These are

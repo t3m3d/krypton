@@ -1551,11 +1551,12 @@ func compileEmit(tokens, pos, ntoks, depth, inFunc) {
     if tokAt(tokens, p) == "SEMI" {
         p += 1
     }
-    if inFunc == "1" {
-        emit indent(depth) + "return " + ecode + ";\n," + p
+    if inFunc == "0" {
+        // In main entry block: emit as return 0 (value discarded)
+        emit indent(depth) + "return 0;\n," + p
     }
-    // In main: just return 0
-    emit indent(depth) + "return 0;\n," + p
+    // In a function or lambda: return the expression value
+    emit indent(depth) + "return " + ecode + ";\n," + p
 }
 
 func compileIf(tokens, pos, ntoks, depth, inFunc) {
@@ -1642,7 +1643,7 @@ func compileLambda(tokens, pos, ntoks) {
     let lfvi3 = 0
     while lfvi3 < lfvc2 {
         let fvn3 = cIdent(split(lfv2, lfvi3))
-        captureCode = captureCode + "_krlam" + pos + "_" + fvn3 + " = " + fvn3 + "; "
+        captureCode = captureCode + "_krlam" + pos + "_" + cIdent(fvn3) + " = " + cIdent(fvn3) + "; "
         lfvi3 += 1
     }
     // Use C comma operator to chain capture assignments with pointer return
@@ -3440,8 +3441,8 @@ just run {
                 let lfvi2 = 0
                 while lfvi2 < lfvc {
                     let fvn2 = cIdent(split(lfreeVars, lfvi2))
-                    lcapDecls = lcapDecls + "static char* _krlam" + lsi + "_" + fvn2 + ";\n"
-                    lcapInits = lcapInits + "    char* " + fvn2 + " = _krlam" + lsi + "_" + fvn2 + ";\n"
+                    lcapDecls = lcapDecls + "static char* _krlam" + lsi + "_" + cIdent(fvn2) + ";\n"
+                    lcapInits = lcapInits + "    char* " + cIdent(fvn2) + " = _krlam" + lsi + "_" + fvn2 + ";\n"
                     lfvi2 += 1
                 }
                 lambdaBank = lambdaBank + lcapDecls + "static " + lsig + " {\n" + lcapInits + lbcode + "return _K_EMPTY;\n}\n\n"
