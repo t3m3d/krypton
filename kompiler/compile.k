@@ -1616,16 +1616,46 @@ func compileWhile(tokens, pos, ntoks, depth, inFunc) {
 
 func compileLambda(tokens, pos, ntoks) {
     // Lambda was pre-compiled in the pre-scan pass.
-    // Just return the function pointer.
+    // Collect params, then return function pointer + set captures.
     let lname = "_krlam" + pos
     let p = pos + 2
-    // skip past params
-    while tokAt(tokens, p) != "RPAREN" { p += 1 }
+    // collect params for free var analysis
+    let lparams = ""
+    let lpc = 0
+    while tokAt(tokens, p) != "RPAREN" {
+        if tokType(tokAt(tokens, p)) == "ID" {
+            if lpc > 0 { lparams = lparams + "," }
+            lparams = lparams + tokVal(tokAt(tokens, p))
+            lpc += 1
+        }
+        p += 1
+    }
     p += 1  // past RPAREN
     if tokAt(tokens, p) == "ARROW" { p += 2 }
     // skip past body block
     let bp = skipBlock(tokens, p)
-    emit "(char*)&" + lname + "," + bp
+    // Detect free variables and set static captures at creation site
+    let lfv2 = findFreeVars(tokens, p - 1, bp, lparams)
+    let lfvc2 = 0
+    if len(lfv2) > 0 { lfvc2 = lineCount(lfv2) }
+    let captureCode = ""
+    let lfvi3 = 0
+    while lfvi3 < lfvc2 {
+        let fvn3 = cIdent(split(lfv2, lfvi3))
+        captureCode = captureCode + "_krlam" + pos + "_" + fvn3 + " = " + fvn3 + "; "
+        lfvi3 += 1
+    }
+    // Use C comma operator to chain capture assignments with pointer return
+    if len(captureCode) > 0 {
+        // Remove trailing "; " and wrap in comma expression
+        let cc = trim(captureCode)
+        // Replace "; " between assignments with ", " for comma operator
+        let ccExpr = trim(replace(cc, ";", ""))
+        emit "(" + ccExpr + ", (char*)&" + lname + ")," + bp
+    } else {
+        emit "(char*)&" + lname + "," + bp
+    }
+
 }
 
 
@@ -2485,6 +2515,15 @@ func cRuntime() {
     r = sbAppend(r, "    char buf[64]; snprintf(buf,64,\"%.0f\",floor(atof(a)));\n    return kr_str(buf);\n}\n\nstatic char* kr_fceil(const char* a) {\n    char buf[64]; snprintf(buf,64,\"%.0f\",ceil(atof(a)));\n    return kr_str(buf);\n}\n\nstatic char* kr_fround(const char* a) {\n")
     r = sbAppend(r, "    char buf[64]; snprintf(buf,64,\"%.0f\",round(atof(a)));\n    return kr_str(buf);\n}\n\nstatic char* kr_fformat(const char* a,const char* prec){char fmt[32],buf[64];snprintf(fmt,32,\"%%.%sf\",prec);snprintf(buf,64,fmt,atof(a));return kr_str(buf);}\n")
 
+    // Closure support
+    r = sbAppend(r, "static char* kr_mkclosure(const char* fn,const char* env){")
+    r = sbAppend(r, "int fl=strlen(fn),el=strlen(env);char* p=_alloc(fl+el+2);")
+    r = sbAppend(r, "memcpy(p,fn,fl);p[fl]='|';memcpy(p+fl+1,env,el+1);return p;}\n")
+    r = sbAppend(r, "static char* kr_closure_fn(const char* c){")
+    r = sbAppend(r, "const char* p=strchr(c,'|');if(!p)return(char*)c;")
+    r = sbAppend(r, "int n=p-c;char* r2=_alloc(n+1);memcpy(r2,c,n);r2[n]=0;return r2;}\n")
+    r = sbAppend(r, "static char* kr_closure_env(const char* c){")
+    r = sbAppend(r, "const char* p=strchr(c,'|');return p?(char*)(p+1):(char*)_K_EMPTY;}\n")
     emit sbToString(r)
 }
 
@@ -3260,6 +3299,48 @@ func irFuncIR(tokens, pos, ntoks) {
     emit "FUNC " + fname + " " + pc + "\n" + params + bodyCode + "END\n\n," + p
 }
 
+func findFreeVars(tokens, bodyStart, bodyEnd, params) {
+    // Find variables used in lambda body that aren't params or lets
+    // Returns comma-separated list of free variable names
+    let freeVars = ""
+    let localDecls = params  // start with params as "local"
+    let i = bodyStart + 1  // skip LBRACE
+    while i < bodyEnd {
+        let tok = tokAt(tokens, i)
+        // Track local let declarations
+        if tok == "KW:let" || tok == "KW:const" {
+            let lname = tokVal(tokAt(tokens, i + 1))
+            if !contains(localDecls, "," + lname + ",") {
+                localDecls = localDecls + "," + lname + ","
+            }
+        }
+        // Check ID references
+        if tokType(tok) == "ID" {
+            let name = tokVal(tok)
+            let nextTok = tokAt(tokens, i + 1)
+            // Skip function calls (they're function names not vars)
+            if nextTok != "LPAREN" {
+                // Skip if it's a local/param
+                if !contains("," + localDecls + ",", "," + name + ",") {
+                    // Skip builtins
+                    if len(name) > 0 && !startsWith(name, "kr_") {
+                        if !contains(freeVars, "," + name + ",") {
+                            freeVars = freeVars + "," + name + ","
+                        }
+                    }
+                }
+            }
+        }
+        i += 1
+    }
+    // Return without leading/trailing commas
+    if len(freeVars) > 2 {
+        emit substring(freeVars, 1, len(freeVars) - 1)
+    }
+    emit ""
+}
+
+
 just run {
     // Check for --ir flag: kcc --ir file.k > file.kir
     let irMode = 0
@@ -3307,6 +3388,7 @@ just run {
     let importFwdDecls = ""
     let importBodies = ""
     let lambdaBank = ""  // pre-compiled lambda C functions
+    let lambdaFreeVars = ""  // lambda pos -> free vars mapping
 
     // Pre-scan: find all lambda expressions and compile them to C
     // A lambda is KW:func/KW:fn preceded by ASSIGN, LPAREN, COMMA, or KW:emit/KW:return
@@ -3331,20 +3413,40 @@ just run {
                 }
                 lp2 += 1  // past RPAREN
                 if tokAt(tokens, lp2) == "ARROW" { lp2 += 2 }
+                // Find body extent for free var analysis
+                let lbodyStart = lp2
+                let lbodyEnd = skipBlock(tokens, lp2)
+                // Detect free variables
+                let lfreeVars = findFreeVars(tokens, lbodyStart, lbodyEnd, lparams2)
+                let lfvc = 0
+                if len(lfreeVars) > 0 { lfvc = lineCount(lfreeVars) }
+                // Compile body
                 let lbp = compileBlock(tokens, lp2, ntoks, 1, "_krlam" + lsi)
                 let lbcode = pairVal(lbp)
-                // Build signature with param names
+                // Build signature: only explicit params (free vars come from statics)
                 let lsig = "char* _krlam" + lsi + "(void)"
                 if lpc2 > 0 {
                     lsig = "char* _krlam" + lsi + "(char* " + cIdent(getNthParam(lparams2, 0))
-                    let lpii = 1
-                    while lpii < lpc2 {
-                        lsig = lsig + ", char* " + cIdent(getNthParam(lparams2, lpii))
-                        lpii += 1
+                    let lpi2 = 1
+                    while lpi2 < lpc2 {
+                        lsig = lsig + ", char* " + cIdent(getNthParam(lparams2, lpi2))
+                        lpi2 += 1
                     }
                     lsig = lsig + ")"
                 }
-                lambdaBank = lambdaBank + "static " + lsig + " {\n" + lbcode + "return _K_EMPTY;\n}\n\n"
+                // Generate static capture vars + lambda function
+                let lcapDecls = ""
+                let lcapInits = ""
+                let lfvi2 = 0
+                while lfvi2 < lfvc {
+                    let fvn2 = cIdent(split(lfreeVars, lfvi2))
+                    lcapDecls = lcapDecls + "static char* _krlam" + lsi + "_" + fvn2 + ";\n"
+                    lcapInits = lcapInits + "    char* " + fvn2 + " = _krlam" + lsi + "_" + fvn2 + ";\n"
+                    lfvi2 += 1
+                }
+                lambdaBank = lambdaBank + lcapDecls + "static " + lsig + " {\n" + lcapInits + lbcode + "return _K_EMPTY;\n}\n\n"
+                // Store free var list for creation site use by compileLambda
+                lambdaFreeVars = lambdaFreeVars + lsi + ":" + lfreeVars + "\n"
             }
         }
         lsi += 1
