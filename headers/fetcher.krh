@@ -1,40 +1,14 @@
 // fetcher.krh — Windows system fetch API for Krypton
 // Provides GPU, RAM, disk, OS, shell, terminal, display, battery, and package info.
 //
-// C backend:   automatically included via kfetch_api.h
+// C backend:    included automatically via kfetch_api.h
 // LLVM backend: compile kfetch_api.h separately and link:
 //   gcc -c kfetch_api.h -x c -o kfetch_api.o
 //   clang out.ll runtime/krypton_runtime.c kfetch_api.o -o app.exe -lpdh -ladvapi32 -lm
 //
 // Usage:
-//   import "headers/fetcher.krh"
+//   import "../krypton/headers/fetcher.krh"
 
 jxt {
     c "kfetch_api.h"
-
-    // Console
-    func kfinit()
-    func kfcls()
-    func kfconsize()
-
-    // System
-    func kfmem()
-    func kfdisk()
-    func kfuptimesec()
-    func kfosedition()
-    func kfshell()
-    func kfterminal()
-    func kfresolution()
-    func kftheme()
-    func kfbattery()
-    func kfpkgs()
-
-    // GPU / VRAM
-    func kfvram()
-
-    // Bars
-    func kframbar(used, total)
-
-    // Shell exec helper
-    func exec(cmd)
 }
