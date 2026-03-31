@@ -8,8 +8,8 @@ just run {
     structSet(ms, "MEMORYSTATUSEX", "dwLength", sizeOf("MEMORYSTATUSEX"))
     GlobalMemoryStatusEx(ms)
 
-    let totalMB = toInt(structGet(ms, "MEMORYSTATUSEX", "ullTotalPhys")) / 1024 / 1024 + ""
-    let availMB = toInt(structGet(ms, "MEMORYSTATUSEX", "ullAvailPhys")) / 1024 / 1024 + ""
+    let totalMB = div64(structGet(ms, "MEMORYSTATUSEX", "ullTotalPhys"), "1048576")
+    let availMB = div64(structGet(ms, "MEMORYSTATUSEX", "ullAvailPhys"), "1048576")
 
     kp("Total RAM: " + totalMB + " MB")
     kp("Avail RAM: " + availMB + " MB")

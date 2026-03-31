@@ -17,17 +17,17 @@ jxt {
     }
 
     struct CONSOLE_SCREEN_BUFFER_INFO {
-        field dwSizeX         WORD
-        field dwSizeY         WORD
-        field dwCursorX       WORD
-        field dwCursorY       WORD
+        field dwSizeX         WORD  "dwSize.X"
+        field dwSizeY         WORD  "dwSize.Y"
+        field dwCursorX       WORD  "dwCursorPosition.X"
+        field dwCursorY       WORD  "dwCursorPosition.Y"
         field wAttributes     WORD
-        field srWindowLeft    WORD
-        field srWindowTop     WORD
-        field srWindowRight   WORD
-        field srWindowBottom  WORD
-        field dwMaxX          WORD
-        field dwMaxY          WORD
+        field srWindowLeft    WORD  "srWindow.Left"
+        field srWindowTop     WORD  "srWindow.Top"
+        field srWindowRight   WORD  "srWindow.Right"
+        field srWindowBottom  WORD  "srWindow.Bottom"
+        field dwMaxX          WORD  "dwMaximumWindowSize.X"
+        field dwMaxY          WORD  "dwMaximumWindowSize.Y"
     }
 
     struct SYSTEM_INFO {

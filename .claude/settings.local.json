@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmd /c \"build_v112.bat\")",
+      "Bash(gcc compile_out.c -o versions/kcc_v112.exe -lm -w)",
+      "Bash(gcc test_struct_out.c -o test_struct.exe -ladvapi32 -lm -w)",
+      "Bash(./test_struct.exe)"
+    ]
+  }
+}
