@@ -961,6 +961,55 @@ func compileCall(tokens, pos, ntoks) {
     if fname == "startsWith" {
         emit "kr_startswith(" + args + ")," + p
     }
+    if fname == "exec" {
+        emit "kr_exec(" + args + ")," + p
+    }
+    if fname == "structNew" {
+        // structNew("STRUCTNAME") -> structnew_STRUCTNAME()
+        // First arg is a string literal with the struct name
+        let snArg = tokAt(tokens, pos + 2)
+        if tokType(snArg) == "STR" {
+            emit "structnew_" + tokVal(snArg) + "()," + p
+        } else {
+            emit "structnew_unknown()," + p
+        }
+    }
+    if fname == "structGet" {
+        // structGet(ptr, "STRUCTNAME", "fieldname") -> structget_STRUCTNAME(ptr, "fieldname")
+        let sgType = tokAt(tokens, pos + 4)
+        let sgField = tokAt(tokens, pos + 6)
+        if tokType(sgType) == "STR" {
+            let sgPtr = split(args, 0)
+            emit "structget_" + tokVal(sgType) + "(" + sgPtr + ", kr_str(\"" + tokVal(sgField) + "\"))," + p
+        } else {
+            emit "kr_str(\"\")," + p
+        }
+    }
+    if fname == "structSet" {
+        // structSet(ptr, "STRUCTNAME", "fieldname", val) -> structset_STRUCTNAME(ptr, "fieldname", val)
+        let ssType = tokAt(tokens, pos + 4)
+        let ssField = tokAt(tokens, pos + 6)
+        if tokType(ssType) == "STR" {
+            let ssPtr = split(args, 0)
+            let ssVal = split(args, 3)
+            emit "structset_" + tokVal(ssType) + "(" + ssPtr + ", kr_str(\"" + tokVal(ssField) + "\"), " + ssVal + ")," + p
+        } else {
+            emit "_K_EMPTY," + p
+        }
+    }
+    if fname == "sizeOf" {
+        // sizeOf("STRUCTNAME") -> structsizeof_STRUCTNAME()
+        let soArg = tokAt(tokens, pos + 2)
+        if tokType(soArg) == "STR" {
+            emit "structsizeof_" + tokVal(soArg) + "()," + p
+        } else {
+            emit "kr_str(\"0\")," + p
+        }
+    }
+    if fname == "structAddr" {
+        // structAddr(ptr) -> pass as void* to API functions
+        emit "((char*)(" + args + "))," + p
+    }
     if fname == "readFile" {
         emit "kr_readfile(" + args + ")," + p
     }
@@ -2208,7 +2257,7 @@ func cRuntime() {
     r = sbAppend(r, "                char* r = _alloc(len + 1);\n                memcpy(r, start, len);\n                r[len] = 0;\n                return r;\n            }\n            count++;\n            start = p + 1;\n        }\n")
     r = sbAppend(r, "        p++;\n    }\n    if (count == idx) return kr_str(start);\n    return kr_str(\"\");\n}\n\nstatic char* kr_startswith(const char* s, const char* prefix) {\n    return strncmp(s, prefix, strlen(prefix)) == 0 ? _K_ONE : _K_ZERO;\n}\n\n")
     r = sbAppend(r, "static char* kr_substr(const char* s, const char* starts, const char* ends) {\n    int st = atoi(starts), en = atoi(ends);\n    int slen = (int)strlen(s);\n    if (st >= slen) return kr_str(\"\");\n    if (en > slen) en = slen;\n    int n = en - st;\n    if (n <= 0) return kr_str(\"\");\n    char* r = _alloc(n + 1);\n")
-    r = sbAppend(r, "    memcpy(r, s + st, n);\n    r[n] = 0;\n    return r;\n}\n\nstatic char* kr_toint(const char* s) { return kr_itoa(atoi(s)); }\n\nstatic char* kr_readfile(const char* path) {\n    FILE* f = fopen(path, \"rb\");\n    if (!f) return kr_str(\"\");\n")
+    r = sbAppend(r, "    memcpy(r, s + st, n);\n    r[n] = 0;\n    return r;\n}\n\nstatic char* kr_toint(const char* s) { return kr_itoa(atoi(s)); }\n\nstatic char* kr_exec(const char* cmd) {\n    char* buf=_alloc(8192); buf[0]=0;\n#ifdef _WIN32\n    FILE* p=_popen(cmd,\"r\");\n#else\n    FILE* p=popen(cmd,\"r\");\n#endif\n    if(!p) return buf;\n    int pos=0,ch;\n    while(pos<8191&&(ch=fgetc(p))!=EOF) buf[pos++]=(char)ch;\n    buf[pos]=0;\n#ifdef _WIN32\n    _pclose(p);\n#else\n    pclose(p);\n#endif\n    while(pos>0&&(buf[pos-1]==13||buf[pos-1]==10||buf[pos-1]==32)) buf[--pos]=0;\n    return buf;\n}\n\n\n\nstatic char* kr_readfile(const char* path) {\n    FILE* f = fopen(path, \"rb\");\n    if (!f) return kr_str(\"\");\n")
     r = sbAppend(r, "    fseek(f, 0, SEEK_END);\n    long sz = ftell(f);\n    fseek(f, 0, SEEK_SET);\n    char* buf = _alloc((int)sz + 1);\n    fread(buf, 1, sz, f);\n    buf[sz] = 0;\n    fclose(f);\n    return buf;\n")
     r = sbAppend(r, "}\n\nstatic char* kr_arg(const char* idxs) {\n    int idx = atoi(idxs) + 1;\n    if (idx < _argc) return kr_str(_argv[idx]);\n    return kr_str(\"\");\n}\n\nstatic char* kr_argcount() {\n    return kr_itoa(_argc - 1);\n")
     r = sbAppend(r, "}\n\nstatic char* kr_getline(const char* s, const char* idxs) {\n    int idx = atoi(idxs);\n    int cur = 0;\n    const char* start = s;\n    const char* p = s;\n    while (*p) {\n")
@@ -3301,29 +3350,30 @@ func irFuncIR(tokens, pos, ntoks) {
 }
 
 func findFreeVars(tokens, bodyStart, bodyEnd, params) {
-    // Find variables used in lambda body that aren't params or lets
-    // Returns comma-separated list of free variable names
-    let freeVars = ""
-    let localDecls = params  // start with params as "local"
-    let i = bodyStart + 1  // skip LBRACE
+    // Find free variables: referenced before any local let declaration
+    // First pass: collect all let-declared names in body
+    let localDecls = params
+    let i = bodyStart + 1
     while i < bodyEnd {
         let tok = tokAt(tokens, i)
-        // Track local let declarations
         if tok == "KW:let" || tok == "KW:const" {
             let lname = tokVal(tokAt(tokens, i + 1))
             if !contains(localDecls, "," + lname + ",") {
                 localDecls = localDecls + "," + lname + ","
             }
         }
-        // Check ID references
+        i += 1
+    }
+    // Second pass: find IDs not in localDecls at all
+    let freeVars = ""
+    i = bodyStart + 1
+    while i < bodyEnd {
+        let tok = tokAt(tokens, i)
         if tokType(tok) == "ID" {
             let name = tokVal(tok)
             let nextTok = tokAt(tokens, i + 1)
-            // Skip function calls (they're function names not vars)
             if nextTok != "LPAREN" {
-                // Skip if it's a local/param
                 if !contains("," + localDecls + ",", "," + name + ",") {
-                    // Skip builtins
                     if len(name) > 0 && !startsWith(name, "kr_") {
                         if !contains(freeVars, "," + name + ",") {
                             freeVars = freeVars + "," + name + ","
@@ -3334,10 +3384,7 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
         }
         i += 1
     }
-    // Return without leading/trailing commas
-    if len(freeVars) > 2 {
-        emit substring(freeVars, 1, len(freeVars) - 1)
-    }
+    if len(freeVars) > 2 { emit substring(freeVars, 1, len(freeVars) - 1) }
     emit ""
 }
 
@@ -3390,16 +3437,18 @@ just run {
     let importBodies = ""
     let lambdaBank = ""  // pre-compiled lambda C functions
     let lambdaFreeVars = ""  // lambda pos -> free vars mapping
+    let structTable = ""  // extern struct definitions: "NAME:field1:TYPE1,field2:TYPE2\n"
 
     // Pre-scan: find all lambda expressions and compile them to C
-    // A lambda is KW:func/KW:fn preceded by ASSIGN, LPAREN, COMMA, or KW:emit/KW:return
+    // Only run if source contains lambda patterns (func( without a name)
     let lsi = 0
     while lsi < ntoks {
         let lsTok = tokAt(tokens, lsi)
         if lsTok == "KW:func" || lsTok == "KW:fn" {
             let prevTok = ""
             if lsi > 0 { prevTok = tokAt(tokens, lsi - 1) }
-            if prevTok == "ASSIGN" || prevTok == "LPAREN" || prevTok == "COMMA" || prevTok == "KW:emit" || prevTok == "KW:return" || prevTok == "KW:in" {
+            let nextTok2 = tokAt(tokens, lsi + 1)
+            if (prevTok == "ASSIGN" || prevTok == "LPAREN" || prevTok == "COMMA" || prevTok == "KW:emit" || prevTok == "KW:return" || prevTok == "KW:in") && nextTok2 == "LPAREN" {
                 // This is a lambda expression - pre-compile it
                 let lp2 = lsi + 2  // past func and LPAREN
                 let lparams2 = ""
@@ -3414,17 +3463,10 @@ just run {
                 }
                 lp2 += 1  // past RPAREN
                 if tokAt(tokens, lp2) == "ARROW" { lp2 += 2 }
-                // Find body extent for free var analysis
-                let lbodyStart = lp2
-                let lbodyEnd = skipBlock(tokens, lp2)
-                // Detect free variables
-                let lfreeVars = findFreeVars(tokens, lbodyStart, lbodyEnd, lparams2)
-                let lfvc = 0
-                if len(lfreeVars) > 0 { lfvc = lineCount(lfreeVars) }
-                // Compile body
+                // Compile lambda body
                 let lbp = compileBlock(tokens, lp2, ntoks, 1, "_krlam" + lsi)
                 let lbcode = pairVal(lbp)
-                // Build signature: only explicit params (free vars come from statics)
+                // Build signature with explicit params only
                 let lsig = "char* _krlam" + lsi + "(void)"
                 if lpc2 > 0 {
                     lsig = "char* _krlam" + lsi + "(char* " + cIdent(getNthParam(lparams2, 0))
@@ -3435,19 +3477,21 @@ just run {
                     }
                     lsig = lsig + ")"
                 }
-                // Generate static capture vars + lambda function
+                // Detect free variables (for static capture)
+                let lbodyEnd = skipBlock(tokens, lp2)
+                let lfreeVars = findFreeVars(tokens, lp2, lbodyEnd, lparams2)
+                let lfvc = 0
+                if len(lfreeVars) > 0 { lfvc = lineCount(lfreeVars) }
                 let lcapDecls = ""
                 let lcapInits = ""
                 let lfvi2 = 0
                 while lfvi2 < lfvc {
                     let fvn2 = cIdent(split(lfreeVars, lfvi2))
-                    lcapDecls = lcapDecls + "static char* _krlam" + lsi + "_" + cIdent(fvn2) + ";\n"
-                    lcapInits = lcapInits + "    char* " + cIdent(fvn2) + " = _krlam" + lsi + "_" + fvn2 + ";\n"
+                    lcapDecls = lcapDecls + "static char* _krlam" + lsi + "_" + fvn2 + ";\n"
+                    lcapInits = lcapInits + "    char* " + fvn2 + " = _krlam" + lsi + "_" + fvn2 + ";\n"
                     lfvi2 += 1
                 }
-                lambdaBank = lambdaBank + lcapDecls + "static " + lsig + " {\n" + lcapInits + lbcode + "return _K_EMPTY;\n}\n\n"
-                // Store free var list for creation site use by compileLambda
-                lambdaFreeVars = lambdaFreeVars + lsi + ":" + lfreeVars + "\n"
+                lambdaBank = lambdaBank + lcapDecls + "static " + lsig + " {\n" + lbcode + "return _K_EMPTY;\n}\n\n"
             }
         }
         lsi += 1
@@ -3484,25 +3528,122 @@ just run {
                     let iFtable = scanFunctions(iToks, iNtoks)
                     // forward declarations
                     let iDecls = ""
-                    let ij = 0
+                                        let ij = 0
                     while ij < iNtoks {
                         let itk = tokAt(iToks, ij)
-                        if itk == "KW:func" || itk == "KW:fn" {
+                        if itk == "KW:jxt" {
+                            // Process jxt block from imported file
+                            let ijxtPos = ij + 2
+                            while tokAt(iToks, ijxtPos) != "RBRACE" {
+                                let ijLang = tokVal(tokAt(iToks, ijxtPos))
+                                if ijLang == "c" || ijLang == "t" {
+                                    let ijPath = tokVal(tokAt(iToks, ijxtPos + 1))
+                                    if contains(ijPath, "/") || contains(ijPath, "\\") {
+                                        iDecls = "#include \"" + ijPath + "\"\n" + iDecls
+                                    } else {
+                                        iDecls = "#include <" + ijPath + ">\n" + iDecls
+                                    }
+                                    ijxtPos += 2
+                                } else if ijLang == "struct" {
+                                    // Process struct declaration
+                                    let isName = tokVal(tokAt(iToks, ijxtPos + 1))
+                                    let isfPos = ijxtPos + 3
+                                    let isEntry = isName + ":"
+                                    let isFirst = 1
+                                    let getBody = ""
+                                    let setBody = ""
+                                    while tokAt(iToks, isfPos) != "RBRACE" {
+                                        if tokVal(tokAt(iToks, isfPos)) == "field" {
+                                            let isfName = tokVal(tokAt(iToks, isfPos + 1))
+                                            let isfType = tokVal(tokAt(iToks, isfPos + 2))
+                                            if isFirst == 0 { isEntry = isEntry + "," }
+                                            isEntry = isEntry + isfName + ":" + isfType
+                                            isFirst = 0
+                                            isfPos = isfPos + 3
+                                            let getExpr = "kr_itoa(s->" + isfName + ")"
+                                            if isfType == "ULONGLONG" || isfType == "SIZE_T" || isfType == "ULONG_PTR" {
+                                                getExpr = "({ char _b[32]; snprintf(_b,32,\"%llu\",(unsigned long long)s->" + isfName + "); kr_str(_b); })"
+                                            }
+                                            if isfType == "LONGLONG" {
+                                                getExpr = "({ char _b[32]; snprintf(_b,32,\"%lld\",(long long)s->" + isfName + "); kr_str(_b); })"
+                                            }
+                                            if isfType == "HANDLE" || isfType == "PVOID" {
+                                                getExpr = "((char*)s->" + isfName + ")"
+                                            }
+                                            getBody = getBody + "    if(strcmp(f,\"" + isfName + "\")==0) return " + getExpr + ";\n"
+                                            let setStmt = "s->" + isfName + "=(DWORD)atoi(v);"
+                                            if isfType == "ULONGLONG" || isfType == "SIZE_T" || isfType == "ULONG_PTR" {
+                                                setStmt = "s->" + isfName + "=(ULONGLONG)atoll(v);"
+                                            }
+                                            if isfType == "LONGLONG" {
+                                                setStmt = "s->" + isfName + "=(LONGLONG)atoll(v);"
+                                            }
+                                            if isfType == "WORD" || isfType == "USHORT" {
+                                                setStmt = "s->" + isfName + "=(WORD)atoi(v);"
+                                            }
+                                            if isfType == "HANDLE" || isfType == "PVOID" {
+                                                setStmt = "s->" + isfName + "=(HANDLE)v;"
+                                            }
+                                            setBody = setBody + "    if(strcmp(f,\"" + isfName + "\")==0){" + setStmt + " return _K_EMPTY;}\n"
+                                        } else {
+                                            isfPos += 1
+                                        }
+                                    }
+                                    structTable = structTable + isEntry + "\n"
+                                    let sAcc = "static char* structnew_" + isName + "(void){"
+                                    sAcc = sAcc + isName + "* s=(" + isName + "*)_alloc(sizeof(" + isName + "));"
+                                    sAcc = sAcc + "memset(s,0,sizeof(" + isName + ")); return (char*)s;}\n"
+                                    sAcc = sAcc + "static char* structget_" + isName + "(char* p,char* f){"
+                                    sAcc = sAcc + isName + "* s=(" + isName + "*)p;\n" + getBody
+                                    sAcc = sAcc + "    return _K_EMPTY;}\n"
+                                    sAcc = sAcc + "static char* structset_" + isName + "(char* p,char* f,char* v){"
+                                    sAcc = sAcc + isName + "* s=(" + isName + "*)p;\n" + setBody
+                                    sAcc = sAcc + "    return _K_EMPTY;}\n"
+                                    sAcc = sAcc + "static char* structsizeof_" + isName + "(void){return kr_itoa(sizeof(" + isName + "));}\n"
+                                    iDecls = iDecls + sAcc
+                                    ijxtPos = isfPos + 1
+                                } else if ijLang == "func" {
+                                    let ijfName = tokVal(tokAt(iToks, ijxtPos + 1))
+                                    let ijfPos = ijxtPos + 3
+                                    let ijfPc = 0
+                                    while tokAt(iToks, ijfPos) != "RPAREN" {
+                                        if tokType(tokAt(iToks, ijfPos)) == "ID" { ijfPc += 1 }
+                                        ijfPos += 1
+                                    }
+                                    let ijfDecl = "char* " + cIdent(ijfName) + "(char*"
+                                    if ijfPc == 0 { ijfDecl = "char* " + cIdent(ijfName) + "(" }
+                                    let ijfPi = 1
+                                    while ijfPi < ijfPc { ijfDecl = ijfDecl + ", char*"  ijfPi += 1 }
+                                    ijfDecl = ijfDecl + ");\n"
+                                    iDecls = iDecls + ijfDecl
+                                    // Add to ftable
+                                    let ijfInfo = ijfName + ":" + ijfPc + ":0"
+                                    if len(ftable) > 0 { ftable = ftable + "\n" + ijfInfo }
+                                    else { ftable = ijfInfo }
+                                    ijfPos += 1
+                                    if tokAt(iToks, ijfPos) == "ARROW" { ijfPos += 2 }
+                                    ijxtPos = ijfPos
+                                } else {
+                                    ijxtPos += 2
+                                }
+                            }
+                            ij = skipBlock(iToks, ij + 1)
+                        } else if itk == "KW:func" || itk == "KW:fn" {
                             let iname = tokVal(tokAt(iToks, ij + 1))
                             if len(iname) > 0 {
-                            let iinfo = funcLookup(iFtable, iname)
-                            let ipc = funcParamCount(iinfo)
-                            let idecl = "char* " + cIdent(iname) + "(char*"
-                            let ipj = 1
-                            while toInt(ipj) < toInt(ipc) {
-                                idecl = idecl + ", char*"
-                                ipj += 1
-                            }
-                            if toInt(ipc) == 0 {
-                                idecl = "char* " + cIdent(iname) + "("
-                            }
-                            idecl = idecl + ");\n"
-                            iDecls = iDecls + idecl
+                                let iinfo = funcLookup(iFtable, iname)
+                                let ipc = funcParamCount(iinfo)
+                                let idecl = "char* " + cIdent(iname) + "(char*"
+                                let ipj = 1
+                                while toInt(ipj) < toInt(ipc) {
+                                    idecl = idecl + ", char*"
+                                    ipj += 1
+                                }
+                                if toInt(ipc) == 0 {
+                                    idecl = "char* " + cIdent(iname) + "("
+                                }
+                                idecl = idecl + ");\n"
+                                iDecls = iDecls + idecl
                             }
                         }
                         ij += 1
@@ -3564,6 +3705,70 @@ just run {
                         importFwdDecls = "#include <" + jxtPath + ">\n" + importFwdDecls
                     }
                     jxtPos += 2
+                } else if lang == "struct" {
+                    // jxt extern struct: struct NAME { field fname TYPE ... }
+                    let sName = tokVal(tokAt(tokens, jxtPos + 1))
+                    let sfPos = jxtPos + 3
+                    let sEntry = sName + ":"
+                    let sfFirst = 1
+                    // Build C accessor functions
+                    let getBody = ""
+                    let setBody = ""
+                    while tokAt(tokens, sfPos) != "RBRACE" {
+                        if tokVal(tokAt(tokens, sfPos)) == "field" {
+                            let sfName = tokVal(tokAt(tokens, sfPos + 1))
+                            let sfType = tokVal(tokAt(tokens, sfPos + 2))
+                            if sfFirst == 0 { sEntry = sEntry + "," }
+                            sEntry = sEntry + sfName + ":" + sfType
+                            sfFirst = 0
+                            sfPos = sfPos + 3
+                            // Generate get accessor for this field
+                            let getExpr = "kr_itoa(s->" + sfName + ")"
+                            if sfType == "ULONGLONG" || sfType == "SIZE_T" || sfType == "ULONG_PTR" {
+                                getExpr = "({ char _b[32]; snprintf(_b,32,\"%llu\",(unsigned long long)s->" + sfName + "); kr_str(_b); })"
+                            }
+                            if sfType == "LONGLONG" {
+                                getExpr = "({ char _b[32]; snprintf(_b,32,\"%lld\",(long long)s->" + sfName + "); kr_str(_b); })"
+                            }
+                            if sfType == "HANDLE" || sfType == "PVOID" || sfType == "LPVOID" {
+                                getExpr = "((char*)s->" + sfName + ")"
+                            }
+                            getBody = getBody + "    if(strcmp(f,\"" + sfName + "\")==0) return " + getExpr + ";\n"
+                            // Generate set accessor for this field
+                            let setStmt = "s->" + sfName + "=(DWORD)atoi(v);"
+                            if sfType == "ULONGLONG" || sfType == "SIZE_T" || sfType == "ULONG_PTR" {
+                                setStmt = "s->" + sfName + "=(ULONGLONG)atoll(v);"
+                            }
+                            if sfType == "LONGLONG" {
+                                setStmt = "s->" + sfName + "=(LONGLONG)atoll(v);"
+                            }
+                            if sfType == "WORD" || sfType == "USHORT" {
+                                setStmt = "s->" + sfName + "=(WORD)atoi(v);"
+                            }
+                            if sfType == "HANDLE" || sfType == "PVOID" {
+                                setStmt = "s->" + sfName + "=(HANDLE)v;"
+                            }
+                            setBody = setBody + "    if(strcmp(f,\"" + sfName + "\")==0){" + setStmt + " return _K_EMPTY;}\n"
+                        } else {
+                            sfPos += 1
+                        }
+                    }
+                    structTable = structTable + sEntry + "\n"
+                    // Emit C accessor functions
+                    let sAccessors = "static char* structnew_" + sName + "(void){"
+                    sAccessors = sAccessors + sName + "* s=(" + sName + "*)_alloc(sizeof(" + sName + "));"
+                    sAccessors = sAccessors + "memset(s,0,sizeof(" + sName + ")); return (char*)s;}\n"
+                    sAccessors = sAccessors + "static char* structget_" + sName + "(char* p,char* f){"
+                    sAccessors = sAccessors + sName + "* s=(" + sName + "*)p;\n"
+                    sAccessors = sAccessors + getBody
+                    sAccessors = sAccessors + "    return _K_EMPTY;}\n"
+                    sAccessors = sAccessors + "static char* structset_" + sName + "(char* p,char* f,char* v){"
+                    sAccessors = sAccessors + sName + "* s=(" + sName + "*)p;\n"
+                    sAccessors = sAccessors + setBody
+                    sAccessors = sAccessors + "    return _K_EMPTY;}\n"
+                    sAccessors = sAccessors + "static char* structsizeof_" + sName + "(void){return kr_itoa(sizeof(" + sName + "));}\n"
+                    importFwdDecls = importFwdDecls + sAccessors
+                    jxtPos = sfPos + 1
                 } else if lang == "func" {
                     // jxt func declaration: func name(p1, p2) -> type
                     // jxtPos is at ID:func, jxtPos+1 is ID:name

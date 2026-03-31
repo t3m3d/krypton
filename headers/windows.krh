@@ -4,12 +4,45 @@
 jxt {
     c "windows.h"
 
-    // System info
+    // ── Extern structs ─────────────────────────────────────────
+    struct MEMORYSTATUSEX {
+        field dwLength        DWORD
+        field dwMemoryLoad    DWORD
+        field ullTotalPhys    ULONGLONG
+        field ullAvailPhys    ULONGLONG
+        field ullTotalPageFile ULONGLONG
+        field ullAvailPageFile ULONGLONG
+        field ullTotalVirtual  ULONGLONG
+        field ullAvailVirtual  ULONGLONG
+    }
+
+    struct CONSOLE_SCREEN_BUFFER_INFO {
+        field dwSizeX         WORD
+        field dwSizeY         WORD
+        field dwCursorX       WORD
+        field dwCursorY       WORD
+        field wAttributes     WORD
+        field srWindowLeft    WORD
+        field srWindowTop     WORD
+        field srWindowRight   WORD
+        field srWindowBottom  WORD
+        field dwMaxX          WORD
+        field dwMaxY          WORD
+    }
+
+    struct SYSTEM_INFO {
+        field wProcessorArchitecture WORD
+        field wReserved              WORD
+        field dwPageSize             DWORD
+        field dwNumberOfProcessors   DWORD
+        field dwProcessorType        DWORD
+    }
+
+    // ── System info ────────────────────────────────────────────
     func GetTickCount64()
     func GetUserNameA(buf, size)
     func GetComputerNameA(buf, size)
     func GetNativeSystemInfo(info)
-    func GetLogicalProcessorInformationEx(rel, buf, size)
     func GetLogicalDrives()
     func GetDiskFreeSpaceExA(root, free, total, totalFree)
     func GlobalMemoryStatusEx(ms)
@@ -17,16 +50,22 @@ jxt {
     func GetStdHandle(id)
     func SetConsoleOutputCP(cp)
     func GetConsoleOutputCP()
+    func GetSystemMetrics(index)
+    func GetSystemPowerStatus(sps)
 
-    // Registry
+    // ── Registry ───────────────────────────────────────────────
     func RegOpenKeyExA(hive, path, opts, access, out)
     func RegQueryValueExA(key, name, reserved, type, data, size)
     func RegCloseKey(key)
+    func RegEnumKeyExA(key, idx, name, size, reserved, cls, clsSize, lastWrite)
 
-    // Console
+    // ── Console ────────────────────────────────────────────────
     func SetConsoleTextAttribute(handle, attr)
+    func GetConsoleMode(handle, mode)
+    func SetConsoleMode(handle, mode)
 
-    // Process
+    // ── Process ───────────────────────────────────────────────
     func GetEnvironmentVariableA(name, buf, size)
     func ExitProcess(code)
+    func GetCurrentProcessId()
 }
