@@ -1358,6 +1358,8 @@ func compileCall(tokens, pos, ntoks) {
     if fname == "mod64"   { emit "kr_mod64(" + args + ")," + p }
     if fname == "mul64"   { emit "kr_mul64(" + args + ")," + p }
     if fname == "add64"   { emit "kr_add64(" + args + ")," + p }
+    if fname == "eqIgnoreCase" { emit "kr_eqignorecase(" + args + ")," + p }
+    if fname == "handleValid"  { emit "kr_handlevalid(" + args + ")," + p }
 
     // v0.7.5 builtins
     if fname == "mapGet" {
@@ -2613,6 +2615,8 @@ func cRuntime() {
     r = sbAppend(r, "static char* kr_mod64(const char* a,const char* b){if(atoll(b)==0)return kr_str(\"0\");char buf[32];long long r2=atoll(a)%atoll(b);snprintf(buf,32,\"%lld\",r2);return kr_str(buf);}\n")
     r = sbAppend(r, "static char* kr_mul64(const char* a,const char* b){char buf[32];snprintf(buf,32,\"%lld\",atoll(a)*atoll(b));return kr_str(buf);}\n")
     r = sbAppend(r, "static char* kr_add64(const char* a,const char* b){char buf[32];snprintf(buf,32,\"%lld\",atoll(a)+atoll(b));return kr_str(buf);}\n")
+    r = sbAppend(r, "static char* kr_eqignorecase(const char* a,const char* b){return _stricmp(a,b)==0?kr_str(\"1\"):kr_str(\"0\");}\n")
+    r = sbAppend(r, "static char* kr_handlevalid(const char* h){return (h!=NULL&&h!=(char*)(intptr_t)-1)?kr_str(\"1\"):kr_str(\"0\");}\n")
 
     // Closure support
     r = sbAppend(r, "static char* kr_mkclosure(const char* fn,const char* env){")
@@ -3589,10 +3593,17 @@ just run {
                                 if ijLang == "c" || ijLang == "t" {
                                     let ijPath = tokVal(tokAt(iToks, ijxtPos + 1))
                                     ijxtHasCHeader = 1
+                                    let ijIncLine = ""
                                     if contains(ijPath, "/") || contains(ijPath, "\\") {
-                                        iDecls = "#include \"" + ijPath + "\"\n" + iDecls
+                                        ijIncLine = "#include \"" + ijPath + "\"\n"
                                     } else {
-                                        iDecls = "#include <" + ijPath + ">\n" + iDecls
+                                        ijIncLine = "#include <" + ijPath + ">\n"
+                                    }
+                                    // c: prepend (foundation headers first), t: append (depends on c headers)
+                                    if ijLang == "c" {
+                                        iDecls = ijIncLine + iDecls
+                                    } else {
+                                        iDecls = iDecls + ijIncLine
                                     }
                                     ijxtPos += 2
                                 } else if ijLang == "struct" {
@@ -3628,6 +3639,9 @@ just run {
                                             if isfType == "HANDLE" || isfType == "PVOID" {
                                                 getExpr = "((char*)s->" + isfCPath + ")"
                                             }
+                                            if isfType == "CHAR_ARRAY" {
+                                                getExpr = "kr_str(s->" + isfCPath + ")"
+                                            }
                                             getBody = getBody + "    if(strcmp(f,\"" + isfName + "\")==0) return " + getExpr + ";\n"
                                             let setStmt = "s->" + isfCPath + "=(DWORD)atoi(v);"
                                             if isfType == "ULONGLONG" || isfType == "SIZE_T" || isfType == "ULONG_PTR" {
@@ -3641,6 +3655,9 @@ just run {
                                             }
                                             if isfType == "HANDLE" || isfType == "PVOID" {
                                                 setStmt = "s->" + isfCPath + "=(HANDLE)v;"
+                                            }
+                                            if isfType == "CHAR_ARRAY" {
+                                                setStmt = "strncpy(s->" + isfCPath + ",v,sizeof(s->" + isfCPath + ")-1);"
                                             }
                                             setBody = setBody + "    if(strcmp(f,\"" + isfName + "\")==0){" + setStmt + " return _K_EMPTY;}\n"
                                         } else {
@@ -3760,12 +3777,18 @@ just run {
                         }
                     }
                 } else if lang == "c" || lang == "t" {
-                    // C header
+                    // C header: c = prepend (foundation), t = append (depends on c headers)
                     jxtHasCHeader = 1
+                    let jIncLine = ""
                     if contains(jxtPath, "/") || contains(jxtPath, "\\") {
-                        importFwdDecls = "#include \"" + jxtPath + "\"\n" + importFwdDecls
+                        jIncLine = "#include \"" + jxtPath + "\"\n"
                     } else {
-                        importFwdDecls = "#include <" + jxtPath + ">\n" + importFwdDecls
+                        jIncLine = "#include <" + jxtPath + ">\n"
+                    }
+                    if lang == "c" {
+                        importFwdDecls = jIncLine + importFwdDecls
+                    } else {
+                        importFwdDecls = importFwdDecls + jIncLine
                     }
                     jxtPos += 2
                 } else if lang == "struct" {
@@ -3803,6 +3826,9 @@ just run {
                             if sfType == "HANDLE" || sfType == "PVOID" || sfType == "LPVOID" {
                                 getExpr = "((char*)s->" + sfCPath + ")"
                             }
+                            if sfType == "CHAR_ARRAY" {
+                                getExpr = "kr_str(s->" + sfCPath + ")"
+                            }
                             getBody = getBody + "    if(strcmp(f,\"" + sfName + "\")==0) return " + getExpr + ";\n"
                             // Generate set accessor for this field
                             let setStmt = "s->" + sfCPath + "=(DWORD)atoi(v);"
@@ -3817,6 +3843,9 @@ just run {
                             }
                             if sfType == "HANDLE" || sfType == "PVOID" {
                                 setStmt = "s->" + sfCPath + "=(HANDLE)v;"
+                            }
+                            if sfType == "CHAR_ARRAY" {
+                                setStmt = "strncpy(s->" + sfCPath + ",v,sizeof(s->" + sfCPath + ")-1);"
                             }
                             setBody = setBody + "    if(strcmp(f,\"" + sfName + "\")==0){" + setStmt + " return _K_EMPTY;}\n"
                         } else {

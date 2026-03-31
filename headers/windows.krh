@@ -3,6 +3,7 @@
 
 jxt {
     c "windows.h"
+    t "tlhelp32.h"
 
     // ── Extern structs ─────────────────────────────────────────
     struct MEMORYSTATUSEX {
@@ -38,6 +39,17 @@ jxt {
         field dwProcessorType        DWORD
     }
 
+    struct ULARGE_INTEGER {
+        field QuadPart ULONGLONG
+    }
+
+    struct PROCESSENTRY32 {
+        field dwSize              DWORD
+        field th32ProcessID       DWORD
+        field th32ParentProcessID DWORD
+        field szExeFile           CHAR_ARRAY
+    }
+
     // ── System info ────────────────────────────────────────────
     func GetTickCount64()
     func GetUserNameA(buf, size)
@@ -63,6 +75,12 @@ jxt {
     func SetConsoleTextAttribute(handle, attr)
     func GetConsoleMode(handle, mode)
     func SetConsoleMode(handle, mode)
+
+    // ── Toolhelp / Process iteration ──────────────────────────
+    func CreateToolhelp32Snapshot(flags, pid)
+    func Process32First(snap, entry)
+    func Process32Next(snap, entry)
+    func CloseHandle(handle)
 
     // ── Process ───────────────────────────────────────────────
     func GetEnvironmentVariableA(name, buf, size)

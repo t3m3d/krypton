@@ -4,7 +4,10 @@
       "Bash(cmd /c \"build_v112.bat\")",
       "Bash(gcc compile_out.c -o versions/kcc_v112.exe -lm -w)",
       "Bash(gcc test_struct_out.c -o test_struct.exe -ladvapi32 -lm -w)",
-      "Bash(./test_struct.exe)"
+      "Bash(./test_struct.exe)",
+      "Bash(cmd /c build_v113.bat)",
+      "Bash(cmd /c \"cd /d c:\\\\Users\\\\brian\\\\Documents\\\\GitHub\\\\krypton && build_v113.bat\")",
+      "Bash(gcc compile_out.c krypton.res -o versions/kcc_v113.exe -lm -w)"
     ]
   }
 }
