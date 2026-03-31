@@ -34,16 +34,33 @@ func isDigit(c) {
     emit c >= "0" && c <= "9"
 }
 
-func isAlpha(c) {
+func charIsAlpha(c) {
     emit (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c == "_"
 }
 
-func isAlphaNum(c) {
-    emit isAlpha(c) || isDigit(c)
+func charIsAlphaNum(c) {
+    emit charIsAlpha(c) || (c >= "0" && c <= "9")
+}
+
+func hexDigitVal(c) {
+    if c >= "0" && c <= "9" { emit charCode(c) - charCode("0") }
+    if c >= "a" && c <= "f" { emit charCode(c) - charCode("a") + 10 }
+    if c >= "A" && c <= "F" { emit charCode(c) - charCode("A") + 10 }
+    emit -1
 }
 
 func readNumber(text, i) {
     let start = i
+    // hex literal: 0x... or 0X...
+    if text[i] == "0" && i + 1 < len(text) && (text[i + 1] == "x" || text[i + 1] == "X") {
+        i = i + 2
+        let hexVal = 0
+        while i < len(text) && hexDigitVal(text[i]) >= 0 {
+            hexVal = hexVal * 16 + hexDigitVal(text[i])
+            i += 1
+        }
+        emit hexVal + "," + i
+    }
     while i < len(text) && isDigit(text[i]) {
         i += 1
     }
@@ -61,7 +78,7 @@ func readNumber(text, i) {
 
 func readIdent(text, i) {
     let start = i
-    while i < len(text) && isAlphaNum(text[i]) {
+    while i < len(text) && charIsAlphaNum(text[i]) {
         i += 1
     }
     emit substring(text, start, i) + "," + i
@@ -146,6 +163,7 @@ func isKW(word) {
     else if word == "process" { emit 1 }
     else if word == "true" { emit 1 }
     else if word == "false" { emit 1 }
+    else if word == "null" { emit 1 }
     else if word == "measure" { emit 1 }
     else if word == "prepare" { emit 1 }
     else if word == "jxt" { emit 1 }
@@ -191,7 +209,7 @@ func tokenize(text) {
             i = pairPos(pair)
             out = out + "STR:" + str + "\n"
         }
-        else if isAlpha(c) {
+        else if charIsAlpha(c) {
             let pair = readIdent(text, i)
             let id = pairVal(pair)
             i = pairPos(pair)
@@ -876,6 +894,9 @@ func compilePrimary(tokens, pos, ntoks) {
         if tv == "false" {
             emit "kr_str(\"0\")," + (pos + 1)
         }
+        if tv == "null" {
+            emit "((char*)0)," + (pos + 1)
+        }
     }
 
     if tok == "LPAREN" {
@@ -1322,6 +1343,21 @@ func compileCall(tokens, pos, ntoks) {
     if fname == "fround" { emit "kr_fround(" + args + ")," + p }
     if fname == "fformat"{ emit "kr_fformat(" + args + ")," + p }
     if fname == "toFloat"{ emit args + "," + p }
+
+    // bitwise builtins
+    if fname == "bitAnd"  { emit "kr_bitand(" + args + ")," + p }
+    if fname == "bitOr"   { emit "kr_bitor(" + args + ")," + p }
+    if fname == "bitXor"  { emit "kr_bitxor(" + args + ")," + p }
+    if fname == "bitNot"  { emit "kr_bitnot(" + args + ")," + p }
+    if fname == "bitShl"  { emit "kr_bitshl(" + args + ")," + p }
+    if fname == "bitShr"  { emit "kr_bitshr(" + args + ")," + p }
+
+    // 64-bit integer builtins
+    if fname == "toLong"  { emit "kr_tolong(" + args + ")," + p }
+    if fname == "div64"   { emit "kr_div64(" + args + ")," + p }
+    if fname == "mod64"   { emit "kr_mod64(" + args + ")," + p }
+    if fname == "mul64"   { emit "kr_mul64(" + args + ")," + p }
+    if fname == "add64"   { emit "kr_add64(" + args + ")," + p }
 
     // v0.7.5 builtins
     if fname == "mapGet" {
@@ -2565,6 +2601,19 @@ func cRuntime() {
     r = sbAppend(r, "    char buf[64]; snprintf(buf,64,\"%.0f\",floor(atof(a)));\n    return kr_str(buf);\n}\n\nstatic char* kr_fceil(const char* a) {\n    char buf[64]; snprintf(buf,64,\"%.0f\",ceil(atof(a)));\n    return kr_str(buf);\n}\n\nstatic char* kr_fround(const char* a) {\n")
     r = sbAppend(r, "    char buf[64]; snprintf(buf,64,\"%.0f\",round(atof(a)));\n    return kr_str(buf);\n}\n\nstatic char* kr_fformat(const char* a,const char* prec){char fmt[32],buf[64];snprintf(fmt,32,\"%%.%sf\",prec);snprintf(buf,64,fmt,atof(a));return kr_str(buf);}\n")
 
+    // bitwise and 64-bit builtins
+    r = sbAppend(r, "static char* kr_bitand(const char* a,const char* b){return kr_itoa((int)((unsigned int)atoi(a)&(unsigned int)atoi(b)));}\n")
+    r = sbAppend(r, "static char* kr_bitor(const char* a,const char* b){return kr_itoa((int)((unsigned int)atoi(a)|(unsigned int)atoi(b)));}\n")
+    r = sbAppend(r, "static char* kr_bitxor(const char* a,const char* b){return kr_itoa((int)((unsigned int)atoi(a)^(unsigned int)atoi(b)));}\n")
+    r = sbAppend(r, "static char* kr_bitnot(const char* a){return kr_itoa((int)(~(unsigned int)atoi(a)));}\n")
+    r = sbAppend(r, "static char* kr_bitshl(const char* a,const char* b){return kr_itoa((int)((unsigned int)atoi(a)<<atoi(b)));}\n")
+    r = sbAppend(r, "static char* kr_bitshr(const char* a,const char* b){return kr_itoa((int)((unsigned int)atoi(a)>>atoi(b)));}\n")
+    r = sbAppend(r, "static char* kr_tolong(const char* s){char buf[32];snprintf(buf,32,\"%lld\",(long long)atoll(s));return kr_str(buf);}\n")
+    r = sbAppend(r, "static char* kr_div64(const char* a,const char* b){if(atoll(b)==0)return kr_str(\"0\");char buf[32];snprintf(buf,32,\"%lld\",atoll(a)/atoll(b));return kr_str(buf);}\n")
+    r = sbAppend(r, "static char* kr_mod64(const char* a,const char* b){if(atoll(b)==0)return kr_str(\"0\");char buf[32];long long r2=atoll(a)%atoll(b);snprintf(buf,32,\"%lld\",r2);return kr_str(buf);}\n")
+    r = sbAppend(r, "static char* kr_mul64(const char* a,const char* b){char buf[32];snprintf(buf,32,\"%lld\",atoll(a)*atoll(b));return kr_str(buf);}\n")
+    r = sbAppend(r, "static char* kr_add64(const char* a,const char* b){char buf[32];snprintf(buf,32,\"%lld\",atoll(a)+atoll(b));return kr_str(buf);}\n")
+
     // Closure support
     r = sbAppend(r, "static char* kr_mkclosure(const char* fn,const char* env){")
     r = sbAppend(r, "int fl=strlen(fn),el=strlen(env);char* p=_alloc(fl+el+2);")
@@ -3534,10 +3583,12 @@ just run {
                         if itk == "KW:jxt" {
                             // Process jxt block from imported file
                             let ijxtPos = ij + 2
+                            let ijxtHasCHeader = 0
                             while tokAt(iToks, ijxtPos) != "RBRACE" {
                                 let ijLang = tokVal(tokAt(iToks, ijxtPos))
                                 if ijLang == "c" || ijLang == "t" {
                                     let ijPath = tokVal(tokAt(iToks, ijxtPos + 1))
+                                    ijxtHasCHeader = 1
                                     if contains(ijPath, "/") || contains(ijPath, "\\") {
                                         iDecls = "#include \"" + ijPath + "\"\n" + iDecls
                                     } else {
@@ -3556,33 +3607,40 @@ just run {
                                         if tokVal(tokAt(iToks, isfPos)) == "field" {
                                             let isfName = tokVal(tokAt(iToks, isfPos + 1))
                                             let isfType = tokVal(tokAt(iToks, isfPos + 2))
+                                            // optional C access path (string literal): field name TYPE "c.path"
+                                            let isfCPath = isfName
+                                            if tokType(tokAt(iToks, isfPos + 3)) == "STR" {
+                                                isfCPath = tokVal(tokAt(iToks, isfPos + 3))
+                                                isfPos = isfPos + 4
+                                            } else {
+                                                isfPos = isfPos + 3
+                                            }
                                             if isFirst == 0 { isEntry = isEntry + "," }
                                             isEntry = isEntry + isfName + ":" + isfType
                                             isFirst = 0
-                                            isfPos = isfPos + 3
-                                            let getExpr = "kr_itoa(s->" + isfName + ")"
+                                            let getExpr = "kr_itoa(s->" + isfCPath + ")"
                                             if isfType == "ULONGLONG" || isfType == "SIZE_T" || isfType == "ULONG_PTR" {
-                                                getExpr = "({ char _b[32]; snprintf(_b,32,\"%llu\",(unsigned long long)s->" + isfName + "); kr_str(_b); })"
+                                                getExpr = "({ char _b[32]; snprintf(_b,32,\"%llu\",(unsigned long long)s->" + isfCPath + "); kr_str(_b); })"
                                             }
                                             if isfType == "LONGLONG" {
-                                                getExpr = "({ char _b[32]; snprintf(_b,32,\"%lld\",(long long)s->" + isfName + "); kr_str(_b); })"
+                                                getExpr = "({ char _b[32]; snprintf(_b,32,\"%lld\",(long long)s->" + isfCPath + "); kr_str(_b); })"
                                             }
                                             if isfType == "HANDLE" || isfType == "PVOID" {
-                                                getExpr = "((char*)s->" + isfName + ")"
+                                                getExpr = "((char*)s->" + isfCPath + ")"
                                             }
                                             getBody = getBody + "    if(strcmp(f,\"" + isfName + "\")==0) return " + getExpr + ";\n"
-                                            let setStmt = "s->" + isfName + "=(DWORD)atoi(v);"
+                                            let setStmt = "s->" + isfCPath + "=(DWORD)atoi(v);"
                                             if isfType == "ULONGLONG" || isfType == "SIZE_T" || isfType == "ULONG_PTR" {
-                                                setStmt = "s->" + isfName + "=(ULONGLONG)atoll(v);"
+                                                setStmt = "s->" + isfCPath + "=(ULONGLONG)atoll(v);"
                                             }
                                             if isfType == "LONGLONG" {
-                                                setStmt = "s->" + isfName + "=(LONGLONG)atoll(v);"
+                                                setStmt = "s->" + isfCPath + "=(LONGLONG)atoll(v);"
                                             }
                                             if isfType == "WORD" || isfType == "USHORT" {
-                                                setStmt = "s->" + isfName + "=(WORD)atoi(v);"
+                                                setStmt = "s->" + isfCPath + "=(WORD)atoi(v);"
                                             }
                                             if isfType == "HANDLE" || isfType == "PVOID" {
-                                                setStmt = "s->" + isfName + "=(HANDLE)v;"
+                                                setStmt = "s->" + isfCPath + "=(HANDLE)v;"
                                             }
                                             setBody = setBody + "    if(strcmp(f,\"" + isfName + "\")==0){" + setStmt + " return _K_EMPTY;}\n"
                                         } else {
@@ -3610,12 +3668,15 @@ just run {
                                         if tokType(tokAt(iToks, ijfPos)) == "ID" { ijfPc += 1 }
                                         ijfPos += 1
                                     }
-                                    let ijfDecl = "char* " + cIdent(ijfName) + "(char*"
-                                    if ijfPc == 0 { ijfDecl = "char* " + cIdent(ijfName) + "(" }
-                                    let ijfPi = 1
-                                    while ijfPi < ijfPc { ijfDecl = ijfDecl + ", char*"  ijfPi += 1 }
-                                    ijfDecl = ijfDecl + ");\n"
-                                    iDecls = iDecls + ijfDecl
+                                    // only emit char* forward declaration if no C header (avoids conflicts)
+                                    if ijxtHasCHeader == 0 {
+                                        let ijfDecl = "char* " + cIdent(ijfName) + "(char*"
+                                        if ijfPc == 0 { ijfDecl = "char* " + cIdent(ijfName) + "(" }
+                                        let ijfPi = 1
+                                        while ijfPi < ijfPc { ijfDecl = ijfDecl + ", char*"  ijfPi += 1 }
+                                        ijfDecl = ijfDecl + ");\n"
+                                        iDecls = iDecls + ijfDecl
+                                    }
                                     // Add to ftable
                                     let ijfInfo = ijfName + ":" + ijfPc + ":0"
                                     if len(ftable) > 0 { ftable = ftable + "\n" + ijfInfo }
@@ -3669,6 +3730,7 @@ just run {
         } else if itok == "KW:jxt" {
             // jxt { c "header.h"  k "module.k"  t "other.h" }
             let jxtPos = ii + 2
+            let jxtHasCHeader = 0
             while tokAt(tokens, jxtPos) != "RBRACE" {
                 let lang = tokVal(tokAt(tokens, jxtPos))
                 let jxtPath = tokVal(tokAt(tokens, jxtPos + 1))
@@ -3699,6 +3761,7 @@ just run {
                     }
                 } else if lang == "c" || lang == "t" {
                     // C header
+                    jxtHasCHeader = 1
                     if contains(jxtPath, "/") || contains(jxtPath, "\\") {
                         importFwdDecls = "#include \"" + jxtPath + "\"\n" + importFwdDecls
                     } else {
@@ -3718,35 +3781,42 @@ just run {
                         if tokVal(tokAt(tokens, sfPos)) == "field" {
                             let sfName = tokVal(tokAt(tokens, sfPos + 1))
                             let sfType = tokVal(tokAt(tokens, sfPos + 2))
+                            // optional C access path (string literal): field name TYPE "c.path"
+                            let sfCPath = sfName
+                            if tokType(tokAt(tokens, sfPos + 3)) == "STR" {
+                                sfCPath = tokVal(tokAt(tokens, sfPos + 3))
+                                sfPos = sfPos + 4
+                            } else {
+                                sfPos = sfPos + 3
+                            }
                             if sfFirst == 0 { sEntry = sEntry + "," }
                             sEntry = sEntry + sfName + ":" + sfType
                             sfFirst = 0
-                            sfPos = sfPos + 3
                             // Generate get accessor for this field
-                            let getExpr = "kr_itoa(s->" + sfName + ")"
+                            let getExpr = "kr_itoa(s->" + sfCPath + ")"
                             if sfType == "ULONGLONG" || sfType == "SIZE_T" || sfType == "ULONG_PTR" {
-                                getExpr = "({ char _b[32]; snprintf(_b,32,\"%llu\",(unsigned long long)s->" + sfName + "); kr_str(_b); })"
+                                getExpr = "({ char _b[32]; snprintf(_b,32,\"%llu\",(unsigned long long)s->" + sfCPath + "); kr_str(_b); })"
                             }
                             if sfType == "LONGLONG" {
-                                getExpr = "({ char _b[32]; snprintf(_b,32,\"%lld\",(long long)s->" + sfName + "); kr_str(_b); })"
+                                getExpr = "({ char _b[32]; snprintf(_b,32,\"%lld\",(long long)s->" + sfCPath + "); kr_str(_b); })"
                             }
                             if sfType == "HANDLE" || sfType == "PVOID" || sfType == "LPVOID" {
-                                getExpr = "((char*)s->" + sfName + ")"
+                                getExpr = "((char*)s->" + sfCPath + ")"
                             }
                             getBody = getBody + "    if(strcmp(f,\"" + sfName + "\")==0) return " + getExpr + ";\n"
                             // Generate set accessor for this field
-                            let setStmt = "s->" + sfName + "=(DWORD)atoi(v);"
+                            let setStmt = "s->" + sfCPath + "=(DWORD)atoi(v);"
                             if sfType == "ULONGLONG" || sfType == "SIZE_T" || sfType == "ULONG_PTR" {
-                                setStmt = "s->" + sfName + "=(ULONGLONG)atoll(v);"
+                                setStmt = "s->" + sfCPath + "=(ULONGLONG)atoll(v);"
                             }
                             if sfType == "LONGLONG" {
-                                setStmt = "s->" + sfName + "=(LONGLONG)atoll(v);"
+                                setStmt = "s->" + sfCPath + "=(LONGLONG)atoll(v);"
                             }
                             if sfType == "WORD" || sfType == "USHORT" {
-                                setStmt = "s->" + sfName + "=(WORD)atoi(v);"
+                                setStmt = "s->" + sfCPath + "=(WORD)atoi(v);"
                             }
                             if sfType == "HANDLE" || sfType == "PVOID" {
-                                setStmt = "s->" + sfName + "=(HANDLE)v;"
+                                setStmt = "s->" + sfCPath + "=(HANDLE)v;"
                             }
                             setBody = setBody + "    if(strcmp(f,\"" + sfName + "\")==0){" + setStmt + " return _K_EMPTY;}\n"
                         } else {
@@ -3786,13 +3856,15 @@ just run {
                         }
                         jfPos += 1
                     }
-                    // emit C forward declaration
-                    let jfDecl = "char* " + jfCName + "(char*"
-                    let jfPi = 1
-                    while jfPi < jfPc { jfDecl = jfDecl + ", char*"  jfPi += 1 }
-                    if jfPc == 0 { jfDecl = "char* " + jfCName + "(" }
-                    jfDecl = jfDecl + ");\n"
-                    importFwdDecls = importFwdDecls + jfDecl
+                    // only emit char* forward declaration if no C header (avoids conflicts)
+                    if jxtHasCHeader == 0 {
+                        let jfDecl = "char* " + jfCName + "(char*"
+                        let jfPi = 1
+                        while jfPi < jfPc { jfDecl = jfDecl + ", char*"  jfPi += 1 }
+                        if jfPc == 0 { jfDecl = "char* " + jfCName + "(" }
+                        jfDecl = jfDecl + ");\n"
+                        importFwdDecls = importFwdDecls + jfDecl
+                    }
                     // add to function table
                     let jfInfo = jfName + ":" + jfPc + ":0"
                     if len(ftable) > 0 { ftable = ftable + "\n" + jfInfo }
