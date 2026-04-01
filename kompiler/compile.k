@@ -1361,6 +1361,16 @@ func compileCall(tokens, pos, ntoks) {
     if fname == "eqIgnoreCase" { emit "kr_eqignorecase(" + args + ")," + p }
     if fname == "handleValid"  { emit "kr_handlevalid(" + args + ")," + p }
 
+    // v1.1.3 buffer / handle builtins for native Windows API calls
+    if fname == "bufNew"      { emit "_alloc(atoi(" + args + "))," + p }
+    if fname == "bufStr"      { emit "kr_str(" + args + ")," + p }
+    if fname == "bufGetDword" { emit "kr_bufgetdword(" + args + ")," + p }
+    if fname == "bufSetDword" { emit "kr_bufsetdword(" + args + ")," + p }
+    if fname == "bufGetWord"  { emit "kr_bufgetword(" + args + ")," + p }
+    if fname == "handleOut"   { emit "((char*)_alloc(sizeof(void*)))," + p }
+    if fname == "handleGet"   { emit "kr_handleget(" + args + ")," + p }
+    if fname == "toHandle"    { emit "((char*)(intptr_t)atoll(" + args + "))," + p }
+
     // v0.7.5 builtins
     if fname == "mapGet" {
         emit "kr_mapget(" + args + ")," + p
@@ -2618,6 +2628,12 @@ func cRuntime() {
     r = sbAppend(r, "static char* kr_eqignorecase(const char* a,const char* b){return _stricmp(a,b)==0?kr_str(\"1\"):kr_str(\"0\");}\n")
     r = sbAppend(r, "static char* kr_handlevalid(const char* h){return (h!=NULL&&h!=(char*)(intptr_t)-1)?kr_str(\"1\"):kr_str(\"0\");}\n")
 
+    // v1.1.3 buffer / handle builtins
+    r = sbAppend(r, "static char* kr_bufgetdword(char* buf){unsigned int v=*(unsigned int*)buf;return kr_itoa((int)v);}\n")
+    r = sbAppend(r, "static char* kr_bufsetdword(char* buf,const char* vs){*(unsigned int*)buf=(unsigned int)atoi(vs);return _K_EMPTY;}\n")
+    r = sbAppend(r, "static char* kr_bufgetword(char* buf){return kr_itoa((int)(*(unsigned short*)buf));}\n")
+    r = sbAppend(r, "static char* kr_handleget(char* buf){return *(char**)buf;}\n")
+
     // Closure support
     r = sbAppend(r, "static char* kr_mkclosure(const char* fn,const char* env){")
     r = sbAppend(r, "int fl=strlen(fn),el=strlen(env);char* p=_alloc(fl+el+2);")
@@ -3086,7 +3102,7 @@ func irCall(tokens, pos, ntoks, lc) {
         argc += 1
     }
     // builtins vs user functions
-    let builtins = "print,kp,printErr,readLine,input,readFile,writeFile,arg,argCount,len,substring,charAt,indexOf,contains,startsWith,endsWith,replace,trim,lstrip,rstrip,center,toLower,toUpper,repeat,padLeft,padRight,charCode,fromCharCode,splitBy,format,strReverse,isAlpha,isDigit,isSpace,toInt,parseInt,abs,min,max,pow,sqrt,sign,clamp,hex,bin,floor,ceil,round,split,length,first,last,head,tail,append,join,reverse,sort,unique,fill,zip,slice,listIndexOf,every,some,countOf,sumList,maxList,minList,range,words,lines,keys,values,hasKey,structNew,getField,setField,hasField,structFields,random,timestamp,environ,exit,assert,type,isTruthy,toStr,throw,mapGet,mapSet,mapDel,fadd,fsub,fmul,fdiv,fsqrt,ffloor,fceil,fround,fformat,flt,fgt,feq,sbNew,sbAppend,sbToString"
+    let builtins = "print,kp,printErr,readLine,input,readFile,writeFile,arg,argCount,len,substring,charAt,indexOf,contains,startsWith,endsWith,replace,trim,lstrip,rstrip,center,toLower,toUpper,repeat,padLeft,padRight,charCode,fromCharCode,splitBy,format,strReverse,isAlpha,isDigit,isSpace,toInt,parseInt,abs,min,max,pow,sqrt,sign,clamp,hex,bin,floor,ceil,round,split,length,first,last,head,tail,append,join,reverse,sort,unique,fill,zip,slice,listIndexOf,every,some,countOf,sumList,maxList,minList,range,words,lines,keys,values,hasKey,structNew,getField,setField,hasField,structFields,random,timestamp,environ,exit,assert,type,isTruthy,toStr,throw,mapGet,mapSet,mapDel,fadd,fsub,fmul,fdiv,fsqrt,ffloor,fceil,fround,fformat,flt,fgt,feq,sbNew,sbAppend,sbToString,bufNew,bufStr,bufGetDword,bufSetDword,bufGetWord,handleOut,handleGet,toHandle"
     if contains(builtins, fname) {
         emit code + "BUILTIN " + fname + " " + argc + "\n," + (p + 1)
     }
@@ -3642,6 +3658,9 @@ just run {
                                             if isfType == "CHAR_ARRAY" {
                                                 getExpr = "kr_str(s->" + isfCPath + ")"
                                             }
+                                            if isfType == "BYTE" || isfType == "UCHAR" || isfType == "BOOL" {
+                                                getExpr = "kr_itoa((int)(unsigned char)s->" + isfCPath + ")"
+                                            }
                                             getBody = getBody + "    if(strcmp(f,\"" + isfName + "\")==0) return " + getExpr + ";\n"
                                             let setStmt = "s->" + isfCPath + "=(DWORD)atoi(v);"
                                             if isfType == "ULONGLONG" || isfType == "SIZE_T" || isfType == "ULONG_PTR" {
@@ -3652,6 +3671,9 @@ just run {
                                             }
                                             if isfType == "WORD" || isfType == "USHORT" {
                                                 setStmt = "s->" + isfCPath + "=(WORD)atoi(v);"
+                                            }
+                                            if isfType == "BYTE" || isfType == "UCHAR" || isfType == "BOOL" {
+                                                setStmt = "s->" + isfCPath + "=(BYTE)atoi(v);"
                                             }
                                             if isfType == "HANDLE" || isfType == "PVOID" {
                                                 setStmt = "s->" + isfCPath + "=(HANDLE)v;"
@@ -3699,7 +3721,51 @@ just run {
                                     if len(ftable) > 0 { ftable = ftable + "\n" + ijfInfo }
                                     else { ftable = ijfInfo }
                                     ijfPos += 1
-                                    if tokAt(iToks, ijfPos) == "ARROW" { ijfPos += 2 }
+                                    // Check for -> ReturnType and generate wrapper
+                                    let ijfRetType = ""
+                                    if tokAt(iToks, ijfPos) == "ARROW" {
+                                        ijfRetType = tokVal(tokAt(iToks, ijfPos + 1))
+                                        ijfPos += 2
+                                    }
+                                    let ijfCName = cIdent(ijfName)
+                                    if ijfRetType == "INT" || ijfRetType == "UINT" || ijfRetType == "DWORD" || ijfRetType == "LONG" || ijfRetType == "BOOL" {
+                                        let iwd = "static char* _krw_" + ijfCName + "("
+                                        let iwpi = 0
+                                        while iwpi < ijfPc {
+                                            if iwpi > 0 { iwd = iwd + "," }
+                                            iwd = iwd + "char* _a" + iwpi
+                                            iwpi += 1
+                                        }
+                                        if ijfPc == 0 { iwd = iwd + "void" }
+                                        iwd = iwd + "){return kr_itoa((int)" + ijfCName + "("
+                                        iwpi = 0
+                                        while iwpi < ijfPc {
+                                            if iwpi > 0 { iwd = iwd + "," }
+                                            iwd = iwd + "_a" + iwpi
+                                            iwpi += 1
+                                        }
+                                        iwd = iwd + "));}\n#define " + ijfCName + " _krw_" + ijfCName + "\n"
+                                        iDecls = iDecls + iwd
+                                    }
+                                    if ijfRetType == "UINT64" || ijfRetType == "ULONGLONG" {
+                                        let iwd = "static char* _krw_" + ijfCName + "("
+                                        let iwpi = 0
+                                        while iwpi < ijfPc {
+                                            if iwpi > 0 { iwd = iwd + "," }
+                                            iwd = iwd + "char* _a" + iwpi
+                                            iwpi += 1
+                                        }
+                                        if ijfPc == 0 { iwd = iwd + "void" }
+                                        iwd = iwd + "){char _b[32];snprintf(_b,32,\"%llu\",(unsigned long long)" + ijfCName + "("
+                                        iwpi = 0
+                                        while iwpi < ijfPc {
+                                            if iwpi > 0 { iwd = iwd + "," }
+                                            iwd = iwd + "_a" + iwpi
+                                            iwpi += 1
+                                        }
+                                        iwd = iwd + "));return kr_str(_b);}\n#define " + ijfCName + " _krw_" + ijfCName + "\n"
+                                        iDecls = iDecls + iwd
+                                    }
                                     ijxtPos = ijfPos
                                 } else {
                                     ijxtPos += 2
@@ -3829,6 +3895,9 @@ just run {
                             if sfType == "CHAR_ARRAY" {
                                 getExpr = "kr_str(s->" + sfCPath + ")"
                             }
+                            if sfType == "BYTE" || sfType == "UCHAR" || sfType == "BOOL" {
+                                getExpr = "kr_itoa((int)(unsigned char)s->" + sfCPath + ")"
+                            }
                             getBody = getBody + "    if(strcmp(f,\"" + sfName + "\")==0) return " + getExpr + ";\n"
                             // Generate set accessor for this field
                             let setStmt = "s->" + sfCPath + "=(DWORD)atoi(v);"
@@ -3840,6 +3909,9 @@ just run {
                             }
                             if sfType == "WORD" || sfType == "USHORT" {
                                 setStmt = "s->" + sfCPath + "=(WORD)atoi(v);"
+                            }
+                            if sfType == "BYTE" || sfType == "UCHAR" || sfType == "BOOL" {
+                                setStmt = "s->" + sfCPath + "=(BYTE)atoi(v);"
                             }
                             if sfType == "HANDLE" || sfType == "PVOID" {
                                 setStmt = "s->" + sfCPath + "=(HANDLE)v;"
@@ -3898,9 +3970,54 @@ just run {
                     let jfInfo = jfName + ":" + jfPc + ":0"
                     if len(ftable) > 0 { ftable = ftable + "\n" + jfInfo }
                     else { ftable = jfInfo }
-                    // advance past: func name ( params ) -> type
+                    // advance past RPAREN and check for -> ReturnType annotation
                     jfPos += 1
-                    if tokAt(tokens, jfPos) == "ARROW" { jfPos += 2 }
+                    let jfRetType = ""
+                    if tokAt(tokens, jfPos) == "ARROW" {
+                        jfRetType = tokVal(tokAt(tokens, jfPos + 1))
+                        jfPos += 2
+                    }
+                    // Generate static wrapper + #define for integer-returning APIs.
+                    // Args passed as char* (no int cast) — C handles implicit conversion,
+                    // which is safe for both pointer args and toHandle() integer args.
+                    if jfRetType == "INT" || jfRetType == "UINT" || jfRetType == "DWORD" || jfRetType == "LONG" || jfRetType == "BOOL" {
+                        let wd = "static char* _krw_" + jfCName + "("
+                        let wpi = 0
+                        while wpi < jfPc {
+                            if wpi > 0 { wd = wd + "," }
+                            wd = wd + "char* _a" + wpi
+                            wpi += 1
+                        }
+                        if jfPc == 0 { wd = wd + "void" }
+                        wd = wd + "){return kr_itoa((int)" + jfCName + "("
+                        wpi = 0
+                        while wpi < jfPc {
+                            if wpi > 0 { wd = wd + "," }
+                            wd = wd + "_a" + wpi
+                            wpi += 1
+                        }
+                        wd = wd + ");}\n#define " + jfCName + " _krw_" + jfCName + "\n"
+                        importFwdDecls = importFwdDecls + wd
+                    }
+                    if jfRetType == "UINT64" || jfRetType == "ULONGLONG" {
+                        let wd = "static char* _krw_" + jfCName + "("
+                        let wpi = 0
+                        while wpi < jfPc {
+                            if wpi > 0 { wd = wd + "," }
+                            wd = wd + "char* _a" + wpi
+                            wpi += 1
+                        }
+                        if jfPc == 0 { wd = wd + "void" }
+                        wd = wd + "){char _b[32];snprintf(_b,32,\"%llu\",(unsigned long long)" + jfCName + "("
+                        wpi = 0
+                        while wpi < jfPc {
+                            if wpi > 0 { wd = wd + "," }
+                            wd = wd + "_a" + wpi
+                            wpi += 1
+                        }
+                        wd = wd + "));return kr_str(_b);}\n#define " + jfCName + " _krw_" + jfCName + "\n"
+                        importFwdDecls = importFwdDecls + wd
+                    }
                     jxtPos = jfPos
                 } else {
                     jxtPos += 2
@@ -4000,6 +4117,8 @@ just run {
             sb = sbAppend(sb, fcode)
             i = pairPos(fp)
             }
+        } else if tok == "KW:jxt" {
+            i = skipBlock(tokens, i + 1) - 1
         } else if tok == "KW:export" {
             // skip export keyword, compile func on next pass
             i += 1

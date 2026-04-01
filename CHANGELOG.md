@@ -2,6 +2,98 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [1.1.3] - 2026-03-31
+
+### Compiler — Native Windows API Integer Returns
+
+jxt function declarations now support a `-> TYPE` return annotation that
+auto-generates a static C wrapper and `#define` redirect so integer-returning
+Windows APIs can be called directly from Krypton without any C shim files.
+
+```
+jxt {
+    c "windows.h"
+    func GetTickCount64() -> UINT64
+    func GetLogicalDrives() -> DWORD
+    func GetSystemMetrics(index) -> INT
+    func Process32First(snap, entry) -> BOOL
+    func RegEnumKeyExA(key, idx, name, sz, r, cls, clsSz, lw) -> LONG
+}
+```
+
+Supported return types: `INT`, `UINT`, `DWORD`, `LONG`, `BOOL`, `UINT64`, `ULONGLONG`
+
+For integer types the compiler emits:
+```c
+static char* _krw_Func(char* _a0, ...) { return kr_itoa((int)Func(_a0, ...)); }
+#define Func _krw_Func
+```
+For 64-bit types:
+```c
+static char* _krw_Func(void) { char _b[32]; snprintf(_b,32,"%llu",(unsigned long long)Func()); return kr_str(_b); }
+#define Func _krw_Func
+```
+
+Args are passed as `char*` without truncating casts — 64-bit pointer safety preserved.
+Works in both main-file and imported `.krh` jxt blocks.
+
+### Compiler — Buffer & Handle Builtins (8 new)
+
+New builtins for working with Windows out-parameter APIs directly from Krypton:
+
+| Builtin | Description |
+|---------|-------------|
+| `bufNew(n)` | Allocate n-byte zeroed buffer, returns `char*` |
+| `bufStr(buf)` | Read buffer as null-terminated string |
+| `bufGetDword(buf)` | Read `uint32` from buffer, returns string |
+| `bufSetDword(buf, val)` | Write `uint32` to buffer |
+| `bufGetWord(buf)` | Read `uint16` from buffer, returns string |
+| `handleOut()` | Allocate pointer-sized buffer for HANDLE out-params |
+| `handleGet(buf)` | Dereference pointer buffer → HANDLE |
+| `toHandle(n)` | Convert integer string to `(char*)(intptr_t)n` |
+
+### Compiler — BYTE/UCHAR/BOOL Struct Fields
+
+jxt struct declarations can now use `BYTE`, `UCHAR`, and `BOOL` field types.
+Generated accessors read with `(unsigned char)` cast and write with `(BYTE)` cast.
+
+```
+struct SYSTEM_POWER_STATUS {
+    field ACLineStatus       BYTE
+    field BatteryLifePercent BYTE
+    field BatteryLifeTime    DWORD
+}
+```
+
+### kryofetch — Pure Krypton (zero exec/powershell)
+
+All kryofetch modules now use native Windows API calls instead of `exec()`
+or PowerShell subprocesses:
+
+- **os.k** — `osver` via registry, `uptime` via `GetTickCount64`, `kfresolution`
+  via `GetSystemMetrics`, `kftheme` via HKCU registry, `kfbattery` via
+  `SYSTEM_POWER_STATUS`, `sysuser/syshost` via `GetUserNameA/GetComputerNameA`,
+  `sysarch` via `SYSTEM_INFO`
+- **cpu.k** — `cpubrand` via registry `ProcessorNameString`, `cpucores` via
+  `SYSTEM_INFO.dwNumberOfProcessors`
+- **disk.k** — `driveinfo` via `GetLogicalDrives() -> DWORD`
+- **gpu.k** — `gpunames` via `RegEnumKeyExA` + registry `DriverDesc` keys
+- **utils.k** — `regHklmStr`, `regHkcuStr`, `regHklmDword`, `regHkcuDword`
+  pure Krypton registry helpers using `handleOut/handleGet/bufNew/bufSetDword/bufStr`
+- **run.k** — `kfconsize` via `GetConsoleScreenBufferInfo`, `kfshell` via
+  process tree walk with `CreateToolhelp32Snapshot` + `Process32First/Next`
+
+### headers/windows.krh — Updated
+
+- Added `SYSTEM_POWER_STATUS` struct (BYTE + DWORD fields)
+- Added `-> TYPE` annotations on `GetTickCount64`, `GetSystemMetrics`,
+  `GetLogicalDrives`, `GetCurrentProcessId`, `Process32First`, `Process32Next`,
+  `RegEnumKeyExA`
+- Added `GetSystemPowerStatus`, `GetConsoleMode`, `SetConsoleMode`,
+  `CreateToolhelp32Snapshot`, `CloseHandle`
+
+---
+
 ## [0.6.0] - 2026-03-14
 
 ### Language
