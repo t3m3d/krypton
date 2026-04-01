@@ -19,6 +19,7 @@ krypton.res
 *.cpp
 *.kir
 *.ll
+.claude/
 _optimizer.exe
 _llvmbe.exe
 krypton.res
@@ -42,6 +43,7 @@ artifacts/
 [Ll]ogs/
 [Dd]ebug/
 [Rr]elease/
+*.res
 .env
 .env.*
 *.key
