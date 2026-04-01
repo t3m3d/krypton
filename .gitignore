@@ -75,3 +75,4 @@ mono_crash.*
 *.swo
 *~
 build*.bat
+test*

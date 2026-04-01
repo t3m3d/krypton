@@ -2,6 +2,55 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [1.1.6] - 2026-04-01
+
+### Compiler — Offset Buffer Builtins (2 new)
+
+New builtins for reading values at a byte offset inside a buffer — required for
+iterating packed struct arrays returned by Win32 APIs like `PdhGetFormattedCounterArrayA`:
+
+| Builtin | Description |
+|---------|-------------|
+| `bufGetDwordAt(buf, offset)` | Read `uint32` at byte offset, returns string |
+| `bufGetQwordAt(buf, offset)` | Read `uint64` at byte offset, returns string |
+
+Offsets are numeric strings and support full Krypton arithmetic expressions:
+```
+let off = toInt(i) * 24
+let status = bufGetDwordAt(items, off + 8)
+let val    = bufGetQwordAt(items, off + 16)
+```
+
+### Compiler — bufGetQword Builtin
+
+New builtin `bufGetQword(buf)` reads a full 8-byte `uint64` from the start of a
+buffer as a numeric string. Complements `bufGetDword` for 64-bit registry values
+(`REG_QWORD`) and other 64-bit out-parameters.
+
+### headers/windows.krh — PDH Support
+
+`windows.krh` now includes `<pdh.h>` and declares the Performance Data Helper
+APIs used for querying GPU and other hardware counters:
+
+```
+func PdhOpenQueryA(source, userdata, out) -> LONG
+func PdhAddEnglishCounterA(query, path, userdata, out) -> LONG
+func PdhCollectQueryData(query)
+func PdhGetFormattedCounterArrayA(counter, format, bufSize, itemCount, items)
+func PdhCloseQuery(query)
+```
+
+`PdhOpenQueryA` and `PdhAddEnglishCounterA` use `-> LONG` return annotations so
+error codes are returned as numeric strings and can be checked with `toInt()`.
+
+### headers/windows.krh — regHklmQword
+
+New utility function `regHklmQword(path, name)` reads a `REG_QWORD` (64-bit)
+value from `HKEY_LOCAL_MACHINE`. Uses `bufNew("8")` + `bufGetQword` internally.
+Follows the same pattern as `regHklmDword` / `regHkcuDword`.
+
+---
+
 ## [1.1.3] - 2026-03-31
 
 ### Compiler — Native Windows API Integer Returns
