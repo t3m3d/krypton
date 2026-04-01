@@ -1367,6 +1367,7 @@ func compileCall(tokens, pos, ntoks) {
     if fname == "bufGetDword" { emit "kr_bufgetdword(" + args + ")," + p }
     if fname == "bufSetDword" { emit "kr_bufsetdword(" + args + ")," + p }
     if fname == "bufGetWord"  { emit "kr_bufgetword(" + args + ")," + p }
+    if fname == "bufGetQword" { emit "kr_bufgetqword(" + args + ")," + p }
     if fname == "handleOut"   { emit "((char*)_alloc(sizeof(void*)))," + p }
     if fname == "handleGet"   { emit "kr_handleget(" + args + ")," + p }
     if fname == "toHandle"    { emit "((char*)(intptr_t)atoll(" + args + "))," + p }
@@ -2632,6 +2633,7 @@ func cRuntime() {
     r = sbAppend(r, "static char* kr_bufgetdword(char* buf){unsigned int v=*(unsigned int*)buf;return kr_itoa((int)v);}\n")
     r = sbAppend(r, "static char* kr_bufsetdword(char* buf,const char* vs){*(unsigned int*)buf=(unsigned int)atoi(vs);return _K_EMPTY;}\n")
     r = sbAppend(r, "static char* kr_bufgetword(char* buf){return kr_itoa((int)(*(unsigned short*)buf));}\n")
+    r = sbAppend(r, "static char* kr_bufgetqword(char* buf){unsigned long long v=*(unsigned long long*)buf;char s[32];snprintf(s,32,\"%llu\",v);return kr_str(s);}\n")
     r = sbAppend(r, "static char* kr_handleget(char* buf){return *(char**)buf;}\n")
 
     // Closure support
@@ -3102,7 +3104,7 @@ func irCall(tokens, pos, ntoks, lc) {
         argc += 1
     }
     // builtins vs user functions
-    let builtins = "print,kp,printErr,readLine,input,readFile,writeFile,arg,argCount,len,substring,charAt,indexOf,contains,startsWith,endsWith,replace,trim,lstrip,rstrip,center,toLower,toUpper,repeat,padLeft,padRight,charCode,fromCharCode,splitBy,format,strReverse,isAlpha,isDigit,isSpace,toInt,parseInt,abs,min,max,pow,sqrt,sign,clamp,hex,bin,floor,ceil,round,split,length,first,last,head,tail,append,join,reverse,sort,unique,fill,zip,slice,listIndexOf,every,some,countOf,sumList,maxList,minList,range,words,lines,keys,values,hasKey,structNew,getField,setField,hasField,structFields,random,timestamp,environ,exit,assert,type,isTruthy,toStr,throw,mapGet,mapSet,mapDel,fadd,fsub,fmul,fdiv,fsqrt,ffloor,fceil,fround,fformat,flt,fgt,feq,sbNew,sbAppend,sbToString,bufNew,bufStr,bufGetDword,bufSetDword,bufGetWord,handleOut,handleGet,toHandle"
+    let builtins = "print,kp,printErr,readLine,input,readFile,writeFile,arg,argCount,len,substring,charAt,indexOf,contains,startsWith,endsWith,replace,trim,lstrip,rstrip,center,toLower,toUpper,repeat,padLeft,padRight,charCode,fromCharCode,splitBy,format,strReverse,isAlpha,isDigit,isSpace,toInt,parseInt,abs,min,max,pow,sqrt,sign,clamp,hex,bin,floor,ceil,round,split,length,first,last,head,tail,append,join,reverse,sort,unique,fill,zip,slice,listIndexOf,every,some,countOf,sumList,maxList,minList,range,words,lines,keys,values,hasKey,structNew,getField,setField,hasField,structFields,random,timestamp,environ,exit,assert,type,isTruthy,toStr,throw,mapGet,mapSet,mapDel,fadd,fsub,fmul,fdiv,fsqrt,ffloor,fceil,fround,fformat,flt,fgt,feq,sbNew,sbAppend,sbToString,bufNew,bufStr,bufGetDword,bufSetDword,bufGetWord,bufGetQword,handleOut,handleGet,toHandle"
     if contains(builtins, fname) {
         emit code + "BUILTIN " + fname + " " + argc + "\n," + (p + 1)
     }
