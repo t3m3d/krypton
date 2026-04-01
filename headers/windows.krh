@@ -4,6 +4,7 @@
 jxt {
     c "windows.h"
     t "tlhelp32.h"
+    t "pdh.h"
 
     // ── Extern structs ─────────────────────────────────────────
     struct MEMORYSTATUSEX {
@@ -86,4 +87,11 @@ jxt {
     func GetEnvironmentVariableA(name, buf, size)
     func ExitProcess(code)
     func GetCurrentProcessId()
+
+    // ── PDH (Performance Data Helper) ─────────────────────────
+    func PdhOpenQueryA(source, userdata, out) -> LONG
+    func PdhAddEnglishCounterA(query, path, userdata, out) -> LONG
+    func PdhCollectQueryData(query)
+    func PdhGetFormattedCounterArrayA(counter, format, bufSize, itemCount, items)
+    func PdhCloseQuery(query)
 }
