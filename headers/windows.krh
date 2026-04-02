@@ -88,6 +88,11 @@ jxt {
     func ExitProcess(code)
     func GetCurrentProcessId()
 
+    // ── Dynamic library loading ────────────────────────────────
+    func LoadLibraryA(name)
+    func GetProcAddress(module, procName)
+    func FreeLibrary(module)
+
     // ── PDH (Performance Data Helper) ─────────────────────────
     func PdhOpenQueryA(source, userdata, out) -> LONG
     func PdhAddEnglishCounterA(query, path, userdata, out) -> LONG
