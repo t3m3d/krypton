@@ -985,6 +985,8 @@ func compileCall(tokens, pos, ntoks) {
     if fname == "exec" {
         emit "kr_exec(" + args + ")," + p
     }
+    if fname == "shellRun"   { emit "kr_shellrun(" + args + ")," + p }
+    if fname == "deleteFile" { emit "kr_deletefile(" + args + ")," + p }
     if fname == "structNew" {
         // structNew("STRUCTNAME") -> structnew_STRUCTNAME()
         // First arg is a string literal with the struct name
@@ -2333,6 +2335,13 @@ func cRuntime() {
 
     // v0.2.0 builtins
     r = sbAppend(r, "static char* kr_writefile(const char* path, const char* data) {\n    FILE* f = fopen(path, \"wb\");\n    if (!f) return _K_ZERO;\n    fwrite(data, 1, strlen(data), f);\n    fclose(f);\n    return _K_ONE;\n}\n\n")
+    r = sbAppend(r, "static char* kr_shellrun(const char* cmd){int r=system(cmd);return kr_itoa(r);}\n")
+    r = sbAppend(r, "static char* kr_deletefile(const char* path){remove(path);return _K_EMPTY;}\n")
+    // Bootstrap aliases: older bootstrap compilers (kcc_v103) emit bare function names
+    // instead of kr_* for builtins they don't recognize. Define plain aliases so they resolve.
+    r = sbAppend(r, "static char* exec(const char* cmd){return kr_exec(cmd);}\n")
+    r = sbAppend(r, "static char* shellRun(const char* cmd){return kr_shellrun(cmd);}\n")
+    r = sbAppend(r, "static char* deleteFile(const char* path){return kr_deletefile(path);}\n\n")
 
     r = sbAppend(r, "static char* kr_input() {\n    char buf[4096];\n    if (!fgets(buf, sizeof(buf), stdin)) return _K_EMPTY;\n    int len = (int)strlen(buf);\n")
     r = sbAppend(r, "    if (len > 0 && buf[len-1] == '\\n') buf[--len] = 0;\n")
@@ -3487,10 +3496,10 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
 just run {
     // Check for --ir flag: kcc --ir file.k > file.kir
     let irMode = 0
-    let file = arg(0)
+    let file = arg("0")
     if file == "--ir" {
         irMode = 1
-        file = arg(1)
+        file = arg("1")
     }
 
     let source = readFile(file)
