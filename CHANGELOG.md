@@ -2,6 +2,35 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [1.1.7] - 2026-04-04
+
+### Compiler — New Builtins (2)
+
+| Builtin | Description |
+|---------|-------------|
+| `shellRun(cmd)` | Run a shell command, returns exit code as string |
+| `deleteFile(path)` | Delete a file at `path`, returns empty string |
+
+### Compiler — Bootstrap Aliases in Runtime
+
+`cRuntime()` now emits `exec()`, `shellRun()`, and `deleteFile()` as non-prefixed alias functions alongside their `kr_` implementations. This ensures compatibility with older bootstrap compilers (e.g. `kcc_v103`) that emit bare function-pointer calls without the `kr_` prefix.
+
+### kcc Driver — Single-Step Compilation (`kcc.sh`)
+
+New bash driver `kcc.sh` wraps `kcc.exe` + `gcc` into a single command:
+
+```
+bash kcc.sh source.k -o output.exe [-lFOO ...]
+```
+
+- Without `-o`: passes through to `kcc.exe` (C to stdout, same as before)
+- With `-o`: compiles Krypton → C → native `.exe` in one step
+- Accepts `-l*`, `-L*`, `-W*` flags forwarded to `gcc`
+- Accepts `--ir` flag forwarded to `kcc.exe`
+- Automatically locates `gcc` from PATH or common Windows install locations (TDM-GCC, MinGW64, MSYS2)
+
+---
+
 ## [1.1.6] - 2026-04-01
 
 ### Compiler — Offset Buffer Builtins (2 new)
