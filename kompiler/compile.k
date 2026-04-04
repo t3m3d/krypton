@@ -3494,12 +3494,22 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
 
 
 just run {
-    // Check for --ir flag: kcc --ir file.k > file.kir
+    // Parse flags: --ir, --headers PATH
     let irMode = 0
+    let headersDir = ""
     let file = arg("0")
-    if file == "--ir" {
-        irMode = 1
-        file = arg("1")
+    let argIdx = 0
+    while file == "--ir" || file == "--headers" {
+        if file == "--ir" {
+            irMode = 1
+            argIdx += 1
+        }
+        if file == "--headers" {
+            argIdx += 1
+            headersDir = arg(argIdx + "")
+            argIdx += 1
+        }
+        file = arg(argIdx + "")
     }
 
     let source = readFile(file)
@@ -3619,6 +3629,17 @@ just run {
                             fullPath = relPath
                         }
                         // else: fall back to importPath as-is (cwd-relative)
+                    }
+                }
+            }
+            // Try headersDir if still not found
+            if len(headersDir) > 0 {
+                let testSrc2 = readFile(fullPath)
+                if len(testSrc2) == 0 {
+                    let hdPath = headersDir + "/" + importPath
+                    let testSrc3 = readFile(hdPath)
+                    if len(testSrc3) > 0 {
+                        fullPath = hdPath
                     }
                 }
             }

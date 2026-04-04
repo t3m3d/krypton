@@ -2,6 +2,41 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [1.1.8] - 2026-04-04
+
+### Compiler — System Header Search Path (`--headers`)
+
+The compiler now accepts a `--headers PATH` flag that adds a fallback directory for resolving `import` statements. When an import is not found relative to the source file, the compiler searches the headers directory before failing.
+
+```
+kcc.exe --headers C:/krypton/headers source.k
+```
+
+`kcc.sh` passes `--headers` automatically pointing to the `headers/` directory next to the compiler, so projects no longer need to bundle their own copy of the standard headers.
+
+### kcc Driver — Automatic Header Discovery
+
+`kcc.sh` now detects the `headers/` directory alongside the compiler and passes it automatically:
+
+```bash
+# Before: project needed its own headers/ folder
+import "headers/windows.krh"
+
+# After: just use the name — compiler finds it from install
+import "windows.krh"
+```
+
+### headers — Synced and Updated
+
+All standard headers updated to match the latest kryofetch definitions:
+
+| Header | Changes |
+|--------|---------|
+| `windows.krh` | Added `SYSTEM_POWER_STATUS` struct; `-> UINT64/INT/DWORD/UINT/LONG/BOOL` return annotations on `GetTickCount64`, `GetSystemMetrics`, `GetLogicalDrives`, `GetCurrentProcessId`, `RegEnumKeyExA`, `Process32First/Next`; added `GetLogicalProcessorInformationEx` |
+| `fileio.krh` | Added `WIN32_FIND_DATAA` struct; `GetFileAttributesA -> DWORD`; `FindNextFileA -> BOOL` |
+
+---
+
 ## [1.1.7] - 2026-04-04
 
 ### Compiler — New Builtins (2)

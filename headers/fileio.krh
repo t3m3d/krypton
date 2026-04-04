@@ -4,6 +4,11 @@
 jxt {
     c "windows.h"
 
+    struct WIN32_FIND_DATAA {
+        field dwFileAttributes DWORD
+        field cFileName        CHAR_ARRAY
+    }
+
     func CreateFileA(name, access, share, sa, create, flags, template)
     func ReadFile(handle, buf, toRead, read, overlapped)
     func WriteFile(handle, buf, toWrite, written, overlapped)
@@ -19,9 +24,9 @@ jxt {
     func GetCurrentDirectoryA(size, buf)
     func SetCurrentDirectoryA(path)
     func FindFirstFileA(pattern, data)
-    func FindNextFileA(handle, data)
+    func FindNextFileA(handle, data) -> BOOL
     func FindClose(handle)
-    func GetFileAttributesA(path)
+    func GetFileAttributesA(path) -> DWORD
     func SetFileAttributesA(path, attrs)
     func GetTempPathA(size, buf)
     func GetTempFileNameA(path, prefix, unique, buf)

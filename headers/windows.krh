@@ -51,26 +51,36 @@ jxt {
         field szExeFile           CHAR_ARRAY
     }
 
+    struct SYSTEM_POWER_STATUS {
+        field ACLineStatus       BYTE
+        field BatteryFlag        BYTE
+        field BatteryLifePercent BYTE
+        field BatteryLifeTime    DWORD
+        field BatteryFullLifeTime DWORD
+    }
+
     // ── System info ────────────────────────────────────────────
-    func GetTickCount64()
     func GetUserNameA(buf, size)
     func GetComputerNameA(buf, size)
     func GetNativeSystemInfo(info)
-    func GetLogicalDrives()
+    func GetLogicalProcessorInformationEx(rel, buf, size)
     func GetDiskFreeSpaceExA(root, free, total, totalFree)
     func GlobalMemoryStatusEx(ms)
     func GetConsoleScreenBufferInfo(handle, info)
     func GetStdHandle(id)
     func SetConsoleOutputCP(cp)
     func GetConsoleOutputCP()
-    func GetSystemMetrics(index)
     func GetSystemPowerStatus(sps)
+    func GetTickCount64() -> UINT64
+    func GetSystemMetrics(index) -> INT
+    func GetLogicalDrives() -> DWORD
+    func GetCurrentProcessId() -> UINT
 
     // ── Registry ───────────────────────────────────────────────
     func RegOpenKeyExA(hive, path, opts, access, out)
     func RegQueryValueExA(key, name, reserved, type, data, size)
     func RegCloseKey(key)
-    func RegEnumKeyExA(key, idx, name, size, reserved, cls, clsSize, lastWrite)
+    func RegEnumKeyExA(key, idx, name, size, reserved, cls, clsSize, lastWrite) -> LONG
 
     // ── Console ────────────────────────────────────────────────
     func SetConsoleTextAttribute(handle, attr)
@@ -79,14 +89,13 @@ jxt {
 
     // ── Toolhelp / Process iteration ──────────────────────────
     func CreateToolhelp32Snapshot(flags, pid)
-    func Process32First(snap, entry)
-    func Process32Next(snap, entry)
-    func CloseHandle(handle)
+    func Process32First(snap, entry) -> BOOL
+    func Process32Next(snap, entry) -> BOOL
 
     // ── Process ───────────────────────────────────────────────
     func GetEnvironmentVariableA(name, buf, size)
     func ExitProcess(code)
-    func GetCurrentProcessId()
+    func CloseHandle(handle)
 
     // ── Dynamic library loading ────────────────────────────────
     func LoadLibraryA(name)
