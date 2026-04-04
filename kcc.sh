@@ -7,6 +7,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KCC_EXE="$SCRIPT_DIR/kcc.exe"
+KCC_HEADERS="$SCRIPT_DIR/headers"
 
 # Find gcc — check PATH first, then common Windows install locations
 GCC_EXE="$(command -v gcc 2>/dev/null)"
@@ -61,16 +62,21 @@ if [[ -z "$SRCFILE" ]]; then
     exit 1
 fi
 
+HEADERS_FLAG=""
+if [[ -d "$KCC_HEADERS" ]]; then
+    HEADERS_FLAG="--headers $KCC_HEADERS"
+fi
+
 if [[ -z "$OUTFILE" ]]; then
     # No -o: pipe C to stdout as usual
-    "$KCC_EXE" $IRFLAG "$SRCFILE"
+    "$KCC_EXE" $IRFLAG $HEADERS_FLAG "$SRCFILE"
     exit $?
 fi
 
 # -o mode: compile to native exe via temp file
 TMPFILE="${OUTFILE}__kcc_tmp.c"
 
-"$KCC_EXE" $IRFLAG "$SRCFILE" > "$TMPFILE"
+"$KCC_EXE" $IRFLAG $HEADERS_FLAG "$SRCFILE" > "$TMPFILE"
 KCC_RET=$?
 if [[ $KCC_RET -ne 0 ]]; then
     rm -f "$TMPFILE"
