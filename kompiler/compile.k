@@ -3494,11 +3494,19 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
 
 
 just run {
-    // Parse flags: --ir, --headers PATH
+    let kccVer = "1.1.9"
+
+    // Parse flags: --version, --ir, --headers PATH
     let irMode = 0
     let headersDir = ""
     let file = arg("0")
     let argIdx = 0
+
+    if file == "--version" || file == "-v" {
+        printErr("kcc version " + kccVer)
+        emit 0
+    }
+
     while file == "--ir" || file == "--headers" {
         if file == "--ir" {
             irMode = 1

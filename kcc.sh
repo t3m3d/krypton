@@ -7,7 +7,9 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KCC_EXE="$SCRIPT_DIR/kcc.exe"
-KCC_HEADERS="$SCRIPT_DIR/headers"
+KCC_HEADERS_UNIX="$SCRIPT_DIR/headers"
+# Convert /c/foo -> C:/foo for Windows exes; fall back to unix path if not a /X/... form
+KCC_HEADERS="$(echo "$KCC_HEADERS_UNIX" | sed 's|^/\([a-zA-Z]\)/|\1:/|')"
 
 # Find gcc — check PATH first, then common Windows install locations
 GCC_EXE="$(command -v gcc 2>/dev/null)"
@@ -63,7 +65,7 @@ if [[ -z "$SRCFILE" ]]; then
 fi
 
 HEADERS_FLAG=""
-if [[ -d "$KCC_HEADERS" ]]; then
+if [[ -d "$KCC_HEADERS_UNIX" ]]; then
     HEADERS_FLAG="--headers $KCC_HEADERS"
 fi
 
