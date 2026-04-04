@@ -2,7 +2,7 @@
 
 All notable changes to the Krypton language and compiler.
 
-## [1.1.8] - 2026-04-04
+## [1.1.9] - 2026-04-04
 
 ### Compiler — System Header Search Path (`--headers`)
 
