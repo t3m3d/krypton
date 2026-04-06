@@ -1,0 +1,9 @@
+// conio.krh — Windows console keyboard input
+// Usage: import "headers/conio.krh"
+
+jxt {
+    c "conio.h"
+
+    func _kbhit() -> INT
+    func _getch() -> INT
+}

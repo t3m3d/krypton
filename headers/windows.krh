@@ -5,6 +5,7 @@ jxt {
     c "windows.h"
     t "tlhelp32.h"
     t "pdh.h"
+    t "psapi.h"
 
     // ── Extern structs ─────────────────────────────────────────
     struct MEMORYSTATUSEX {
@@ -59,6 +60,24 @@ jxt {
         field BatteryFullLifeTime DWORD
     }
 
+    struct FILETIME {
+        field dwLowDateTime  DWORD
+        field dwHighDateTime DWORD
+    }
+
+    struct PROCESS_MEMORY_COUNTERS {
+        field cb                         DWORD
+        field PageFaultCount             DWORD
+        field PeakWorkingSetSize         SIZE_T
+        field WorkingSetSize             SIZE_T
+        field QuotaPeakPagedPoolUsage    SIZE_T
+        field QuotaPagedPoolUsage        SIZE_T
+        field QuotaPeakNonPagedPoolUsage SIZE_T
+        field QuotaNonPagedPoolUsage     SIZE_T
+        field PagefileUsage              SIZE_T
+        field PeakPagefileUsage          SIZE_T
+    }
+
     // ── System info ────────────────────────────────────────────
     func GetUserNameA(buf, size)
     func GetComputerNameA(buf, size)
@@ -91,6 +110,12 @@ jxt {
     func CreateToolhelp32Snapshot(flags, pid)
     func Process32First(snap, entry) -> BOOL
     func Process32Next(snap, entry) -> BOOL
+
+    // ── Process times / memory ────────────────────────────────
+    func GetSystemTimes(idle, kernel, user) -> BOOL
+    func GetProcessTimes(handle, creation, exit, kernel, user) -> BOOL
+    func GetProcessMemoryInfo(handle, pmc, cb) -> BOOL
+    func OpenProcess(access, inherit, pid)
 
     // ── Process ───────────────────────────────────────────────
     func GetEnvironmentVariableA(name, buf, size)

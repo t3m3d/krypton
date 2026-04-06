@@ -1,0 +1,24 @@
+// pcap.krh — Krypton header for libpcap packet capture
+// Usage: import "pcap.krh"
+// Link with: -lpcap (Linux) or -lwpcap (Windows with Npcap/WinPcap)
+
+jxt {
+    c "pcap.h"
+
+    func pcap_open_live(device, snaplen, promisc, to_ms, errbuf)
+    func pcap_open_dead(linktype, snaplen)
+    func pcap_close(handle)
+    func pcap_loop(handle, cnt, callback, user)
+    func pcap_dispatch(handle, cnt, callback, user)
+    func pcap_next(handle, hdr)
+    func pcap_breakloop(handle)
+    func pcap_compile(handle, fp, str, optimize, netmask)
+    func pcap_setfilter(handle, fp)
+    func pcap_freecode(fp)
+    func pcap_findalldevs(alldevsp, errbuf)
+    func pcap_freealldevs(alldevs)
+    func pcap_lookupdev(errbuf)
+    func pcap_geterr(handle)
+    func pcap_datalink(handle)
+    func pcap_stats(handle, ps)
+}
