@@ -1,0 +1,97 @@
+// iphlpapi.krh — Krypton header for Windows IP Helper API
+// Usage: import "iphlpapi.krh"
+// Link with: -liphlpapi -lws2_32
+
+jxt {
+    c "winsock2.h"
+    c "iphlpapi.h"
+
+    // ── Structs ────────────────────────────────────────────────────
+
+    struct IP_ADAPTER_INFO {
+        field Next            PTR
+        field ComboIndex      DWORD
+        field AdapterName     CHAR_ARRAY
+        field Description     CHAR_ARRAY
+        field AddressLength   UINT
+        field Address         CHAR_ARRAY
+        field Index           DWORD
+        field Type            UINT
+        field DhcpEnabled     UINT
+        field IpAddressList   CHAR_ARRAY
+        field GatewayList     CHAR_ARRAY
+        field DhcpServer      CHAR_ARRAY
+    }
+
+    struct MIB_IPNETROW {
+        field dwIndex         DWORD
+        field dwPhysAddrLen   DWORD
+        field bPhysAddr       CHAR_ARRAY
+        field dwAddr          DWORD
+        field dwType          DWORD
+    }
+
+    struct MIB_IPNETTABLE {
+        field dwNumEntries    DWORD
+        field table           CHAR_ARRAY
+    }
+
+    struct MIB_IFROW {
+        field wszName         CHAR_ARRAY
+        field dwIndex         DWORD
+        field dwType          DWORD
+        field dwMtu           DWORD
+        field dwSpeed         DWORD
+        field dwPhysAddrLen   DWORD
+        field bPhysAddr       CHAR_ARRAY
+        field dwOperStatus    DWORD
+        field dwInOctets      DWORD
+        field dwOutOctets     DWORD
+        field dwInErrors      DWORD
+        field dwOutErrors      DWORD
+    }
+
+    struct MIB_IFTABLE {
+        field dwNumEntries    DWORD
+        field table           CHAR_ARRAY
+    }
+
+    // ── Adapter Info ───────────────────────────────────────────────
+
+    // Get adapter info (allocate buf with structNew or malloc)
+    func GetAdaptersInfo(adapterInfo, sizePointer) -> DWORD
+
+    // Get adapters addresses (more detail than GetAdaptersInfo)
+    func GetAdaptersAddresses(family, flags, reserved, adapterAddresses, sizePointer) -> DWORD
+
+    // ── ARP / IP Net Table ─────────────────────────────────────────
+
+    // Get ARP table (pass buf=0, size=0 first call to get needed size)
+    func GetIpNetTable(ipNetTable, sizePointer, bOrder) -> DWORD
+
+    // Add/delete ARP entry
+    func CreateIpNetEntry(arpEntry) -> DWORD
+    func DeleteIpNetEntry(arpEntry) -> DWORD
+
+    // Send ARP request to get MAC for an IP
+    func SendARP(destIp, srcIp, macAddr, phyAddrLen) -> DWORD
+
+    // ── Interface Table ────────────────────────────────────────────
+
+    func GetIfTable(ifTable, sizePointer, bOrder) -> DWORD
+    func GetIfEntry(ifRow) -> DWORD
+
+    // ── IP Statistics ──────────────────────────────────────────────
+
+    func GetIpStatistics(stats) -> DWORD
+    func GetTcpStatistics(stats) -> DWORD
+    func GetUdpStatistics(stats) -> DWORD
+
+    // ── Routing ───────────────────────────────────────────────────
+
+    func GetIpForwardTable(ipForwardTable, sizePointer, bOrder) -> DWORD
+
+    // ── Network Params ────────────────────────────────────────────
+
+    func GetNetworkParams(fixedInfo, sizePointer) -> DWORD
+}
