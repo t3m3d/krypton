@@ -6,6 +6,7 @@ jxt {
     t "tlhelp32.h"
     t "pdh.h"
     t "psapi.h"
+    t "shellapi.h"
 
     // ── Extern structs ─────────────────────────────────────────
     struct MEMORYSTATUSEX {
@@ -121,6 +122,9 @@ jxt {
     func GetEnvironmentVariableA(name, buf, size)
     func ExitProcess(code)
     func CloseHandle(handle)
+
+    // ── Shell ──────────────────────────────────────────────────
+    func ShellExecuteA(hwnd, op, file, params, dir, show)
 
     // ── Dynamic library loading ────────────────────────────────
     func LoadLibraryA(name)
