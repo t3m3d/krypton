@@ -167,6 +167,7 @@ func isKW(word) {
     else if word == "measure" { emit 1 }
     else if word == "prepare" { emit 1 }
     else if word == "jxt" { emit 1 }
+    else if word == "callback" { emit 1 }
     else { emit 0 }
 }
 
@@ -1427,6 +1428,12 @@ func compileCall(tokens, pos, ntoks) {
         emit "kr_structfields(" + args + ")," + p
     }
 
+    // funcptr(name) — returns a Krypton callback function as a char* pointer
+    // so it can be passed to C APIs expecting a function pointer
+    if fname == "funcptr" {
+        emit "((char*)" + cIdent(args) + ")," + p
+    }
+
     // User-defined function call
     // Try indirect call for lambda variables (function pointers)
     // Build arg list with types for cast
@@ -2281,6 +2288,47 @@ func compileFunc(tokens, pos, ntoks) {
     emit out + "," + p
 }
 
+// compileCallbackFunc — like compileFunc but generates a void C function
+// suitable for use as a C callback via funcptr()
+// Usage: callback func name(params) { body }
+func compileCallbackFunc(tokens, pos, ntoks) {
+    // pos is at KW:func (the callback keyword was already consumed)
+    let nameTok = tokAt(tokens, pos + 1)
+    let fname = tokVal(nameTok)
+    let p = pos + 3
+    let params = ""
+    let pc = 0
+    while tokAt(tokens, p) != "RPAREN" {
+        let pt = tokAt(tokens, p)
+        if tokType(pt) == "ID" {
+            if pc > 0 {
+                params = params + ", char* " + cIdent(tokVal(pt))
+            } else {
+                params = "char* " + cIdent(tokVal(pt))
+            }
+            pc += 1
+            p += 1
+        } else {
+            p += 1
+        }
+    }
+    p += 1
+    // skip optional -> annotation (ignored for callbacks — always void)
+    if tokAt(tokens, p) == "ARROW" {
+        p = p + 2
+    }
+    // compile body — any emit/return statements are dropped (void return)
+    let bp = compileBlock(tokens, p, ntoks, 0, "1")
+    let bcode = pairVal(bp)
+    p = pairPos(bp)
+    // strip any "return ...;" lines — void function can't return a value
+    let bodyStripped = replace(bcode, "return _K_EMPTY;\n", "")
+    bodyStripped = replace(bodyStripped, "return _K_ZERO;\n", "")
+    bodyStripped = replace(bodyStripped, "return _K_ONE;\n", "")
+    let out = "void " + cIdent(fname) + "(" + params + ") {\n" + bodyStripped + "}\n\n"
+    emit out + "," + p
+}
+
 // StringBuilder (Krypton-level: just concat; the C builtins in cRuntime are the fast path)
 func sbNew() {
     emit ""
@@ -2743,6 +2791,11 @@ func compileImportedFunctions(tokens, ntoks, ftable) {
             i = skipBlock(tokens, i + 1)
         } else if tok == "KW:func" || tok == "KW:fn" {
             let fp = compileFunc(tokens, i, ntoks)
+            sb = sbAppend(sb, pairVal(fp))
+            i = pairPos(fp)
+        } else if tok == "KW:callback" {
+            // callback func name(params) { body } — compiles to void C function
+            let fp = compileCallbackFunc(tokens, i + 1, ntoks)
             sb = sbAppend(sb, pairVal(fp))
             i = pairPos(fp)
         } else if tok == "KW:export" {
@@ -3494,7 +3547,7 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
 
 
 just run {
-    let kccVer = "1.2.0"
+    let kccVer = "1.2.1"
 
     // Parse flags: --version, --ir, --headers PATH
     let irMode = 0
@@ -4179,6 +4232,14 @@ just run {
             decl = decl + ");\n"
             sb = sbAppend(sb, decl)
             }
+        } else if tok == "KW:callback" {
+            // callback func — skip the func keyword, name, params, body
+            // void forward decl emitted by body pass; no char* decl needed here
+            let cbSkip = i + 3
+            while cbSkip < ntoks && tokAt(tokens, cbSkip) != "RPAREN" { cbSkip += 1 }
+            cbSkip += 1
+            if tokAt(tokens, cbSkip) == "ARROW" { cbSkip += 2 }
+            i = skipBlock(tokens, cbSkip) - 1
         } else if tok == "KW:jxt" {
             // skip jxt block - already processed
             i = skipBlock(tokens, i + 1) - 1
@@ -4219,6 +4280,12 @@ just run {
             sb = sbAppend(sb, fcode)
             i = pairPos(fp)
             }
+        } else if tok == "KW:callback" {
+            // callback func — compile as void C function
+            let fp = compileCallbackFunc(tokens, i + 1, ntoks)
+            let fcode = pairVal(fp)
+            sb = sbAppend(sb, fcode)
+            i = pairPos(fp)
         } else if tok == "KW:jxt" {
             i = skipBlock(tokens, i + 1) - 1
         } else if tok == "KW:export" {
