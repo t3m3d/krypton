@@ -3494,7 +3494,7 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
 
 
 just run {
-    let kccVer = "1.1.9"
+    let kccVer = "1.2.0"
 
     // Parse flags: --version, --ir, --headers PATH
     let irMode = 0
@@ -3830,6 +3830,25 @@ just run {
                                         iwd = iwd + "));return kr_str(_b);}\n#define " + ijfCName + " _krw_" + ijfCName + "\n"
                                         iDecls = iDecls + iwd
                                     }
+                                    if ijfRetType == "zero" {
+                                        let iwd = "static char* _krw_" + ijfCName + "("
+                                        let iwpi = 0
+                                        while iwpi < ijfPc {
+                                            if iwpi > 0 { iwd = iwd + "," }
+                                            iwd = iwd + "char* _a" + iwpi
+                                            iwpi += 1
+                                        }
+                                        if ijfPc == 0 { iwd = iwd + "void" }
+                                        iwd = iwd + "){"  + ijfCName + "("
+                                        iwpi = 0
+                                        while iwpi < ijfPc {
+                                            if iwpi > 0 { iwd = iwd + "," }
+                                            iwd = iwd + "_a" + iwpi
+                                            iwpi += 1
+                                        }
+                                        iwd = iwd + ");return _K_EMPTY;}\n#define " + ijfCName + " _krw_" + ijfCName + "\n"
+                                        iDecls = iDecls + iwd
+                                    }
                                     ijxtPos = ijfPos
                                 } else {
                                     ijxtPos += 2
@@ -4080,6 +4099,25 @@ just run {
                             wpi += 1
                         }
                         wd = wd + "));return kr_str(_b);}\n#define " + jfCName + " _krw_" + jfCName + "\n"
+                        importFwdDecls = importFwdDecls + wd
+                    }
+                    if jfRetType == "zero" {
+                        let wd = "static char* _krw_" + jfCName + "("
+                        let wpi = 0
+                        while wpi < jfPc {
+                            if wpi > 0 { wd = wd + "," }
+                            wd = wd + "char* _a" + wpi
+                            wpi += 1
+                        }
+                        if jfPc == 0 { wd = wd + "void" }
+                        wd = wd + "){" + jfCName + "("
+                        wpi = 0
+                        while wpi < jfPc {
+                            if wpi > 0 { wd = wd + "," }
+                            wd = wd + "_a" + wpi
+                            wpi += 1
+                        }
+                        wd = wd + ");return _K_EMPTY;}\n#define " + jfCName + " _krw_" + jfCName + "\n"
                         importFwdDecls = importFwdDecls + wd
                     }
                     jxtPos = jfPos
