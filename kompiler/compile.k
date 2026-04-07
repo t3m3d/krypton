@@ -214,7 +214,43 @@ func tokenize(text) {
             let pair = readIdent(text, i)
             let id = pairVal(pair)
             i = pairPos(pair)
-            if isKW(id) {
+            // cfunc { } — read raw C block, emit CBLOCK token
+            if id == "cfunc" {
+                let ci2 = skipWS(text, i)
+                if ci2 < len(text) && text[ci2] == "{" {
+                    ci2 += 1
+                    let ctext = ""
+                    let cdepth = 1
+                    let inStr = 0
+                    while ci2 < len(text) && cdepth > 0 {
+                        let ch = text[ci2]
+                        if inStr == 1 {
+                            if ch == "\\" && ci2 + 1 < len(text) {
+                                ctext = ctext + ch + text[ci2 + 1]
+                                ci2 += 2
+                            } else {
+                                if ch == "\"" { inStr = 0 }
+                                if ch == "\n" { ctext = ctext + "\x01" }
+                                else { ctext = ctext + ch }
+                                ci2 += 1
+                            }
+                        } else {
+                            if ch == "\"" { inStr = 1  ctext = ctext + ch  ci2 += 1 }
+                            else if ch == "{" { cdepth += 1  ctext = ctext + ch  ci2 += 1 }
+                            else if ch == "}" {
+                                cdepth -= 1
+                                if cdepth > 0 { ctext = ctext + ch }
+                                ci2 += 1
+                            }
+                            else if ch == "\n" { ctext = ctext + "\x01"  ci2 += 1 }
+                            else if ch == "\r" { ci2 += 1 }
+                            else { ctext = ctext + ch  ci2 += 1 }
+                        }
+                    }
+                    i = ci2
+                    out = out + "CBLOCK:" + ctext + "\n"
+                }
+            } else if isKW(id) {
                 out = out + "KW:" + id + "\n"
             }
             else {
@@ -1590,6 +1626,12 @@ func compileStmt(tokens, pos, ntoks, depth, inFunc) {
         // bare export name -- just skip
         let p = pos + 2
         emit indent(depth) + "// export\n," + p
+    }
+
+    // cfunc { } inline C block — emit verbatim inside function body
+    if tokType(tok) == "CBLOCK" {
+        let craw = replace(tokVal(tok), "\x01", "\n")
+        emit indent(depth) + craw + "\n," + (pos + 1)
     }
 
     // Check for compound assignment: ID PLUSEQ/MINUSEQ/STAREQ/SLASHEQ/MODEQ
@@ -3547,7 +3589,7 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
 
 
 just run {
-    let kccVer = "1.2.1"
+    let kccVer = "1.2.2"
 
     // Parse flags: --version, --ir, --headers PATH
     let irMode = 0
@@ -4240,6 +4282,8 @@ just run {
             cbSkip += 1
             if tokAt(tokens, cbSkip) == "ARROW" { cbSkip += 2 }
             i = skipBlock(tokens, cbSkip) - 1
+        } else if tokType(tok) == "CBLOCK" {
+            // cfunc { } — skip in forward-decl pass, emitted in body pass
         } else if tok == "KW:jxt" {
             // skip jxt block - already processed
             i = skipBlock(tokens, i + 1) - 1
@@ -4286,6 +4330,10 @@ just run {
             let fcode = pairVal(fp)
             sb = sbAppend(sb, fcode)
             i = pairPos(fp)
+        } else if tokType(tok) == "CBLOCK" {
+            // cfunc { } — decode SOH placeholders back to newlines and emit verbatim
+            let craw = replace(tokVal(tok), "\x01", "\n")
+            sb = sbAppend(sb, craw + "\n")
         } else if tok == "KW:jxt" {
             i = skipBlock(tokens, i + 1) - 1
         } else if tok == "KW:export" {
