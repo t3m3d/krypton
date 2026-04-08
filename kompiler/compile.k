@@ -1717,7 +1717,15 @@ func compileEmit(tokens, pos, ntoks, depth, inFunc) {
         // In main entry block: emit as return 0 (value discarded)
         emit indent(depth) + "return 0;\n," + p
     }
-    // In a function or lambda: return the expression value
+    if inFunc == "int" {
+        // In an int-returning function: wrap with atoi so char* expr becomes int
+        emit indent(depth) + "return atoi(" + ecode + ");\n," + p
+    }
+    if inFunc == "zero" {
+        // In a void function: evaluate for side effects, no return value
+        emit indent(depth) + ecode + ";\n," + p
+    }
+    // In a function or lambda: return the expression value as char*
     emit indent(depth) + "return " + ecode + ";\n," + p
 }
 
@@ -2272,14 +2280,18 @@ func compileFunc(tokens, pos, ntoks) {
     // skip name, LPAREN
     let p = pos + 3
     let params = ""
+    let pnames = ""
     let pc = 0
     while tokAt(tokens, p) != "RPAREN" {
         let pt = tokAt(tokens, p)
         if tokType(pt) == "ID" {
+            let pname = cIdent(tokVal(pt))
             if pc > 0 {
-                params = params + ", char* " + cIdent(tokVal(pt))
+                params = params + ", char* " + pname
+                pnames = pnames + "," + pname
             } else {
-                params = "char* " + cIdent(tokVal(pt))
+                params = "char* " + pname
+                pnames = pname
             }
             pc += 1
             // optional type annotation: param: type
@@ -2307,7 +2319,9 @@ func compileFunc(tokens, pos, ntoks) {
     // skip RPAREN
     p += 1
     // optional return type annotation: -> type
+    let fnRetType = ""
     if tokAt(tokens, p) == "ARROW" {
+        fnRetType = tokVal(tokAt(tokens, p + 1))
         p = p + 2
         // handle compound return types
         if tokAt(tokens, p) == "LBRACK" {
@@ -2321,12 +2335,38 @@ func compileFunc(tokens, pos, ntoks) {
         }
     }
 
-    // compile body block
-    let bp = compileBlock(tokens, p, ntoks, 0, "1")
+    // compile body block — pass return type so emit knows how to return
+    let fnInFunc = "1"
+    if fnRetType == "int"  { fnInFunc = "int" }
+    if fnRetType == "zero" { fnInFunc = "zero" }
+    let bp = compileBlock(tokens, p, ntoks, 0, fnInFunc)
     let bcode = pairVal(bp)
     p = pairPos(bp)
 
-    let out = "char* " + cIdent(fname) + "(" + params + ") {\n" + bcode + "}\n\n"
+    // Generate appropriate C output based on return type.
+    // For void and int, emit an inner function + a char* wrapper so
+    // the rest of Krypton can call it normally without type casts.
+    // Wrappers use char* (not static char*) to match the forward declaration.
+    let wrapParams = params
+    if pc == 0 { wrapParams = "void" }
+    let out = ""
+    if fnRetType == "zero" {
+        // void inner + char* wrapper
+        let vbody = replace(bcode, "return _K_EMPTY;\n", "")
+        vbody = replace(vbody, "return _K_ZERO;\n", "")
+        vbody = replace(vbody, "return _K_ONE;\n", "")
+        let innerName = "_krv_" + cIdent(fname)
+        out = "static void " + innerName + "(" + wrapParams + ") {\n" + vbody + "}\n"
+        out = out + "char* " + cIdent(fname) + "(" + wrapParams + ") { " + innerName + "(" + pnames + "); return _K_EMPTY; }\n\n"
+    } else if fnRetType == "int" {
+        // int inner + char* wrapper
+        let innerName = "_kri_" + cIdent(fname)
+        out = "static int " + innerName + "(" + wrapParams + ") {\n" + bcode + "}\n"
+        out = out + "char* " + cIdent(fname) + "(" + wrapParams + ") { return kr_itoa(" + innerName + "(" + pnames + ")); }\n\n"
+    } else {
+        out = "char* " + cIdent(fname) + "(" + params + ") {\n" + bcode + "}\n\n"
+    }
+
     emit out + "," + p
 }
 
@@ -3589,7 +3629,7 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
 
 
 just run {
-    let kccVer = "1.2.2"
+    let kccVer = "1.2.3"
 
     // Parse flags: --version, --ir, --headers PATH
     let irMode = 0
@@ -4261,7 +4301,7 @@ just run {
             if len(fname) > 0 {
             let info = funcLookup(ftable, fname)
             let pc = funcParamCount(info)
-            // Build param list cleanly
+            // Forward decl always uses char* — void/int funcs have char* wrappers
             let decl = "char* " + cIdent(fname) + "(char*"
             let pi = 1
             while toInt(pi) < toInt(pc) {
@@ -4284,6 +4324,16 @@ just run {
             i = skipBlock(tokens, cbSkip) - 1
         } else if tokType(tok) == "CBLOCK" {
             // cfunc { } — skip in forward-decl pass, emitted in body pass
+        } else if tok == "KW:let" {
+            // top-level global let — skip in forward-decl pass, handled in body pass
+            let gfp = i + 2
+            if tokAt(tokens, gfp) == "COLON" { gfp += 2 }
+            if tokAt(tokens, gfp) == "ASSIGN" {
+                let gfv = compileExpr(tokens, gfp + 1, ntoks)
+                i = pairPos(gfv) - 1
+            } else {
+                i = gfp - 1
+            }
         } else if tok == "KW:jxt" {
             // skip jxt block - already processed
             i = skipBlock(tokens, i + 1) - 1
@@ -4306,11 +4356,37 @@ just run {
     }
     sb = sbAppend(sb, "\n")
 
-    // Second pass: compile function bodies
+    // Second pass: compile function bodies + collect global let inits
+    let sbGlobals = sbNew()
+    let glDepth = 0
     i = 0
     while i < ntoks {
         let tok = tokAt(tokens, i)
-        if tok == "KW:func" || tok == "KW:fn" {
+        if tok == "LBRACE" { glDepth += 1 }
+        if tok == "RBRACE" { glDepth -= 1 }
+        if tok == "KW:let" && glDepth == 0 {
+            // Top-level global variable declaration
+            let gname = cIdent(tokVal(tokAt(tokens, i + 1)))
+            let gp = i + 2
+            // skip optional type annotation
+            let gtype = "str"
+            if tokAt(tokens, gp) == "COLON" {
+                gtype = tokVal(tokAt(tokens, gp + 1))
+                gp += 2
+            }
+            // global variables are always char* to stay in the Krypton string world
+            sb = sbAppend(sb, "static char* " + gname + " = NULL;\n")
+            // compile initializer
+            if tokAt(tokens, gp) == "ASSIGN" {
+                gp += 1
+                let gval = compileExpr(tokens, gp, ntoks)
+                let gvalCode = pairVal(gval)
+                sbGlobals = sbAppend(sbGlobals, "    " + gname + " = " + gvalCode + ";\n")
+                i = pairPos(gval)
+            } else {
+                i = gp
+            }
+        } else if tok == "KW:func" || tok == "KW:fn" {
             // Skip if this is a lambda (next token is LPAREN, not a name)
             if tokAt(tokens, i + 1) == "LPAREN" {
                 let lskip2 = i + 2
@@ -4400,6 +4476,11 @@ just run {
     sb = sbAppend(sb, "int main(int argc, char** argv) {\n")
     sb = sbAppend(sb, "    _argc = argc; _argv = argv;\n")
     sb = sbAppend(sb, "    srand((unsigned)time(NULL));\n")
+    // initialize global variables declared at file scope
+    let globInitCode = sbToString(sbGlobals)
+    if len(globInitCode) > 0 {
+        sb = sbAppend(sb, globInitCode)
+    }
 
     let bp = compileBlock(tokens, entry, ntoks, 0, "0")
     let bcode = pairVal(bp)
