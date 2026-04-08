@@ -168,6 +168,8 @@ func isKW(word) {
     else if word == "prepare" { emit 1 }
     else if word == "jxt" { emit 1 }
     else if word == "callback" { emit 1 }
+    else if word == "loop" { emit 1 }
+    else if word == "until" { emit 1 }
     else { emit 0 }
 }
 
@@ -950,8 +952,13 @@ func compilePrimary(tokens, pos, ntoks) {
     }
 
     // Lambda: func(params) { body } or fn(params) { body }
+    // Only treat as lambda if next token is LPAREN (otherwise it's a variable reference)
     if tok == "KW:func" || tok == "KW:fn" {
-        emit compileLambda(tokens, pos, ntoks)
+        if tokAt(tokens, pos + 1) == "LPAREN" {
+            emit compileLambda(tokens, pos, ntoks)
+        }
+        // Not followed by '(' — treat as variable reference (e.g. let fn = ...; cIdent(fn))
+        emit cIdent(tv) + "," + (pos + 1)
     }
 
 
@@ -1586,6 +1593,10 @@ func compileStmt(tokens, pos, ntoks, depth, inFunc) {
         emit compileDoWhile(tokens, pos + 1, ntoks, depth, inFunc)
     }
 
+    if tok == "KW:loop" {
+        emit compileLoop(tokens, pos + 1, ntoks, depth, inFunc)
+    }
+
     if tok == "KW:const" {
         emit compileLet(tokens, pos + 1, ntoks, depth)
     }
@@ -1714,8 +1725,8 @@ func compileEmit(tokens, pos, ntoks, depth, inFunc) {
         p += 1
     }
     if inFunc == "0" {
-        // In main entry block: emit as return 0 (value discarded)
-        emit indent(depth) + "return 0;\n," + p
+        // In main entry block: emit value as process exit code
+        emit indent(depth) + "return atoi(" + ecode + ");\n," + p
     }
     if inFunc == "int" {
         // In an int-returning function: wrap with atoi so char* expr becomes int
@@ -2007,8 +2018,8 @@ func compileStructDecl(tokens, pos, ntoks, depth) {
     let out = "typedef struct " + cname + "_s {\n"
     let i = 0
     while i < fc {
-        let fn = getNthParam(fields, i)
-        out = out + "    char* " + cIdent(fn) + ";\n"
+        let fld = getNthParam(fields, i)
+        out = out + "    char* " + cIdent(fld) + ";\n"
         i += 1
     }
     out = out + "} " + cname + "_t;\n\n"
@@ -2017,8 +2028,8 @@ func compileStructDecl(tokens, pos, ntoks, depth) {
     out = out + "    " + cname + "_t* _s = (" + cname + "_t*)_alloc(sizeof(" + cname + "_t));\n"
     let i2 = 0
     while i2 < fc {
-        let fn2 = getNthParam(fields, i2)
-        out = out + "    _s->" + cIdent(fn2) + " = _K_EMPTY;\n"
+        let fld2 = getNthParam(fields, i2)
+        out = out + "    _s->" + cIdent(fld2) + " = _K_EMPTY;\n"
         i2 += 1
     }
     out = out + "    return (char*)_s;\n"
@@ -2211,6 +2222,24 @@ func compileDoWhile(tokens, pos, ntoks, depth, inFunc) {
     emit out + "," + p
 }
 
+func compileLoop(tokens, pos, ntoks, depth, inFunc) {
+    // loop { body } until <expr>
+    // Compiles to: do { body } while (!kr_truthy(expr))
+    let bp = compileBlock(tokens, pos, ntoks, depth, inFunc)
+    let bcode = pairVal(bp)
+    let p = pairPos(bp)
+    // skip KW:until
+    p += 1
+    let cp = compileExpr(tokens, p, ntoks)
+    let cond = pairVal(cp)
+    p = pairPos(cp)
+    if tokAt(tokens, p) == "SEMI" {
+        p += 1
+    }
+    let out = indent(depth) + "do {\n" + bcode + indent(depth) + "} while (!kr_truthy(" + cond + "));\n"
+    emit out + "," + p
+}
+
 func compileExprStmt(tokens, pos, ntoks, depth) {
     let ep = compileExpr(tokens, pos, ntoks)
     let ecode = pairVal(ep)
@@ -2338,6 +2367,7 @@ func compileFunc(tokens, pos, ntoks) {
     // compile body block — pass return type so emit knows how to return
     let fnInFunc = "1"
     if fnRetType == "int"  { fnInFunc = "int" }
+    if fnRetType == "bool" { fnInFunc = "int" }
     if fnRetType == "zero" { fnInFunc = "zero" }
     let bp = compileBlock(tokens, p, ntoks, 0, fnInFunc)
     let bcode = pairVal(bp)
@@ -2363,6 +2393,11 @@ func compileFunc(tokens, pos, ntoks) {
         let innerName = "_kri_" + cIdent(fname)
         out = "static int " + innerName + "(" + wrapParams + ") {\n" + bcode + "}\n"
         out = out + "char* " + cIdent(fname) + "(" + wrapParams + ") { return kr_itoa(" + innerName + "(" + pnames + ")); }\n\n"
+    } else if fnRetType == "bool" {
+        // bool inner (returns int 0/1) + char* wrapper
+        let innerName = "_krb_" + cIdent(fname)
+        out = "static int " + innerName + "(" + wrapParams + ") {\n" + bcode + "}\n"
+        out = out + "char* " + cIdent(fname) + "(" + wrapParams + ") { return " + innerName + "(" + pnames + ") ? _K_ONE : _K_ZERO; }\n\n"
     } else {
         out = "char* " + cIdent(fname) + "(" + params + ") {\n" + bcode + "}\n\n"
     }
@@ -3629,7 +3664,7 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
 
 
 just run {
-    let kccVer = "1.2.3"
+    let kccVer = "1.2.4"
 
     // Parse flags: --version, --ir, --headers PATH
     let irMode = 0
