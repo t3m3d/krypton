@@ -260,7 +260,10 @@ func tokenize(text) {
             }
         }
         else if c == "+" {
-            if i + 1 < len(text) && text[i + 1] == "=" {
+            if i + 1 < len(text) && text[i + 1] == "+" {
+                out = out + "PLUSPLUS\n"
+                i = i + 2
+            } else if i + 1 < len(text) && text[i + 1] == "=" {
                 out = out + "PLUSEQ\n"
                 i = i + 2
             } else {
@@ -273,6 +276,10 @@ func tokenize(text) {
                 out = out + "ARROW\n"
                 i = i + 2
             }
+            else if i + 1 < len(text) && text[i + 1] == "-" {
+                out = out + "MINUSMINUS\n"
+                i = i + 2
+            }
             else if i + 1 < len(text) && text[i + 1] == "=" {
                 out = out + "MINUSEQ\n"
                 i = i + 2
@@ -283,7 +290,10 @@ func tokenize(text) {
             }
         }
         else if c == "*" {
-            if i + 1 < len(text) && text[i + 1] == "=" {
+            if i + 1 < len(text) && text[i + 1] == "*" {
+                out = out + "STARSTAR\n"
+                i = i + 2
+            } else if i + 1 < len(text) && text[i + 1] == "=" {
                 out = out + "STAREQ\n"
                 i = i + 2
             } else {
@@ -848,12 +858,12 @@ func compileAdditive(tokens, pos, ntoks) {
 }
 
 func compileMult(tokens, pos, ntoks) {
-    let pair = compileUnary(tokens, pos, ntoks)
+    let pair = compilePow(tokens, pos, ntoks)
     let code = pairVal(pair)
     let p = pairPos(pair)
     while tokAt(tokens, p) == "STAR" || tokAt(tokens, p) == "SLASH" || tokAt(tokens, p) == "MOD" {
         let op = tokAt(tokens, p)
-        let rp = compileUnary(tokens, p + 1, ntoks)
+        let rp = compilePow(tokens, p + 1, ntoks)
         let rcode = pairVal(rp)
         p = pairPos(rp)
         if op == "STAR" {
@@ -863,6 +873,21 @@ func compileMult(tokens, pos, ntoks) {
         } else {
             code = "kr_mod(" + code + ", " + rcode + ")"
         }
+    }
+    emit code + "," + p
+}
+
+// ** exponentiation operator — right-associative, higher precedence than * / %
+func compilePow(tokens, pos, ntoks) {
+    let pair = compileUnary(tokens, pos, ntoks)
+    let code = pairVal(pair)
+    let p = pairPos(pair)
+    if tokAt(tokens, p) == "STARSTAR" {
+        // right-associative: recurse into compilePow for right side
+        let rp = compilePow(tokens, p + 1, ntoks)
+        let rcode = pairVal(rp)
+        p = pairPos(rp)
+        code = "kr_pow(" + code + ", " + rcode + ")"
     }
     emit code + "," + p
 }
@@ -880,6 +905,19 @@ func compileUnary(tokens, pos, ntoks) {
         let rcode = pairVal(rp)
         let p = pairPos(rp)
         emit "kr_not(" + rcode + ")," + p
+    }
+    // Pre-increment / pre-decrement: ++x, --x
+    if tok == "PLUSPLUS" {
+        let rp = compilePostfix(tokens, pos + 1, ntoks)
+        let rcode = pairVal(rp)
+        let p = pairPos(rp)
+        emit "(" + rcode + " = kr_plus(" + rcode + ", kr_str(\"1\")))," + p
+    }
+    if tok == "MINUSMINUS" {
+        let rp = compilePostfix(tokens, pos + 1, ntoks)
+        let rcode = pairVal(rp)
+        let p = pairPos(rp)
+        emit "(" + rcode + " = kr_sub(" + rcode + ", kr_str(\"1\")))," + p
     }
     emit compilePostfix(tokens, pos, ntoks)
 }
@@ -1643,6 +1681,36 @@ func compileStmt(tokens, pos, ntoks, depth, inFunc) {
     if tokType(tok) == "CBLOCK" {
         let craw = replace(tokVal(tok), "\x01", "\n")
         emit indent(depth) + craw + "\n," + (pos + 1)
+    }
+
+    // Check for post-increment/decrement: i++  i--
+    if tokType(tok) == "ID" {
+        let nextTok = tokAt(tokens, pos + 1)
+        if nextTok == "PLUSPLUS" {
+            let vname = cIdent(tokVal(tok))
+            let p = pos + 2
+            if tokAt(tokens, p) == "SEMI" { p += 1 }
+            emit indent(depth) + vname + " = kr_plus(" + vname + ", kr_str(\"1\"));\n," + p
+        }
+        if nextTok == "MINUSMINUS" {
+            let vname = cIdent(tokVal(tok))
+            let p = pos + 2
+            if tokAt(tokens, p) == "SEMI" { p += 1 }
+            emit indent(depth) + vname + " = kr_sub(" + vname + ", kr_str(\"1\"));\n," + p
+        }
+    }
+    // Check for pre-increment/decrement: ++i  --i
+    if tok == "PLUSPLUS" {
+        let vname = cIdent(tokVal(tokAt(tokens, pos + 1)))
+        let p = pos + 2
+        if tokAt(tokens, p) == "SEMI" { p += 1 }
+        emit indent(depth) + vname + " = kr_plus(" + vname + ", kr_str(\"1\"));\n," + p
+    }
+    if tok == "MINUSMINUS" {
+        let vname = cIdent(tokVal(tokAt(tokens, pos + 1)))
+        let p = pos + 2
+        if tokAt(tokens, p) == "SEMI" { p += 1 }
+        emit indent(depth) + vname + " = kr_sub(" + vname + ", kr_str(\"1\"));\n," + p
     }
 
     // Check for compound assignment: ID PLUSEQ/MINUSEQ/STAREQ/SLASHEQ/MODEQ
@@ -3664,7 +3732,7 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
 
 
 just run {
-    let kccVer = "1.2.4"
+    let kccVer = "1.2.5"
 
     // Parse flags: --version, --ir, --headers PATH
     let irMode = 0
