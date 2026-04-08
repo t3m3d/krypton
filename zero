@@ -1,1 +1,1 @@
- New in v1.2.0: - void return type for jxt functions
+   func name() -   void return (no wrapper overhead)
