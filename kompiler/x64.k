@@ -281,6 +281,82 @@ func alignUp(v, a) {
 // ── String / constant table ───────────────────────────────────────
 // Collect all PUSH string values and assign offsets in .rdata
 
+func irUndoPrimary(s) {
+    // Reverse irPrimary's escaping: \\n -> \n and \\t -> \t
+    // Scan char-by-char so we correctly handle sequences like \\\n -> \\n
+    let n = len(s)
+    let out = ""
+    let i = 0
+    while i < n {
+        if s[i] == "\\" && i + 2 < n && s[i + 1] == "\\" && s[i + 2] == "n" {
+            out = out + "\\" + "n"
+            i += 3
+        } else if s[i] == "\\" && i + 2 < n && s[i + 1] == "\\" && s[i + 2] == "t" {
+            out = out + "\\" + "t"
+            i += 3
+        } else {
+            out = out + s[i]
+            i += 1
+        }
+    }
+    emit out
+}
+
+func irStrLen(s) {
+    // Byte count of IR string in rdata: undo irPrimary then apply expandEscapes rules
+    let tv = irUndoPrimary(s)
+    let m = len(tv)
+    let bytes = 0
+    let j = 0
+    while j < m {
+        if tv[j] == "\\" && j + 1 < m {
+            let c = tv[j + 1]
+            if c == "n" || c == "t" || c == "r" || c == "\\" || c == "\"" {
+                bytes += 1
+            } else {
+                bytes += 2
+            }
+            j += 2
+        } else {
+            bytes += 1
+            j += 1
+        }
+    }
+    emit bytes
+}
+
+func hexStrIR(s) {
+    // Emit hex bytes of IR string: undo irPrimary then apply expandEscapes
+    // Each byte uses hexByte() = "xXX" (3 chars), matching the rest of the PE builder
+    let tv = irUndoPrimary(s)
+    let m = len(tv)
+    let out = ""
+    let j = 0
+    while j < m {
+        if tv[j] == "\\" && j + 1 < m {
+            let c = tv[j + 1]
+            if c == "n" {
+                out = out + hexByte(10)
+            } else if c == "t" {
+                out = out + hexByte(9)
+            } else if c == "r" {
+                out = out + hexByte(13)
+            } else if c == "\\" {
+                out = out + hexByte(92)
+            } else if c == "\"" {
+                out = out + hexByte(34)
+            } else {
+                out = out + hexByte(92) + hexByte(charCode(c))
+            }
+            j += 2
+        } else {
+            out = out + hexByte(charCode(tv[j]))
+            j += 1
+        }
+    }
+    emit out
+}
+
 func collectStrings(ir) {
     // Return newline-separated list of unique string values (no quotes)
     let lines = ir
@@ -313,7 +389,7 @@ func strOffset(strs, target) {
     while i < count {
         let s = getLine(strs, i)
         if s == target { emit off }
-        off += len(s) + 1  // +1 for null terminator
+        off += irStrLen(s) + 1  // +1 for null terminator
         i += 1
     }
     emit -1
@@ -324,7 +400,7 @@ func totalStrBytes(strs) {
     let total = 0
     let i = 0
     while i < count {
-        total += len(getLine(strs, i)) + 1
+        total += irStrLen(getLine(strs, i)) + 1
         i += 1
     }
     emit total
@@ -335,7 +411,7 @@ func emitStringTable(strs) {
     let out = ""
     let i = 0
     while i < count {
-        out = out + hexStrZ(getLine(strs, i))
+        out = out + hexStrIR(getLine(strs, i)) + hexByte(0)
         i += 1
     }
     emit out
@@ -461,12 +537,16 @@ func instrSize(op, a1, a2) {
         let argc2 = toInt(a2)
         let loads = argc2
         if loads > 4 { loads = 4 }
-        // loads*MOV(8) + CALL(6or5) + MOV result(8)
+        // Extra args (5th+): each costs 8+8=16 bytes (MOV RAX from vst + MOV to [RSP+32])
+        let extraArgSz = 0
+        if argc2 >= 5 { extraArgSz = extraArgSz + 16 }
+        if argc2 >= 6 { extraArgSz = extraArgSz + 16 }
+        // loads*MOV(8) + extraArgSz + CALL(6or5) + MOV result(8)
         let callSz = 6
         let resolved = resolveBuiltin(a1)
         let idxStr = iatIndexOf(resolved)
         if idxStr == "none" { callSz = 5 }
-        emit loads * 8 + callSz + 8
+        emit loads * 8 + extraArgSz + callSz + 8
     }
     if op == "LABEL"     { emit 0 }
     if op == "JUMP"      { emit 5 }          // E9 + disp32
@@ -491,19 +571,23 @@ func funcByteSize(bodyLines) {
         if lop != "PARAM" && lop != "LOCAL" && lop != "FUNC" { break }
         lpi += 1
     }
-    let frsz = 32 + lcount2 * 8
+    let frsz = 72 + lcount2 * 8 + 12 * 8  // 72=shadow+extraargs, lcount locals, 12 vstack slots
     if frsz % 16 != 8 {
         let rem2 = frsz % 16
         if rem2 < 8 { frsz = frsz + (8 - rem2) }
         else { frsz = frsz + (24 - rem2) }
     }
     let sz = subRspNSz(frsz)   // SUB RSP prologue (always 7)
-    // Param saves (pre-loop) — 8 bytes each (always imm32 MOV)
+    // Param saves (pre-loop) — 8 bytes for params 0-3 (reg→local), 16 for params 4+ (stack→local)
     let pi = 0
+    let paramCount = 0
     while pi < count {
         let line = getLine(bodyLines, pi)
         let op = irGetOp(line)
-        if op == "PARAM" { sz += 8 }
+        if op == "PARAM" {
+            if paramCount < 4 { sz += 8 } else { sz += 16 }
+            paramCount += 1
+        }
         if op != "PARAM" && op != "LOCAL" && op != "FUNC" { break }
         pi += 1
     }
@@ -531,19 +615,23 @@ func collectLabelPositions(bodyLines) {
         if lop3 != "PARAM" && lop3 != "LOCAL" && lop3 != "FUNC" { break }
         lpi3 += 1
     }
-    let frsz3 = 32 + lcount3 * 8
+    let frsz3 = 72 + lcount3 * 8 + 12 * 8
     if frsz3 % 16 != 8 {
         let rem3 = frsz3 % 16
         if rem3 < 8 { frsz3 = frsz3 + (8 - rem3) }
         else { frsz3 = frsz3 + (24 - rem3) }
     }
     let pos = subRspNSz(frsz3)
-    // Param saves — 8 bytes each
+    // Param saves — 8 bytes for params 0-3 (reg→local), 16 for params 4+ (stack→local)
     let pi = 0
+    let paramCount3 = 0
     while pi < count {
         let line = getLine(bodyLines, pi)
         let op = irGetOp(line)
-        if op == "PARAM" { pos += 8 }
+        if op == "PARAM" {
+            if paramCount3 < 4 { pos += 8 } else { pos += 16 }
+            paramCount3 += 1
+        }
         if op != "PARAM" && op != "LOCAL" && op != "FUNC" { break }
         pi += 1
     }
@@ -977,13 +1065,15 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
     let vsp = 0  // virtual stack depth (slots used in frame above locals)
 
     // Frame layout (RSP fixed at RSP_frame throughout; no hardware PUSH/POP for vstack):
-    //   [RSP + 0..31]         : shadow space for callees
-    //   [RSP + 32 + i*8]      : local variable i  (localRspOff(i))
-    //   [RSP + vstBase + i*8] : virtual stack slot i  (N_VSTACK=12 slots)
+    //   [RSP + 0..31]          : shadow space for callees (Win64 ABI home space)
+    //   [RSP + 32..71]         : extra args area — 5th-9th args for calls we make
+    //   [RSP + 72 + i*8]       : local variable i  (localRspOff(i) = 72 + i*8)
+    //   [RSP + vstBase + i*8]  : virtual stack slot i  (N_VSTACK=12 slots)
     // RSP never moves via PUSH/POP so callee shadow space never overlaps vstack.
+    // 5th arg from CALLER lands at [RSP_callee + frameSize + 40] (above our frame).
     let N_VSTACK = 12
     let lcount = lineCount(locals)
-    let vstBase = 32 + lcount * 8
+    let vstBase = 72 + lcount * 8
     let frameSize = vstBase + N_VSTACK * 8
     if frameSize % 16 != 8 {
         let rem = frameSize % 16
@@ -1007,6 +1097,14 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
             if paramIdx == 1 { code = code + movRspFromRdx(off)  pos += 8 }
             if paramIdx == 2 { code = code + movRspFromR8(off)   pos += 8 }
             if paramIdx == 3 { code = code + movRspFromR9(off)   pos += 8 }
+            if paramIdx >= 4 {
+                // 5th+ arg: caller put it at [RSP + frameSize + 40 + (paramIdx-4)*8]
+                // (above callee's frame in caller's extra-args area)
+                let stackArgOff = frameSize + 40 + (paramIdx - 4) * 8
+                code = code + movRaxFromRsp(stackArgOff)   // MOV RAX, [RSP+stackArgOff] (8)
+                code = code + movRspFromRax(off)           // MOV [RSP+localOff], RAX    (8)
+                pos += 16
+            }
             paramIdx += 1
         }
         if op != "PARAM" && op != "LOCAL" && op != "FUNC" { break }
@@ -1136,6 +1234,18 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
             if argc2 >= 2 { code = code + movRdxFromRsp(vstBase + (vsp - argc2 + 1) * 8)   loadSz += 8 }
             if argc2 >= 3 { code = code + movR8FromRsp(vstBase + (vsp - argc2 + 2) * 8)    loadSz += 8 }
             if argc2 >= 4 { code = code + movR9FromRsp(vstBase + (vsp - argc2 + 3) * 8)    loadSz += 8 }
+            // 5th+ args: write to [RSP+32 + (i-4)*8] (caller's extra-args area)
+            // Callee reads these from [RSP_callee + frameSize + 40 + (i-4)*8]
+            if argc2 >= 5 {
+                code = code + movRaxFromRsp(vstBase + (vsp - argc2 + 4) * 8)   // 8
+                code = code + movRspFromRax(32)                                  // 8
+                loadSz += 16
+            }
+            if argc2 >= 6 {
+                code = code + movRaxFromRsp(vstBase + (vsp - argc2 + 5) * 8)   // 8
+                code = code + movRspFromRax(40)                                  // 8
+                loadSz += 16
+            }
             vsp -= argc2
 
             let callCode = ""
@@ -1602,7 +1712,10 @@ just run {
     let totalTextBytes = totalFuncBytes + entrySize
 
     // ── Layout ───────────────────────────────────────────────────────
-    let strTableSize = totalStrBytes(strs)
+    // Emit string table first so strTableSize is measured from actual bytes (not recomputed)
+    // This guarantees buildImportTable RVAs match the actual string table layout.
+    let strTableHex = emitStringTable(strs)
+    let strTableSize = len(strTableHex) / 3
     let realRdataRva = PE_TEXT_RVA2 + alignUp(totalTextBytes, PE_SECT_ALIGN)
 
     // Build import table once with the real rdata RVA
@@ -1689,7 +1802,7 @@ just run {
     let textPadHex = hexPad(textPad)
 
     // Rdata section: strings + import table + padding
-    let strTableHex = emitStringTable(strs)
+    // strTableHex already computed above (before buildImportTable)
     let rdataPad = finalRdataFileSize - rdataSize2
     let rdataPadHex = hexPad(rdataPad)
 
