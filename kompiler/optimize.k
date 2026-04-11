@@ -170,11 +170,11 @@ func passStrength(ir) {
     emit out
 }
 
-// ── Pass 4: STORE/LOAD Elimination ───────────────────────────────
-// STORE x / LOAD x -> STORE x / DUP  (keep value on stack)
-// Actually: remove redundant LOAD immediately after STORE of same var
+// ── Pass 4: STORE/LOAD Elimination (disabled — STORE pops the stack) ────────
+// STORE pops the top value; a following LOAD x is NOT redundant.
 
 func passStoreLoad(ir) {
+    // Pass-through: do not remove LOAD after STORE (STORE consumes the value).
     let lines = ir
     let count = lineCount(lines)
     let out = ""
@@ -187,17 +187,11 @@ func passStoreLoad(ir) {
             let nextLine = getLine(lines, i + 1)
             let nextOp = irGetOp(nextLine)
             let nextVar = irGetArg1(nextLine)
-            // STORE x followed immediately by LOAD x -> STORE x (value stays)
-            if nextOp == "LOAD" && nextVar == varName {
-                // emit STORE, skip the LOAD
-                if len(out) > 0 { out = out + "\n" }
-                out = out + line
-                i = i + 2
-            } else {
-                if len(out) > 0 { out = out + "\n" }
-                out = out + line
-                i += 1
-            }
+            // Previously: skip LOAD after STORE (wrong — STORE pops the value).
+            // Now: always emit both instructions.
+            if len(out) > 0 { out = out + "\n" }
+            out = out + line
+            i += 1
         } else {
             if len(out) > 0 { out = out + "\n" }
             out = out + line
