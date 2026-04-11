@@ -1176,6 +1176,11 @@ func compileCall(tokens, pos, ntoks) {
     if fname == "writeFile" {
         emit "kr_writefile(" + args + ")," + p
     }
+    // writeBytes(path, hexstr) — write raw binary from hex-encoded string
+    // e.g. writeBytes("out.exe", "4D5A9000...") writes those raw bytes
+    if fname == "writeBytes" {
+        emit "kr_writebytes(" + args + ")," + p
+    }
     if fname == "input" {
         emit "kr_input()," + p
     }
@@ -2568,6 +2573,8 @@ func cRuntime() {
 
     // v0.2.0 builtins
     r = sbAppend(r, "static char* kr_writefile(const char* path, const char* data) {\n    FILE* f = fopen(path, \"wb\");\n    if (!f) return _K_ZERO;\n    fwrite(data, 1, strlen(data), f);\n    fclose(f);\n    return _K_ONE;\n}\n\n")
+    r = sbAppend(r, "static int _krhex(char c){if(c>='0'&&c<='9')return c-'0';if(c>='a'&&c<='f')return c-'a'+10;if(c>='A'&&c<='F')return c-'A'+10;return -1;}\n")
+    r = sbAppend(r, "static char* kr_writebytes(const char* path, const char* hexstr) {\n    FILE* f = fopen(path, \"wb\");\n    if (!f) return _K_ZERO;\n    const char* p = hexstr;\n    while (*p) {\n        if (*p == 'x' && p[1] && p[2]) {\n            int hi = _krhex(p[1]), lo = _krhex(p[2]);\n            if (hi >= 0 && lo >= 0) { unsigned char b = (unsigned char)(hi*16+lo); fwrite(&b,1,1,f); }\n            p += 3;\n        } else { p++; }\n    }\n    fclose(f);\n    return _K_ONE;\n}\n\n")
     r = sbAppend(r, "static char* kr_shellrun(const char* cmd){int r=system(cmd);return kr_itoa(r);}\n")
     r = sbAppend(r, "static char* kr_deletefile(const char* path){remove(path);return _K_EMPTY;}\n")
     // Bootstrap aliases: older bootstrap compilers (kcc_v103) emit bare function names
@@ -3732,7 +3739,7 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
 
 
 just run {
-    let kccVer = "1.2.5"
+    let kccVer = "1.2.7"
 
     // Parse flags: --version, --ir, --headers PATH
     let irMode = 0
