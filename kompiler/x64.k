@@ -425,7 +425,7 @@ func emitStringTable(strs) {
 //                     kr_truthy, kr_print, kr_printerr, kr_exit
 
 let KR32_FUNCS = "ExitProcess"
-let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args"
+let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes"
 
 // Map IR builtin names to krypton_rt.dll function names
 func resolveBuiltin(name) {
@@ -449,6 +449,13 @@ func resolveBuiltin(name) {
     if name == "sbNew"       { emit "kr_sbnew" }
     if name == "sbAppend"    { emit "kr_sbappend" }
     if name == "sbToString"  { emit "kr_sbtostring" }
+    if name == "lineCount"   { emit "kr_linecount" }
+    if name == "getLine"     { emit "kr_getline" }
+    if name == "count"       { emit "kr_count" }
+    if name == "argCount"    { emit "kr_argcount" }
+    if name == "writeFile"   { emit "kr_writefile" }
+    if name == "writeBytes"  { emit "kr_writebytes" }
+    if name == "printl"      { emit "kr_printl" }
     emit name
 }
 
@@ -1409,8 +1416,8 @@ func emitPEHeader(numSections, textSize, rdataSize, textRva, rdataRva, entryRva,
     h = h + hexDword(0)                    // CheckSum
     h = h + hexByte(3) + hexByte(0)        // Subsystem: CUI
     h = h + hexByte(0x60) + hexByte(0x01)  // DllCharacteristics
-    h = h + hexQword64(1048576, 0)         // SizeOfStackReserve
-    h = h + hexQword64(4096, 0)            // SizeOfStackCommit
+    h = h + hexQword64(8388608, 0)         // SizeOfStackReserve = 8MB
+    h = h + hexQword64(65536, 0)           // SizeOfStackCommit = 64KB
     h = h + hexQword64(1048576, 0)         // SizeOfHeapReserve
     h = h + hexQword64(4096, 0)            // SizeOfHeapCommit
     h = h + hexDword(0)                    // LoaderFlags
