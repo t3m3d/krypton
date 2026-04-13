@@ -3771,9 +3771,12 @@ just run {
         printErr("kcc: cannot read file: " + file)
         emit 1
     }
+    printErr("DBG: readFile done, source len=" + len(source))
 
     let tokens = tokenize(source)
+    printErr("DBG: tokenize done")
     let ntoks = lineCount(tokens)
+    printErr("DBG: ntoks=" + ntoks)
 
     // Resolve base directory for relative imports
     let baseDir = ""
@@ -3788,13 +3791,16 @@ just run {
     if lastSlash >= 0 {
         baseDir = substring(file, 0, lastSlash + 1)
     }
+    printErr("DBG: baseDir done")
 
     // Scan functions in main file
     let ftable = scanFunctions(tokens, ntoks)
+    printErr("DBG: scanFunctions done")
 
     // Output the C runtime
     let sb = sbNew()
     sb = sbAppend(sb, cRuntime())
+    printErr("DBG: cRuntime done")
 
     // === IMPORT PROCESSING ===
     // Walk tokens looking for import statements
