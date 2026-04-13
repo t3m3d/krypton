@@ -3774,6 +3774,7 @@ just run {
     printErr("DBG1: readFile ok")
     let tokens = tokenize(source)
     printErr("DBG2: tokenize ok")
+    printErr("DBG2b: tokens=" + tokens)
     let ntoks = lineCount(tokens)
     printErr("DBG3: ntoks=" + ntoks)
 
@@ -4530,6 +4531,7 @@ just run {
             // cfunc { } — decode SOH placeholders back to newlines and emit verbatim
             let craw = replace(tokVal(tok), "\x01", "\n")
             sb = sbAppend(sb, craw + "\n")
+            i += 1
         } else if tok == "KW:jxt" {
             i = skipBlock(tokens, i + 1) - 1
         } else if tok == "KW:export" {
