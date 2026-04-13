@@ -3079,8 +3079,8 @@ func irTernary(tokens, pos, ntoks, lc) {
     let p = pairPos(pair)
     let nlc = lc
     if tokAt(tokens, p) == "QUESTION" {
-        let trueLabel = irLabel("_tern_t", nlc)
-        let endLabel = irLabel("_tern_e", nlc)
+        let trueLabel = irLabel("_tern_t", p)
+        let endLabel = irLabel("_tern_e", p)
         nlc = nlc + 1
         let tp = irExpr(tokens, p + 1, ntoks, nlc)
         let tcode = pairVal(tp)
@@ -3104,7 +3104,7 @@ func irOr(tokens, pos, ntoks, lc) {
     let p = pairPos(pair)
     let nlc = lc
     while tokAt(tokens, p) == "OR" {
-        let shortLabel = irLabel("_or", nlc)
+        let shortLabel = irLabel("_or", p)
         nlc = nlc + 1
         let rp = irAnd(tokens, p + 1, ntoks, nlc)
         let rcode = pairVal(rp)
@@ -3120,7 +3120,7 @@ func irAnd(tokens, pos, ntoks, lc) {
     let p = pairPos(pair)
     let nlc = lc
     while tokAt(tokens, p) == "AND" {
-        let shortLabel = irLabel("_and", nlc)
+        let shortLabel = irLabel("_and", p)
         nlc = nlc + 1
         let rp = irEquality(tokens, p + 1, ntoks, nlc)
         let rcode = pairVal(rp)
@@ -3547,8 +3547,8 @@ func irIfIR(tokens, pos, ntoks, lc, inFunc) {
     let pair = irExpr(tokens, pos, ntoks, lc)
     let condCode = pairVal(pair)
     let p = pairPos(pair)
-    let elseLabel = irLabel("_else", lc)
-    let endLabel = irLabel("_endif", lc)
+    let elseLabel = irLabel("_else", pos)
+    let endLabel = irLabel("_endif", pos)
     let nlc = lc + 1
     let bp = irBlockIR(tokens, p, ntoks, nlc, inFunc)
     let bodyCode = pairVal(bp)
@@ -3571,8 +3571,8 @@ func irIfIR(tokens, pos, ntoks, lc, inFunc) {
 }
 
 func irWhileIR(tokens, pos, ntoks, lc, inFunc) {
-    let loopLabel = irLabel("_wloop", lc)
-    let endLabel = irLabel("_wend", lc)
+    let loopLabel = irLabel("_wloop", pos)
+    let endLabel = irLabel("_wend", pos)
     let nlc = lc + 1
     let pair = irExpr(tokens, pos, ntoks, nlc)
     let condCode = pairVal(pair)
@@ -3589,11 +3589,11 @@ func irForIR(tokens, pos, ntoks, lc, inFunc) {
     let pair = irExpr(tokens, p, ntoks, lc)
     let collCode = pairVal(pair)
     p = pairPos(pair)
-    let loopLabel = irLabel("_floop", lc)
-    let endLabel = irLabel("_fend", lc)
-    let idxVar = "_for_i_" + lc
-    let cntVar = "_for_cnt_" + lc
-    let colVar = "_for_col_" + lc
+    let loopLabel = irLabel("_floop", pos)
+    let endLabel = irLabel("_fend", pos)
+    let idxVar = "_for_i_" + pos
+    let cntVar = "_for_cnt_" + pos
+    let colVar = "_for_col_" + pos
     let nlc = lc + 1
     let bp = irBlockIR(tokens, p, ntoks, nlc, inFunc)
     let bodyCode = pairVal(bp)
@@ -3617,13 +3617,13 @@ func irMatchIR(tokens, pos, ntoks, lc, inFunc) {
     let pair = irExpr(tokens, pos, ntoks, lc)
     let matchCode = pairVal(pair)
     let p = pairPos(pair) + 1
-    let endLabel = irLabel("_mend", lc)
-    let matchVar = "_match_" + lc
+    let endLabel = irLabel("_mend", pos)
+    let matchVar = "_match_" + pos
     let code = matchCode + "STORE " + matchVar + "\n"
     let nlc = lc + 1
     while tokAt(tokens, p) != "RBRACE" {
-        let caseLabel = irLabel("_mcase", nlc)
-        let nextLabel = irLabel("_mnext", nlc)
+        let caseLabel = irLabel("_mcase", p)
+        let nextLabel = irLabel("_mnext", p)
         nlc = nlc + 1
         if tokAt(tokens, p) == "KW:else" {
             p += 1
@@ -3646,8 +3646,8 @@ func irMatchIR(tokens, pos, ntoks, lc, inFunc) {
 }
 
 func irTryIR(tokens, pos, ntoks, lc, inFunc) {
-    let catchLabel = irLabel("_catch", lc)
-    let endLabel = irLabel("_tryend", lc)
+    let catchLabel = irLabel("_catch", pos)
+    let endLabel = irLabel("_tryend", pos)
     let nlc = lc + 1
     let bp = irBlockIR(tokens, pos, ntoks, nlc, inFunc)
     let bodyCode = pairVal(bp)
@@ -3771,12 +3771,11 @@ just run {
         printErr("kcc: cannot read file: " + file)
         emit 1
     }
-    printErr("DBG: readFile done, source len=" + len(source))
-
+    printErr("DBG1: readFile ok")
     let tokens = tokenize(source)
-    printErr("DBG: tokenize done")
+    printErr("DBG2: tokenize ok")
     let ntoks = lineCount(tokens)
-    printErr("DBG: ntoks=" + ntoks)
+    printErr("DBG3: ntoks=" + ntoks)
 
     // Resolve base directory for relative imports
     let baseDir = ""
@@ -3791,16 +3790,16 @@ just run {
     if lastSlash >= 0 {
         baseDir = substring(file, 0, lastSlash + 1)
     }
-    printErr("DBG: baseDir done")
-
     // Scan functions in main file
+    printErr("DBG4: baseDir=" + baseDir)
     let ftable = scanFunctions(tokens, ntoks)
-    printErr("DBG: scanFunctions done")
+    printErr("DBG5: scanFunctions ok")
 
     // Output the C runtime
     let sb = sbNew()
+    printErr("DBG6: sbNew ok")
     sb = sbAppend(sb, cRuntime())
-    printErr("DBG: cRuntime done")
+    printErr("DBG7: cRuntime ok")
 
     // === IMPORT PROCESSING ===
     // Walk tokens looking for import statements
@@ -3869,6 +3868,7 @@ just run {
         }
         lsi += 1
     }
+    printErr("DBG8: lambda scan ok")
 
     let ii = 0
     while ii < ntoks {
@@ -4382,6 +4382,7 @@ just run {
         }
     }
 
+    printErr("DBG9: import loop ok")
     // Emit import forward declarations
     if len(importFwdDecls) > 0 {
         sb = sbAppend(sb, importFwdDecls)
@@ -4397,6 +4398,7 @@ just run {
         sb = sbAppend(sb, importBodies)
     }
 
+    printErr("DBG9b: starting fwd decl pass")
     // === MAIN FILE FUNCTIONS ===
     // First pass: forward declarations
     let i = 0
@@ -4471,6 +4473,7 @@ just run {
         i += 1
     }
     sb = sbAppend(sb, "\n")
+    printErr("DBG9c: starting body pass")
 
     // Second pass: compile function bodies + collect global let inits
     let sbGlobals = sbNew()
@@ -4478,6 +4481,7 @@ just run {
     i = 0
     while i < ntoks {
         let tok = tokAt(tokens, i)
+        printErr("DBG-body i=" + i + " tok=" + tok)
         if tok == "LBRACE" { glDepth += 1 }
         if tok == "RBRACE" { glDepth -= 1 }
         if tok == "KW:let" && glDepth == 0 {
@@ -4581,6 +4585,7 @@ just run {
         }
     }
 
+    printErr("DBG9d: body pass done")
     // Find and compile the entry block
     let entry = findEntry(tokens, ntoks)
     if entry < 0 {
@@ -4598,11 +4603,14 @@ just run {
         sb = sbAppend(sb, globInitCode)
     }
 
+    printErr("DBG10: compileBlock start entry=" + entry)
     let bp = compileBlock(tokens, entry, ntoks, 0, "0")
     let bcode = pairVal(bp)
+    printErr("DBG11: compileBlock ok")
     sb = sbAppend(sb, bcode)
     sb = sbAppend(sb, "    return 0;\n")
     sb = sbAppend(sb, "}\n")
+    printErr("DBG12: sb built, calling print")
 
     // If --ir mode, emit IR instead of C
     if irMode {
