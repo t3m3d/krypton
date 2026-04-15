@@ -12,7 +12,7 @@ just run {
 
     // sbToString() converts builder to final string
     let result = sbToString(sb)
-    print(result)
+    kp(result)
 
     // String builder for building output
     let output = sbNew()
@@ -21,7 +21,7 @@ just run {
         output = sbAppend(output, "Line " + i + "\n")
         i = i + 1
     }
-    print(sbToString(output))
+    kp(sbToString(output))
 
     // Building CSV data
     let csv = sbNew()
@@ -29,6 +29,6 @@ just run {
     csv = sbAppend(csv, "Alice,30,NYC\n")
     csv = sbAppend(csv, "Bob,25,LA\n")
     csv = sbAppend(csv, "Carol,35,Chicago\n")
-    print("CSV Data:")
-    print(sbToString(csv))
+    kp("CSV Data:")
+    kp(sbToString(csv))
 }
