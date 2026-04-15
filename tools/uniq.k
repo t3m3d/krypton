@@ -2,7 +2,7 @@
 
 just run {
     if argCount() < 1 {
-        print("Usage: uniq <file>")
+        kp("Usage: uniq <file>")
     } else {
         let content = readFile(arg(0))
         let lc = lineCount(content)
@@ -12,7 +12,7 @@ just run {
         while i < lc {
             let line = getLine(content, i)
             if first || line != prev {
-                print(line)
+                kp(line)
                 first = 0
             }
             prev = line
