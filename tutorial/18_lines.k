@@ -7,23 +7,23 @@ just run {
 
     // lineCount counts lines
     let lc = lineCount(text)
-    print("Line count: " + lc)
+    kp("Line count: " + lc)
 
     // getLine gets a specific line (0-indexed)
     let i = 0
     while i < lc {
         let line = getLine(text, i)
-        print("[" + i + "] " + line)
+        kp("[" + i + "] " + line)
         i = i + 1
     }
 
     // Filtering lines
-    print("\nLines containing 'second' or 'third':")
+    kp("\nLines containing 'second' or 'third':")
     i = 0
     while i < lc {
         let line = getLine(text, i)
         if startsWith(line, "second") || startsWith(line, "third") {
-            print("  > " + line)
+            kp("  > " + line)
         }
         i = i + 1
     }
@@ -36,6 +36,6 @@ just run {
         sb = sbAppend(sb, "" + (i + 1) + ": " + line + "\n")
         i = i + 1
     }
-    print("\nNumbered:")
-    print(sbToString(sb))
+    kp("\nNumbered:")
+    kp(sbToString(sb))
 }
