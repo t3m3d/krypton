@@ -76,6 +76,7 @@ mono_crash.*
 *~
 build*.bat
 test*
+<<<<<<< HEAD
 _arg_opt.ir
 _arg.ir
 _c5_opt.ir
@@ -131,5 +132,6 @@ _test_strtable.k
 _test_trivial.k
 _tiny.k
 runtime/krypton_rt.dll
-runtime/krypton_rt.dll
 krypton_rt.dll
+=======
+>>>>>>> 92d7a3a747b97d42b94ca1523ec355b9839bd7c1
