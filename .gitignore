@@ -147,3 +147,12 @@ assets/
 tests/*.cpp
 _test_global_ir.k
 _run_test.bat
+_x64_r3.ir
+_x64_o3.ir
+_test_x01c.k
+_test_x01c.ir
+_test_x01c_opt.ir
+_test_simple2.k
+_x64_o4.ir
+_x64_r4.ir
+mini.k
