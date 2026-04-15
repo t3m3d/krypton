@@ -1,1 +1,3 @@
-just run { emit "ok" }
+just run {
+  emit "ok"
+}
