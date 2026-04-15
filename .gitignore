@@ -133,5 +133,17 @@ _test_trivial.k
 _tiny.k
 runtime/krypton_rt.dll
 krypton_rt.dll
-=======
->>>>>>> 92d7a3a747b97d42b94ca1523ec355b9839bd7c1
+void
+zero
+passes
+int
+kcc
+hello_test.k
+native_ir_out.txt
+krypton_rt.dll
+runtime/krypton_runtime.c
+installer/
+assets/
+tests/*.cpp
+_test_global_ir.k
+_run_test.bat

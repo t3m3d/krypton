@@ -55,6 +55,7 @@ func irGetRest(line) {
 let HEX = "0123456789ABCDEF"
 
 func hexByte(n) {
+    let HEX = "0123456789ABCDEF"
     let v = toInt(n)
     if v < 0 { v = v + 256 }
     if v > 255 { v = v % 256 }
@@ -478,6 +479,8 @@ func funcAt(csv, idx) {
 
 func iatIndexOf(funcName) {
     // Returns index within its own DLL's IAT, prefixed by "k32:" or "rt:"
+    let KR32_FUNCS = "ExitProcess"
+    let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length"
     let k32count = countFuncs(KR32_FUNCS)
     let i = 0
     while i < k32count {
@@ -509,6 +512,8 @@ func iatEntryRvaFor(funcName, iatK32BaseRva, iatRtBaseRva) {
 
 // IAT total entries (with null terminators between DLLs)
 func iatTotalEntries() {
+    let KR32_FUNCS = "ExitProcess"
+    let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length"
     emit countFuncs(KR32_FUNCS) + 1 + countFuncs(KRRT_FUNCS) + 1
 }
 
@@ -535,10 +540,14 @@ func instrSize(op, a1, a2) {
         let argc2 = toInt(a2)
         let loads = argc2
         if loads > 4 { loads = 4 }
-        // Extra args (5th+): each costs 8+8=16 bytes (MOV RAX from vst + MOV to [RSP+32])
+        // Extra args (5th+): each costs 8+8=16 bytes (MOV RAX from vst + MOV to [RSP+N])
         let extraArgSz = 0
-        if argc2 >= 5 { extraArgSz = extraArgSz + 16 }
-        if argc2 >= 6 { extraArgSz = extraArgSz + 16 }
+        if argc2 >= 5  { extraArgSz = extraArgSz + 16 }
+        if argc2 >= 6  { extraArgSz = extraArgSz + 16 }
+        if argc2 >= 7  { extraArgSz = extraArgSz + 16 }
+        if argc2 >= 8  { extraArgSz = extraArgSz + 16 }
+        if argc2 >= 9  { extraArgSz = extraArgSz + 16 }
+        if argc2 >= 10 { extraArgSz = extraArgSz + 16 }
         // loads*MOV(8) + extraArgSz + CALL(6or5) + MOV result(8)
         let callSz = 6
         let resolved = resolveBuiltin(a1)
@@ -569,7 +578,7 @@ func funcByteSize(bodyLines) {
         if lop != "PARAM" && lop != "LOCAL" && lop != "FUNC" { break }
         lpi += 1
     }
-    let frsz = 72 + lcount2 * 8 + 12 * 8  // 72=shadow+extraargs, lcount locals, 12 vstack slots
+    let frsz = 80 + lcount2 * 8 + 12 * 8  // 80=shadow+extraargs, lcount locals, 12 vstack slots
     if frsz % 16 != 8 {
         let rem2 = frsz % 16
         if rem2 < 8 { frsz = frsz + (8 - rem2) }
@@ -613,7 +622,7 @@ func collectLabelPositions(bodyLines) {
         if lop3 != "PARAM" && lop3 != "LOCAL" && lop3 != "FUNC" { break }
         lpi3 += 1
     }
-    let frsz3 = 72 + lcount3 * 8 + 12 * 8
+    let frsz3 = 80 + lcount3 * 8 + 12 * 8
     if frsz3 % 16 != 8 {
         let rem3 = frsz3 % 16
         if rem3 < 8 { frsz3 = frsz3 + (8 - rem3) }
@@ -718,9 +727,9 @@ func localCount() {
 }
 
 // Slot offset from RSP for a local.
-// Frame: [RSP+0..31]=shadow, [RSP+32..71]=extra args (5th-9th arg pass), [RSP+72..]=locals
+// Frame: [RSP+0..31]=shadow, [RSP+32..79]=extra args (5th-10th arg pass), [RSP+80..]=locals
 func localRspOff(idx) {
-    emit 72 + idx * 8
+    emit 80 + idx * 8
 }
 
 func emitLoadLocal(idx) {
@@ -1060,19 +1069,20 @@ func addRspNSz(n) { emit 7 }
 // emitFuncFull: appends machine code directly to sbOut (no return string).
 // Returns number of bytes written as a string (for realTextSize accounting).
 func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rdataBaseRva, strs, labelPositions, allFuncOffsets, sbOut) {
+    let PE_TEXT_RVA = 4096
     let count = lineCount(ir_lines)
     let vsp = 0  // virtual stack depth (slots used in frame above locals)
 
     // Frame layout (RSP fixed at RSP_frame throughout; no hardware PUSH/POP for vstack):
     //   [RSP + 0..31]          : shadow space for callees (Win64 ABI home space)
-    //   [RSP + 32..71]         : extra args area — 5th-9th args for calls we make
-    //   [RSP + 72 + i*8]       : local variable i  (localRspOff(i) = 72 + i*8)
+    //   [RSP + 32..79]         : extra args area — 5th-10th args for calls we make
+    //   [RSP + 80 + i*8]       : local variable i  (localRspOff(i) = 80 + i*8)
     //   [RSP + vstBase + i*8]  : virtual stack slot i  (N_VSTACK=12 slots)
     // RSP never moves via PUSH/POP so callee shadow space never overlaps vstack.
     // 5th arg from CALLER lands at [RSP_callee + frameSize + 40] (above our frame).
     let N_VSTACK = 12
     let lcount = lineCount(locals)
-    let vstBase = 72 + lcount * 8
+    let vstBase = 80 + lcount * 8
     let frameSize = vstBase + N_VSTACK * 8
     if frameSize % 16 != 8 {
         let rem = frameSize % 16
@@ -1245,6 +1255,26 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
                 sbOut = sbAppend(sbOut,movRspFromRax(40))                                  // 8
                 loadSz += 16
             }
+            if argc2 >= 7 {
+                sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + (vsp - argc2 + 6) * 8))   // 8
+                sbOut = sbAppend(sbOut,movRspFromRax(48))                                  // 8
+                loadSz += 16
+            }
+            if argc2 >= 8 {
+                sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + (vsp - argc2 + 7) * 8))   // 8
+                sbOut = sbAppend(sbOut,movRspFromRax(56))                                  // 8
+                loadSz += 16
+            }
+            if argc2 >= 9 {
+                sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + (vsp - argc2 + 8) * 8))   // 8
+                sbOut = sbAppend(sbOut,movRspFromRax(64))                                  // 8
+                loadSz += 16
+            }
+            if argc2 >= 10 {
+                sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + (vsp - argc2 + 9) * 8))   // 8
+                sbOut = sbAppend(sbOut,movRspFromRax(72))                                  // 8
+                loadSz += 16
+            }
             vsp -= argc2
 
             let callCode = ""
@@ -1271,7 +1301,7 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
         }
 
         if op == "LABEL" {
-            g_labelMap = g_labelMap + a1 + ":" + pos + "\n"
+            // (label positions tracked via labelPositions parameter, not g_labelMap)
         }
 
         if op == "JUMP" {
@@ -1385,6 +1415,9 @@ func emitDosHeader() {
 
 // ── PE headers ───────────────────────────────────────────────────
 func emitPEHeader(numSections, textSize, rdataSize, textRva, rdataRva, entryRva, imageSize, iatRva, iatSize) {
+    let PE_FILE_ALIGN = 512
+    let PE_HEADER_SIZE = 512
+    let PE_SECT_ALIGN = 4096
     // PE signature "PE\0\0"
     let h = hexByte(0x50) + hexByte(0x45) + hexByte(0) + hexByte(0)
 
@@ -1477,8 +1510,8 @@ func emitSectionHeader(name, virtSize, virtAddr, rawSize, rawOffset, characteris
 //   [J] IMAGE_IMPORT_BY_NAME entries for each function
 
 func buildImportTable(rdataRva, strsSize) {
-    let k32funcs = KR32_FUNCS
-    let rtfuncs = KRRT_FUNCS
+    let k32funcs = "ExitProcess"
+    let rtfuncs = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length"
     let k32count = countFuncs(k32funcs)
     let rtcount = countFuncs(rtfuncs)
 
@@ -1695,6 +1728,10 @@ just run {
 
     let PE_TEXT_FILE_OFF = 512     // 0x200
     let PE_TEXT_RVA2 = 4096        // 0x1000
+    let PE_FILE_ALIGN = 512
+    let PE_SECT_ALIGN = 4096
+    let PE_HEADER_SIZE = 512
+    let KR32_FUNCS = "ExitProcess"
 
     // ── Pass 1: accurate size calculation using instrSize ─────────────
     // Computes exact byte offsets for every function, no code emitted yet.
@@ -1706,7 +1743,7 @@ just run {
         let entry2 = getLine(funcTable, fi)
         let fname3 = funcTableName(entry2)
         let body3 = replace(funcTableBody(entry2), "\x01", "\n")
-        g_locals = collectLocals(body3)
+        let g_loc3 = collectLocals(body3)
         let fsz = funcByteSize(body3)
         if len(allFuncOffsets) > 0 { allFuncOffsets = allFuncOffsets + "\n" }
         allFuncOffsets = allFuncOffsets + fname3 + ":" + totalFuncBytes
@@ -1748,10 +1785,10 @@ just run {
         let entry3 = getLine(funcTable, fi2)
         let fname4 = funcTableName(entry3)
         let body4 = replace(funcTableBody(entry3), "\x01", "\n")
-        g_locals = collectLocals(body4)
+        let g_loc4 = collectLocals(body4)
         let funcRva2 = PE_TEXT_RVA2 + realTextSize
         let labelPositions = collectLabelPositions(body4)
-        let fbytes = toInt(emitFuncFull(body4, g_locals, funcRva2, realIatK32, realIatRtRva, realRdataRva, strs, labelPositions, allFuncOffsets, sbCode))
+        let fbytes = toInt(emitFuncFull(body4, g_loc4, funcRva2, realIatK32, realIatRtRva, realRdataRva, strs, labelPositions, allFuncOffsets, sbCode))
         realTextSize += fbytes
         fi2 += 1
     }
