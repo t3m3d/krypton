@@ -2,7 +2,7 @@
 
 just run {
     if argCount() < 1 {
-        print("Usage: sort_lines <file>")
+        kp("Usage: sort_lines <file>")
     } else {
         let content = readFile(arg(0))
         let lc = lineCount(content)
@@ -48,7 +48,7 @@ just run {
         // Print sorted
         i = 0
         while i < lc {
-            print(split(lines, i))
+            kp(split(lines, i))
             i = i + 1
         }
     }
