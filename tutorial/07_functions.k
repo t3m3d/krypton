@@ -13,7 +13,7 @@ fn multiply(a, b) {
 
 // Functions with no return just do side effects
 func greet(name) {
-    print("Hello, " + name + "!")
+    kp("Hello, " + name + "!")
 }
 
 // Functions can call other functions
@@ -38,10 +38,10 @@ func factorial(n) {
 }
 
 just run {
-    print("3 + 4 = " + add(3, 4))
-    print("3 * 4 = " + multiply(3, 4))
-    print("5^2 = " + square(5))
-    print("|-7| = " + absolute(0 - 7))
-    print("5! = " + factorial(5))
+    kp("3 + 4 = " + add(3, 4))
+    kp("3 * 4 = " + multiply(3, 4))
+    kp("5^2 = " + square(5))
+    kp("|-7| = " + absolute(0 - 7))
+    kp("5! = " + factorial(5))
     greet("World")
 }
