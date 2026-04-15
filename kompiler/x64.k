@@ -302,10 +302,14 @@ func irStrLen(s) {
             let c = tv[j + 1]
             if c == "n" || c == "t" || c == "r" || c == "\\" || c == "\"" {
                 bytes += 1
+                j += 2
+            } else if c == "x" && j + 3 < m {
+                bytes += 1
+                j += 4
             } else {
                 bytes += 2
+                j += 2
             }
-            j += 2
         } else {
             bytes += 1
             j += 1
@@ -317,6 +321,7 @@ func irStrLen(s) {
 func hexStrIR(s) {
     // Emit hex bytes of IR string: undo irPrimary then apply expandEscapes
     // Each byte uses hexByte() = "xXX" (3 chars), matching the rest of the PE builder
+    // \xNN hex escapes are decoded to their actual byte values
     let tv = irUndoPrimary(s)
     let m = len(tv)
     let out = ""
@@ -327,18 +332,36 @@ func hexStrIR(s) {
             let c = tv[j + 1]
             if c == "n" {
                 out = out + hexByte(10)
+                j += 2
             } else if c == "t" {
                 out = out + hexByte(9)
+                j += 2
             } else if c == "r" {
                 out = out + hexByte(13)
+                j += 2
             } else if c == "\\" {
                 out = out + hexByte(92)
+                j += 2
             } else if c == "\"" {
                 out = out + hexByte(34)
+                j += 2
+            } else if c == "x" && j + 3 < m {
+                let h1 = charCode(tv[j + 2])
+                let h2 = charCode(tv[j + 3])
+                let v1 = 0
+                if h1 >= 48 && h1 <= 57 { v1 = h1 - 48 }
+                else if h1 >= 97 && h1 <= 102 { v1 = h1 - 87 }
+                else if h1 >= 65 && h1 <= 70 { v1 = h1 - 55 }
+                let v2 = 0
+                if h2 >= 48 && h2 <= 57 { v2 = h2 - 48 }
+                else if h2 >= 97 && h2 <= 102 { v2 = h2 - 87 }
+                else if h2 >= 65 && h2 <= 70 { v2 = h2 - 55 }
+                out = out + hexByte(v1 * 16 + v2)
+                j += 4
             } else {
                 out = out + hexByte(92) + hexByte(charCode(c))
+                j += 2
             }
-            j += 2
         } else {
             out = out + hexByte(charCode(ch))
             j += 1
