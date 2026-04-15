@@ -2,8 +2,8 @@
 
 just run {
     if argCount() < 1 {
-        print("Usage: sum <file>")
-        print("File should contain one number per line")
+        kp("Usage: sum <file>")
+        kp("File should contain one number per line")
     } else {
         let content = readFile(arg(0))
         let lc = lineCount(content)
@@ -18,7 +18,7 @@ just run {
             }
             i = i + 1
         }
-        print("Lines: " + count)
-        print("Sum: " + total)
+        kp("Lines: " + count)
+        kp("Sum: " + total)
     }
 }
