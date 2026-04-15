@@ -33,7 +33,7 @@ func replaceAll(s, old, new) {
 
 just run {
     if argCount() < 3 {
-        print("Usage: replace <find> <replace> <file>")
+        kp("Usage: replace <find> <replace> <file>")
     } else {
         let find = arg(0)
         let repl = arg(1)
@@ -44,10 +44,10 @@ just run {
         while i < lc {
             let line = getLine(content, i)
             if contains(line, find) {
-                print(replaceAll(line, find, repl))
+                kp(replaceAll(line, find, repl))
                 changes = changes + 1
             } else {
-                print(line)
+                kp(line)
             }
             i = i + 1
         }
