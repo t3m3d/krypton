@@ -22,16 +22,16 @@ func maxSubarray(list) {
 
 just run {
     let data = "-2,1,-3,4,-1,2,1,-5,4"
-    print("Array: " + data)
-    print("Max subarray sum: " + maxSubarray(data))
+    kp("Array: " + data)
+    kp("Max subarray sum: " + maxSubarray(data))
 
     let data2 = "1,2,3,-2,5"
-    print("")
-    print("Array: " + data2)
-    print("Max subarray sum: " + maxSubarray(data2))
+    kp("")
+    kp("Array: " + data2)
+    kp("Max subarray sum: " + maxSubarray(data2))
 
     let data3 = "-1,-2,-3,-4"
-    print("")
-    print("Array: " + data3)
-    print("Max subarray sum: " + maxSubarray(data3))
+    kp("")
+    kp("Array: " + data3)
+    kp("Max subarray sum: " + maxSubarray(data3))
 }
