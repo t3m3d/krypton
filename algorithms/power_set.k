@@ -10,7 +10,7 @@ func powerSet(elements) {
         i += 1
     }
 
-    print("Power set of {" + elements + "} (" + total + " subsets):")
+    kp("Power set of {" + elements + "} (" + total + " subsets):")
 
     let mask = 0
     while mask < total {
@@ -34,7 +34,7 @@ func powerSet(elements) {
             i += 1
         }
         sb = sbAppend(sb, "}")
-        print("  " + sbToString(sb))
+        kp("  " + sbToString(sb))
         mask = mask + 1
     }
 }

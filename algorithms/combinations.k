@@ -3,7 +3,7 @@
 
 func combine(prefix, chars, start, k) {
     if len(prefix) == k {
-        print(prefix)
+        kp(prefix)
     } else {
         let i = start
         while i < len(chars) {
@@ -16,10 +16,10 @@ func combine(prefix, chars, start, k) {
 just run {
     let chars = "ABCDE"
 
-    print("Choose 2 from " + chars + ":")
+    kp("Choose 2 from " + chars + ":")
     combine("", chars, 0, 2)
 
-    print("")
-    print("Choose 3 from " + chars + ":")
+    kp("")
+    kp("Choose 3 from " + chars + ":")
     combine("", chars, 0, 3)
 }

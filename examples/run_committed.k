@@ -400,7 +400,7 @@ func envGet(env, name) {
     }
     if found == 0 {
         if name != "__argOffset" {
-            print("ERROR: undefined variable: " + name)
+            kp("ERROR: undefined variable: " + name)
         }
     }
     emit result
@@ -606,7 +606,7 @@ func findEntry(tokens, ntoks) {
         }
         i += 1
     }
-    print("ERROR: no 'go run' or 'just run' block found")
+    prkpint("ERROR: no 'go run' or 'just run' block found")
     emit -1
 }
 
@@ -942,7 +942,7 @@ func evalCall(tokens, pos, env, ftable) {
     // ── Built-in functions ──
     if fname == "print" || fname == "kp" {
         if argc > 0 {
-            print(getArg(args, 0))
+            kp(getArg(args, 0))
         }
         emit "," + p
     }
@@ -1098,7 +1098,7 @@ func evalCall(tokens, pos, env, ftable) {
     }
 
     // unknown function
-    print("ERROR: unknown function: " + fname)
+    kp("ERROR: unknown function: " + fname)
     emit "," + p
 }
 
@@ -1425,7 +1425,7 @@ just run {
 
     let entry = findEntry(tokens, ntoks)
     if entry < 0 {
-        print("No entry point found")
+        kp("No entry point found")
         emit 1
     }
 

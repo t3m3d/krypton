@@ -2,8 +2,8 @@
 
 just run {
     if argCount() < 1 {
-        print("Usage: avg <file>")
-        print("File should contain one number per line")
+        kp("Usage: avg <file>")
+        kp("File should contain one number per line")
     } else {
         let content = readFile(arg(0))
         let lc = lineCount(content)
@@ -20,11 +20,11 @@ just run {
         }
         if count > 0 {
             let avg = total / count
-            print("Count: " + count)
-            print("Sum: " + total)
-            print("Average (integer): " + avg)
+            kp("Count: " + count)
+            kp("Sum: " + total)
+            kp("Average (integer): " + avg)
         } else {
-            print("No numbers found")
+            kp("No numbers found")
         }
     }
 }

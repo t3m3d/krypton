@@ -5,12 +5,12 @@ just run {
     // Numbers are strings in Krypton
     // Arithmetic operators handle conversion automatically
     let x = 5 + 3    // Works: gives 8
-    print("5 + 3 = " + x)
+    kp("5 + 3 = " + x)
 
     // toInt explicitly converts a string to integer
     let numStr = "42"
     let num = toInt(numStr)
-    print("toInt(\"42\") + 1 = " + (num + 1))
+    kp("toInt(\"42\") + 1 = " + (num + 1))
 
     // Converting string digits
     let digits = "123"
@@ -21,10 +21,10 @@ just run {
         sum = sum + d
         i = i + 1
     }
-    print("Digit sum of " + digits + " = " + sum)
+    kp("Digit sum of " + digits + " = " + sum)
 
     // Number to string is just concatenation with ""
     let n = 100
     let s = "" + n
-    print("Length of " + n + " as string: " + len(s))
+    kp("Length of " + n + " as string: " + len(s))
 }

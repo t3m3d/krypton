@@ -62,7 +62,7 @@ func printMat(mat, rows, cols) {
             j += 1
         }
         sb = sbAppend(sb, "]")
-        print(sbToString(sb))
+        kp(sbToString(sb))
         i += 1
     }
 }
@@ -73,12 +73,12 @@ just run {
     // 3x2 matrix
     let b = "7,8,9,10,11,12"
 
-    print("Matrix A (2x3):")
+    kp("Matrix A (2x3):")
     printMat(a, 2, 3)
-    print("Matrix B (3x2):")
+    kp("Matrix B (3x2):")
     printMat(b, 3, 2)
 
     let result = matMul(a, 2, 3, b, 2)
-    print("A x B (2x2):")
+    kp("A x B (2x2):")
     printMat(result, 2, 2)
 }

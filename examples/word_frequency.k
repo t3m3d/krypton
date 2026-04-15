@@ -44,31 +44,31 @@ func countWords(text) {
 
 just run {
     const title = "Word Frequency Analyzer"
-    print(title)
-    print(repeat("=", len(title)))
+    kp(title)
+    kp(repeat("=", len(title)))
 
     const text = "the cat sat on the mat the cat ate the rat on the mat"
-    print("Text: \"" + text + "\"")
-    print("")
+    kp("Text: \"" + text + "\"")
+    kp("")
 
     const freq = countWords(text)
     const wordKeys = keys(freq)
     const wordVals = values(freq)
 
-    print("Word frequencies:")
+    kp("Word frequencies:")
     let maxCount = 0
     for i in range(0, length(wordKeys)) {
         const word = split(wordKeys, i)
         const count = split(wordVals, i)
         const bar = repeat("#", count)
-        print("  " + padRight(word, 8, " ") + padLeft(count, 2, " ") + " " + bar)
+        kp("  " + padRight(word, 8, " ") + padLeft(count, 2, " ") + " " + bar)
         if count > maxCount {
             maxCount = count
         }
     }
 
-    print("")
-    print("Total unique words: " + length(wordKeys))
-    print("Most frequent count: " + maxCount)
+    kp("")
+    kp("Total unique words: " + length(wordKeys))
+    kp("Most frequent count: " + maxCount)
     emit "ok"
 }

@@ -28,25 +28,25 @@ func extGcd(a, b) {
 }
 
 just run {
-    print("GCD and LCM")
-    print("============")
+    kp("GCD and LCM")
+    kp("============")
 
     let pairs = "12,8,54,24,17,13,100,75,48,36"
     let i = 0
     while i < 5 {
         let a = toInt(split(pairs, i * 2))
         let b = toInt(split(pairs, i * 2 + 1))
-        print("  gcd(" + a + ", " + b + ") = " + gcd(a, b))
-        print("  lcm(" + a + ", " + b + ") = " + lcm(a, b))
+        kp("  gcd(" + a + ", " + b + ") = " + gcd(a, b))
+        kp("  lcm(" + a + ", " + b + ") = " + lcm(a, b))
         i += 1
     }
 
-    print("")
-    print("Extended GCD:")
+    kp("")
+    kp("Extended GCD:")
     let eg = extGcd(35, 15)
     let g = split(eg, 0)
     let x = split(eg, 1)
     let y = split(eg, 2)
-    print("  extGcd(35, 15) = gcd=" + g + " x=" + x + " y=" + y)
-    print("  Verify: 35*" + x + " + 15*" + y + " = " + (35 * toInt(x) + 15 * toInt(y)))
+    kp("  extGcd(35, 15) = gcd=" + g + " x=" + x + " y=" + y)
+    kp("  Verify: 35*" + x + " + 15*" + y + " = " + (35 * toInt(x) + 15 * toInt(y)))
 }

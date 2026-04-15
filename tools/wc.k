@@ -23,13 +23,13 @@ func countWords(text) {
 
 just run {
     if argCount() < 1 {
-        print("Usage: wc <file>")
+        kp("Usage: wc <file>")
     } else {
         let filename = arg(0)
         let content = readFile(filename)
         let lines = lineCount(content)
         let words = countWords(content)
         let chars = len(content)
-        print("  " + lines + "  " + words + "  " + chars + "  " + filename)
+        kp("  " + lines + "  " + words + "  " + chars + "  " + filename)
     }
 }
