@@ -185,11 +185,15 @@ func readBacktickString(text, i) {
 }
 
 func tokenize(text) {
+    printErr("tokenize: entered, len=" + len(text))
     let out = ""
     let i = 0
+    printErr("tokenize: before loop")
 
     while i < len(text) {
+        printErr("tokenize: loop i=" + i)
         i = skipWS(text, i)
+        printErr("tokenize: after skipWS i=" + i)
 
         if i >= len(text) {
             break
@@ -3598,7 +3602,7 @@ func irForIR(tokens, pos, ntoks, lc, inFunc) {
     let bp = irBlockIR(tokens, p, ntoks, nlc, inFunc)
     let bodyCode = pairVal(bp)
     p = pairPos(bp)
-    let code = collCode + "STORE " + colVar + "\n"
+    let code = collCode + "LOCAL " + colVar + "\n" + "STORE " + colVar + "\n"
     code = code + "LOCAL " + idxVar + "\n" + "PUSH 0\n" + "STORE " + idxVar + "\n"
     code = code + "LOCAL " + cntVar + "\n" + "LOAD " + colVar + "\n" + "BUILTIN length 1\n" + "STORE " + cntVar + "\n"
     code = code + "LABEL " + loopLabel + "\n"
@@ -3739,6 +3743,7 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
 
 
 just run {
+    printErr("KCC-NATIVE: ALIVE")
     let kccVer = "1.2.7"
 
     // Parse flags: --version, --ir, --headers PATH
@@ -3746,6 +3751,7 @@ just run {
     let headersDir = ""
     let file = arg("0")
     let argIdx = 0
+    printErr("KCC-NATIVE: args parsed file=" + file)
 
     if file == "--version" || file == "-v" {
         printErr("kcc version " + kccVer)
@@ -3764,19 +3770,19 @@ just run {
         }
         file = arg(argIdx + "")
     }
+    printErr("KCC-NATIVE: flags done, file=" + file)
 
     let source = readFile(file)
+    printErr("KCC-NATIVE: readFile done, len=" + len(source))
 
     if len(source) == 0 {
         printErr("kcc: cannot read file: " + file)
         emit 1
     }
-    printErr("DBG1: readFile ok")
     let tokens = tokenize(source)
-    printErr("DBG2: tokenize ok")
-    printErr("DBG2b: tokens=" + tokens)
+    printErr("KCC-NATIVE: tokenize done")
     let ntoks = lineCount(tokens)
-    printErr("DBG3: ntoks=" + ntoks)
+    printErr("KCC-NATIVE: ntoks=" + ntoks)
 
     // Resolve base directory for relative imports
     let baseDir = ""
@@ -3792,15 +3798,11 @@ just run {
         baseDir = substring(file, 0, lastSlash + 1)
     }
     // Scan functions in main file
-    printErr("DBG4: baseDir=" + baseDir)
     let ftable = scanFunctions(tokens, ntoks)
-    printErr("DBG5: scanFunctions ok")
 
     // Output the C runtime
     let sb = sbNew()
-    printErr("DBG6: sbNew ok")
     sb = sbAppend(sb, cRuntime())
-    printErr("DBG7: cRuntime ok")
 
     // === IMPORT PROCESSING ===
     // Walk tokens looking for import statements
@@ -3869,7 +3871,6 @@ just run {
         }
         lsi += 1
     }
-    printErr("DBG8: lambda scan ok")
 
     let ii = 0
     while ii < ntoks {
@@ -4383,7 +4384,6 @@ just run {
         }
     }
 
-    printErr("DBG9: import loop ok")
     // Emit import forward declarations
     if len(importFwdDecls) > 0 {
         sb = sbAppend(sb, importFwdDecls)
@@ -4399,7 +4399,6 @@ just run {
         sb = sbAppend(sb, importBodies)
     }
 
-    printErr("DBG9b: starting fwd decl pass")
     // === MAIN FILE FUNCTIONS ===
     // First pass: forward declarations
     let i = 0
@@ -4474,7 +4473,6 @@ just run {
         i += 1
     }
     sb = sbAppend(sb, "\n")
-    printErr("DBG9c: starting body pass")
 
     // Second pass: compile function bodies + collect global let inits
     let sbGlobals = sbNew()
@@ -4482,7 +4480,6 @@ just run {
     i = 0
     while i < ntoks {
         let tok = tokAt(tokens, i)
-        printErr("DBG-body i=" + i + " tok=" + tok)
         if tok == "LBRACE" { glDepth += 1 }
         if tok == "RBRACE" { glDepth -= 1 }
         if tok == "KW:let" && glDepth == 0 {
@@ -4587,7 +4584,6 @@ just run {
         }
     }
 
-    printErr("DBG9d: body pass done")
     // Find and compile the entry block
     let entry = findEntry(tokens, ntoks)
     if entry < 0 {
@@ -4605,14 +4601,11 @@ just run {
         sb = sbAppend(sb, globInitCode)
     }
 
-    printErr("DBG10: compileBlock start entry=" + entry)
     let bp = compileBlock(tokens, entry, ntoks, 0, "0")
     let bcode = pairVal(bp)
-    printErr("DBG11: compileBlock ok")
     sb = sbAppend(sb, bcode)
     sb = sbAppend(sb, "    return 0;\n")
     sb = sbAppend(sb, "}\n")
-    printErr("DBG12: sb built, calling print")
 
     // If --ir mode, emit IR instead of C
     if irMode {
