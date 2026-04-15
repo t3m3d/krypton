@@ -38,6 +38,6 @@ func insertionSort(list) {
 
 just run {
     let data = "12,11,13,5,6"
-    print("Before: " + data)
-    print("After:  " + insertionSort(data))
+    kp("Before: " + data)
+    kp("After:  " + insertionSort(data))
 }
