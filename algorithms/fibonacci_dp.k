@@ -16,16 +16,16 @@ func fibDP(n) {
 }
 
 just run {
-    print("Fibonacci (DP)")
-    print("==============")
+    kp("Fibonacci (DP)")
+    kp("==============")
     let i = 0
     while i <= 30 {
-        print("  fib(" + i + ") = " + fibDP(i))
+        kp("  fib(" + i + ") = " + fibDP(i))
         i = i + 5
     }
 
     // Compare performance: DP handles large n easily
-    print("")
-    print("fib(40) = " + fibDP(40))
-    print("fib(50) = " + fibDP(50))
+    kp("")
+    kp("fib(40) = " + fibDP(40))
+    kp("fib(50) = " + fibDP(50))
 }
