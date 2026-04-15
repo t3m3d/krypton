@@ -13,18 +13,18 @@ just run {
     // Comma-separated values act as lists
     let fruits = "apple,banana,cherry,date"
 
-    print("List: " + fruits)
-    print("Size: " + listSize(fruits))
+    kp("List: " + fruits)
+    kp("Size: " + listSize(fruits))
 
     // Access by index using split()
-    print("First: " + split(fruits, 0))
-    print("Third: " + split(fruits, 2))
+    kp("First: " + split(fruits, 0))
+    kp("Third: " + split(fruits, 2))
 
     // Iterate over the list
     let i = 0
     let n = count(fruits)
     while i < n {
-        print("  [" + i + "] " + split(fruits, i))
+        kp("  [" + i + "] " + split(fruits, i))
         i = i + 1
     }
 
@@ -38,5 +38,5 @@ just run {
         numbers = numbers + "" + (i * i)
         i = i + 1
     }
-    print("Squares: " + numbers)
+    kp("Squares: " + numbers)
 }
