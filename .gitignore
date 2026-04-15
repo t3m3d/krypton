@@ -76,7 +76,6 @@ mono_crash.*
 *~
 build*.bat
 test*
-<<<<<<< HEAD
 _arg_opt.ir
 _arg.ir
 _c5_opt.ir
