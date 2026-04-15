@@ -2,5 +2,5 @@
 // The simplest Krypton program
 
 just run {
-    print("Hello, World!")
+    kp("Hello, World!")
 }
