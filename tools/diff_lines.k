@@ -2,7 +2,7 @@
 
 just run {
     if argCount() < 2 {
-        print("Usage: diff_lines <file1> <file2>")
+        kp("Usage: diff_lines <file1> <file2>")
     } else {
         let c1 = readFile(arg(0))
         let c2 = readFile(arg(1))
@@ -20,18 +20,18 @@ just run {
             if i < lc2 { l2 = getLine(c2, i) }
 
             if l1 != l2 {
-                print("Line " + (i + 1) + ":")
-                print("  < " + l1)
-                print("  > " + l2)
+                kp("Line " + (i + 1) + ":")
+                kp("  < " + l1)
+                kp("  > " + l2)
                 diffs = diffs + 1
             }
             i = i + 1
         }
 
         if diffs == 0 {
-            print("Files are identical")
+            kp("Files are identical")
         } else {
-            print("" + diffs + " line(s) differ")
+            kp("" + diffs + " line(s) differ")
         }
     }
 }
