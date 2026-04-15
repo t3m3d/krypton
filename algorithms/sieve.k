@@ -35,11 +35,11 @@ func sieve(limit) {
         }
         i += 1
     }
-    print("Found " + count + " primes up to " + limit)
+    kp("Found " + count + " primes up to " + limit)
     emit primes
 }
 
 just run {
     let primes = sieve(50)
-    print("Primes: " + primes)
+    kp("Primes: " + primes)
 }
