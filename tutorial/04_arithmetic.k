@@ -6,20 +6,20 @@ just run {
     let a = 10
     let b = 3
 
-    print("a = " + a)
-    print("b = " + b)
+    kp("a = " + a)
+    kp("b = " + b)
 
     // Basic operations
-    print("a + b = " + (a + b))
-    print("a - b = " + (a - b))
-    print("a * b = " + (a * b))
-    print("a / b = " + (a / b))   // Integer division
-    print("a % b = " + (a % b))   // Modulo (remainder)
+    kp("a + b = " + (a + b))
+    kp("a - b = " + (a - b))
+    kp("a * b = " + (a * b))
+    kp("a / b = " + (a / b))   // Integer division
+    kp("a % b = " + (a % b))   // Modulo (remainder)
 
     // Order of operations
     let result = 2 + 3 * 4
-    print("2 + 3 * 4 = " + result)
+    kp("2 + 3 * 4 = " + result)
 
     let result2 = (2 + 3) * 4
-    print("(2 + 3) * 4 = " + result2)
+    kp("(2 + 3) * 4 = " + result2)
 }
