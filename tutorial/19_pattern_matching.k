@@ -26,7 +26,7 @@ just run {
     while i < lc {
         let line = getLine(code, i)
         let kind = classify(line)
-        print("[" + kind + "] " + line)
+        kp("[" + kind + "] " + line)
         i = i + 1
     }
 }

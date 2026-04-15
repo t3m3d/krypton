@@ -3,7 +3,7 @@
 
 just run {
     if argCount() < 1 {
-        print("Usage: freq <file>")
+        kp("Usage: freq <file>")
     } else {
         let content = readFile(arg(0))
         let lc = lineCount(content)
@@ -36,7 +36,7 @@ just run {
         while i < uniqCount {
             let line = split(uniqLines, i)
             let cnt = envGet(env, line)
-            print("  " + cnt + " " + line)
+            kp("  " + cnt + " " + line)
             i = i + 1
         }
     }

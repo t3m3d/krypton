@@ -75,5 +75,5 @@ just run {
         }
     }
 
-    print("DFS from node 0: " + order)
+    kp("DFS from node 0: " + order)
 }

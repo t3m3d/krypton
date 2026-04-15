@@ -1,7 +1,7 @@
 just run {
-    print("abc")
-    print("10")
-    print("10 > 5")
-    print("hello0world")
-    print("a0b")
+    kp("abc")
+    kp("10")
+    kp("10 > 5")
+    kp("hello0world")
+    kp("a0b")
 }

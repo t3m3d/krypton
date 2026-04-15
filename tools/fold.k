@@ -17,7 +17,7 @@ func wrapLine(line, width) {
 
 just run {
     if argCount() < 1 {
-        print("Usage: fold <file> [width]")
+        kp("Usage: fold <file> [width]")
     } else {
         let width = 80
         if argCount() >= 2 {
@@ -29,9 +29,9 @@ just run {
         while i < lc {
             let line = getLine(content, i)
             if len(line) <= width {
-                print(line)
+                kp(line)
             } else {
-                print(wrapLine(line, width))
+                kp(wrapLine(line, width))
             }
             i = i + 1
         }

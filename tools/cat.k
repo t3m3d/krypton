@@ -2,7 +2,7 @@
 
 just run {
     if argCount() < 1 {
-        print("Usage: cat <file> [file2] ...")
+        kp("Usage: cat <file> [file2] ...")
     } else {
         let i = 0
         while i < argCount() {
@@ -10,7 +10,7 @@ just run {
             let lc = lineCount(content)
             let j = 0
             while j < lc {
-                print(getLine(content, j))
+                kp(getLine(content, j))
                 j = j + 1
             }
             i = i + 1
