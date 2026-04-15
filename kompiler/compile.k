@@ -185,15 +185,11 @@ func readBacktickString(text, i) {
 }
 
 func tokenize(text) {
-    printErr("tokenize: entered, len=" + len(text))
     let out = ""
     let i = 0
-    printErr("tokenize: before loop")
 
     while i < len(text) {
-        printErr("tokenize: loop i=" + i)
         i = skipWS(text, i)
-        printErr("tokenize: after skipWS i=" + i)
 
         if i >= len(text) {
             break
@@ -3743,15 +3739,13 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
 
 
 just run {
-    printErr("KCC-NATIVE: ALIVE")
-    let kccVer = "1.2.7"
+    let kccVer = "1.3.0"
 
     // Parse flags: --version, --ir, --headers PATH
     let irMode = 0
     let headersDir = ""
     let file = arg("0")
     let argIdx = 0
-    printErr("KCC-NATIVE: args parsed file=" + file)
 
     if file == "--version" || file == "-v" {
         printErr("kcc version " + kccVer)
@@ -3770,19 +3764,15 @@ just run {
         }
         file = arg(argIdx + "")
     }
-    printErr("KCC-NATIVE: flags done, file=" + file)
 
     let source = readFile(file)
-    printErr("KCC-NATIVE: readFile done, len=" + len(source))
 
     if len(source) == 0 {
         printErr("kcc: cannot read file: " + file)
         emit 1
     }
     let tokens = tokenize(source)
-    printErr("KCC-NATIVE: tokenize done")
     let ntoks = lineCount(tokens)
-    printErr("KCC-NATIVE: ntoks=" + ntoks)
 
     // Resolve base directory for relative imports
     let baseDir = ""
