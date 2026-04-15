@@ -283,22 +283,10 @@ func alignUp(v, a) {
 
 func irUndoPrimary(s) {
     // Reverse irPrimary's escaping: \\n -> \n and \\t -> \t
-    // Scan char-by-char so we correctly handle sequences like \\\n -> \\n
-    let n = len(s)
-    let out = ""
-    let i = 0
-    while i < n {
-        if s[i] == "\\" && i + 2 < n && s[i + 1] == "\\" && s[i + 2] == "n" {
-            out = out + "\\" + "n"
-            i += 3
-        } else if s[i] == "\\" && i + 2 < n && s[i + 1] == "\\" && s[i + 2] == "t" {
-            out = out + "\\" + "t"
-            i += 3
-        } else {
-            out = out + s[i]
-            i += 1
-        }
-    }
+    // Use replace (not char-by-char loop) to avoid kr_plus numeric-addition bug:
+    // e.g. building "20" char-by-char gives kr_plus("2","0")=2 (adds instead of concat)
+    let out = replace(s, "\\" + "\\" + "n", "\\" + "n")
+    out = replace(out, "\\" + "\\" + "t", "\\" + "t")
     emit out
 }
 
@@ -333,7 +321,8 @@ func hexStrIR(s) {
     let out = ""
     let j = 0
     while j < m {
-        if tv[j] == "\\" && j + 1 < m {
+        let ch = tv[j]
+        if ch == "\\" && j + 1 < m {
             let c = tv[j + 1]
             if c == "n" {
                 out = out + hexByte(10)
@@ -350,7 +339,7 @@ func hexStrIR(s) {
             }
             j += 2
         } else {
-            out = out + hexByte(charCode(tv[j]))
+            out = out + hexByte(charCode(ch))
             j += 1
         }
     }
@@ -425,7 +414,7 @@ func emitStringTable(strs) {
 //                     kr_truthy, kr_print, kr_printerr, kr_exit
 
 let KR32_FUNCS = "ExitProcess"
-let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes"
+let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length"
 
 // Map IR builtin names to krypton_rt.dll function names
 func resolveBuiltin(name) {
@@ -444,6 +433,8 @@ func resolveBuiltin(name) {
     if name == "isDigit"     { emit "kr_isdigit" }
     if name == "replace"     { emit "kr_replace" }
     if name == "split"       { emit "kr_split" }
+    if name == "range"       { emit "kr_range" }
+    if name == "length"      { emit "kr_length" }
     if name == "readFile"    { emit "kr_readfile" }
     if name == "arg"         { emit "kr_arg" }
     if name == "sbNew"       { emit "kr_sbnew" }
@@ -1066,9 +1057,10 @@ func addRspNSz(n) { emit 7 }
 // Generates the actual hex-encoded function machine code
 // with known addresses for everything.
 
-func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rdataBaseRva, strs, labelPositions, allFuncOffsets) {
+// emitFuncFull: appends machine code directly to sbOut (no return string).
+// Returns number of bytes written as a string (for realTextSize accounting).
+func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rdataBaseRva, strs, labelPositions, allFuncOffsets, sbOut) {
     let count = lineCount(ir_lines)
-    let code = ""
     let vsp = 0  // virtual stack depth (slots used in frame above locals)
 
     // Frame layout (RSP fixed at RSP_frame throughout; no hardware PUSH/POP for vstack):
@@ -1089,7 +1081,7 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
     }
 
     // prologue: SUB RSP, frameSize
-    code = code + subRspN(frameSize)
+    sbOut = sbAppend(sbOut, subRspN(frameSize))
     let pos = subRspNSz(frameSize)
 
     // Save parameters from registers to local slots
@@ -1100,16 +1092,16 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
         let op = irGetOp(line)
         if op == "PARAM" {
             let off = localRspOff(paramIdx)
-            if paramIdx == 0 { code = code + movRspFromRcx(off)  pos += 8 }
-            if paramIdx == 1 { code = code + movRspFromRdx(off)  pos += 8 }
-            if paramIdx == 2 { code = code + movRspFromR8(off)   pos += 8 }
-            if paramIdx == 3 { code = code + movRspFromR9(off)   pos += 8 }
+            if paramIdx == 0 { sbOut = sbAppend(sbOut,movRspFromRcx(off))  pos += 8 }
+            if paramIdx == 1 { sbOut = sbAppend(sbOut,movRspFromRdx(off))  pos += 8 }
+            if paramIdx == 2 { sbOut = sbAppend(sbOut,movRspFromR8(off))   pos += 8 }
+            if paramIdx == 3 { sbOut = sbAppend(sbOut,movRspFromR9(off))   pos += 8 }
             if paramIdx >= 4 {
                 // 5th+ arg: caller put it at [RSP + frameSize + 40 + (paramIdx-4)*8]
                 // (above callee's frame in caller's extra-args area)
                 let stackArgOff = frameSize + 40 + (paramIdx - 4) * 8
-                code = code + movRaxFromRsp(stackArgOff)   // MOV RAX, [RSP+stackArgOff] (8)
-                code = code + movRspFromRax(off)           // MOV [RSP+localOff], RAX    (8)
+                sbOut = sbAppend(sbOut,movRaxFromRsp(stackArgOff))   // MOV RAX, [RSP+stackArgOff] (8)
+                sbOut = sbAppend(sbOut,movRspFromRax(off))           // MOV [RSP+localOff], RAX    (8)
                 pos += 16
             }
             paramIdx += 1
@@ -1132,8 +1124,8 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
                 if getLine(locals, li) == a1 { idx = li  break }
                 li += 1
             }
-            code = code + hexByte(0x33) + hexByte(0xC0)    // XOR EAX, EAX  (2)
-            code = code + movRspFromRax(localRspOff(idx))   // MOV [RSP+off], RAX (8)
+            sbOut = sbAppend(sbOut,hexByte(0x33) + hexByte(0xC0))    // XOR EAX, EAX  (2)
+            sbOut = sbAppend(sbOut,movRspFromRax(localRspOff(idx)))   // MOV [RSP+off], RAX (8)
             pos += 10
         }
 
@@ -1144,8 +1136,8 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
             if startsWith(val, "\"") { sval = substring(val, 1, len(val) - 1) }
             let soff = strOffset(strs, sval)
             let disp = (rdataBaseRva + soff) - (funcBaseRva + pos + 7)
-            code = code + hexByte(0x48) + hexByte(0x8D) + hexByte(0x05) + hexDword(disp)
-            code = code + movRspFromRax(vstBase + vsp * 8)
+            sbOut = sbAppend(sbOut,hexByte(0x48) + hexByte(0x8D) + hexByte(0x05) + hexDword(disp))
+            sbOut = sbAppend(sbOut,movRspFromRax(vstBase + vsp * 8))
             pos += 15
             vsp += 1
         }
@@ -1158,8 +1150,8 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
                 if getLine(locals, li2) == a1 { idx = li2  break }
                 li2 += 1
             }
-            code = code + movRaxFromRsp(localRspOff(idx))
-            code = code + movRspFromRax(vstBase + vsp * 8)
+            sbOut = sbAppend(sbOut,movRaxFromRsp(localRspOff(idx)))
+            sbOut = sbAppend(sbOut,movRspFromRax(vstBase + vsp * 8))
             pos += 16
             vsp += 1
         }
@@ -1173,17 +1165,17 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
                 li3 += 1
             }
             vsp -= 1
-            code = code + movRaxFromRsp(vstBase + vsp * 8)
-            code = code + movRspFromRax(localRspOff(idx))
+            sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + vsp * 8))
+            sbOut = sbAppend(sbOut,movRspFromRax(localRspOff(idx)))
             pos += 16
         }
 
         if op == "RETURN" {
             // MOV RAX, [RSP+vstSlot]  (8) + ADD RSP, frameSize  (7) + RET  (1) = 16
             vsp -= 1
-            code = code + movRaxFromRsp(vstBase + vsp * 8)
-            code = code + addRspN(frameSize)
-            code = code + hexByte(0xC3)
+            sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + vsp * 8))
+            sbOut = sbAppend(sbOut,addRspN(frameSize))
+            sbOut = sbAppend(sbOut,hexByte(0xC3))
             pos += 16
         }
 
@@ -1206,14 +1198,14 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
             if op == "GT"  { rtFunc = "kr_gt" }
             if op == "LTE" { rtFunc = "kr_lte" }
             if op == "GTE" { rtFunc = "kr_gte" }
-            code = code + movRdxFromRsp(vstBase + (vsp - 1) * 8)   // RDX = b  (8)
-            code = code + movRcxFromRsp(vstBase + (vsp - 2) * 8)   // RCX = a  (8)
+            sbOut = sbAppend(sbOut,movRdxFromRsp(vstBase + (vsp - 1) * 8))   // RDX = b  (8)
+            sbOut = sbAppend(sbOut,movRcxFromRsp(vstBase + (vsp - 2) * 8))   // RCX = a  (8)
             vsp -= 2
             let iatEntryRva = iatEntryRvaFor(rtFunc, iatK32BaseRva, iatRtBaseRva)
             // CALL at pos+16, RIP after CALL = pos+22
             let disp2 = iatEntryRva - (funcBaseRva + pos + 22)
-            code = code + hexByte(0xFF) + hexByte(0x15) + hexDword(disp2)   // 6 bytes
-            code = code + movRspFromRax(vstBase + vsp * 8)                   // 8 bytes
+            sbOut = sbAppend(sbOut,hexByte(0xFF) + hexByte(0x15) + hexDword(disp2))   // 6 bytes
+            sbOut = sbAppend(sbOut,movRspFromRax(vstBase + vsp * 8))                   // 8 bytes
             vsp += 1
             pos += 30
         }
@@ -1222,12 +1214,12 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
         if op == "NEG" || op == "NOT" {
             let rtFunc = "kr_neg"
             if op == "NOT" { rtFunc = "kr_not" }
-            code = code + movRcxFromRsp(vstBase + (vsp - 1) * 8)   // RCX = top  (8)
+            sbOut = sbAppend(sbOut,movRcxFromRsp(vstBase + (vsp - 1) * 8))   // RCX = top  (8)
             // CALL at pos+8, RIP after CALL = pos+14
             let iatEntryRvaNeg = iatEntryRvaFor(rtFunc, iatK32BaseRva, iatRtBaseRva)
             let disp3 = iatEntryRvaNeg - (funcBaseRva + pos + 14)
-            code = code + hexByte(0xFF) + hexByte(0x15) + hexDword(disp3)   // 6 bytes
-            code = code + movRspFromRax(vstBase + (vsp - 1) * 8)             // replace top  (8)
+            sbOut = sbAppend(sbOut,hexByte(0xFF) + hexByte(0x15) + hexDword(disp3))   // 6 bytes
+            sbOut = sbAppend(sbOut,movRspFromRax(vstBase + (vsp - 1) * 8))             // replace top  (8)
             pos += 22
             // vsp unchanged (pop 1, push 1)
         }
@@ -1237,20 +1229,20 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
             // RCX=arg[0], RDX=arg[1], R8=arg[2], R9=arg[3]
             let argc2 = toInt(a2)
             let loadSz = 0
-            if argc2 >= 1 { code = code + movRcxFromRsp(vstBase + (vsp - argc2) * 8)       loadSz += 8 }
-            if argc2 >= 2 { code = code + movRdxFromRsp(vstBase + (vsp - argc2 + 1) * 8)   loadSz += 8 }
-            if argc2 >= 3 { code = code + movR8FromRsp(vstBase + (vsp - argc2 + 2) * 8)    loadSz += 8 }
-            if argc2 >= 4 { code = code + movR9FromRsp(vstBase + (vsp - argc2 + 3) * 8)    loadSz += 8 }
+            if argc2 >= 1 { sbOut = sbAppend(sbOut,movRcxFromRsp(vstBase + (vsp - argc2) * 8))       loadSz += 8 }
+            if argc2 >= 2 { sbOut = sbAppend(sbOut,movRdxFromRsp(vstBase + (vsp - argc2 + 1) * 8))   loadSz += 8 }
+            if argc2 >= 3 { sbOut = sbAppend(sbOut,movR8FromRsp(vstBase + (vsp - argc2 + 2) * 8))    loadSz += 8 }
+            if argc2 >= 4 { sbOut = sbAppend(sbOut,movR9FromRsp(vstBase + (vsp - argc2 + 3) * 8))    loadSz += 8 }
             // 5th+ args: write to [RSP+32 + (i-4)*8] (caller's extra-args area)
             // Callee reads these from [RSP_callee + frameSize + 40 + (i-4)*8]
             if argc2 >= 5 {
-                code = code + movRaxFromRsp(vstBase + (vsp - argc2 + 4) * 8)   // 8
-                code = code + movRspFromRax(32)                                  // 8
+                sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + (vsp - argc2 + 4) * 8))   // 8
+                sbOut = sbAppend(sbOut,movRspFromRax(32))                                  // 8
                 loadSz += 16
             }
             if argc2 >= 6 {
-                code = code + movRaxFromRsp(vstBase + (vsp - argc2 + 5) * 8)   // 8
-                code = code + movRspFromRax(40)                                  // 8
+                sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + (vsp - argc2 + 5) * 8))   // 8
+                sbOut = sbAppend(sbOut,movRspFromRax(40))                                  // 8
                 loadSz += 16
             }
             vsp -= argc2
@@ -1272,8 +1264,8 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
                 callCode = hexByte(0xE8) + hexDword(userDisp)
                 callSz = 5
             }
-            code = code + callCode
-            code = code + movRspFromRax(vstBase + vsp * 8)   // store result  (8)
+            sbOut = sbAppend(sbOut,callCode)
+            sbOut = sbAppend(sbOut,movRspFromRax(vstBase + vsp * 8))   // store result  (8)
             vsp += 1
             pos += loadSz + callSz + 8
         }
@@ -1285,25 +1277,25 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
         if op == "JUMP" {
             let jmpTarget = labelLookup(labelPositions, a1)
             let jmpDisp = jmpTarget - (pos + 5)
-            code = code + hexByte(0xE9) + hexDword(jmpDisp)
+            sbOut = sbAppend(sbOut,hexByte(0xE9) + hexDword(jmpDisp))
             pos += 5
         }
 
         if op == "JUMPIF" || op == "JUMPIFNOT" {
             // MOV RCX(8) + CALL[kr_truthy](6) + TEST(2) + JCC(6) = 22 bytes
             // CALL at pos+8, RIP after = pos+14; JCC at pos+16, RIP after = pos+22
-            code = code + movRcxFromRsp(vstBase + (vsp - 1) * 8)
+            sbOut = sbAppend(sbOut,movRcxFromRsp(vstBase + (vsp - 1) * 8))
             vsp -= 1
             let iatRva3 = iatEntryRvaFor("kr_truthy", iatK32BaseRva, iatRtBaseRva)
             let disp5 = iatRva3 - (funcBaseRva + pos + 14)
-            code = code + hexByte(0xFF) + hexByte(0x15) + hexDword(disp5)
-            code = code + hexByte(0x85) + hexByte(0xC0)   // TEST EAX, EAX
+            sbOut = sbAppend(sbOut,hexByte(0xFF) + hexByte(0x15) + hexDword(disp5))
+            sbOut = sbAppend(sbOut,hexByte(0x85) + hexByte(0xC0))   // TEST EAX, EAX
             let jcTarget = labelLookup(labelPositions, a1)
             let jcDisp = jcTarget - (pos + 22)
             if op == "JUMPIF" {
-                code = code + hexByte(0x0F) + hexByte(0x85) + hexDword(jcDisp)  // JNE
+                sbOut = sbAppend(sbOut,hexByte(0x0F) + hexByte(0x85) + hexDword(jcDisp))  // JNE
             } else {
-                code = code + hexByte(0x0F) + hexByte(0x84) + hexDword(jcDisp)  // JE
+                sbOut = sbAppend(sbOut,hexByte(0x0F) + hexByte(0x84) + hexDword(jcDisp))  // JE
             }
             pos += 22
         }
@@ -1311,50 +1303,59 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
         if op == "INDEX" {
             // s[i]: string at vsp-2, index at vsp-1 → kr_idx(string, index)
             // MOV RDX(8) + MOV RCX(8) + CALL(6) + MOV result(8) = 30 bytes
-            code = code + movRdxFromRsp(vstBase + (vsp - 1) * 8)   // index → RDX  (8)
-            code = code + movRcxFromRsp(vstBase + (vsp - 2) * 8)   // string → RCX (8)
+            sbOut = sbAppend(sbOut,movRdxFromRsp(vstBase + (vsp - 1) * 8))   // index → RDX  (8)
+            sbOut = sbAppend(sbOut,movRcxFromRsp(vstBase + (vsp - 2) * 8))   // string → RCX (8)
             vsp -= 2
             let iatIdx = iatEntryRvaFor("kr_idx", iatK32BaseRva, iatRtBaseRva)
             // CALL at pos+16, RIP after = pos+22
             let dispIdx = iatIdx - (funcBaseRva + pos + 22)
-            code = code + hexByte(0xFF) + hexByte(0x15) + hexDword(dispIdx)   // 6 bytes
-            code = code + movRspFromRax(vstBase + vsp * 8)   // 8 bytes
+            sbOut = sbAppend(sbOut,hexByte(0xFF) + hexByte(0x15) + hexDword(dispIdx))   // 6 bytes
+            sbOut = sbAppend(sbOut,movRspFromRax(vstBase + vsp * 8))   // 8 bytes
             vsp += 1
             pos += 30
         }
 
         if op == "BREAK" {
-            let wlc = lineCount(labelPositions)
-            let wli = 0
-            let wendTarget = -1
-            while wli < wlc {
-                let wlentry = getLine(labelPositions, wli)
-                let wlci = 0
-                while wlci < len(wlentry) && wlentry[wlci] != ":" { wlci += 1 }
-                let wlname = substring(wlentry, 0, wlci)
-                let wlpos = toInt(substring(wlentry, wlci + 1, len(wlentry)))
-                if startsWith(wlname, "_wend_") && wlpos > pos {
-                    if wendTarget == -1 { wendTarget = wlpos }
-                    if wlpos < wendTarget { wendTarget = wlpos }
+            // Find innermost enclosing while loop via balanced backward scan.
+            // Going backward: each _wend_ we pass increases nesting depth;
+            // each _wloop_ decreases depth. When depth==0 and we see _wloop_N,
+            // _wend_N is the BREAK target.
+            let depth = 0
+            let bk = i - 1
+            let wendName = ""
+            while bk >= 0 && len(wendName) == 0 {
+                let bkline = getLine(ir_lines, bk)
+                let bkop = irGetOp(bkline)
+                if bkop == "LABEL" {
+                    let bklabel = irGetArg1(bkline)
+                    if startsWith(bklabel, "_wend_") { depth += 1 }
+                    if startsWith(bklabel, "_wloop_") {
+                        if depth == 0 {
+                            let loopNum = substring(bklabel, 7, len(bklabel))
+                            wendName = "_wend_" + loopNum
+                        }
+                        if depth > 0 { depth -= 1 }
+                    }
                 }
-                wli += 1
+                bk -= 1
             }
+            let wendTarget = labelLookup(labelPositions, wendName)
             let breakDisp = wendTarget - (pos + 5)
-            code = code + hexByte(0xE9) + hexDword(breakDisp)
+            sbOut = sbAppend(sbOut,hexByte(0xE9) + hexDword(breakDisp))
             pos += 5
         }
 
         if op == "END" {
-            code = code + hexByte(0x33) + hexByte(0xC0)   // XOR EAX, EAX (2)
-            code = code + addRspN(frameSize)               // ADD RSP, frameSize (7)
-            code = code + hexByte(0xC3)                    // RET (1)
+            sbOut = sbAppend(sbOut,hexByte(0x33) + hexByte(0xC0))   // XOR EAX, EAX (2)
+            sbOut = sbAppend(sbOut,addRspN(frameSize))               // ADD RSP, frameSize (7)
+            sbOut = sbAppend(sbOut,hexByte(0xC3))                    // RET (1)
             pos += 10
         }
 
         i += 1
     }
 
-    emit code
+    emit pos
 }
 
 // ── DOS header (64 bytes) ─────────────────────────────────────────
@@ -1739,7 +1740,7 @@ just run {
     let realImageSize = realRdataRva + alignUp(rdataSize2, PE_SECT_ALIGN)
 
     // ── Pass 2: code generation with real addresses ───────────────────
-    let realFuncCode = ""
+    let sbCode = sbNew()
     let realTextSize = 0
 
     let fi2 = 0
@@ -1750,9 +1751,8 @@ just run {
         g_locals = collectLocals(body4)
         let funcRva2 = PE_TEXT_RVA2 + realTextSize
         let labelPositions = collectLabelPositions(body4)
-        let fcode = emitFuncFull(body4, g_locals, funcRva2, realIatK32, realIatRtRva, realRdataRva, strs, labelPositions, allFuncOffsets)
-        realFuncCode = realFuncCode + fcode
-        realTextSize += len(fcode) / 3
+        let fbytes = toInt(emitFuncFull(body4, g_locals, funcRva2, realIatK32, realIatRtRva, realRdataRva, strs, labelPositions, allFuncOffsets, sbCode))
+        realTextSize += fbytes
         fi2 += 1
     }
 
@@ -1760,8 +1760,9 @@ just run {
     let mainOffset = funcOffsetLookup(allFuncOffsets, "__main__")
     let entryRva2 = PE_TEXT_RVA2 + realTextSize
     let entryCode = emitEntryPoint(PE_TEXT_RVA2 + mainOffset, realIatK32, entryRva2)
-    realFuncCode = realFuncCode + entryCode
+    sbCode = sbAppend(sbCode, entryCode)
     realTextSize += len(entryCode) / 3
+    let realFuncCode = sbToString(sbCode)
 
     // ── Assemble the PE binary ────────────────────────────────────────
     let dos = emitDosHeader()
@@ -1813,7 +1814,7 @@ just run {
     let rdataPad = finalRdataFileSize - rdataSize2
     let rdataPadHex = hexPad(rdataPad)
 
-    // Assemble full PE
+    // Assemble full PE (direct concatenation — sections are all measured, not huge)
     let pe = hdrHex + hdrPadHex + realFuncCode + textPadHex + strTableHex + realImportHex + rdataPadHex
 
     if len(outFile) > 0 {
