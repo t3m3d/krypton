@@ -3800,6 +3800,7 @@ just run {
     let imported = ""
     let importFwdDecls = ""
     let importBodies = ""
+    let importedIR = ""  // accumulated IR from imported files (--ir mode)
     let lambdaBank = ""  // pre-compiled lambda C functions
     let lambdaFreeVars = ""  // lambda pos -> free vars mapping
     let structTable = ""  // extern struct definitions: "NAME:field1:TYPE1,field2:TYPE2\n"
@@ -4123,6 +4124,24 @@ just run {
                     // function bodies
                     let iBodies = compileImportedFunctions(iToks, iNtoks, iFtable)
                     importBodies = importBodies + iBodies
+                    // in --ir mode, also collect IR for imported functions (skip jxt blocks)
+                    if irMode == 1 {
+                        let iIRi = 0
+                        let iIRinJxt = 0
+                        while iIRi < iNtoks {
+                            let iIRtok = tokAt(iToks, iIRi)
+                            if iIRtok == "KW:jxt" {
+                                // skip entire jxt block
+                                iIRi = skipBlock(iToks, iIRi + 1)
+                            } else if (iIRtok == "KW:func" || iIRtok == "KW:fn") {
+                                let iIRfp = irFuncIR(iToks, iIRi, iNtoks)
+                                importedIR = importedIR + pairVal(iIRfp)
+                                iIRi = pairPos(iIRfp)
+                            } else {
+                                iIRi += 1
+                            }
+                        }
+                    }
                     // merge function table
                     if len(iFtable) > 0 {
                         if len(ftable) > 0 {
@@ -4602,7 +4621,10 @@ just run {
         // Emit IR header
         let irOut = "; Krypton IR\n; Source: " + file + "\n\n"
 
-        // Emit IR for all functions
+        // Emit IR for imported functions first
+        irOut = irOut + importedIR
+
+        // Emit IR for all functions in main file
         let iri = 0
         while iri < ntoks {
             let irtok = tokAt(tokens, iri)

@@ -431,46 +431,80 @@ func emitStringTable(strs) {
 }
 
 // ── Import table builder ──────────────────────────────────────────
-// Two DLLs: kernel32.dll + krypton_rt.dll
-// kernel32 imports: ExitProcess
-// krypton_rt imports: kr_str, kr_plus, kr_sub, kr_mul, kr_div, kr_mod,
-//                     kr_neg, kr_eq, kr_neq, kr_lt, kr_gt, kr_lte, kr_gte,
-//                     kr_truthy, kr_print, kr_printerr, kr_exit
+// Five DLLs: kernel32.dll + krypton_rt.dll + advapi32.dll + pdh.dll + user32.dll
 
-let KR32_FUNCS = "ExitProcess"
-let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length"
+let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA"
+let KRUSER_FUNCS = "GetSystemMetrics"
+let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof"
+let KRADV_FUNCS = "RegOpenKeyExA,RegQueryValueExA,RegEnumKeyExA,RegCloseKey,GetUserNameA"
+let KRPDH_FUNCS = "PdhOpenQueryA,PdhAddEnglishCounterA,PdhCollectQueryData,PdhGetFormattedCounterArrayA,PdhCloseQuery"
 
 // Map IR builtin names to krypton_rt.dll function names
 func resolveBuiltin(name) {
-    if name == "kp"          { emit "kr_print" }
-    if name == "print"       { emit "kr_print" }
-    if name == "printErr"    { emit "kr_printerr" }
-    if name == "exit"        { emit "kr_exit" }
-    if name == "len"         { emit "kr_len" }
-    if name == "substring"   { emit "kr_substring" }
-    if name == "startsWith"  { emit "kr_startswith" }
-    if name == "contains"    { emit "kr_contains" }
-    if name == "indexOf"     { emit "kr_indexof" }
-    if name == "trim"        { emit "kr_trim" }
-    if name == "toInt"       { emit "kr_toint" }
-    if name == "charCode"    { emit "kr_charcode" }
-    if name == "isDigit"     { emit "kr_isdigit" }
-    if name == "replace"     { emit "kr_replace" }
-    if name == "split"       { emit "kr_split" }
-    if name == "range"       { emit "kr_range" }
-    if name == "length"      { emit "kr_length" }
-    if name == "readFile"    { emit "kr_readfile" }
-    if name == "arg"         { emit "kr_arg" }
-    if name == "sbNew"       { emit "kr_sbnew" }
-    if name == "sbAppend"    { emit "kr_sbappend" }
-    if name == "sbToString"  { emit "kr_sbtostring" }
-    if name == "lineCount"   { emit "kr_linecount" }
-    if name == "getLine"     { emit "kr_getline" }
-    if name == "count"       { emit "kr_count" }
-    if name == "argCount"    { emit "kr_argcount" }
-    if name == "writeFile"   { emit "kr_writefile" }
-    if name == "writeBytes"  { emit "kr_writebytes" }
-    if name == "printl"      { emit "kr_printl" }
+    if name == "kp"             { emit "kr_print" }
+    if name == "print"          { emit "kr_print" }
+    if name == "printErr"       { emit "kr_printerr" }
+    if name == "exit"           { emit "kr_exit" }
+    if name == "len"            { emit "kr_len" }
+    if name == "substring"      { emit "kr_substring" }
+    if name == "startsWith"     { emit "kr_startswith" }
+    if name == "contains"       { emit "kr_contains" }
+    if name == "indexOf"        { emit "kr_indexof" }
+    if name == "trim"           { emit "kr_trim" }
+    if name == "toInt"          { emit "kr_toint" }
+    if name == "charCode"       { emit "kr_charcode" }
+    if name == "isDigit"        { emit "kr_isdigit" }
+    if name == "replace"        { emit "kr_replace" }
+    if name == "split"          { emit "kr_split" }
+    if name == "range"          { emit "kr_range" }
+    if name == "length"         { emit "kr_length" }
+    if name == "readFile"       { emit "kr_readfile" }
+    if name == "arg"            { emit "kr_arg" }
+    if name == "sbNew"          { emit "kr_sbnew" }
+    if name == "sbAppend"       { emit "kr_sbappend" }
+    if name == "sbToString"     { emit "kr_sbtostring" }
+    if name == "lineCount"      { emit "kr_linecount" }
+    if name == "getLine"        { emit "kr_getline" }
+    if name == "count"          { emit "kr_count" }
+    if name == "argCount"       { emit "kr_argcount" }
+    if name == "writeFile"      { emit "kr_writefile" }
+    if name == "writeBytes"     { emit "kr_writebytes" }
+    if name == "printl"         { emit "kr_printl" }
+    if name == "fromCharCode"   { emit "kr_fromcharcode" }
+    if name == "toLower"        { emit "kr_tolower" }
+    if name == "toHandle"       { emit "kr_tohandle" }
+    if name == "bitOr"          { emit "kr_bitor" }
+    if name == "bitAnd"         { emit "kr_bitand" }
+    if name == "bitXor"         { emit "kr_bitxor" }
+    if name == "bitNot"         { emit "kr_bitnot" }
+    if name == "shl"            { emit "kr_shl" }
+    if name == "shr"            { emit "kr_shr" }
+    if name == "bufNew"         { emit "kr_bufnew" }
+    if name == "bufSetDword"    { emit "kr_bufsetdword" }
+    if name == "bufGetDword"    { emit "kr_bufgetdword" }
+    if name == "bufSetDwordAt"  { emit "kr_bufsetdwordat" }
+    if name == "bufGetDwordAt"  { emit "kr_bufgetdwordat" }
+    if name == "bufGetWord"     { emit "kr_bufgetword" }
+    if name == "bufGetQword"    { emit "kr_bufgetqword" }
+    if name == "bufSetByte"     { emit "kr_bufsetbyte" }
+    if name == "structNew"      { emit "kr_structnew" }
+    if name == "structGet"      { emit "kr_structget" }
+    if name == "structSet"      { emit "kr_structset" }
+    if name == "bufStr"         { emit "kr_bufstr" }
+    if name == "bufGetQwordAt"  { emit "kr_bufgetqwordat" }
+    if name == "handleOut"      { emit "kr_handleout" }
+    if name == "handleGet"      { emit "kr_handleget" }
+    if name == "handleValid"    { emit "kr_handlevalid" }
+    if name == "handleInt"      { emit "kr_handleint" }
+    if name == "ptrDeref"       { emit "kr_ptrderef" }
+    if name == "ptrIndex"       { emit "kr_ptrindex" }
+    // callPtr handled specially in instrSize/emitFuncFull by argc
+    if name == "hex"            { emit "kr_hex" }
+    if name == "toUpper"        { emit "kr_touppers" }
+    if name == "div64"          { emit "kr_div64" }
+    if name == "environ"        { emit "kr_environ" }
+    if name == "sizeOf"         { emit "kr_sizeof" }
+    if name == "bitShl"         { emit "kr_shl" }
     emit name
 }
 
@@ -501,9 +535,7 @@ func funcAt(csv, idx) {
 }
 
 func iatIndexOf(funcName) {
-    // Returns index within its own DLL's IAT, prefixed by "k32:" or "rt:"
-    let KR32_FUNCS = "ExitProcess"
-    let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length"
+    // Returns index within its own DLL's IAT, prefixed by "k32:", "rt:", "adv:", "pdh:", or "user:"
     let k32count = countFuncs(KR32_FUNCS)
     let i = 0
     while i < k32count {
@@ -516,11 +548,29 @@ func iatIndexOf(funcName) {
         if funcAt(KRRT_FUNCS, j) == funcName { emit "rt:" + j }
         j += 1
     }
+    let advcount = countFuncs(KRADV_FUNCS)
+    let k = 0
+    while k < advcount {
+        if funcAt(KRADV_FUNCS, k) == funcName { emit "adv:" + k }
+        k += 1
+    }
+    let pdhcount = countFuncs(KRPDH_FUNCS)
+    let m = 0
+    while m < pdhcount {
+        if funcAt(KRPDH_FUNCS, m) == funcName { emit "pdh:" + m }
+        m += 1
+    }
+    let usercount = countFuncs(KRUSER_FUNCS)
+    let n = 0
+    while n < usercount {
+        if funcAt(KRUSER_FUNCS, n) == funcName { emit "user:" + n }
+        n += 1
+    }
     emit "none"
 }
 
-// Compute IAT entry RVA given the base RVAs of k32 and rt IATs
-func iatEntryRvaFor(funcName, iatK32BaseRva, iatRtBaseRva) {
+// Compute IAT entry RVA given the base RVAs of all DLL IATs
+func iatEntryRvaFor(funcName, iatK32BaseRva, iatRtBaseRva, iatAdvBaseRva, iatPdhBaseRva, iatUserBaseRva) {
     let idxStr = iatIndexOf(funcName)
     if startsWith(idxStr, "k32:") {
         let idx = toInt(substring(idxStr, 4, len(idxStr)))
@@ -530,14 +580,24 @@ func iatEntryRvaFor(funcName, iatK32BaseRva, iatRtBaseRva) {
         let idx = toInt(substring(idxStr, 3, len(idxStr)))
         emit iatRtBaseRva + idx * 8
     }
+    if startsWith(idxStr, "adv:") {
+        let idx = toInt(substring(idxStr, 4, len(idxStr)))
+        emit iatAdvBaseRva + idx * 8
+    }
+    if startsWith(idxStr, "pdh:") {
+        let idx = toInt(substring(idxStr, 4, len(idxStr)))
+        emit iatPdhBaseRva + idx * 8
+    }
+    if startsWith(idxStr, "user:") {
+        let idx = toInt(substring(idxStr, 5, len(idxStr)))
+        emit iatUserBaseRva + idx * 8
+    }
     emit -1
 }
 
 // IAT total entries (with null terminators between DLLs)
 func iatTotalEntries() {
-    let KR32_FUNCS = "ExitProcess"
-    let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length"
-    emit countFuncs(KR32_FUNCS) + 1 + countFuncs(KRRT_FUNCS) + 1
+    emit countFuncs(KR32_FUNCS) + 1 + countFuncs(KRRT_FUNCS) + 1 + countFuncs(KRADV_FUNCS) + 1 + countFuncs(KRPDH_FUNCS) + 1 + countFuncs(KRUSER_FUNCS) + 1
 }
 
 // ── Instruction byte-size calculator ─────────────────────────────
@@ -574,6 +634,13 @@ func instrSize(op, a1, a2) {
         // loads*MOV(8) + extraArgSz + CALL(6or5) + MOV result(8)
         let callSz = 6
         let resolved = resolveBuiltin(a1)
+        if a1 == "callPtr" {
+            let cpN = argc2 - 1
+            if cpN == 1 { resolved = "kr_callptr1" }
+            if cpN == 2 { resolved = "kr_callptr2" }
+            if cpN == 3 { resolved = "kr_callptr3" }
+            if cpN == 4 { resolved = "kr_callptr4" }
+        }
         let idxStr = iatIndexOf(resolved)
         if idxStr == "none" { callSz = 5 }
         emit loads * 8 + extraArgSz + callSz + 8
@@ -756,15 +823,22 @@ func localRspOff(idx) {
 }
 
 func emitLoadLocal(idx) {
-    // MOV RAX, [RSP + off]   (48 8B 44 24 off)
     let off = localRspOff(idx)
-    emit "488B4424" + hexByte(off)
+    // Use disp32 when offset >= 128 (disp8 is signed, max +127)
+    if off >= 128 {
+        emit "488B8424" + hexDword(off)
+    } else {
+        emit "488B4424" + hexByte(off)
+    }
 }
 
 func emitStoreLocal(idx) {
-    // MOV [RSP + off], RAX
     let off = localRspOff(idx)
-    emit "48894424" + hexByte(off)
+    if off >= 128 {
+        emit "48898424" + hexDword(off)
+    } else {
+        emit "48894424" + hexByte(off)
+    }
 }
 
 // ── Collect locals and params for a function body ─────────────────
@@ -1091,7 +1165,7 @@ func addRspNSz(n) { emit 7 }
 
 // emitFuncFull: appends machine code directly to sbOut (no return string).
 // Returns number of bytes written as a string (for realTextSize accounting).
-func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rdataBaseRva, strs, labelPositions, allFuncOffsets, sbOut) {
+func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, iatAdvBaseRva, iatPdhBaseRva, iatUserBaseRva, rdataBaseRva, strs, labelPositions, allFuncOffsets, sbOut) {
     let PE_TEXT_RVA = 4096
     let count = lineCount(ir_lines)
     let vsp = 0  // virtual stack depth (slots used in frame above locals)
@@ -1234,7 +1308,7 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
             sbOut = sbAppend(sbOut,movRdxFromRsp(vstBase + (vsp - 1) * 8))   // RDX = b  (8)
             sbOut = sbAppend(sbOut,movRcxFromRsp(vstBase + (vsp - 2) * 8))   // RCX = a  (8)
             vsp -= 2
-            let iatEntryRva = iatEntryRvaFor(rtFunc, iatK32BaseRva, iatRtBaseRva)
+            let iatEntryRva = iatEntryRvaFor(rtFunc, iatK32BaseRva, iatRtBaseRva, iatAdvBaseRva, iatPdhBaseRva, iatUserBaseRva)
             // CALL at pos+16, RIP after CALL = pos+22
             let disp2 = iatEntryRva - (funcBaseRva + pos + 22)
             sbOut = sbAppend(sbOut,hexByte(0xFF) + hexByte(0x15) + hexDword(disp2))   // 6 bytes
@@ -1249,7 +1323,7 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
             if op == "NOT" { rtFunc = "kr_not" }
             sbOut = sbAppend(sbOut,movRcxFromRsp(vstBase + (vsp - 1) * 8))   // RCX = top  (8)
             // CALL at pos+8, RIP after CALL = pos+14
-            let iatEntryRvaNeg = iatEntryRvaFor(rtFunc, iatK32BaseRva, iatRtBaseRva)
+            let iatEntryRvaNeg = iatEntryRvaFor(rtFunc, iatK32BaseRva, iatRtBaseRva, iatAdvBaseRva, iatPdhBaseRva, iatUserBaseRva)
             let disp3 = iatEntryRvaNeg - (funcBaseRva + pos + 14)
             sbOut = sbAppend(sbOut,hexByte(0xFF) + hexByte(0x15) + hexDword(disp3))   // 6 bytes
             sbOut = sbAppend(sbOut,movRspFromRax(vstBase + (vsp - 1) * 8))             // replace top  (8)
@@ -1303,7 +1377,14 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
             let callCode = ""
             let callSz = 0
             let resolvedName = resolveBuiltin(a1)
-            let iatEntryRva2 = iatEntryRvaFor(resolvedName, iatK32BaseRva, iatRtBaseRva)
+            if a1 == "callPtr" {
+                let cpN2 = argc2 - 1
+                if cpN2 == 1 { resolvedName = "kr_callptr1" }
+                if cpN2 == 2 { resolvedName = "kr_callptr2" }
+                if cpN2 == 3 { resolvedName = "kr_callptr3" }
+                if cpN2 == 4 { resolvedName = "kr_callptr4" }
+            }
+            let iatEntryRva2 = iatEntryRvaFor(resolvedName, iatK32BaseRva, iatRtBaseRva, iatAdvBaseRva, iatPdhBaseRva, iatUserBaseRva)
             if iatEntryRva2 >= 0 {
                 // IAT call: FF 15 disp32 (6 bytes); CALL at pos+loadSz, RIP after = pos+loadSz+6
                 let disp4 = iatEntryRva2 - (funcBaseRva + pos + loadSz + 6)
@@ -1339,7 +1420,7 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
             // CALL at pos+8, RIP after = pos+14; JCC at pos+16, RIP after = pos+22
             sbOut = sbAppend(sbOut,movRcxFromRsp(vstBase + (vsp - 1) * 8))
             vsp -= 1
-            let iatRva3 = iatEntryRvaFor("kr_truthy", iatK32BaseRva, iatRtBaseRva)
+            let iatRva3 = iatEntryRvaFor("kr_truthy", iatK32BaseRva, iatRtBaseRva, iatAdvBaseRva, iatPdhBaseRva, iatUserBaseRva)
             let disp5 = iatRva3 - (funcBaseRva + pos + 14)
             sbOut = sbAppend(sbOut,hexByte(0xFF) + hexByte(0x15) + hexDword(disp5))
             sbOut = sbAppend(sbOut,hexByte(0x85) + hexByte(0xC0))   // TEST EAX, EAX
@@ -1359,7 +1440,7 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatK32BaseRva, iatRtBaseRva, rd
             sbOut = sbAppend(sbOut,movRdxFromRsp(vstBase + (vsp - 1) * 8))   // index → RDX  (8)
             sbOut = sbAppend(sbOut,movRcxFromRsp(vstBase + (vsp - 2) * 8))   // string → RCX (8)
             vsp -= 2
-            let iatIdx = iatEntryRvaFor("kr_idx", iatK32BaseRva, iatRtBaseRva)
+            let iatIdx = iatEntryRvaFor("kr_idx", iatK32BaseRva, iatRtBaseRva, iatAdvBaseRva, iatPdhBaseRva, iatUserBaseRva)
             // CALL at pos+16, RIP after = pos+22
             let dispIdx = iatIdx - (funcBaseRva + pos + 22)
             sbOut = sbAppend(sbOut,hexByte(0xFF) + hexByte(0x15) + hexDword(dispIdx))   // 6 bytes
@@ -1437,7 +1518,7 @@ func emitDosHeader() {
 }
 
 // ── PE headers ───────────────────────────────────────────────────
-func emitPEHeader(numSections, textSize, rdataSize, textRva, rdataRva, entryRva, imageSize, iatRva, iatSize) {
+func emitPEHeader(numSections, textSize, rdataSize, textRva, rdataRva, entryRva, imageSize, iatRva, iatSize, iatK32Rva) {
     let PE_FILE_ALIGN = 512
     let PE_HEADER_SIZE = 512
     let PE_SECT_ALIGN = 4096
@@ -1493,7 +1574,7 @@ func emitPEHeader(numSections, textSize, rdataSize, textRva, rdataRva, entryRva,
     h = h + hexDword(0) + hexDword(0)                   // [9] TLS
     h = h + hexDword(0) + hexDword(0)                   // [10] LoadConfig
     h = h + hexDword(0) + hexDword(0)                   // [11] BoundImport
-    h = h + hexDword(iatRva) + hexDword(iatSize)         // [12] IAT
+    h = h + hexDword(iatK32Rva) + hexDword(iatSize)       // [12] IAT (actual IAT start, not desc table)
     h = h + hexDword(0) + hexDword(0)                   // [13] DelayImport
     h = h + hexDword(0) + hexDword(0)                   // [14] CLRHeader
     h = h + hexDword(0) + hexDword(0)                   // [15] reserved
@@ -1533,32 +1614,71 @@ func emitSectionHeader(name, virtSize, virtAddr, rawSize, rawOffset, characteris
 //   [J] IMAGE_IMPORT_BY_NAME entries for each function
 
 func buildImportTable(rdataRva, strsSize) {
-    let k32funcs = "ExitProcess"
-    let rtfuncs = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length"
+    let k32funcs = KR32_FUNCS
+    let rtfuncs = KRRT_FUNCS
+    let advfuncs = KRADV_FUNCS
+    let pdhfuncs = KRPDH_FUNCS
+    let userfuncs = KRUSER_FUNCS
     let k32count = countFuncs(k32funcs)
     let rtcount = countFuncs(rtfuncs)
+    let advcount = countFuncs(advfuncs)
+    let pdhcount = countFuncs(pdhfuncs)
+    let usercount = countFuncs(userfuncs)
 
     // Calculate offsets within .rdata (after string table)
     let impBase = strsSize  // import table starts right after string table (padded to 8)
     let impBasePad = impBase
     if impBasePad % 8 != 0 { impBasePad = impBasePad + (8 - impBasePad % 8) }
 
-    // Offsets from start of .rdata:
+    // Layout:
+    //   [A] 6 IMAGE_IMPORT_DESCRIPTORs (kernel32, krypton_rt, advapi32, pdh, user32, null) = 120 bytes
+    //   [B] ILT kernel32   (k32count+1)*8
+    //   [C] ILT krypton_rt (rtcount+1)*8
+    //   [D] ILT advapi32   (advcount+1)*8
+    //   [E] ILT pdh        (pdhcount+1)*8
+    //   [F] ILT user32     (usercount+1)*8
+    //   [G] IAT kernel32   (k32count+1)*8
+    //   [H] IAT krypton_rt (rtcount+1)*8
+    //   [I] IAT advapi32   (advcount+1)*8
+    //   [J] IAT pdh        (pdhcount+1)*8
+    //   [K] IAT user32     (usercount+1)*8
+    //   [L] DLL names
+    //   [M] IMAGE_IMPORT_BY_NAME hint table
+
     let descOffset = impBasePad
-    let descSize = 60  // 3 descriptors * 20 bytes
+    let descSize = 120  // 6 descriptors * 20 bytes
     let iltK32Offset = descOffset + descSize
     let iltK32Size = (k32count + 1) * 8
     let iltRtOffset = iltK32Offset + iltK32Size
     let iltRtSize = (rtcount + 1) * 8
-    let iatK32Offset = iltRtOffset + iltRtSize
+    let iltAdvOffset = iltRtOffset + iltRtSize
+    let iltAdvSize = (advcount + 1) * 8
+    let iltPdhOffset = iltAdvOffset + iltAdvSize
+    let iltPdhSize = (pdhcount + 1) * 8
+    let iltUserOffset = iltPdhOffset + iltPdhSize
+    let iltUserSize = (usercount + 1) * 8
+    let iatK32Offset = iltUserOffset + iltUserSize
     let iatK32Size = (k32count + 1) * 8
     let iatRtOffset = iatK32Offset + iatK32Size
     let iatRtSize = (rtcount + 1) * 8
-    let dllK32Offset = iatRtOffset + iatRtSize
+    let iatAdvOffset = iatRtOffset + iatRtSize
+    let iatAdvSize = (advcount + 1) * 8
+    let iatPdhOffset = iatAdvOffset + iatAdvSize
+    let iatPdhSize = (pdhcount + 1) * 8
+    let iatUserOffset = iatPdhOffset + iatPdhSize
+    let iatUserSize = (usercount + 1) * 8
+    let dllNamesOffset = iatUserOffset + iatUserSize
     let dllK32Name = "kernel32.dll"
-    let dllRtOffset = dllK32Offset + len(dllK32Name) + 1
     let dllRtName = "krypton_rt.dll"
-    let hintsOffset = dllRtOffset + len(dllRtName) + 1
+    let dllAdvName = "advapi32.dll"
+    let dllPdhName = "pdh.dll"
+    let dllUserName = "user32.dll"
+    let dllK32Offset = dllNamesOffset
+    let dllRtOffset = dllK32Offset + len(dllK32Name) + 1
+    let dllAdvOffset = dllRtOffset + len(dllRtName) + 1
+    let dllPdhOffset = dllAdvOffset + len(dllAdvName) + 1
+    let dllUserOffset = dllPdhOffset + len(dllPdhName) + 1
+    let hintsOffset = dllUserOffset + len(dllUserName) + 1
     // Pad to 2-byte alignment
     if hintsOffset % 2 != 0 { hintsOffset += 1 }
 
@@ -1566,10 +1686,19 @@ func buildImportTable(rdataRva, strsSize) {
     let descRva = rdataRva + descOffset
     let iltK32Rva = rdataRva + iltK32Offset
     let iltRtRva = rdataRva + iltRtOffset
+    let iltAdvRva = rdataRva + iltAdvOffset
+    let iltPdhRva = rdataRva + iltPdhOffset
+    let iltUserRva = rdataRva + iltUserOffset
     let iatK32Rva = rdataRva + iatK32Offset
     let iatRtRva = rdataRva + iatRtOffset
+    let iatAdvRva = rdataRva + iatAdvOffset
+    let iatPdhRva = rdataRva + iatPdhOffset
+    let iatUserRva = rdataRva + iatUserOffset
     let dllK32Rva = rdataRva + dllK32Offset
     let dllRtRva = rdataRva + dllRtOffset
+    let dllAdvRva = rdataRva + dllAdvOffset
+    let dllPdhRva = rdataRva + dllPdhOffset
+    let dllUserRva = rdataRva + dllUserOffset
     let hintsRva = rdataRva + hintsOffset
 
     // Build IMAGE_IMPORT_BY_NAME entries (hint + name)
@@ -1577,6 +1706,7 @@ func buildImportTable(rdataRva, strsSize) {
     let hintTable = ""
     let hintOffsets = ""  // newline-separated offsets
     let hintOff = 0
+
     let hf = 0
     while hf < k32count {
         let hfname = funcAt(k32funcs, hf)
@@ -1597,6 +1727,36 @@ func buildImportTable(rdataRva, strsSize) {
         if hintOff % 2 != 0 { hintTable = hintTable + hexByte(0)  hintOff += 1 }
         hf2 += 1
     }
+    let hf3 = 0
+    while hf3 < advcount {
+        let hfname3 = funcAt(advfuncs, hf3)
+        if len(hintOffsets) > 0 { hintOffsets = hintOffsets + "\n" }
+        hintOffsets = hintOffsets + hintOff
+        hintTable = hintTable + hexByte(0) + hexByte(0) + hexStrZ(hfname3)
+        hintOff += 2 + len(hfname3) + 1
+        if hintOff % 2 != 0 { hintTable = hintTable + hexByte(0)  hintOff += 1 }
+        hf3 += 1
+    }
+    let hf4 = 0
+    while hf4 < pdhcount {
+        let hfname4 = funcAt(pdhfuncs, hf4)
+        if len(hintOffsets) > 0 { hintOffsets = hintOffsets + "\n" }
+        hintOffsets = hintOffsets + hintOff
+        hintTable = hintTable + hexByte(0) + hexByte(0) + hexStrZ(hfname4)
+        hintOff += 2 + len(hfname4) + 1
+        if hintOff % 2 != 0 { hintTable = hintTable + hexByte(0)  hintOff += 1 }
+        hf4 += 1
+    }
+    let hf5 = 0
+    while hf5 < usercount {
+        let hfname5 = funcAt(userfuncs, hf5)
+        if len(hintOffsets) > 0 { hintOffsets = hintOffsets + "\n" }
+        hintOffsets = hintOffsets + hintOff
+        hintTable = hintTable + hexByte(0) + hexByte(0) + hexStrZ(hfname5)
+        hintOff += 2 + len(hfname5) + 1
+        if hintOff % 2 != 0 { hintTable = hintTable + hexByte(0)  hintOff += 1 }
+        hf5 += 1
+    }
 
     // Build ILT / IAT entries
     // Each entry: 8 bytes, high bit=0 → by name → RVA of IMAGE_IMPORT_BY_NAME
@@ -1607,7 +1767,7 @@ func buildImportTable(rdataRva, strsSize) {
         iltK32 = iltK32 + hexQword64(hintRvaK, 0)
         k32i += 1
     }
-    iltK32 = iltK32 + hexQword64(0, 0)  // null terminator
+    iltK32 = iltK32 + hexQword64(0, 0)
 
     let iltRt = ""
     let rti = 0
@@ -1616,43 +1776,72 @@ func buildImportTable(rdataRva, strsSize) {
         iltRt = iltRt + hexQword64(hintRvaR, 0)
         rti += 1
     }
-    iltRt = iltRt + hexQword64(0, 0)    // null terminator
+    iltRt = iltRt + hexQword64(0, 0)
+
+    let iltAdv = ""
+    let advi = 0
+    while advi < advcount {
+        let hintRvaA = hintsRva + toInt(getLine(hintOffsets, k32count + rtcount + advi))
+        iltAdv = iltAdv + hexQword64(hintRvaA, 0)
+        advi += 1
+    }
+    iltAdv = iltAdv + hexQword64(0, 0)
+
+    let iltPdh = ""
+    let pdhi = 0
+    while pdhi < pdhcount {
+        let hintRvaP = hintsRva + toInt(getLine(hintOffsets, k32count + rtcount + advcount + pdhi))
+        iltPdh = iltPdh + hexQword64(hintRvaP, 0)
+        pdhi += 1
+    }
+    iltPdh = iltPdh + hexQword64(0, 0)
+
+    let iltUser = ""
+    let useri = 0
+    while useri < usercount {
+        let hintRvaU = hintsRva + toInt(getLine(hintOffsets, k32count + rtcount + advcount + pdhcount + useri))
+        iltUser = iltUser + hexQword64(hintRvaU, 0)
+        useri += 1
+    }
+    iltUser = iltUser + hexQword64(0, 0)
 
     // Build IMAGE_IMPORT_DESCRIPTOR (20 bytes each):
     // OriginalFirstThunk(4) TimeDateStamp(4) ForwarderChain(4) Name(4) FirstThunk(4)
     let desc = ""
-    desc = desc + hexDword(iltK32Rva)
-    desc = desc + hexDword(0)
-    desc = desc + hexDword(0)   // ForwarderChain
-    desc = desc + hexDword(dllK32Rva)
-    desc = desc + hexDword(iatK32Rva)
-
-    desc = desc + hexDword(iltRtRva)
-    desc = desc + hexDword(0)
-    desc = desc + hexDword(0)   // ForwarderChain
-    desc = desc + hexDword(dllRtRva)
-    desc = desc + hexDword(iatRtRva)
-
+    desc = desc + hexDword(iltK32Rva)  + hexDword(0) + hexDword(0) + hexDword(dllK32Rva)  + hexDword(iatK32Rva)
+    desc = desc + hexDword(iltRtRva)   + hexDword(0) + hexDword(0) + hexDword(dllRtRva)   + hexDword(iatRtRva)
+    desc = desc + hexDword(iltAdvRva)  + hexDword(0) + hexDword(0) + hexDword(dllAdvRva)  + hexDword(iatAdvRva)
+    desc = desc + hexDword(iltPdhRva)  + hexDword(0) + hexDword(0) + hexDword(dllPdhRva)  + hexDword(iatPdhRva)
+    desc = desc + hexDword(iltUserRva) + hexDword(0) + hexDword(0) + hexDword(dllUserRva) + hexDword(iatUserRva)
     desc = desc + hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0)  // null descriptor
 
     // Assemble the import section data
     let out = ""
-    // Padding before import data
     let pp = 0
     while pp < impBasePad - impBase { out = out + hexByte(0)  pp += 1 }
-    out = out + desc          // descriptors
-    out = out + iltK32        // ILT kernel32
-    out = out + iltRt         // ILT krypton_rt
-    out = out + iltK32        // IAT kernel32 (initially same as ILT)
-    out = out + iltRt         // IAT krypton_rt
-    out = out + hexStrZ(dllK32Name)  // "kernel32.dll\0"
-    out = out + hexStrZ(dllRtName)   // "krypton_rt.dll\0"
-    if (dllK32Offset + len(dllK32Name) + 1 + len(dllRtName) + 1) % 2 != 0 { out = out + hexByte(0) }
+    out = out + desc
+    out = out + iltK32
+    out = out + iltRt
+    out = out + iltAdv
+    out = out + iltPdh
+    out = out + iltUser
+    out = out + iltK32   // IAT kernel32
+    out = out + iltRt    // IAT krypton_rt
+    out = out + iltAdv   // IAT advapi32
+    out = out + iltPdh   // IAT pdh
+    out = out + iltUser  // IAT user32
+    out = out + hexStrZ(dllK32Name)
+    out = out + hexStrZ(dllRtName)
+    out = out + hexStrZ(dllAdvName)
+    out = out + hexStrZ(dllPdhName)
+    out = out + hexStrZ(dllUserName)
+    let dllNamesEndOff = dllUserOffset + len(dllUserName) + 1
+    if dllNamesEndOff % 2 != 0 { out = out + hexByte(0) }
     out = out + hintTable
 
-    // Return: "hexdata,iatK32Rva,descRva,totalSize"  (comma-separated, split() compatible)
-    let iatTotal = iatK32Size + iatRtSize
-    emit out + "," + iatK32Rva + "," + descRva + "," + iatTotal
+    // Return: "hexdata,iatK32Rva,descRva,totalSize,iatAdvRva,iatPdhRva,iatUserRva"
+    let iatTotal = iatK32Size + iatRtSize + iatAdvSize + iatPdhSize + iatUserSize
+    emit out + "," + iatK32Rva + "," + descRva + "," + iatTotal + "," + iatAdvRva + "," + iatPdhRva + "," + iatUserRva
 }
 
 // ── Entry point wrapper ───────────────────────────────────────────
@@ -1754,7 +1943,6 @@ just run {
     let PE_FILE_ALIGN = 512
     let PE_SECT_ALIGN = 4096
     let PE_HEADER_SIZE = 512
-    let KR32_FUNCS = "ExitProcess"
 
     // ── Pass 1: accurate size calculation using instrSize ─────────────
     // Computes exact byte offsets for every function, no code emitted yet.
@@ -1792,6 +1980,9 @@ just run {
     let realIatK32 = toInt(split(realImportData, 1))
     let realIatDescRva = toInt(split(realImportData, 2))
     let realIatTotalSz = toInt(split(realImportData, 3))
+    let realIatAdvRva = toInt(split(realImportData, 4))
+    let realIatPdhRva = toInt(split(realImportData, 5))
+    let realIatUserRva = toInt(split(realImportData, 6))
     let realIatRtRva = realIatK32 + (countFuncs(KR32_FUNCS) + 1) * 8
 
     let rdataSize2 = strTableSize + len(realImportHex) / 3
@@ -1811,7 +2002,7 @@ just run {
         let g_loc4 = collectLocals(body4)
         let funcRva2 = PE_TEXT_RVA2 + realTextSize
         let labelPositions = collectLabelPositions(body4)
-        let fbytes = toInt(emitFuncFull(body4, g_loc4, funcRva2, realIatK32, realIatRtRva, realRdataRva, strs, labelPositions, allFuncOffsets, sbCode))
+        let fbytes = toInt(emitFuncFull(body4, g_loc4, funcRva2, realIatK32, realIatRtRva, realIatAdvRva, realIatPdhRva, realIatUserRva, realRdataRva, strs, labelPositions, allFuncOffsets, sbCode))
         realTextSize += fbytes
         fi2 += 1
     }
@@ -1836,7 +2027,8 @@ just run {
         entryRva2,
         realImageSize,
         realIatDescRva,
-        realIatTotalSz
+        realIatTotalSz,
+        realIatK32
     )
 
     let textSecHdr = emitSectionHeader(
