@@ -1,0 +1,34 @@
+// memory.krh — raw memory primitives for low-level Krypton programming
+
+// rawAlloc: allocate n bytes, no krypton header, returns raw pointer
+func rawAlloc(size)
+
+// rawFree: free a raw pointer
+func rawFree(ptr)
+
+// rawRealloc: resize a raw pointer
+func rawRealloc(ptr, size)
+
+// ptrAdd: pointer arithmetic — returns ptr + n as a new pointer
+func ptrAdd(ptr, n)
+
+// ptrToInt: convert pointer to full 64-bit integer string
+func ptrToInt(ptr)
+
+// rawReadByte: read 1 byte at ptr+offset, returns 0-255
+func rawReadByte(ptr, offset)
+
+// rawReadWord: read 2 bytes (unsigned) at ptr+offset
+func rawReadWord(ptr, offset)
+
+// rawWriteWord: write 2 bytes at ptr+offset
+func rawWriteWord(ptr, offset, val)
+
+// rawWriteQword: write 8 bytes at ptr+offset
+func rawWriteQword(ptr, offset, val)
+
+// existing buf* aliases for clarity:
+// rawReadDword(ptr, offset)  -> bufGetDwordAt(ptr, offset)
+// rawWriteDword(ptr, offset) -> bufSetDwordAt(ptr, offset, val)
+// rawReadQword(ptr, offset)  -> bufGetQwordAt(ptr, offset)
+// rawWriteByte(ptr, offset)  -> bufSetByte(ptr, offset, val)
