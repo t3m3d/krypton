@@ -3765,6 +3765,9 @@ just run {
         file = arg(argIdx + "")
     }
 
+    // Default to system headers if --headers not specified
+    if headersDir == "" { headersDir = "C:\\krypton\\headers" }
+
     let source = readFile(file)
 
     if len(source) == 0 {
