@@ -3532,15 +3532,15 @@ func irLetIR(tokens, pos, ntoks, lc, inFunc) {
 func irBlockIR(tokens, pos, ntoks, lc, inFunc) {
     // pos is at LBRACE
     let p = pos + 1
-    let code = ""
+    let sbBlock = sbNew()
     let nlc = lc
     while tokAt(tokens, p) != "RBRACE" {
         let sp = irStmt(tokens, p, ntoks, nlc, inFunc)
-        code = code + pairVal(sp)
+        sbBlock = sbAppend(sbBlock, pairVal(sp))
         p = pairPos(sp)
         nlc = nlc + 1
     }
-    emit code + "," + (p + 1)
+    emit sbToString(sbBlock) + "," + (p + 1)
 }
 
 func irIfIR(tokens, pos, ntoks, lc, inFunc) {
@@ -4621,19 +4621,16 @@ just run {
 
     // If --ir mode, emit IR instead of C
     if irMode {
-        // Emit IR header
-        let irOut = "; Krypton IR\n; Source: " + file + "\n\n"
+        let sbIR = sbNew()
+        sbIR = sbAppend(sbIR, "; Krypton IR\n; Source: " + file + "\n\n")
+        sbIR = sbAppend(sbIR, importedIR)
 
-        // Emit IR for imported functions first
-        irOut = irOut + importedIR
-
-        // Emit IR for all functions in main file
         let iri = 0
         while iri < ntoks {
             let irtok = tokAt(tokens, iri)
             if irtok == "KW:func" || irtok == "KW:fn" {
                 let fp = irFuncIR(tokens, iri, ntoks)
-                irOut = irOut + pairVal(fp)
+                sbIR = sbAppend(sbIR, pairVal(fp))
                 iri = pairPos(fp)
             } else if irtok == "KW:export" {
                 iri += 1
@@ -4642,14 +4639,13 @@ just run {
             }
         }
 
-        // Emit IR for entry block
         let irEntry = findEntry(tokens, ntoks)
         if irEntry >= 0 {
             let ep = irBlockIR(tokens, irEntry, ntoks, 0, "0")
-            irOut = irOut + "FUNC __main__ 0\n" + pairVal(ep) + "END\n"
+            sbIR = sbAppend(sbIR, "FUNC __main__ 0\n" + pairVal(ep) + "END\n")
         }
 
-        print(irOut)
+        print(sbToString(sbIR))
         emit 0
     }
 

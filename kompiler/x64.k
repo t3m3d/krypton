@@ -1703,107 +1703,114 @@ func buildImportTable(rdataRva, strsSize) {
 
     // Build IMAGE_IMPORT_BY_NAME entries (hint + name)
     // Each: 2-byte hint + name string + null + padding to even
-    let hintTable = ""
-    let hintOffsets = ""  // newline-separated offsets
+    let sbHint = sbNew()
+    let sbHintOff = sbNew()
     let hintOff = 0
 
     let hf = 0
     while hf < k32count {
         let hfname = funcAt(k32funcs, hf)
-        if len(hintOffsets) > 0 { hintOffsets = hintOffsets + "\n" }
-        hintOffsets = hintOffsets + hintOff
-        hintTable = hintTable + hexByte(0) + hexByte(0) + hexStrZ(hfname)
+        if hintOff > 0 { sbHintOff = sbAppend(sbHintOff, "\n") }
+        sbHintOff = sbAppend(sbHintOff, hintOff + "")
+        sbHint = sbAppend(sbHint, hexByte(0) + hexByte(0) + hexStrZ(hfname))
         hintOff += 2 + len(hfname) + 1
-        if hintOff % 2 != 0 { hintTable = hintTable + hexByte(0)  hintOff += 1 }
+        if hintOff % 2 != 0 { sbHint = sbAppend(sbHint, hexByte(0))  hintOff += 1 }
         hf += 1
     }
     let hf2 = 0
     while hf2 < rtcount {
         let hfname2 = funcAt(rtfuncs, hf2)
-        if len(hintOffsets) > 0 { hintOffsets = hintOffsets + "\n" }
-        hintOffsets = hintOffsets + hintOff
-        hintTable = hintTable + hexByte(0) + hexByte(0) + hexStrZ(hfname2)
+        if hintOff > 0 { sbHintOff = sbAppend(sbHintOff, "\n") }
+        sbHintOff = sbAppend(sbHintOff, hintOff + "")
+        sbHint = sbAppend(sbHint, hexByte(0) + hexByte(0) + hexStrZ(hfname2))
         hintOff += 2 + len(hfname2) + 1
-        if hintOff % 2 != 0 { hintTable = hintTable + hexByte(0)  hintOff += 1 }
+        if hintOff % 2 != 0 { sbHint = sbAppend(sbHint, hexByte(0))  hintOff += 1 }
         hf2 += 1
     }
     let hf3 = 0
     while hf3 < advcount {
         let hfname3 = funcAt(advfuncs, hf3)
-        if len(hintOffsets) > 0 { hintOffsets = hintOffsets + "\n" }
-        hintOffsets = hintOffsets + hintOff
-        hintTable = hintTable + hexByte(0) + hexByte(0) + hexStrZ(hfname3)
+        if hintOff > 0 { sbHintOff = sbAppend(sbHintOff, "\n") }
+        sbHintOff = sbAppend(sbHintOff, hintOff + "")
+        sbHint = sbAppend(sbHint, hexByte(0) + hexByte(0) + hexStrZ(hfname3))
         hintOff += 2 + len(hfname3) + 1
-        if hintOff % 2 != 0 { hintTable = hintTable + hexByte(0)  hintOff += 1 }
+        if hintOff % 2 != 0 { sbHint = sbAppend(sbHint, hexByte(0))  hintOff += 1 }
         hf3 += 1
     }
     let hf4 = 0
     while hf4 < pdhcount {
         let hfname4 = funcAt(pdhfuncs, hf4)
-        if len(hintOffsets) > 0 { hintOffsets = hintOffsets + "\n" }
-        hintOffsets = hintOffsets + hintOff
-        hintTable = hintTable + hexByte(0) + hexByte(0) + hexStrZ(hfname4)
+        if hintOff > 0 { sbHintOff = sbAppend(sbHintOff, "\n") }
+        sbHintOff = sbAppend(sbHintOff, hintOff + "")
+        sbHint = sbAppend(sbHint, hexByte(0) + hexByte(0) + hexStrZ(hfname4))
         hintOff += 2 + len(hfname4) + 1
-        if hintOff % 2 != 0 { hintTable = hintTable + hexByte(0)  hintOff += 1 }
+        if hintOff % 2 != 0 { sbHint = sbAppend(sbHint, hexByte(0))  hintOff += 1 }
         hf4 += 1
     }
     let hf5 = 0
     while hf5 < usercount {
         let hfname5 = funcAt(userfuncs, hf5)
-        if len(hintOffsets) > 0 { hintOffsets = hintOffsets + "\n" }
-        hintOffsets = hintOffsets + hintOff
-        hintTable = hintTable + hexByte(0) + hexByte(0) + hexStrZ(hfname5)
+        if hintOff > 0 { sbHintOff = sbAppend(sbHintOff, "\n") }
+        sbHintOff = sbAppend(sbHintOff, hintOff + "")
+        sbHint = sbAppend(sbHint, hexByte(0) + hexByte(0) + hexStrZ(hfname5))
         hintOff += 2 + len(hfname5) + 1
-        if hintOff % 2 != 0 { hintTable = hintTable + hexByte(0)  hintOff += 1 }
+        if hintOff % 2 != 0 { sbHint = sbAppend(sbHint, hexByte(0))  hintOff += 1 }
         hf5 += 1
     }
+    let hintTable = sbToString(sbHint)
+    let hintOffsets = sbToString(sbHintOff)
 
     // Build ILT / IAT entries
     // Each entry: 8 bytes, high bit=0 → by name → RVA of IMAGE_IMPORT_BY_NAME
-    let iltK32 = ""
+    let sbIltK32 = sbNew()
     let k32i = 0
     while k32i < k32count {
         let hintRvaK = hintsRva + toInt(getLine(hintOffsets, k32i))
-        iltK32 = iltK32 + hexQword64(hintRvaK, 0)
+        sbIltK32 = sbAppend(sbIltK32, hexQword64(hintRvaK, 0))
         k32i += 1
     }
-    iltK32 = iltK32 + hexQword64(0, 0)
+    sbIltK32 = sbAppend(sbIltK32, hexQword64(0, 0))
+    let iltK32 = sbToString(sbIltK32)
 
-    let iltRt = ""
+    let sbIltRt = sbNew()
     let rti = 0
     while rti < rtcount {
         let hintRvaR = hintsRva + toInt(getLine(hintOffsets, k32count + rti))
-        iltRt = iltRt + hexQword64(hintRvaR, 0)
+        sbIltRt = sbAppend(sbIltRt, hexQword64(hintRvaR, 0))
         rti += 1
     }
-    iltRt = iltRt + hexQword64(0, 0)
+    sbIltRt = sbAppend(sbIltRt, hexQword64(0, 0))
+    let iltRt = sbToString(sbIltRt)
 
-    let iltAdv = ""
+    let sbIltAdv = sbNew()
     let advi = 0
     while advi < advcount {
         let hintRvaA = hintsRva + toInt(getLine(hintOffsets, k32count + rtcount + advi))
-        iltAdv = iltAdv + hexQword64(hintRvaA, 0)
+        sbIltAdv = sbAppend(sbIltAdv, hexQword64(hintRvaA, 0))
         advi += 1
     }
-    iltAdv = iltAdv + hexQword64(0, 0)
+    sbIltAdv = sbAppend(sbIltAdv, hexQword64(0, 0))
+    let iltAdv = sbToString(sbIltAdv)
 
-    let iltPdh = ""
+    let sbIltPdh = sbNew()
     let pdhi = 0
     while pdhi < pdhcount {
         let hintRvaP = hintsRva + toInt(getLine(hintOffsets, k32count + rtcount + advcount + pdhi))
-        iltPdh = iltPdh + hexQword64(hintRvaP, 0)
+        sbIltPdh = sbAppend(sbIltPdh, hexQword64(hintRvaP, 0))
         pdhi += 1
     }
-    iltPdh = iltPdh + hexQword64(0, 0)
+    sbIltPdh = sbAppend(sbIltPdh, hexQword64(0, 0))
+    let iltPdh = sbToString(sbIltPdh)
 
-    let iltUser = ""
+    let sbIltUser = sbNew()
     let useri = 0
     while useri < usercount {
         let hintRvaU = hintsRva + toInt(getLine(hintOffsets, k32count + rtcount + advcount + pdhcount + useri))
-        iltUser = iltUser + hexQword64(hintRvaU, 0)
+        sbIltUser = sbAppend(sbIltUser, hexQword64(hintRvaU, 0))
         useri += 1
     }
-    iltUser = iltUser + hexQword64(0, 0)
+    sbIltUser = sbAppend(sbIltUser, hexQword64(0, 0))
+    let iltUser = sbToString(sbIltUser)
 
     // Build IMAGE_IMPORT_DESCRIPTOR (20 bytes each):
     // OriginalFirstThunk(4) TimeDateStamp(4) ForwarderChain(4) Name(4) FirstThunk(4)
