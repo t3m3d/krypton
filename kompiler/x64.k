@@ -433,7 +433,7 @@ func emitStringTable(strs) {
 // ── Import table builder ──────────────────────────────────────────
 // Five DLLs: kernel32.dll + krypton_rt.dll + advapi32.dll + pdh.dll + user32.dll
 
-let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA"
+let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap"
 let KRUSER_FUNCS = "GetSystemMetrics"
 let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword"
 let KRADV_FUNCS = "RegOpenKeyExA,RegQueryValueExA,RegEnumKeyExA,RegCloseKey,GetUserNameA"
@@ -1518,7 +1518,7 @@ func emitDosHeader() {
 }
 
 // ── PE headers ───────────────────────────────────────────────────
-func emitPEHeader(numSections, textSize, rdataSize, textRva, rdataRva, entryRva, imageSize, iatRva, iatSize, iatK32Rva) {
+func emitPEHeader(numSections, textSize, rdataSize, textRva, rdataRva, entryRva, imageSize, iatRva, iatSize, iatK32Rva, isDll) {
     let PE_FILE_ALIGN = 512
     let PE_HEADER_SIZE = 512
     let PE_SECT_ALIGN = 4096
@@ -1532,7 +1532,12 @@ func emitPEHeader(numSections, textSize, rdataSize, textRva, rdataRva, entryRva,
     h = h + hexDword(0)                    // PointerToSymbolTable
     h = h + hexDword(0)                    // NumberOfSymbols
     h = h + hexByte(0xF0) + hexByte(0x00)  // SizeOfOptionalHeader = 240
-    h = h + hexByte(0x22) + hexByte(0x00)  // Characteristics
+    // 0x0022 = EXE, 0x2022 = DLL (adds IMAGE_FILE_DLL 0x2000)
+    if isDll == "1" {
+        h = h + hexByte(0x22) + hexByte(0x20)  // Characteristics: DLL
+    } else {
+        h = h + hexByte(0x22) + hexByte(0x00)  // Characteristics: EXE
+    }
 
     // Optional header PE32+ (240 bytes)
     h = h + hexByte(0x0B) + hexByte(0x02)  // Magic PE32+
@@ -1886,9 +1891,14 @@ func emitEntryPoint(mainFuncOffset, iatK32Rva, entryRva) {
 just run {
     let file = arg("0")
     let outFile = arg("1")
+    let isDll = "0"
+    if len(outFile) >= 4 {
+        let ext = substring(outFile, len(outFile) - 4, len(outFile))
+        if ext == ".dll" || ext == ".DLL" { isDll = "1" }
+    }
 
     if len(file) == 0 {
-        printErr("x64: usage: kcc kompiler/x64.k <file.kir> [output.exe]")
+        printErr("x64: usage: kcc kompiler/x64.k <file.kir> [output.exe|output.dll]")
         emit 1
     }
 
@@ -2035,7 +2045,8 @@ just run {
         realImageSize,
         realIatDescRva,
         realIatTotalSz,
-        realIatK32
+        realIatK32,
+        isDll
     )
 
     let textSecHdr = emitSectionHeader(
