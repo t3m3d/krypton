@@ -3741,9 +3741,10 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
 just run {
     let kccVer = "1.3.0"
 
-    // Parse flags: --version, --ir, --headers PATH
+    // Parse flags: --version, --ir, --headers PATH, -o OUTFILE
     let irMode = 0
     let headersDir = ""
+    let outFile = ""
     let file = arg("0")
     let argIdx = 0
 
@@ -3752,7 +3753,13 @@ just run {
         emit 0
     }
 
-    while file == "--ir" || file == "--headers" {
+    if argCount() == 0 {
+        printErr("kcc: no input file")
+        printErr("usage: kcc [-o out.exe] [--headers dir] source.k")
+        emit 1
+    }
+
+    while file == "--ir" || file == "--headers" || file == "-o" {
         if file == "--ir" {
             irMode = 1
             argIdx += 1
@@ -3762,8 +3769,16 @@ just run {
             headersDir = arg(argIdx + "")
             argIdx += 1
         }
+        if file == "-o" {
+            argIdx += 1
+            outFile = arg(argIdx + "")
+            argIdx += 1
+        }
         file = arg(argIdx + "")
     }
+
+    // When -o is given, force IR mode internally (pipeline handles the rest)
+    if len(outFile) > 0 { irMode = 1 }
 
     // Default to system headers if --headers not specified
     if headersDir == "" { headersDir = "C:\\krypton\\headers" }
@@ -4645,7 +4660,24 @@ just run {
             sbIR = sbAppend(sbIR, "FUNC __main__ 0\n" + pairVal(ep) + "END\n")
         }
 
-        print(sbToString(sbIR))
+        let irText = sbToString(sbIR)
+
+        // -o mode: run full native pipeline internally
+        if len(outFile) > 0 {
+            let kompilerDir = replace(headersDir, "headers", "bin")
+            let tmpIR  = "C:\\krypton\\tmp_kcc_build.ir"
+            let tmpOpt = "C:\\krypton\\tmp_kcc_build_opt.ir"
+            writeFile(tmpIR, irText)
+            let optCmd  = kompilerDir + "\\optimize_host.exe " + tmpIR + " > " + tmpOpt
+            let codeCmd = kompilerDir + "\\x64_host_new.exe " + tmpOpt + " " + outFile
+            shellRun(optCmd)
+            shellRun(codeCmd)
+            deleteFile(tmpIR)
+            deleteFile(tmpOpt)
+            emit 0
+        }
+
+        print(irText)
         emit 0
     }
 
