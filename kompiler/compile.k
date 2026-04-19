@@ -4614,7 +4614,47 @@ just run {
     // Find and compile the entry block
     let entry = findEntry(tokens, ntoks)
     if entry < 0 {
-        // library file with no entry point - that is OK
+        if irMode {
+            // DLL/library IR mode: emit IR for export funcs, no entry point
+            let sbIRlib = sbNew()
+            sbIRlib = sbAppend(sbIRlib, "; Krypton IR\n; Source: " + file + "\n\n")
+            sbIRlib = sbAppend(sbIRlib, importedIR)
+            let irlibI = 0
+            while irlibI < ntoks {
+                let irlibTok = tokAt(tokens, irlibI)
+                if irlibTok == "KW:func" || irlibTok == "KW:fn" {
+                    let irlibFp = irFuncIR(tokens, irlibI, ntoks)
+                    sbIRlib = sbAppend(sbIRlib, pairVal(irlibFp))
+                    irlibI = pairPos(irlibFp)
+                } else if irlibTok == "KW:export" {
+                    let irlibNext = tokAt(tokens, irlibI + 1)
+                    if irlibNext == "KW:func" || irlibNext == "KW:fn" {
+                        let irlibFname = tokVal(tokAt(tokens, irlibI + 2))
+                        let irlibFp = irFuncIR(tokens, irlibI + 1, ntoks)
+                        sbIRlib = sbAppend(sbIRlib, "EXPORT " + irlibFname + "\n")
+                        sbIRlib = sbAppend(sbIRlib, pairVal(irlibFp))
+                        irlibI = pairPos(irlibFp)
+                    } else { irlibI += 1 }
+                } else { irlibI += 1 }
+            }
+            let irLibText = sbToString(sbIRlib)
+            if len(outFile) > 0 {
+                let kompilerDir = replace(headersDir, "headers", "bin")
+                let tmpIR  = "C:\\krypton\\tmp_kcc_build.ir"
+                let tmpOpt = "C:\\krypton\\tmp_kcc_build_opt.ir"
+                writeFile(tmpIR, irLibText)
+                let optCmd2  = kompilerDir + "\\optimize_host.exe " + tmpIR + " > " + tmpOpt
+                let codeCmd2 = kompilerDir + "\\x64_host_new.exe " + tmpOpt + " " + outFile
+                shellRun(optCmd2)
+                shellRun(codeCmd2)
+                deleteFile(tmpIR)
+                deleteFile(tmpOpt)
+                emit 0
+            }
+            print(irLibText)
+            emit 0
+        }
+        // library file with no entry point — emit C
         print(sbToString(sb))
         emit 0
     }
@@ -4648,7 +4688,16 @@ just run {
                 sbIR = sbAppend(sbIR, pairVal(fp))
                 iri = pairPos(fp)
             } else if irtok == "KW:export" {
-                iri += 1
+                let expNext = tokAt(tokens, iri + 1)
+                if expNext == "KW:func" || expNext == "KW:fn" {
+                    let expFname = tokVal(tokAt(tokens, iri + 2))
+                    let efp = irFuncIR(tokens, iri + 1, ntoks)
+                    sbIR = sbAppend(sbIR, "EXPORT " + expFname + "\n")
+                    sbIR = sbAppend(sbIR, pairVal(efp))
+                    iri = pairPos(efp)
+                } else {
+                    iri += 1
+                }
             } else {
                 iri += 1
             }

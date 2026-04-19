@@ -1518,7 +1518,133 @@ func emitDosHeader() {
 }
 
 // ── PE headers ───────────────────────────────────────────────────
-func emitPEHeader(numSections, textSize, rdataSize, textRva, rdataRva, entryRva, imageSize, iatRva, iatSize, iatK32Rva, isDll) {
+// ── Export table builder ──────────────────────────────────────────
+
+// Lexicographic string less-than (for export name sorting)
+func strLt(a, b) {
+    let la = toInt(len(a))
+    let lb = toInt(len(b))
+    let lmin = la
+    if lb < lmin { lmin = lb }
+    let i = 0
+    while i < lmin {
+        let ca = toInt(charCode(substring(a, i, i + 1)))
+        let cb = toInt(charCode(substring(b, i, i + 1)))
+        if ca < cb { emit "1" }
+        if ca > cb { emit "0" }
+        i += 1
+    }
+    if la < lb { emit "1" }
+    emit "0"
+}
+
+// Selection sort of newline-separated name list (required: NPT must be sorted for GetProcAddress)
+func sortExportNames(names, count) {
+    if count <= 1 { emit names }
+    let sorted = names
+    let i = 0
+    while i < count - 1 {
+        let minName = getLine(sorted, i)
+        let minIdx = i
+        let j = i + 1
+        while j < count {
+            let jName = getLine(sorted, j)
+            if strLt(jName, minName) == "1" { minName = jName  minIdx = j }
+            j += 1
+        }
+        if minIdx != i {
+            let iName = getLine(sorted, i)
+            let newSorted = ""
+            let k = 0
+            while k < count {
+                if len(newSorted) > 0 { newSorted = newSorted + "\n" }
+                if k == i { newSorted = newSorted + minName }
+                else if k == minIdx { newSorted = newSorted + iName }
+                else { newSorted = newSorted + getLine(sorted, k) }
+                k += 1
+            }
+            sorted = newSorted
+        }
+        i += 1
+    }
+    emit sorted
+}
+
+// exportNames: newline-separated list of exported function names (in order)
+// allFuncOffsets: "name:offset\n" table from pass 1
+// textRva: RVA base of .text section
+// rdataRva: RVA base of .rdata section
+// exportBase: byte offset within .rdata where this table starts
+// dllName: the DLL file name string (e.g. "krypton_rt.dll")
+// Returns: hex bytes of the export directory + supporting tables
+func buildExportTable(exportNames, allFuncOffsets, textRva, rdataRva, exportBase, dllName) {
+    let count = 0
+    if len(exportNames) > 0 { count = lineCount(exportNames) }
+    if count == 0 { emit "" }
+
+    let dirSize  = 40
+    let eatSize  = count * 4
+    let nptSize  = count * 4
+    let otSize   = count * 2
+    let otPad    = 0
+    if otSize % 4 != 0 { otPad = 2 }
+
+    let dllNameOffset  = dirSize + eatSize + nptSize + otSize + otPad
+    let funcNamesStart = dllNameOffset + len(dllName) + 1
+
+    let eatRva  = rdataRva + exportBase + dirSize
+    let nptRva  = eatRva + eatSize
+    let otRva   = nptRva + nptSize
+    let dllNameRva = rdataRva + exportBase + dllNameOffset
+
+    // Build EAT in original declaration order
+    let eat = ""
+    let ni = 0
+    while ni < count {
+        let expFn = getLine(exportNames, ni)
+        let foff = toInt(funcOffsetLookup(allFuncOffsets, expFn))
+        eat = eat + hexDword(textRva + foff)
+        ni += 1
+    }
+
+    // Build NPT and OT from sorted names (GetProcAddress requires sorted NPT)
+    let sortedNames = sortExportNames(exportNames, count)
+    let npt = ""
+    let ot  = ""
+    let nameStrs = ""
+    let nameOff = funcNamesStart
+    let si = 0
+    while si < count {
+        let sortedFn = getLine(sortedNames, si)
+        // Find original index for this name (OT entry = EAT index)
+        let origIdx = 0
+        let oi = 0
+        while oi < count {
+            if getLine(exportNames, oi) == sortedFn { origIdx = oi }
+            oi += 1
+        }
+        npt = npt + hexDword(rdataRva + exportBase + nameOff)
+        ot  = ot  + hexWord(origIdx)
+        nameStrs = nameStrs + hexStr(sortedFn) + hexByte(0)
+        nameOff = nameOff + len(sortedFn) + 1
+        si += 1
+    }
+    let otPadHex = ""
+    if otPad > 0 { otPadHex = hexByte(0) + hexByte(0) }
+
+    let dir = hexDword(0) + hexDword(0) + hexWord(0) + hexWord(0)
+    dir = dir + hexDword(dllNameRva)
+    dir = dir + hexDword(1)
+    dir = dir + hexDword(count)
+    dir = dir + hexDword(count)
+    dir = dir + hexDword(eatRva)
+    dir = dir + hexDword(nptRva)
+    dir = dir + hexDword(otRva)
+
+    emit dir + eat + npt + ot + otPadHex + hexStr(dllName) + hexByte(0) + nameStrs
+}
+
+func emitPEHeader(numSections, textSize, rdataSize, textRva, rdataRva, entryRva, imageSize, iatRva, iatSize, iatK32Rva, isDll, exportRva, exportSize) {
     let PE_FILE_ALIGN = 512
     let PE_HEADER_SIZE = 512
     let PE_SECT_ALIGN = 4096
@@ -1567,7 +1693,7 @@ func emitPEHeader(numSections, textSize, rdataSize, textRva, rdataRva, entryRva,
     h = h + hexDword(16)                   // NumberOfRvaAndSizes
 
     // Data directories (16 * 8 bytes = 128 bytes)
-    h = h + hexDword(0) + hexDword(0)                   // [0] Export
+    h = h + hexDword(exportRva) + hexDword(exportSize)  // [0] Export
     h = h + hexDword(iatRva) + hexDword(iatSize)         // [1] Import Directory
     h = h + hexDword(0) + hexDword(0)                   // [2] Resource
     h = h + hexDword(0) + hexDword(0)                   // [3] Exception
@@ -1618,7 +1744,7 @@ func emitSectionHeader(name, virtSize, virtAddr, rawSize, rawOffset, characteris
 //   [I] DLL name "krypton_rt.dll\0"
 //   [J] IMAGE_IMPORT_BY_NAME entries for each function
 
-func buildImportTable(rdataRva, strsSize) {
+func buildImportTable(rdataRva, strsSize, rtDllName) {
     let k32funcs = KR32_FUNCS
     let rtfuncs = KRRT_FUNCS
     let advfuncs = KRADV_FUNCS
@@ -1674,7 +1800,7 @@ func buildImportTable(rdataRva, strsSize) {
     let iatUserSize = (usercount + 1) * 8
     let dllNamesOffset = iatUserOffset + iatUserSize
     let dllK32Name = "kernel32.dll"
-    let dllRtName = "krypton_rt.dll"
+    let dllRtName = rtDllName
     let dllAdvName = "advapi32.dll"
     let dllPdhName = "pdh.dll"
     let dllUserName = "user32.dll"
@@ -1897,6 +2023,17 @@ just run {
         if ext == ".dll" || ext == ".DLL" { isDll = "1" }
     }
 
+    // Bootstrap mode: building krypton_rt.dll itself — import from legacy to avoid self-import
+    let isBootstrap = "0"
+    let rtDllName = "krypton_rt.dll"
+    if isDll == "1" {
+        let bsnBase = outFile
+        let bsnI = len(bsnBase) - 1
+        while bsnI >= 0 && bsnBase[bsnI] != "\\" && bsnBase[bsnI] != "/" { bsnI = bsnI - 1 }
+        bsnBase = substring(bsnBase, bsnI + 1, len(bsnBase))
+        if bsnBase == "krypton_rt.dll" { isBootstrap = "1"  rtDllName = "krypton_rt_legacy.dll" }
+    }
+
     if len(file) == 0 {
         printErr("x64: usage: kcc kompiler/x64.k <file.kir> [output.exe|output.dll]")
         emit 1
@@ -1921,6 +2058,22 @@ just run {
         }
         ci += 1
     }
+
+    // Collect EXPORT directives
+    let exportNames = ""
+    let expScanCount = lineCount(clean)
+    let expScanI = 0
+    while expScanI < expScanCount {
+        let expLn = getLine(clean, expScanI)
+        if irGetOp(expLn) == "EXPORT" {
+            let expFnName = irGetArg1(expLn)
+            if len(exportNames) > 0 { exportNames = exportNames + "\n" }
+            exportNames = exportNames + expFnName
+        }
+        expScanI += 1
+    }
+    let exportCount = 0
+    if len(exportNames) > 0 { exportCount = lineCount(exportNames) }
 
     // Collect all string constants
     let strs = collectStrings(clean)
@@ -1979,8 +2132,9 @@ just run {
         fi += 1
     }
 
-    // Entry point: 7(subRsp)+5(call)+2(xor)+6(call IAT)+1(ret) = 21 bytes
+    // Entry point: EXE=21 bytes (subRsp+call+xor+callIAT+ret), DLL=6 bytes (mov eax,1+ret)
     let entrySize = 21
+    if isDll == "1" { entrySize = 6 }
     let entryByteOffset = totalFuncBytes
     let totalTextBytes = totalFuncBytes + entrySize
 
@@ -1992,7 +2146,7 @@ just run {
     let realRdataRva = PE_TEXT_RVA2 + alignUp(totalTextBytes, PE_SECT_ALIGN)
 
     // Build import table once with the real rdata RVA
-    let realImportData = buildImportTable(realRdataRva, strTableSize)
+    let realImportData = buildImportTable(realRdataRva, strTableSize, rtDllName)
     let realImportHex = split(realImportData, 0)
     let realIatK32 = toInt(split(realImportData, 1))
     let realIatDescRva = toInt(split(realImportData, 2))
@@ -2002,7 +2156,24 @@ just run {
     let realIatUserRva = toInt(split(realImportData, 6))
     let realIatRtRva = realIatK32 + (countFuncs(KR32_FUNCS) + 1) * 8
 
-    let rdataSize2 = strTableSize + len(realImportHex) / 3
+    // Build export table (DLL only, if any exports exist)
+    let realExportHex = ""
+    let realExportRva = 0
+    let realExportSize = 0
+    if isDll == "1" && exportCount > 0 {
+        let importHexSize = len(realImportHex) / 3
+        let exportBaseOff = strTableSize + importHexSize
+        // Extract DLL name from outFile path (basename)
+        let dllBaseName = outFile
+        let dbi = len(dllBaseName) - 1
+        while dbi >= 0 && dllBaseName[dbi] != "\\" && dllBaseName[dbi] != "/" { dbi = dbi - 1 }
+        dllBaseName = substring(dllBaseName, dbi + 1, len(dllBaseName))
+        realExportHex = buildExportTable(exportNames, allFuncOffsets, PE_TEXT_RVA2, realRdataRva, exportBaseOff, dllBaseName)
+        realExportRva = realRdataRva + exportBaseOff
+        realExportSize = len(realExportHex) / 3
+    }
+
+    let rdataSize2 = strTableSize + len(realImportHex) / 3 + realExportSize
     let realTextFileSize = alignUp(totalTextBytes, PE_FILE_ALIGN)
     let realRdataFileOff = PE_TEXT_FILE_OFF + realTextFileSize
     let realImageSize = realRdataRva + alignUp(rdataSize2, PE_SECT_ALIGN)
@@ -2024,12 +2195,19 @@ just run {
         fi2 += 1
     }
 
-    // Entry point
-    let mainOffset = funcOffsetLookup(allFuncOffsets, "__main__")
+    // Entry point: DLL → minimal DllMain (mov eax,1; ret); EXE → call __main__ + ExitProcess
     let entryRva2 = PE_TEXT_RVA2 + realTextSize
-    let entryCode = emitEntryPoint(PE_TEXT_RVA2 + mainOffset, realIatK32, entryRva2)
-    sbCode = sbAppend(sbCode, entryCode)
-    realTextSize += len(entryCode) / 3
+    if isDll == "1" {
+        // DllMain: MOV EAX,1 (B8 01 00 00 00) + RET (C3)
+        let dllMain = hexByte(0xB8) + hexDword(1) + hexByte(0xC3)
+        sbCode = sbAppend(sbCode, dllMain)
+        realTextSize += len(dllMain) / 3
+    } else {
+        let mainOffset = funcOffsetLookup(allFuncOffsets, "__main__")
+        let entryCode = emitEntryPoint(PE_TEXT_RVA2 + mainOffset, realIatK32, entryRva2)
+        sbCode = sbAppend(sbCode, entryCode)
+        realTextSize += len(entryCode) / 3
+    }
     let realFuncCode = sbToString(sbCode)
 
     // ── Assemble the PE binary ────────────────────────────────────────
@@ -2046,7 +2224,9 @@ just run {
         realIatDescRva,
         realIatTotalSz,
         realIatK32,
-        isDll
+        isDll,
+        realExportRva,
+        realExportSize
     )
 
     let textSecHdr = emitSectionHeader(
@@ -2085,7 +2265,7 @@ just run {
     let rdataPadHex = hexPad(rdataPad)
 
     // Assemble full PE (direct concatenation — sections are all measured, not huge)
-    let pe = hdrHex + hdrPadHex + realFuncCode + textPadHex + strTableHex + realImportHex + rdataPadHex
+    let pe = hdrHex + hdrPadHex + realFuncCode + textPadHex + strTableHex + realImportHex + realExportHex + rdataPadHex
 
     if len(outFile) > 0 {
         writeBytes(outFile, pe)
