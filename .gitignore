@@ -78,6 +78,8 @@ build*.bat
 test*
 *.ir
 *.dll
+!runtime/krypton_rt.dll
+!runtime/krypton_rt_legacy.dll
 *.obj
 *.lib
 *.txt

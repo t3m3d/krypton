@@ -3913,7 +3913,7 @@ just run {
         let bsnI = len(bsnBase) - 1
         while bsnI >= 0 && bsnBase[bsnI] != "\\" && bsnBase[bsnI] != "/" { bsnI = bsnI - 1 }
         bsnBase = substring(bsnBase, bsnI + 1, len(bsnBase))
-        if bsnBase == "krypton_rt.dll" { isBootstrap = "1"  rtDllName = "krypton_rt_legacy.dll" }
+        if bsnBase == "krypton_rt.dll" { rtDllName = "krypton_rt_legacy.dll" }
     }
 
     if len(file) == 0 {
@@ -3940,6 +3940,9 @@ just run {
         }
         ci += 1
     }
+
+    // Bootstrap mode only when IR has no FUNC instructions (raw machine code, not Krypton source)
+    if contains(clean, "FUNC") == "0" { isBootstrap = "1" }
 
     // Collect EXPORT directives
     let exportNames = ""
