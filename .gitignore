@@ -81,9 +81,6 @@ test*
 *.obj
 *.lib
 *.txt
-runtime/krypton_rt.dll
-void
-zero
 passes
 int
 kcc
