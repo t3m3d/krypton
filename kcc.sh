@@ -100,12 +100,14 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
     rm -f "$TMPIR" "$TMPOPT"
     if [[ $X64_RET -ne 0 ]]; then echo "kcc --native: x64 codegen failed" >&2; exit 1; fi
 
-    # Check for krypton_rt.dll next to output
+    # Copy runtime DLLs next to output
     RT_DLL="$SCRIPT_DIR/runtime/krypton_rt.dll"
+    RT_LEGACY="$SCRIPT_DIR/runtime/krypton_rt_legacy.dll"
     OUT_DIR="$(dirname "$OUTFILE")"
     if [[ -f "$RT_DLL" && "$OUT_DIR" != "$(dirname "$RT_DLL")" ]]; then
         cp "$RT_DLL" "$OUT_DIR/krypton_rt.dll" 2>/dev/null || true
-        echo "kcc: copied krypton_rt.dll to $OUT_DIR" >&2
+        cp "$RT_LEGACY" "$OUT_DIR/krypton_rt_legacy.dll" 2>/dev/null || true
+        echo "kcc: copied runtime DLLs to $OUT_DIR" >&2
     fi
     exit 0
 fi
