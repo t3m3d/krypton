@@ -185,7 +185,7 @@ func readBacktickString(text, i) {
 }
 
 func tokenize(text) {
-    let out = ""
+    let out = sbNew()
     let i = 0
 
     while i < len(text) {
@@ -204,13 +204,13 @@ func tokenize(text) {
             let pair = readNumber(text, i)
             let num = pairVal(pair)
             i = pairPos(pair)
-            out = out + "INT:" + num + "\n"
+            out = sbAppend(out, "INT:" + num + "\n")
         }
         else if c == "\"" {
             let pair = readString(text, i)
             let str = pairVal(pair)
             i = pairPos(pair)
-            out = out + "STR:" + str + "\n"
+            out = sbAppend(out, "STR:" + str + "\n")
         }
         else if charIsAlpha(c) {
             let pair = readIdent(text, i)
@@ -250,145 +250,145 @@ func tokenize(text) {
                         }
                     }
                     i = ci2
-                    out = out + "CBLOCK:" + ctext + "\n"
+                    out = sbAppend(out, "CBLOCK:" + ctext + "\n")
                 }
             } else if isKW(id) {
-                out = out + "KW:" + id + "\n"
+                out = sbAppend(out, "KW:" + id + "\n")
             }
             else {
-                out = out + "ID:" + id + "\n"
+                out = sbAppend(out, "ID:" + id + "\n")
             }
         }
         else if c == "+" {
             if i + 1 < len(text) && text[i + 1] == "+" {
-                out = out + "PLUSPLUS\n"
+                out = sbAppend(out, "PLUSPLUS\n")
                 i = i + 2
             } else if i + 1 < len(text) && text[i + 1] == "=" {
-                out = out + "PLUSEQ\n"
+                out = sbAppend(out, "PLUSEQ\n")
                 i = i + 2
             } else {
-                out = out + "PLUS\n"
+                out = sbAppend(out, "PLUS\n")
                 i += 1
             }
         }
         else if c == "-" {
             if i + 1 < len(text) && text[i + 1] == ">" {
-                out = out + "ARROW\n"
+                out = sbAppend(out, "ARROW\n")
                 i = i + 2
             }
             else if i + 1 < len(text) && text[i + 1] == "-" {
-                out = out + "MINUSMINUS\n"
+                out = sbAppend(out, "MINUSMINUS\n")
                 i = i + 2
             }
             else if i + 1 < len(text) && text[i + 1] == "=" {
-                out = out + "MINUSEQ\n"
+                out = sbAppend(out, "MINUSEQ\n")
                 i = i + 2
             }
             else {
-                out = out + "MINUS\n"
+                out = sbAppend(out, "MINUS\n")
                 i += 1
             }
         }
         else if c == "*" {
             if i + 1 < len(text) && text[i + 1] == "*" {
-                out = out + "STARSTAR\n"
+                out = sbAppend(out, "STARSTAR\n")
                 i = i + 2
             } else if i + 1 < len(text) && text[i + 1] == "=" {
-                out = out + "STAREQ\n"
+                out = sbAppend(out, "STAREQ\n")
                 i = i + 2
             } else {
-                out = out + "STAR\n"
+                out = sbAppend(out, "STAR\n")
                 i += 1
             }
         }
         else if c == "/" {
             if i + 1 < len(text) && text[i + 1] == "=" {
-                out = out + "SLASHEQ\n"
+                out = sbAppend(out, "SLASHEQ\n")
                 i = i + 2
             } else {
-                out = out + "SLASH\n"
+                out = sbAppend(out, "SLASH\n")
                 i += 1
             }
         }
         else if c == "(" {
-            out = out + "LPAREN\n"
+            out = sbAppend(out, "LPAREN\n")
             i += 1
         }
         else if c == ")" {
-            out = out + "RPAREN\n"
+            out = sbAppend(out, "RPAREN\n")
             i += 1
         }
         else if c == "{" {
-            out = out + "LBRACE\n"
+            out = sbAppend(out, "LBRACE\n")
             i += 1
         }
         else if c == "}" {
-            out = out + "RBRACE\n"
+            out = sbAppend(out, "RBRACE\n")
             i += 1
         }
         else if c == "[" {
-            out = out + "LBRACK\n"
+            out = sbAppend(out, "LBRACK\n")
             i += 1
         }
         else if c == "]" {
-            out = out + "RBRACK\n"
+            out = sbAppend(out, "RBRACK\n")
             i += 1
         }
         else if c == ":" {
-            out = out + "COLON\n"
+            out = sbAppend(out, "COLON\n")
             i += 1
         }
         else if c == ";" {
-            out = out + "SEMI\n"
+            out = sbAppend(out, "SEMI\n")
             i += 1
         }
         else if c == "," {
-            out = out + "COMMA\n"
+            out = sbAppend(out, "COMMA\n")
             i += 1
         }
         else if c == "=" {
             if i + 1 < len(text) && text[i + 1] == "=" {
-                out = out + "EQ\n"
+                out = sbAppend(out, "EQ\n")
                 i = i + 2
             }
             else {
-                out = out + "ASSIGN\n"
+                out = sbAppend(out, "ASSIGN\n")
                 i += 1
             }
         }
         else if c == "!" {
             if i + 1 < len(text) && text[i + 1] == "=" {
-                out = out + "NEQ\n"
+                out = sbAppend(out, "NEQ\n")
                 i = i + 2
             }
             else {
-                out = out + "BANG\n"
+                out = sbAppend(out, "BANG\n")
                 i += 1
             }
         }
         else if c == "<" {
             if i + 1 < len(text) && text[i + 1] == "=" {
-                out = out + "LTE\n"
+                out = sbAppend(out, "LTE\n")
                 i = i + 2
             }
             else {
-                out = out + "LT\n"
+                out = sbAppend(out, "LT\n")
                 i += 1
             }
         }
         else if c == ">" {
             if i + 1 < len(text) && text[i + 1] == "=" {
-                out = out + "GTE\n"
+                out = sbAppend(out, "GTE\n")
                 i = i + 2
             }
             else {
-                out = out + "GT\n"
+                out = sbAppend(out, "GT\n")
                 i += 1
             }
         }
         else if c == "&" {
             if i + 1 < len(text) && text[i + 1] == "&" {
-                out = out + "AND\n"
+                out = sbAppend(out, "AND\n")
                 i = i + 2
             }
             else {
@@ -397,7 +397,7 @@ func tokenize(text) {
         }
         else if c == "|" {
             if i + 1 < len(text) && text[i + 1] == "|" {
-                out = out + "OR\n"
+                out = sbAppend(out, "OR\n")
                 i = i + 2
             }
             else {
@@ -406,19 +406,19 @@ func tokenize(text) {
         }
         else if c == "%" {
             if i + 1 < len(text) && text[i + 1] == "=" {
-                out = out + "MODEQ\n"
+                out = sbAppend(out, "MODEQ\n")
                 i = i + 2
             } else {
-                out = out + "MOD\n"
+                out = sbAppend(out, "MOD\n")
                 i += 1
             }
         }
         else if c == "?" {
-            out = out + "QUESTION\n"
+            out = sbAppend(out, "QUESTION\n")
             i += 1
         }
         else if c == "." {
-            out = out + "DOT\n"
+            out = sbAppend(out, "DOT\n")
             i += 1
         }
         else if c == "`" {
@@ -426,14 +426,14 @@ func tokenize(text) {
             let pair = readBacktickString(text, i)
             let str = pairVal(pair)
             i = pairPos(pair)
-            out = out + "INTERP:" + str + "\n"
+            out = sbAppend(out, "INTERP:" + str + "\n")
         }
         else {
             i += 1
         }
     }
 
-    emit out
+    emit sbToString(out)
 }
 
 // === Token access ===
@@ -538,7 +538,7 @@ func expandEscapes(s) {
 // === Function table helpers ===
 
 func scanFunctions(tokens, ntoks) {
-    let table = ""
+    let table = sbNew()
     let i = 0
     while i < ntoks {
         let tok = tokAt(tokens, i)
@@ -583,11 +583,11 @@ func scanFunctions(tokens, ntoks) {
             }
             // j is at RPAREN, j+1 is LBRACE
             let bodyStart = j + 1
-            table = table + fname + "~" + pc + "~" + params + "~" + bodyStart + "\n"
+            table = sbAppend(table, fname + "~" + pc + "~" + params + "~" + bodyStart + "\n")
         }
         i += 1
     }
-    emit table
+    emit sbToString(table)
 }
 
 func funcLookup(table, name) {
@@ -2328,7 +2328,7 @@ func compileExprStmt(tokens, pos, ntoks, depth) {
 func compileBlock(tokens, pos, ntoks, depth, inFunc) {
     // pos should be at LBRACE
     let p = pos + 1
-    let code = ""
+    let code = sbNew()
     while tokAt(tokens, p) != "RBRACE" {
         // skip stray semicolons
         if tokAt(tokens, p) == "SEMI" {
@@ -2337,20 +2337,20 @@ func compileBlock(tokens, pos, ntoks, depth, inFunc) {
             let sp = compileStmt(tokens, p, ntoks, depth + 1, inFunc)
             let sCode = pairVal(sp)
             p = pairPos(sp)
-            code = code + sCode
+            code = sbAppend(code, sCode)
         }
     }
     // skip RBRACE
     p += 1
-    emit code + "," + p
+    emit sbToString(code) + "," + p
 }
 
 // === Function compiler ===
 
 func hoistLambdas(code) {
     // Extract /*LS*/body/*LE*/ markers from code, return "hoisted\ncleanCode"
-    let hoisted = ""
-    let clean = ""
+    let hoisted = sbNew()
+    let clean = sbNew()
     let i = 0
     let clen = len(code)
     while i < clen {
@@ -2360,18 +2360,18 @@ func hoistLambdas(code) {
                 let bodyStart = i + 6
                 let bodyEnd = bodyStart + toInt(le)
                 let leEnd = bodyEnd + 6
-                hoisted = hoisted + substring(code, bodyStart, bodyEnd) + "\n"
+                hoisted = sbAppend(hoisted, substring(code, bodyStart, bodyEnd) + "\n")
                 i = leEnd
             } else {
-                clean = clean + code[i]
+                clean = sbAppend(clean, code[i])
                 i += 1
             }
         } else {
-            clean = clean + code[i]
+            clean = sbAppend(clean, code[i])
             i += 1
         }
     }
-    emit hoisted + "/*SPLIT*/" + clean
+    emit sbToString(hoisted) + "/*SPLIT*/" + sbToString(clean)
 }
 
 
@@ -2562,10 +2562,11 @@ func cRuntime() {
     r = sbAppend(r, "    memcpy(r, s + st, n);\n    r[n] = 0;\n    return r;\n}\n\nstatic char* kr_toint(const char* s) { return kr_itoa(atoi(s)); }\n\nstatic char* kr_exec(const char* cmd) {\n    char* buf=_alloc(8192); buf[0]=0;\n#ifdef _WIN32\n    FILE* p=_popen(cmd,\"r\");\n#else\n    FILE* p=popen(cmd,\"r\");\n#endif\n    if(!p) return buf;\n    int pos=0,ch;\n    while(pos<8191&&(ch=fgetc(p))!=EOF) buf[pos++]=(char)ch;\n    buf[pos]=0;\n#ifdef _WIN32\n    _pclose(p);\n#else\n    pclose(p);\n#endif\n    while(pos>0&&(buf[pos-1]==13||buf[pos-1]==10||buf[pos-1]==32)) buf[--pos]=0;\n    return buf;\n}\n\n\n\nstatic char* kr_readfile(const char* path) {\n    FILE* f = fopen(path, \"rb\");\n    if (!f) return kr_str(\"\");\n")
     r = sbAppend(r, "    fseek(f, 0, SEEK_END);\n    long sz = ftell(f);\n    fseek(f, 0, SEEK_SET);\n    char* buf = _alloc((int)sz + 1);\n    fread(buf, 1, sz, f);\n    buf[sz] = 0;\n    fclose(f);\n    return buf;\n")
     r = sbAppend(r, "}\n\nstatic char* kr_arg(const char* idxs) {\n    int idx = atoi(idxs) + 1;\n    if (idx < _argc) return kr_str(_argv[idx]);\n    return kr_str(\"\");\n}\n\nstatic char* kr_argcount() {\n    return kr_itoa(_argc - 1);\n")
-    r = sbAppend(r, "}\n\nstatic char* kr_getline(const char* s, const char* idxs) {\n    int idx = atoi(idxs);\n    int cur = 0;\n    const char* start = s;\n    const char* p = s;\n    while (*p) {\n")
-    r = sbAppend(r, "        if (*p == '\\n') {\n")
-    r = sbAppend(r, "            if (cur == idx) {\n                int len = (int)(p - start);\n                char* r = _alloc(len + 1);\n                memcpy(r, start, len);\n                r[len] = 0;\n                return r;\n            }\n            cur++;\n")
-    r = sbAppend(r, "            start = p + 1;\n        }\n        p++;\n    }\n    if (cur == idx) return kr_str(start);\n    return kr_str(\"\");\n}\n\nstatic char* kr_linecount(const char* s) {\n")
+    r = sbAppend(r, "}\n\nstatic char* kr_getline(const char* s, const char* idxs) {\n")
+    r = sbAppend(r, "    int idx = atoi(idxs);\n    static const char* _gl_s = 0;\n    static int _gl_idx = 0;\n    static const char* _gl_start = 0;\n")
+    r = sbAppend(r, "    const char* start; int cur;\n    if (s == _gl_s && _gl_start && idx >= _gl_idx) {\n        start = _gl_start; cur = _gl_idx;\n    } else {\n        start = s; cur = 0; _gl_s = s; _gl_start = s; _gl_idx = 0;\n    }\n")
+    r = sbAppend(r, "    const char* p = start;\n    while (*p) {\n        if (*p == '\\n') {\n            if (cur == idx) {\n                int len = (int)(p - start);\n                char* r = _alloc(len + 1);\n                memcpy(r, start, len); r[len] = 0;\n")
+    r = sbAppend(r, "                _gl_s = s; _gl_idx = idx; _gl_start = start;\n                return r;\n            }\n            cur++; start = p + 1;\n        }\n        p++;\n    }\n    if (cur == idx) { _gl_s = s; _gl_idx = idx; _gl_start = start; return kr_str(start); }\n    return kr_str(\"\");\n}\n\nstatic char* kr_linecount(const char* s) {\n")
     r = sbAppend(r, "    if (!*s) return kr_str(\"0\");\n    int count = 1;\n    const char* p = s;\n")
     r = sbAppend(r, "    while (*p) { if (*p == '\\n') count++; p++; }\n")
     r = sbAppend(r, "    if (*(p - 1) == '\\n') count--;\n")
