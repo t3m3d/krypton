@@ -31,7 +31,7 @@ if [[ -z "$GCC_EXE" ]]; then GCC_EXE="gcc"; fi
 
 SRCFILE=""
 OUTFILE=""
-LIBS="-lm -w"
+LIBS="-O2 -lm -w"
 IRFLAG=""
 NATIVE_MODE=0
 LLVM_MODE=0
