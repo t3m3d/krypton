@@ -82,7 +82,6 @@ test*
 *.lib
 *.txt
 runtime/krypton_rt.dll
-krypton_rt.dll
 void
 zero
 passes
@@ -90,7 +89,6 @@ int
 kcc
 hello_test.k
 native_ir_out.txt
-krypton_rt.dll
 runtime/krypton_runtime.c
 installer/
 assets/
