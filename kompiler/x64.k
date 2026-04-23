@@ -3936,16 +3936,16 @@ just run {
         if ext == ".dll" || ext == ".DLL" { isDll = "1" }
     }
 
-    // Bootstrap mode: building krypton_rt.dll itself — import from legacy to avoid self-import
-    // Native exes also import from legacy (exports all 89 KRRT_FUNCS); krypton_rt.dll only has 39.
+    // EXEs and other DLLs import from krypton_rt.dll (Phase 2: Krypton-written runtime, 91 exports).
+    // Only krypton_rt.dll itself imports from krypton_rt_legacy.dll to avoid circular self-import.
     let isBootstrap = "0"
-    let rtDllName = "krypton_rt_legacy.dll"
+    let rtDllName = "krypton_rt.dll"
     if isDll == "1" {
         let bsnBase = outFile
         let bsnI = len(bsnBase) - 1
         while bsnI >= 0 && bsnBase[bsnI] != "\\" && bsnBase[bsnI] != "/" { bsnI = bsnI - 1 }
         bsnBase = substring(bsnBase, bsnI + 1, len(bsnBase))
-        if bsnBase != "krypton_rt.dll" { rtDllName = "krypton_rt.dll" }
+        if bsnBase == "krypton_rt.dll" { rtDllName = "krypton_rt_legacy.dll" }
     }
 
     if len(file) == 0 {
@@ -4212,7 +4212,9 @@ just run {
         sbCode = sbAppend(sbCode, dllMain)
         realTextSize += len(dllMain) / 3
     } else {
+        // IR may name entry "__main__" (compile.k) or "main" (older kcc.exe). Accept both.
         let mainOffset = funcOffsetLookup(allFuncOffsets, "__main__")
+        if toInt(mainOffset) < 0 { mainOffset = funcOffsetLookup(allFuncOffsets, "main") }
         let entryCode = emitEntryPoint(PE_TEXT_RVA2 + mainOffset, realIatK32, entryRva2)
         sbCode = sbAppend(sbCode, entryCode)
         realTextSize += len(entryCode) / 3
