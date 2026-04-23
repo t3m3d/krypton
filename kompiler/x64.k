@@ -506,6 +506,16 @@ func resolveBuiltin(name) {
     if name == "sizeOf"         { emit "kr_sizeof" }
     if name == "bitShl"         { emit "kr_shl" }
     if name == "str"            { emit "kr_str" }
+    // Phase 1 raw memory primitives
+    if name == "rawAlloc"       { emit "kr_rawalloc" }
+    if name == "rawFree"        { emit "kr_rawfree" }
+    if name == "rawRealloc"     { emit "kr_rawrealloc" }
+    if name == "ptrAdd"         { emit "kr_ptradd" }
+    if name == "ptrToInt"       { emit "kr_ptrtoint" }
+    if name == "rawReadByte"    { emit "kr_rawreadbyte" }
+    if name == "rawReadWord"    { emit "kr_rawreadword" }
+    if name == "rawWriteWord"   { emit "kr_rawwriteword" }
+    if name == "rawWriteQword"  { emit "kr_rawwriteqword" }
     emit name
 }
 
