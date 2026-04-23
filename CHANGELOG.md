@@ -2,6 +2,29 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [1.2.0] - 2026-04-22
+
+### Native Pipeline — Memory Leak Fix
+
+Eliminated two classes of memory leak that caused RAM exhaustion when compiling large programs with the native x64 backend (`kcc --native`).
+
+**Fix A — StringBuilders in x64.k (O(N²) → O(N)):**
+
+Replaced all string accumulation loops in the x64 code generator with `sbNew`/`sbAppend`/`sbToString` calls:
+- IR cleanup loop (`clean` string built from all IR lines)
+- Export name collection (`exportNames`)
+- Function offset table (`allFuncOffsets`)
+- Bootstrap export offset tracking (`bsOffsets`, `bsExportNames`)
+- PE header builder functions (`emitDosHeader`, `emitPEHeader`, `emitSectionHeader`, `emitEntryPoint`)
+
+Each of these previously did `s = s + chunk` in a loop — allocating a new copy of the entire string on every iteration and leaking the old one. For a large program with N IR instructions, this produced O(N²) allocations.
+
+**Fix B — Arena allocator in native_rt.c:**
+
+Replaced per-string `HeapAlloc` calls with a 64MB slab arena. All `kr_plus`, `kr_str`, `kr_substring`, and other string-returning functions now allocate from bump-pointer slabs instead of calling `HeapAlloc` per result. StringBuilder internal buffers (which need `HeapReAlloc`) are the only remaining `HeapAlloc` users.
+
+Result: compiling large Krypton programs no longer exhausts RAM. Memory usage is bounded by the arena slab size (64MB) rather than growing with the square of program size.
+
 ## [1.1.9] - 2026-04-04
 
 ### Compiler — System Header Search Path (`--headers`)
