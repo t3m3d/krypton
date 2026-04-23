@@ -35,12 +35,14 @@ LIBS="-O2 -lm -w"
 IRFLAG=""
 NATIVE_MODE=0
 LLVM_MODE=0
+GCC_MODE=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --ir)      IRFLAG="--ir"; shift ;;
         --native)  NATIVE_MODE=1; shift ;;
         --llvm)    LLVM_MODE=1; shift ;;
+        --gcc)     GCC_MODE=1; shift ;;
         -o)        OUTFILE="$2"; shift 2 ;;
         -l*|-L*|-W*) LIBS="$LIBS $1"; shift ;;
         *)         SRCFILE="$1"; shift ;;
@@ -84,6 +86,14 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
         "$KCC_EXE" "$SCRIPT_DIR/kompiler/x64.k" > /tmp/_kcc_x64_build.c && \
         "$GCC_EXE" /tmp/_kcc_x64_build.c -o "$X64_BIN" $LIBS && rm -f /tmp/_kcc_x64_build.c
         if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build x64 codegen" >&2; exit 1; fi
+    fi
+    # Rebuild krypton_rt_legacy.dll from native_rt.c when the source changes
+    RT_LEGACY_SRC="$SCRIPT_DIR/runtime/native_rt.c"
+    RT_LEGACY_DLL="$SCRIPT_DIR/runtime/krypton_rt_legacy.dll"
+    if [[ ! -f "$RT_LEGACY_DLL" || "$RT_LEGACY_SRC" -nt "$RT_LEGACY_DLL" ]]; then
+        echo "kcc: building krypton_rt_legacy.dll from native_rt.c..." >&2
+        "$GCC_EXE" -shared -O2 -w "$RT_LEGACY_SRC" -o "$RT_LEGACY_DLL" -lkernel32 -Wl,--export-all-symbols
+        if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build krypton_rt_legacy.dll" >&2; exit 1; fi
     fi
 
     # Step 1: emit IR
@@ -134,10 +144,16 @@ if [[ $LLVM_MODE -eq 1 ]]; then
     exit $RET
 fi
 
-# ── Default: .k → C → gcc → .exe ─────────────────────────────────
+# ── Default: emit C (no -o) or native exe (with -o) ──────────────
 if [[ -z "$OUTFILE" ]]; then
     "$KCC_EXE" $HEADERS_FLAG "$SRCFILE"
     exit $?
+fi
+
+# With -o: use native pipeline by default; --gcc flag falls back to gcc
+if [[ "$GCC_MODE" -ne 1 ]]; then
+    NATIVE_MODE=1
+    exec "$0" --native -o "$OUTFILE" "$SRCFILE"
 fi
 
 TMPFILE="${OUTFILE}__kcc_tmp.c"

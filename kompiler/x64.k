@@ -505,6 +505,7 @@ func resolveBuiltin(name) {
     if name == "environ"        { emit "kr_environ" }
     if name == "sizeOf"         { emit "kr_sizeof" }
     if name == "bitShl"         { emit "kr_shl" }
+    if name == "str"            { emit "kr_str" }
     emit name
 }
 
@@ -1537,26 +1538,27 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
 // ── DOS header (64 bytes) ─────────────────────────────────────────
 func emitDosHeader() {
     // MZ signature + stub — 64 bytes total, e_lfanew=0x40
-    let h = hexByte(0x4D) + hexByte(0x5A)  // MZ
-    h = h + hexByte(0x90) + hexByte(0x00)  // bytes on last page
-    h = h + hexByte(0x03) + hexByte(0x00)  // pages in file
-    h = h + hexByte(0x00) + hexByte(0x00)  // relocations
-    h = h + hexByte(0x04) + hexByte(0x00)  // header size in paragraphs
-    h = h + hexByte(0x00) + hexByte(0x00)  // min extra paragraphs
-    h = h + hexByte(0xFF) + hexByte(0xFF)  // max extra paragraphs
-    h = h + hexByte(0x00) + hexByte(0x00)  // initial SS
-    h = h + hexByte(0xB8) + hexByte(0x00)  // initial SP
-    h = h + hexByte(0x00) + hexByte(0x00)  // checksum
-    h = h + hexByte(0x00) + hexByte(0x00)  // initial IP
-    h = h + hexByte(0x00) + hexByte(0x00)  // initial CS
-    h = h + hexByte(0x40) + hexByte(0x00)  // offset of relocation table
-    h = h + hexByte(0x00) + hexByte(0x00)  // overlay number
-    h = h + hexDword(0) + hexDword(0)      // reserved
-    h = h + hexByte(0x00) + hexByte(0x00)  // OEM identifier
-    h = h + hexByte(0x00) + hexByte(0x00)  // OEM information
-    h = h + hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0)  // 20 reserved bytes
-    h = h + hexDword(64)                   // e_lfanew = 0x40
-    emit h
+    let h = sbNew()
+    h = sbAppend(h, hexByte(0x4D) + hexByte(0x5A))  // MZ
+    h = sbAppend(h, hexByte(0x90) + hexByte(0x00))  // bytes on last page
+    h = sbAppend(h, hexByte(0x03) + hexByte(0x00))  // pages in file
+    h = sbAppend(h, hexByte(0x00) + hexByte(0x00))  // relocations
+    h = sbAppend(h, hexByte(0x04) + hexByte(0x00))  // header size in paragraphs
+    h = sbAppend(h, hexByte(0x00) + hexByte(0x00))  // min extra paragraphs
+    h = sbAppend(h, hexByte(0xFF) + hexByte(0xFF))  // max extra paragraphs
+    h = sbAppend(h, hexByte(0x00) + hexByte(0x00))  // initial SS
+    h = sbAppend(h, hexByte(0xB8) + hexByte(0x00))  // initial SP
+    h = sbAppend(h, hexByte(0x00) + hexByte(0x00))  // checksum
+    h = sbAppend(h, hexByte(0x00) + hexByte(0x00))  // initial IP
+    h = sbAppend(h, hexByte(0x00) + hexByte(0x00))  // initial CS
+    h = sbAppend(h, hexByte(0x40) + hexByte(0x00))  // offset of relocation table
+    h = sbAppend(h, hexByte(0x00) + hexByte(0x00))  // overlay number
+    h = sbAppend(h, hexDword(0) + hexDword(0))      // reserved
+    h = sbAppend(h, hexByte(0x00) + hexByte(0x00))  // OEM identifier
+    h = sbAppend(h, hexByte(0x00) + hexByte(0x00))  // OEM information
+    h = sbAppend(h, hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0))  // 20 reserved bytes
+    h = sbAppend(h, hexDword(64))                   // e_lfanew = 0x40
+    emit sbToString(h)
 }
 
 // ── PE headers ───────────────────────────────────────────────────
@@ -1695,86 +1697,88 @@ func emitPEHeader(numSections, textSize, rdataSize, textRva, rdataRva, entryRva,
     let PE_HEADER_SIZE = 512
     let PE_SECT_ALIGN = 4096
     // PE signature "PE\0\0"
-    let h = hexByte(0x50) + hexByte(0x45) + hexByte(0) + hexByte(0)
+    let h = sbNew()
+    h = sbAppend(h, hexByte(0x50) + hexByte(0x45) + hexByte(0) + hexByte(0))
 
     // COFF header (20 bytes)
-    h = h + hexByte(0x64) + hexByte(0x86)  // Machine: AMD64 (0x8664 LE)
-    h = h + hexWord(numSections)
-    h = h + hexDword(0)                    // TimeDateStamp
-    h = h + hexDword(0)                    // PointerToSymbolTable
-    h = h + hexDword(0)                    // NumberOfSymbols
-    h = h + hexByte(0xF0) + hexByte(0x00)  // SizeOfOptionalHeader = 240
+    h = sbAppend(h, hexByte(0x64) + hexByte(0x86))  // Machine: AMD64 (0x8664 LE)
+    h = sbAppend(h, hexWord(numSections))
+    h = sbAppend(h, hexDword(0))                    // TimeDateStamp
+    h = sbAppend(h, hexDword(0))                    // PointerToSymbolTable
+    h = sbAppend(h, hexDword(0))                    // NumberOfSymbols
+    h = sbAppend(h, hexByte(0xF0) + hexByte(0x00))  // SizeOfOptionalHeader = 240
     // 0x0022 = EXE, 0x2022 = DLL (adds IMAGE_FILE_DLL 0x2000)
     if isDll == "1" {
-        h = h + hexByte(0x22) + hexByte(0x20)  // Characteristics: DLL
+        h = sbAppend(h, hexByte(0x22) + hexByte(0x20))  // Characteristics: DLL
     } else {
-        h = h + hexByte(0x22) + hexByte(0x00)  // Characteristics: EXE
+        h = sbAppend(h, hexByte(0x22) + hexByte(0x00))  // Characteristics: EXE
     }
 
     // Optional header PE32+ (240 bytes)
-    h = h + hexByte(0x0B) + hexByte(0x02)  // Magic PE32+
-    h = h + hexByte(0x0E) + hexByte(0x00)  // Linker version
-    h = h + hexDword(textSize)
-    h = h + hexDword(rdataSize)
-    h = h + hexDword(0)                    // SizeOfUninitializedData
-    h = h + hexDword(entryRva)
-    h = h + hexDword(textRva)
-    h = h + hexQword64(0, 1)               // ImageBase = 0x140000000
-    h = h + hexDword(PE_SECT_ALIGN)        // SectionAlignment
-    h = h + hexDword(PE_FILE_ALIGN)        // FileAlignment
-    h = h + hexByte(6) + hexByte(0) + hexByte(0) + hexByte(0)  // MajorOS/MinorOS
-    h = h + hexByte(0) + hexByte(0) + hexByte(0) + hexByte(0)  // MajorImage/MinorImage
-    h = h + hexByte(6) + hexByte(0) + hexByte(0) + hexByte(0)  // MajorSubsystem/MinorSubsystem
-    h = h + hexDword(0)                    // Win32VersionValue
-    h = h + hexDword(imageSize)
-    h = h + hexDword(PE_HEADER_SIZE)       // SizeOfHeaders
-    h = h + hexDword(0)                    // CheckSum
-    h = h + hexByte(3) + hexByte(0)        // Subsystem: CUI
-    h = h + hexByte(0x60) + hexByte(0x01)  // DllCharacteristics
-    h = h + hexQword64(8388608, 0)         // SizeOfStackReserve = 8MB
-    h = h + hexQword64(65536, 0)           // SizeOfStackCommit = 64KB
-    h = h + hexQword64(1048576, 0)         // SizeOfHeapReserve
-    h = h + hexQword64(4096, 0)            // SizeOfHeapCommit
-    h = h + hexDword(0)                    // LoaderFlags
-    h = h + hexDword(16)                   // NumberOfRvaAndSizes
+    h = sbAppend(h, hexByte(0x0B) + hexByte(0x02))  // Magic PE32+
+    h = sbAppend(h, hexByte(0x0E) + hexByte(0x00))  // Linker version
+    h = sbAppend(h, hexDword(textSize))
+    h = sbAppend(h, hexDword(rdataSize))
+    h = sbAppend(h, hexDword(0))                    // SizeOfUninitializedData
+    h = sbAppend(h, hexDword(entryRva))
+    h = sbAppend(h, hexDword(textRva))
+    h = sbAppend(h, hexQword64(0, 1))               // ImageBase = 0x140000000
+    h = sbAppend(h, hexDword(PE_SECT_ALIGN))        // SectionAlignment
+    h = sbAppend(h, hexDword(PE_FILE_ALIGN))        // FileAlignment
+    h = sbAppend(h, hexByte(6) + hexByte(0) + hexByte(0) + hexByte(0))  // MajorOS/MinorOS
+    h = sbAppend(h, hexByte(0) + hexByte(0) + hexByte(0) + hexByte(0))  // MajorImage/MinorImage
+    h = sbAppend(h, hexByte(6) + hexByte(0) + hexByte(0) + hexByte(0))  // MajorSubsystem/MinorSubsystem
+    h = sbAppend(h, hexDword(0))                    // Win32VersionValue
+    h = sbAppend(h, hexDword(imageSize))
+    h = sbAppend(h, hexDword(PE_HEADER_SIZE))       // SizeOfHeaders
+    h = sbAppend(h, hexDword(0))                    // CheckSum
+    h = sbAppend(h, hexByte(3) + hexByte(0))        // Subsystem: CUI
+    h = sbAppend(h, hexByte(0x60) + hexByte(0x01))  // DllCharacteristics
+    h = sbAppend(h, hexQword64(8388608, 0))         // SizeOfStackReserve = 8MB
+    h = sbAppend(h, hexQword64(65536, 0))           // SizeOfStackCommit = 64KB
+    h = sbAppend(h, hexQword64(1048576, 0))         // SizeOfHeapReserve
+    h = sbAppend(h, hexQword64(4096, 0))            // SizeOfHeapCommit
+    h = sbAppend(h, hexDword(0))                    // LoaderFlags
+    h = sbAppend(h, hexDword(16))                   // NumberOfRvaAndSizes
 
     // Data directories (16 * 8 bytes = 128 bytes)
-    h = h + hexDword(exportRva) + hexDword(exportSize)  // [0] Export
-    h = h + hexDword(iatRva) + hexDword(iatSize)         // [1] Import Directory
-    h = h + hexDword(0) + hexDword(0)                   // [2] Resource
-    h = h + hexDword(0) + hexDword(0)                   // [3] Exception
-    h = h + hexDword(0) + hexDword(0)                   // [4] Security
-    h = h + hexDword(0) + hexDword(0)                   // [5] BaseReloc
-    h = h + hexDword(0) + hexDword(0)                   // [6] Debug
-    h = h + hexDword(0) + hexDword(0)                   // [7] Architecture
-    h = h + hexDword(0) + hexDword(0)                   // [8] GlobalPtr
-    h = h + hexDword(0) + hexDword(0)                   // [9] TLS
-    h = h + hexDword(0) + hexDword(0)                   // [10] LoadConfig
-    h = h + hexDword(0) + hexDword(0)                   // [11] BoundImport
-    h = h + hexDword(iatK32Rva) + hexDword(iatSize)       // [12] IAT (actual IAT start, not desc table)
-    h = h + hexDword(0) + hexDword(0)                   // [13] DelayImport
-    h = h + hexDword(0) + hexDword(0)                   // [14] CLRHeader
-    h = h + hexDword(0) + hexDword(0)                   // [15] reserved
+    h = sbAppend(h, hexDword(exportRva) + hexDword(exportSize))  // [0] Export
+    h = sbAppend(h, hexDword(iatRva) + hexDword(iatSize))         // [1] Import Directory
+    h = sbAppend(h, hexDword(0) + hexDword(0))                   // [2] Resource
+    h = sbAppend(h, hexDword(0) + hexDword(0))                   // [3] Exception
+    h = sbAppend(h, hexDword(0) + hexDword(0))                   // [4] Security
+    h = sbAppend(h, hexDword(0) + hexDword(0))                   // [5] BaseReloc
+    h = sbAppend(h, hexDword(0) + hexDword(0))                   // [6] Debug
+    h = sbAppend(h, hexDword(0) + hexDword(0))                   // [7] Architecture
+    h = sbAppend(h, hexDword(0) + hexDword(0))                   // [8] GlobalPtr
+    h = sbAppend(h, hexDword(0) + hexDword(0))                   // [9] TLS
+    h = sbAppend(h, hexDword(0) + hexDword(0))                   // [10] LoadConfig
+    h = sbAppend(h, hexDword(0) + hexDword(0))                   // [11] BoundImport
+    h = sbAppend(h, hexDword(iatK32Rva) + hexDword(iatSize))       // [12] IAT (actual IAT start, not desc table)
+    h = sbAppend(h, hexDword(0) + hexDword(0))                   // [13] DelayImport
+    h = sbAppend(h, hexDword(0) + hexDword(0))                   // [14] CLRHeader
+    h = sbAppend(h, hexDword(0) + hexDword(0))                   // [15] reserved
 
-    emit h
+    emit sbToString(h)
 }
 
 func emitSectionHeader(name, virtSize, virtAddr, rawSize, rawOffset, characteristics) {
-    let h = hexStr(name)
+    let h = sbNew()
+    h = sbAppend(h, hexStr(name))
     // Pad name to 8 bytes
     let namePad = 8 - len(name)
     let pi = 0
-    while pi < namePad { h = h + hexByte(0)  pi += 1 }
-    h = h + hexDword(virtSize)
-    h = h + hexDword(virtAddr)
-    h = h + hexDword(rawSize)
-    h = h + hexDword(rawOffset)
-    h = h + hexDword(0)   // PointerToRelocations
-    h = h + hexDword(0)   // PointerToLinenumbers
-    h = h + hexByte(0) + hexByte(0)   // NumberOfRelocations
-    h = h + hexByte(0) + hexByte(0)   // NumberOfLinenumbers
-    h = h + hexDword(characteristics)
-    emit h
+    while pi < namePad { h = sbAppend(h, hexByte(0))  pi += 1 }
+    h = sbAppend(h, hexDword(virtSize))
+    h = sbAppend(h, hexDword(virtAddr))
+    h = sbAppend(h, hexDword(rawSize))
+    h = sbAppend(h, hexDword(rawOffset))
+    h = sbAppend(h, hexDword(0))   // PointerToRelocations
+    h = sbAppend(h, hexDword(0))   // PointerToLinenumbers
+    h = sbAppend(h, hexByte(0) + hexByte(0))   // NumberOfRelocations
+    h = sbAppend(h, hexByte(0) + hexByte(0))   // NumberOfLinenumbers
+    h = sbAppend(h, hexDword(characteristics))
+    emit sbToString(h)
 }
 
 // ── Bootstrap helper block ────────────────────────────────────────
@@ -1799,7 +1803,7 @@ func emitSectionHeader(name, virtSize, virtAddr, rawSize, rawOffset, characteris
 //   OFF_ARGP=3407   OFF_ARGC=3607  OFF_ARG=3657
 //   TOTAL=3737
 
-func bsHelperBlockSize() { emit 3749 }
+func bsHelperBlockSize() { emit 3791 }
 
 // Export offset lookup for bootstrap mode: returns "kr_name:offset\n..." table
 func bootstrapExportOffsets() {
@@ -2460,14 +2464,14 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     pos = 1195
 
     // ── kr_print(RCX=s) → RAX=str("") ────────────────────────────
-    // 77 bytes. push RBX,RSI + sub rsp,48
+    // 77 bytes. push RBX,RSI + sub rsp,56 (0x38 for 16-byte alignment)
     let pr_sl  = 0  - (pos + 9 + 5)
     let pr_gsh_d = iatK32Rva + 1 * 8 - (textRva + pos + 22 + 6)  // GetStdHandle
     let pr_wf_d  = iatK32Rva + 30 * 8 - (textRva + pos + 51 + 6) // WriteFile
-    let pr_al  = 18 - (pos + 57 + 5)
+    let pr_al  = 18 - (pos + 62 + 5)
     sb = sbAppend(sb, hexByte(0x53))
     sb = sbAppend(sb, hexByte(0x56))
-    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x30))
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x38))
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xCE))                // MOV RSI,RCX
     sb = sbAppend(sb, hexByte(0xE8)+hexDword(pr_sl))                             // CALL strlen
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))                // MOV RBX,RAX (len)
@@ -2477,15 +2481,15 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     // WriteFile(handle, buf, len, pwritten, NULL)
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                // MOV RCX,RAX (handle)
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xF2))                // MOV RDX,RSI (buf)
-    sb = sbAppend(sb, hexByte(0x44)+hexByte(0x89)+hexByte(0xD8))                // MOV R8D,EBX (len)
-    sb = sbAppend(sb, hexByte(0x4C)+hexByte(0x8D)+hexByte(0x4C)+hexByte(0x24)+hexByte(0x20)) // LEA R9,[RSP+32]
-    sb = sbAppend(sb, hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x28)+hexDword(0)) // MOV QWORD[RSP+40],0
+    sb = sbAppend(sb, hexByte(0x41)+hexByte(0x89)+hexByte(0xD8))                // MOV R8D,EBX (len) REX.B=dest R8
+    sb = sbAppend(sb, hexByte(0x4C)+hexByte(0x8D)+hexByte(0x4C)+hexByte(0x24)+hexByte(0x18)) // LEA R9,[RSP+24] (bytes_written scratch)
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x20)+hexDword(0)) // MOV QWORD[RSP+32],0 (overlapped=NULL)
     sb = sbAppend(sb, hexByte(0xFF)+hexByte(0x15)+hexDword(pr_wf_d))            // CALL WriteFile
     // Return empty string
     sb = sbAppend(sb, hexByte(0xB9)+hexDword(1))
     sb = sbAppend(sb, hexByte(0xE8)+hexDword(pr_al))
     sb = sbAppend(sb, hexByte(0xC6)+hexByte(0x00)+hexByte(0x00))                // MOV BYTE[RAX],0
-    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x30))
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x38))
     sb = sbAppend(sb, hexByte(0x5E))
     sb = sbAppend(sb, hexByte(0x5B))
     sb = sbAppend(sb, hexByte(0xC3))
@@ -2496,10 +2500,10 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     let pe_sl  = 0  - (pos + 9 + 5)
     let pe_gsh_d = iatK32Rva + 1 * 8 - (textRva + pos + 22 + 6)
     let pe_wf_d  = iatK32Rva + 30 * 8 - (textRva + pos + 51 + 6)
-    let pe_al  = 18 - (pos + 57 + 5)
+    let pe_al  = 18 - (pos + 62 + 5)
     sb = sbAppend(sb, hexByte(0x53))
     sb = sbAppend(sb, hexByte(0x56))
-    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x30))
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x38))
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xCE))
     sb = sbAppend(sb, hexByte(0xE8)+hexDword(pe_sl))
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))
@@ -2507,14 +2511,14 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     sb = sbAppend(sb, hexByte(0xFF)+hexByte(0x15)+hexDword(pe_gsh_d))
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xF2))
-    sb = sbAppend(sb, hexByte(0x44)+hexByte(0x89)+hexByte(0xD8))
-    sb = sbAppend(sb, hexByte(0x4C)+hexByte(0x8D)+hexByte(0x4C)+hexByte(0x24)+hexByte(0x20))
-    sb = sbAppend(sb, hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x28)+hexDword(0))
+    sb = sbAppend(sb, hexByte(0x41)+hexByte(0x89)+hexByte(0xD8))                // MOV R8D,EBX (len) REX.B
+    sb = sbAppend(sb, hexByte(0x4C)+hexByte(0x8D)+hexByte(0x4C)+hexByte(0x24)+hexByte(0x18)) // LEA R9,[RSP+24]
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x20)+hexDword(0)) // MOV QWORD[RSP+32],0
     sb = sbAppend(sb, hexByte(0xFF)+hexByte(0x15)+hexDword(pe_wf_d))
     sb = sbAppend(sb, hexByte(0xB9)+hexDword(1))
     sb = sbAppend(sb, hexByte(0xE8)+hexDword(pe_al))
     sb = sbAppend(sb, hexByte(0xC6)+hexByte(0x00)+hexByte(0x00))
-    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x30))
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x38))
     sb = sbAppend(sb, hexByte(0x5E))
     sb = sbAppend(sb, hexByte(0x5B))
     sb = sbAppend(sb, hexByte(0xC3))
@@ -3419,20 +3423,37 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     pos = pos + 5
 
     // ── __rt_return_empty: alloc 1 byte, write 0, ret ─────────────
-    let emp_pos = pos
+    // Compute actual position before emitting (pos tracking lags by ~16 bytes here)
+    let actual_emp_pos = 1559 + len(sbToString(sb2)) / 3
+    let emp_pos = actual_emp_pos
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))
-    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(1)+hexByte(0xE8)+hexDword(18 - (pos + 9 + 5)))
+    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(1)+hexByte(0xE8)+hexDword(18 - (actual_emp_pos + 9 + 5)))
     sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x00)+hexByte(0x00))
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28)+hexByte(0xC3))
-    pos = pos + 19
+    pos = actual_emp_pos + 22
 
     // ── All remaining KRRT_FUNCS stubs → JMP __rt_return_empty ────
     offsets = offsets + "kr_div64:" + pos + "\n"
     sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_idx:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
-    pos = pos + 5
+    // kr_idx(RCX=s, RDX=is) → one-char string s[atoi(is)]; 47 bytes
+    let ki_atoi = 197 - (pos + 12 + 5)
+    let ki_alloc = 18 - (pos + 29 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53)+hexByte(0x56))                              // PUSH RBX, PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28)) // SUB RSP, 40
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCE))               // MOV RSI, RCX (save s)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD1))               // MOV RCX, RDX (is → atoi)
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(ki_atoi))                         // CALL __rt_atoi
+    sb2 = sbAppend(sb2, hexByte(0x0F)+hexByte(0xB6)+hexByte(0x04)+hexByte(0x06))// MOVZX EAX, [RSI+RAX]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))               // MOV RBX, RAX (save char)
+    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(2))                               // MOV ECX, 2
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(ki_alloc))                        // CALL __rt_alloc
+    sb2 = sbAppend(sb2, hexByte(0x88)+hexByte(0x18))                             // MOV [RAX], BL
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x40)+hexByte(0x01)+hexByte(0x00))// MOV [RAX+1], 0
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))// ADD RSP, 40
+    sb2 = sbAppend(sb2, hexByte(0x5E)+hexByte(0x5B)+hexByte(0xC3))              // POP RSI, POP RBX, RET
+    pos = pos + 47
     offsets = offsets + "kr_tolower:" + pos + "\n"
     sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
     pos = pos + 5
@@ -3868,31 +3889,31 @@ func buildImportTable(rdataRva, strsSize, rtDllName) {
 // Calls __main__, then calls ExitProcess with return value
 func emitEntryPoint(mainFuncOffset, iatK32Rva, entryRva) {
     // entryRva = RVA of this code
-    let code = ""
+    let code = sbNew()
     let pos = 0
 
     // SUB RSP, 40  (32 shadow + 8 align), use imm32 for consistency
-    code = code + subRspN(40)
+    code = sbAppend(code, subRspN(40))
     pos += 7
 
     // CALL __main__
     let callDisp = mainFuncOffset - (entryRva + pos + 5)
-    code = code + hexByte(0xE8) + hexDword(callDisp)
+    code = sbAppend(code, hexByte(0xE8) + hexDword(callDisp))
     pos += 5
 
     // XOR ECX, ECX (exit code 0)
-    code = code + hexByte(0x33) + hexByte(0xC9)
+    code = sbAppend(code, hexByte(0x33) + hexByte(0xC9))
     pos += 2
 
     // CALL ExitProcess via IAT
     let exitIatRva = iatK32Rva
     let epDisp = exitIatRva - (entryRva + pos + 6)
-    code = code + hexByte(0xFF) + hexByte(0x15) + hexDword(epDisp)
+    code = sbAppend(code, hexByte(0xFF) + hexByte(0x15) + hexDword(epDisp))
     pos += 6
 
-    code = code + hexByte(0xC3)  // RET (unreachable)
+    code = sbAppend(code, hexByte(0xC3))  // RET (unreachable)
 
-    emit code
+    emit sbToString(code)
 }
 
 // ── Main compilation ──────────────────────────────────────────────
@@ -3906,14 +3927,15 @@ just run {
     }
 
     // Bootstrap mode: building krypton_rt.dll itself — import from legacy to avoid self-import
+    // Native exes also import from legacy (exports all 89 KRRT_FUNCS); krypton_rt.dll only has 39.
     let isBootstrap = "0"
-    let rtDllName = "krypton_rt.dll"
+    let rtDllName = "krypton_rt_legacy.dll"
     if isDll == "1" {
         let bsnBase = outFile
         let bsnI = len(bsnBase) - 1
         while bsnI >= 0 && bsnBase[bsnI] != "\\" && bsnBase[bsnI] != "/" { bsnI = bsnI - 1 }
         bsnBase = substring(bsnBase, bsnI + 1, len(bsnBase))
-        if bsnBase == "krypton_rt.dll" { rtDllName = "krypton_rt_legacy.dll" }
+        if bsnBase != "krypton_rt.dll" { rtDllName = "krypton_rt.dll" }
     }
 
     if len(file) == 0 {
@@ -3930,39 +3952,48 @@ just run {
     // Clean IR: strip comments and blank lines
     let allLines = ir
     let total = lineCount(allLines)
-    let clean = ""
+    let cleanSb = sbNew()
+    let cleanFirst = "1"
     let ci = 0
     while ci < total {
         let ln = trim(getLine(allLines, ci))
         if len(ln) > 0 && ln[0] != ";" {
-            if len(clean) > 0 { clean = clean + "\n" }
-            clean = clean + ln
+            if cleanFirst == "0" { cleanSb = sbAppend(cleanSb, "\n") }
+            cleanSb = sbAppend(cleanSb, ln)
+            cleanFirst = "0"
         }
         ci += 1
     }
+    let clean = sbToString(cleanSb)
 
-    // Bootstrap mode only when IR has no FUNC instructions (raw machine code, not Krypton source)
-    if contains(clean, "FUNC") == "0" { isBootstrap = "1" }
+    // Bootstrap mode: only when building krypton_rt.dll itself from hand-written machine code (no FUNC in IR)
+    if isDll == "1" && rtDllName == "krypton_rt_legacy.dll" && contains(clean, "FUNC") == "0" { isBootstrap = "1" }
 
     // Collect EXPORT directives
-    let exportNames = ""
+    let exportNamesSb = sbNew()
+    let exportNamesFirst = "1"
     let expScanCount = lineCount(clean)
     let expScanI = 0
     while expScanI < expScanCount {
         let expLn = getLine(clean, expScanI)
         if irGetOp(expLn) == "EXPORT" {
             let expFnName = irGetArg1(expLn)
-            if len(exportNames) > 0 { exportNames = exportNames + "\n" }
-            exportNames = exportNames + expFnName
+            if exportNamesFirst == "0" { exportNamesSb = sbAppend(exportNamesSb, "\n") }
+            exportNamesSb = sbAppend(exportNamesSb, expFnName)
+            exportNamesFirst = "0"
         }
         expScanI += 1
     }
+    let exportNames = sbToString(exportNamesSb)
     let exportCount = 0
     if len(exportNames) > 0 { exportCount = lineCount(exportNames) }
 
     // Collect all string constants
     let strs = collectStrings(clean)
     // Add numeric constants that appear as PUSH non-quoted
+    let strsSb = sbNew()
+    strsSb = sbAppend(strsSb, strs)
+    let strsCurrent = strs
     let cl2 = lineCount(clean)
     let ii = 0
     while ii < cl2 {
@@ -3970,14 +4001,16 @@ just run {
         if irGetOp(ln2) == "PUSH" {
             let val = trim(irGetRest(ln2))
             if !startsWith(val, "\"") {
-                if !contains("\n" + strs, "\n" + val + "\n") {
-                    if len(strs) > 0 { strs = strs + "\n" }
-                    strs = strs + val
+                if !contains("\n" + strsCurrent, "\n" + val + "\n") {
+                    if len(strsCurrent) > 0 { strsSb = sbAppend(strsSb, "\n") }
+                    strsSb = sbAppend(strsSb, val)
+                    strsCurrent = strsCurrent + "\n" + val
                 }
             }
         }
         ii += 1
     }
+    strs = sbToString(strsSb)
 
     // Parse functions
     let funcTable = parseFunctions(clean)
@@ -4018,8 +4051,10 @@ just run {
         let bsRaw = emitBootstrapHelpers(PE_TEXT_RVA2, bsIatK32B)
         let bsCodeHex = getLine(bsRaw, 0)  // hex code (line 0, before OFFSETS)
         // Lines 1="OFFSETS", 2+="funcname:offset"
-        let bsOffsets = ""
-        let bsExportNames = ""
+        let bsOffsetsSb = sbNew()
+        let bsExportNamesSb = sbNew()
+        let bsOffsetsFirst = "1"
+        let bsExportNamesFirst = "1"
         let bsRlc = lineCount(bsRaw)
         let bsRi = 2
         while bsRi < bsRlc {
@@ -4028,15 +4063,19 @@ just run {
                 let bsCi = 0
                 while bsCi < len(bsLn) && bsLn[bsCi] != ":" { bsCi += 1 }
                 let bsFn = substring(bsLn, 0, bsCi)
-                if len(bsOffsets) > 0 { bsOffsets = bsOffsets + "\n" }
-                bsOffsets = bsOffsets + bsLn
-                if len(bsExportNames) > 0 { bsExportNames = bsExportNames + "\n" }
-                bsExportNames = bsExportNames + bsFn
+                if bsOffsetsFirst == "0" { bsOffsetsSb = sbAppend(bsOffsetsSb, "\n") }
+                bsOffsetsSb = sbAppend(bsOffsetsSb, bsLn)
+                bsOffsetsFirst = "0"
+                if bsExportNamesFirst == "0" { bsExportNamesSb = sbAppend(bsExportNamesSb, "\n") }
+                bsExportNamesSb = sbAppend(bsExportNamesSb, bsFn)
+                bsExportNamesFirst = "0"
             }
             bsRi += 1
         }
 
         // Build export table for all kr_* functions
+        let bsOffsets = sbToString(bsOffsetsSb)
+        let bsExportNames = sbToString(bsExportNamesSb)
         let bsImpSz = len(bsImpHex) / 3
         printErr("bs debug: bsImpSz=" + bsImpSz + " exportNames.lines=" + lineCount(bsExportNames) + " offsets.lines=" + lineCount(bsOffsets))
         printErr("bs debug: bsRdataRvaB=" + bsRdataRvaB + " bsIatK32B=" + bsIatK32B)
@@ -4072,7 +4111,8 @@ just run {
 
     // ── Pass 1: accurate size calculation using instrSize ─────────────
     // Computes exact byte offsets for every function, no code emitted yet.
-    let allFuncOffsets = ""   // "funcName:byteOffset\n" for all functions
+    let allFuncOffsetsSb = sbNew()
+    let afoFirst = "1"
     let totalFuncBytes = 0
 
     let fi = 0
@@ -4082,11 +4122,13 @@ just run {
         let body3 = replace(funcTableBody(entry2), "|||", "\n")
         let g_loc3 = collectLocals(body3)
         let fsz = funcByteSize(body3)
-        if len(allFuncOffsets) > 0 { allFuncOffsets = allFuncOffsets + "\n" }
-        allFuncOffsets = allFuncOffsets + fname3 + ":" + totalFuncBytes
+        if afoFirst == "0" { allFuncOffsetsSb = sbAppend(allFuncOffsetsSb, "\n") }
+        allFuncOffsetsSb = sbAppend(allFuncOffsetsSb, fname3 + ":" + totalFuncBytes)
+        afoFirst = "0"
         totalFuncBytes += fsz
         fi += 1
     }
+    let allFuncOffsets = sbToString(allFuncOffsetsSb)
 
     // Entry point: EXE=21 bytes (subRsp+call+xor+callIAT+ret), DLL=6 bytes (mov eax,1+ret)
     let entrySize = 21
