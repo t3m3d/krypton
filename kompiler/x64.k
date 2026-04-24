@@ -1813,7 +1813,7 @@ func emitSectionHeader(name, virtSize, virtAddr, rawSize, rawOffset, characteris
 //   OFF_ARGP=3407   OFF_ARGC=3607  OFF_ARG=3657
 //   TOTAL=3737
 
-func bsHelperBlockSize() { emit 3791 }
+func bsHelperBlockSize() { emit 4201 }
 
 // Export offset lookup for bootstrap mode: returns "kr_name:offset\n..." table
 func bootstrapExportOffsets() {
@@ -3381,6 +3381,7 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     // ── kr_rawalloc(RCX=size_str) → ptr as string ─────────────────
     // sub(4)+atoi(5)+mov(3)+alloc(5)+mov(3)+itoa(5)+add+ret(5) = 30 bytes
     offsets = offsets + "kr_rawalloc:" + pos + "\n"
+    let rawalloc_pos = pos                  // captured for kr_bufnew stub redirect
     let ra_ai = 197 - (pos + 4 + 5)
     let ra_al = 18 - (pos + 12 + 5)
     let ra_it = 266 - (pos + 20 + 5)
@@ -3442,9 +3443,27 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28)+hexByte(0xC3))
     pos = actual_emp_pos + 22
 
-    // ── All remaining KRRT_FUNCS stubs → JMP __rt_return_empty ────
+    // After all 35 stubs (each 5 bytes, except kr_idx which is 47 real bytes),
+    // the stub area ends at emp_pos + 22 + 5 (div64) + 47 (kr_idx) + 33*5 (stubs) = emp_pos + 239.
+    // Real implementations for redirected stubs are appended there.
+    let stub_impl_base = emp_pos + 239
+    let ptrderef_impl = stub_impl_base                  // 25 bytes
+    let handleout_impl = stub_impl_base + 25            // 27 bytes
+    let bufgetdword_impl = stub_impl_base + 52          // 24 bytes
+    let bufgetword_impl = stub_impl_base + 76           // 25 bytes
+    let handlevalid_impl = stub_impl_base + 101         // 64 bytes
+    let bufstr_impl = stub_impl_base + 165              // 22 bytes
+    let bufsetdword_impl = stub_impl_base + 187         // 38 bytes
+    let bufgetdwordat_impl = stub_impl_base + 225       // 43 bytes
+    let bufgetqwordat_impl = stub_impl_base + 268       // 44 bytes
+    let ptrindex_impl = stub_impl_base + 312            // 44 bytes
+    let bufsetdwordat_impl = stub_impl_base + 356       // 54 bytes
+    // Total new impls = 410 bytes
+
+    // ── All remaining KRRT_FUNCS stubs → JMP __rt_return_empty (or redirect) ────
     offsets = offsets + "kr_div64:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    // kr_div64 is identical to kr_div on x64 (native 64-bit division). kr_div @ offset 657.
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(657 - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_idx:" + pos + "\n"
     // kr_idx(RCX=s, RDX=is) → one-char string s[atoi(is)]; 47 bytes
@@ -3486,28 +3505,33 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_tohandle:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    // Identity: handle is already a decimal integer string → return strdup(s)
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(52 - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_bufnew:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    // Same as kr_rawalloc (atoi size + HeapAlloc + itoa)
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(rawalloc_pos - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_bufsetdword:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(bufsetdword_impl - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_bufgetdword:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    // atoi(buf) + MOV EAX,[RAX] + itoa
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(bufgetdword_impl - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_bufsetdwordat:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(bufsetdwordat_impl - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_bufgetdwordat:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(bufgetdwordat_impl - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_bufgetword:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    // atoi(buf) + MOVZX EAX,WORD[RAX] + itoa
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(bufgetword_impl - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_bufgetqword:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    // Same semantics as kr_ptrderef: atoi(ptr) + *[ptr] + itoa
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(ptrderef_impl - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_bufsetbyte:" + pos + "\n"
     sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
@@ -3522,28 +3546,33 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_bufstr:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(bufstr_impl - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_bufgetqwordat:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(bufgetqwordat_impl - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_handleout:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    // Alloc 8 bytes, return itoa of pointer
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(handleout_impl - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_handleget:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    // Same semantics as kr_ptrderef: atoi(h) + *[h] + itoa
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(ptrderef_impl - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_handlevalid:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    // atoi(h); "0" if h==0 or h==-1, "1" otherwise
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(handlevalid_impl - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_handleint:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    // Identity: handle pointer is already an int string → return strdup(s)
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(52 - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_ptrderef:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    // Real impl appended after stub area: atoi(ptr) + MOV RAX,[RAX] + itoa
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(ptrderef_impl - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_ptrindex:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(ptrindex_impl - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_callptr1:" + pos + "\n"
     sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
@@ -3569,6 +3598,187 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     offsets = offsets + "kr_rawwriteqword:" + pos + "\n"
     sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
     pos = pos + 5
+
+    // ── Appended real implementations for redirected stubs ────────────
+    // pos now equals emp_pos + 239 = stub_impl_base. Any mismatch here means
+    // the stub count calculation is wrong and displacement math is broken.
+
+    // kr_ptrderef(RCX=ptr_str) → value at *ptr as int string
+    // atoi(ptr_str)→RAX; MOV RAX,[RAX]; itoa(RAX). 25 bytes.
+    let pd_atoi = 197 - (pos + 4 + 5)
+    let pd_itoa = 266 - (pos + 15 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(pd_atoi))                          // CALL __rt_atoi
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x00))                // MOV RAX, [RAX]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                // MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(pd_itoa))                          // CALL __rt_itoa
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // RET
+    pos = pos + 25
+
+    // kr_handleout() → allocate 8 bytes, return itoa(ptr). 27 bytes.
+    let ho_alloc = 18 - (pos + 9 + 5)
+    let ho_itoa = 266 - (pos + 17 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(8))                                // MOV ECX, 8
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(ho_alloc))                         // CALL __rt_alloc
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                // MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(ho_itoa))                          // CALL __rt_itoa
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // RET
+    pos = pos + 27
+
+    // kr_bufgetdword(RCX=buf_str) → *(DWORD*)ptr as int string. 24 bytes.
+    let bgd_atoi = 197 - (pos + 4 + 5)
+    let bgd_itoa = 266 - (pos + 14 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(bgd_atoi))                         // CALL __rt_atoi
+    sb2 = sbAppend(sb2, hexByte(0x8B)+hexByte(0x00))                              // MOV EAX, [RAX] (zero-extends)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                // MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(bgd_itoa))                         // CALL __rt_itoa
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // RET
+    pos = pos + 24
+
+    // kr_bufgetword(RCX=buf_str) → *(WORD*)ptr as int string. 25 bytes.
+    let bgw_atoi = 197 - (pos + 4 + 5)
+    let bgw_itoa = 266 - (pos + 15 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(bgw_atoi))                         // CALL __rt_atoi
+    sb2 = sbAppend(sb2, hexByte(0x0F)+hexByte(0xB7)+hexByte(0x00))                // MOVZX EAX, WORD [RAX]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                // MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(bgw_itoa))                         // CALL __rt_itoa
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // RET
+    pos = pos + 25
+
+    // kr_handlevalid(RCX=h_str) → "0" if h==0 or h==-1 (INVALID_HANDLE_VALUE), else "1". 64 bytes.
+    let hv_atoi  = 197 - (pos + 4 + 5)
+    let hv_alloc1 = 18 - (pos + 25 + 5)
+    let hv_alloc0 = 18 - (pos + 47 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [0-3]   SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(hv_atoi))                          // [4-8]   CALL atoi
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xC0))                // [9-11]  TEST RAX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(28))                                // [12-13] JZ .ret_zero (+28 → 42)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xF8)+hexByte(0xFF))  // [14-17] CMP RAX, -1
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(22))                                // [18-19] JE .ret_zero (+22 → 42)
+    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(2))                                // [20-24] MOV ECX, 2
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(hv_alloc1))                        // [25-29] CALL alloc
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x00)+hexByte(0x31))                // [30-32] MOV BYTE[RAX], '1'
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x40)+hexByte(0x01)+hexByte(0x00))  // [33-36] MOV BYTE[RAX+1], 0
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [37-40] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [41]    RET
+    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(2))                                // [42-46] .ret_zero: MOV ECX, 2
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(hv_alloc0))                        // [47-51] CALL alloc
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x00)+hexByte(0x30))                // [52-54] MOV BYTE[RAX], '0'
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x40)+hexByte(0x01)+hexByte(0x00))  // [55-58] MOV BYTE[RAX+1], 0
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [59-62] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [63]    RET
+    pos = pos + 64
+
+    // kr_bufstr(RCX=buf_str) → strdup of C string at ptr. 22 bytes.
+    let bs_atoi = 197 - (pos + 4 + 5)
+    let bs_strdup = 52 - (pos + 12 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(bs_atoi))                          // CALL atoi
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                // MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(bs_strdup))                        // CALL strdup
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // RET
+    pos = pos + 22
+
+    // kr_bufsetdword(RCX=buf_str, RDX=val_str) → "". 38 bytes.
+    let bsd_atoi1 = 197 - (pos + 9 + 5)
+    let bsd_atoi2 = 197 - (pos + 20 + 5)
+    let bsd_emp = emp_pos - (pos + 33 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53)+hexByte(0x56))                              // [0-1]   PUSH RBX, PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [2-5]   SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD6))                // [6-8]   MOV RSI, RDX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(bsd_atoi1))                        // [9-13]  CALL atoi (buf)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))                // [14-16] MOV RBX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF1))                // [17-19] MOV RCX, RSI
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(bsd_atoi2))                        // [20-24] CALL atoi (val)
+    sb2 = sbAppend(sb2, hexByte(0x89)+hexByte(0x03))                              // [25-26] MOV [RBX], EAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [27-30] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5E)+hexByte(0x5B))                              // [31-32] POP RSI, POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(bsd_emp))                          // [33-37] JMP emp_pos
+    pos = pos + 38
+
+    // kr_bufgetdwordat(RCX=buf, RDX=off) → *(DWORD*)(ptr+off). 43 bytes.
+    let bgdat_atoi1 = 197 - (pos + 9 + 5)
+    let bgdat_atoi2 = 197 - (pos + 20 + 5)
+    let bgdat_itoa = 266 - (pos + 31 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53)+hexByte(0x56))                              // [0-1]   PUSH RBX, PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [2-5]   SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD6))                // [6-8]   MOV RSI, RDX (save off)
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(bgdat_atoi1))                      // [9-13]  CALL atoi(buf)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))                // [14-16] MOV RBX, RAX (save ptr)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF1))                // [17-19] MOV RCX, RSI (off_str)
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(bgdat_atoi2))                      // [20-24] CALL atoi(off)
+    sb2 = sbAppend(sb2, hexByte(0x8B)+hexByte(0x04)+hexByte(0x03))                // [25-27] MOV EAX, [RBX+RAX]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                // [28-30] MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(bgdat_itoa))                       // [31-35] CALL itoa
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [36-39] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5E)+hexByte(0x5B)+hexByte(0xC3))                // [40-42] POP RSI, POP RBX, RET
+    pos = pos + 43
+
+    // kr_bufgetqwordat(RCX=buf, RDX=off) → *(QWORD*)(ptr+off). 44 bytes.
+    let bgqat_atoi1 = 197 - (pos + 9 + 5)
+    let bgqat_atoi2 = 197 - (pos + 20 + 5)
+    let bgqat_itoa = 266 - (pos + 32 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53)+hexByte(0x56))                              // PUSH RBX, PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD6))                // MOV RSI, RDX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(bgqat_atoi1))                      // CALL atoi(buf)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))                // MOV RBX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF1))                // MOV RCX, RSI
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(bgqat_atoi2))                      // CALL atoi(off)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x04)+hexByte(0x03))  // MOV RAX, [RBX+RAX]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                // MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(bgqat_itoa))                       // CALL itoa
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5E)+hexByte(0x5B)+hexByte(0xC3))                // POP RSI, POP RBX, RET
+    pos = pos + 44
+
+    // kr_ptrindex(RCX=ptr, RDX=n) → QWORD[ptr + n*8]. 44 bytes.
+    let pi_atoi1 = 197 - (pos + 9 + 5)
+    let pi_atoi2 = 197 - (pos + 20 + 5)
+    let pi_itoa = 266 - (pos + 32 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53)+hexByte(0x56))                              // PUSH RBX, PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD6))                // MOV RSI, RDX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(pi_atoi1))                         // CALL atoi(ptr)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))                // MOV RBX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF1))                // MOV RCX, RSI
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(pi_atoi2))                         // CALL atoi(n)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x04)+hexByte(0xC3))  // MOV RAX, [RBX+RAX*8]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                // MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(pi_itoa))                          // CALL itoa
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5E)+hexByte(0x5B)+hexByte(0xC3))                // POP RSI, POP RBX, RET
+    pos = pos + 44
+
+    // kr_bufsetdwordat(RCX=buf, RDX=off, R8=val) → "". 54 bytes.
+    let bsdat_atoi1 = 197 - (pos + 13 + 5)
+    let bsdat_atoi2 = 197 - (pos + 24 + 5)
+    let bsdat_atoi3 = 197 - (pos + 35 + 5)
+    let bsdat_emp = emp_pos - (pos + 49 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53)+hexByte(0x56)+hexByte(0x57))                // [0-2]   PUSH RBX, PUSH RSI, PUSH RDI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x20))  // [3-6]   SUB RSP, 0x20
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD6))                // [7-9]   MOV RSI, RDX (save off)
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xC7))                // [10-12] MOV RDI, R8 (save val)
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(bsdat_atoi1))                      // [13-17] CALL atoi(buf)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))                // [18-20] MOV RBX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF1))                // [21-23] MOV RCX, RSI
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(bsdat_atoi2))                      // [24-28] CALL atoi(off)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x03)+hexByte(0xD8))                // [29-31] ADD RBX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF9))                // [32-34] MOV RCX, RDI
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(bsdat_atoi3))                      // [35-39] CALL atoi(val)
+    sb2 = sbAppend(sb2, hexByte(0x89)+hexByte(0x03))                              // [40-41] MOV [RBX], EAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x20))  // [42-45] ADD RSP, 0x20
+    sb2 = sbAppend(sb2, hexByte(0x5F)+hexByte(0x5E)+hexByte(0x5B))                // [46-48] POP RDI, POP RSI, POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(bsdat_emp))                        // [49-53] JMP emp_pos
+    pos = pos + 54
 
     emit sb_good + sbToString(sb2) + "\nOFFSETS\n" + offsets
 }
