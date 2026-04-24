@@ -1813,7 +1813,7 @@ func emitSectionHeader(name, virtSize, virtAddr, rawSize, rawOffset, characteris
 //   OFF_ARGP=3407   OFF_ARGC=3607  OFF_ARG=3657
 //   TOTAL=3737
 
-func bsHelperBlockSize() { emit 4201 }
+func bsHelperBlockSize() { emit 4383 }
 
 // Export offset lookup for bootstrap mode: returns "kr_name:offset\n..." table
 func bootstrapExportOffsets() {
@@ -3446,7 +3446,10 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     // After all 35 stubs (each 5 bytes, except kr_idx which is 47 real bytes),
     // the stub area ends at emp_pos + 22 + 5 (div64) + 47 (kr_idx) + 33*5 (stubs) = emp_pos + 239.
     // Real implementations for redirected stubs are appended there.
-    let stub_impl_base = emp_pos + 239
+    // Stub area: emp_pos helper (22) + kr_div64 (5) + kr_idx (47 real) + 34 more 5-byte stubs = 244 bytes.
+    // Wait — 37 stub entries total (kr_div64 + kr_idx + 35 more). 35*5 + 47 + 5 = 227 bytes of stubs,
+    // plus emp_pos helper 22 = 249 bytes from actual_emp_pos to stub_impl_base.
+    let stub_impl_base = emp_pos + 249
     let ptrderef_impl = stub_impl_base                  // 25 bytes
     let handleout_impl = stub_impl_base + 25            // 27 bytes
     let bufgetdword_impl = stub_impl_base + 52          // 24 bytes
@@ -3457,8 +3460,12 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     let bufgetdwordat_impl = stub_impl_base + 225       // 43 bytes
     let bufgetqwordat_impl = stub_impl_base + 268       // 44 bytes
     let ptrindex_impl = stub_impl_base + 312            // 44 bytes
-    let bufsetdwordat_impl = stub_impl_base + 356       // 54 bytes
-    // Total new impls = 410 bytes
+    let bufsetdwordat_impl = stub_impl_base + 356       // 54 bytes (ends 410)
+    let tolower_impl = stub_impl_base + 410             // 47 bytes (ends 457)
+    let touppers_impl = stub_impl_base + 457            // 47 bytes (ends 504)
+    let rawreadbyte_impl = stub_impl_base + 504         // 44 bytes (ends 548)
+    let rawreadword_impl = stub_impl_base + 548         // 44 bytes (ends 592)
+    // Total new impls = 592 bytes
 
     // ── All remaining KRRT_FUNCS stubs → JMP __rt_return_empty (or redirect) ────
     offsets = offsets + "kr_div64:" + pos + "\n"
@@ -3484,7 +3491,7 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     sb2 = sbAppend(sb2, hexByte(0x5E)+hexByte(0x5B)+hexByte(0xC3))              // POP RSI, POP RBX, RET
     pos = pos + 47
     offsets = offsets + "kr_tolower:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(tolower_impl - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_init_args:" + pos + "\n"
     sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
@@ -3493,7 +3500,7 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_touppers:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(touppers_impl - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_hex:" + pos + "\n"
     sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
@@ -3587,10 +3594,10 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_rawreadbyte:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(rawreadbyte_impl - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_rawreadword:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(rawreadword_impl - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_rawwriteword:" + pos + "\n"
     sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
@@ -3779,6 +3786,87 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     sb2 = sbAppend(sb2, hexByte(0x5F)+hexByte(0x5E)+hexByte(0x5B))                // [46-48] POP RDI, POP RSI, POP RBX
     sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(bsdat_emp))                        // [49-53] JMP emp_pos
     pos = pos + 54
+
+    // kr_tolower(RCX=s) → strdup with 'A'-'Z' converted to lowercase. 47 bytes.
+    let tol_strdup = 52 - (pos + 5 + 5)   // CALL at offset 5 in impl
+    sb2 = sbAppend(sb2, hexByte(0x53))                                            // [0]     PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [1-4]   SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(tol_strdup))                       // [5-9]   CALL strdup
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))                // [10-12] MOV RBX, RAX (save for return)
+    sb2 = sbAppend(sb2, hexByte(0x0F)+hexByte(0xB6)+hexByte(0x10))                // [13-15] .loop: MOVZX EDX, BYTE [RAX]
+    sb2 = sbAppend(sb2, hexByte(0x84)+hexByte(0xD2))                              // [16-17] TEST DL, DL
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(18))                                // [18-19] JZ .done (+18 → 38)
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0xFA)+hexByte(0x41))                // [20-22] CMP DL, 'A'
+    sb2 = sbAppend(sb2, hexByte(0x72)+hexByte(8))                                 // [23-24] JB .skip (+8 → 33)
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0xFA)+hexByte(0x5A))                // [25-27] CMP DL, 'Z'
+    sb2 = sbAppend(sb2, hexByte(0x77)+hexByte(3))                                 // [28-29] JA .skip (+3 → 33)
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x00)+hexByte(0x20))                // [30-32] ADD BYTE [RAX], 0x20
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC0))                // [33-35] .skip: INC RAX
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(256 - 25))                          // [36-37] JMP .loop (disp=-25 → 13). 0xE7
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD8))                // [38-40] .done: MOV RAX, RBX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [41-44] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                            // [45]    POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [46]    RET — total is 47?!
+    // Actually recounting: 1+4+5+3+3+2+2+3+2+3+2+3+3+2+3+4+1+1 = 47 bytes (not 48)
+    pos = pos + 47
+
+    // kr_touppers(RCX=s) → strdup with 'a'-'z' converted to uppercase. 47 bytes.
+    let tou_strdup = 52 - (pos + 5 + 5)   // CALL at offset 5 in impl
+    sb2 = sbAppend(sb2, hexByte(0x53))
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(tou_strdup))
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))
+    sb2 = sbAppend(sb2, hexByte(0x0F)+hexByte(0xB6)+hexByte(0x10))
+    sb2 = sbAppend(sb2, hexByte(0x84)+hexByte(0xD2))
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(18))
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0xFA)+hexByte(0x61))                // CMP DL, 'a'
+    sb2 = sbAppend(sb2, hexByte(0x72)+hexByte(8))
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0xFA)+hexByte(0x7A))                // CMP DL, 'z'
+    sb2 = sbAppend(sb2, hexByte(0x77)+hexByte(3))
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x28)+hexByte(0x20))                // SUB BYTE [RAX], 0x20
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC0))
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(256 - 25))                          // JMP .loop (disp=-25)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD8))
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))
+    sb2 = sbAppend(sb2, hexByte(0x5B))
+    sb2 = sbAppend(sb2, hexByte(0xC3))
+    pos = pos + 47
+
+    // kr_rawreadbyte(RCX=ptr, RDX=off) → BYTE at ptr+off as int string. 43 bytes.
+    let rrb_atoi1 = 197 - (pos + 9 + 5)
+    let rrb_atoi2 = 197 - (pos + 20 + 5)
+    let rrb_itoa = 266 - (pos + 32 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53)+hexByte(0x56))                              // PUSH RBX, PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD6))                // MOV RSI, RDX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(rrb_atoi1))                        // CALL atoi(ptr)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))                // MOV RBX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF1))                // MOV RCX, RSI
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(rrb_atoi2))                        // CALL atoi(off)
+    sb2 = sbAppend(sb2, hexByte(0x0F)+hexByte(0xB6)+hexByte(0x04)+hexByte(0x03))  // MOVZX EAX, BYTE [RBX+RAX]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                // MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(rrb_itoa))                         // CALL itoa
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5E)+hexByte(0x5B)+hexByte(0xC3))                // POP RSI, POP RBX, RET
+    pos = pos + 44
+
+    // kr_rawreadword(RCX=ptr, RDX=off) → WORD at ptr+off as int string. 45 bytes.
+    let rrw_atoi1 = 197 - (pos + 9 + 5)
+    let rrw_atoi2 = 197 - (pos + 20 + 5)
+    let rrw_itoa = 266 - (pos + 33 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53)+hexByte(0x56))
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD6))
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(rrw_atoi1))
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF1))
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(rrw_atoi2))
+    sb2 = sbAppend(sb2, hexByte(0x0F)+hexByte(0xB7)+hexByte(0x04)+hexByte(0x03))  // MOVZX EAX, WORD [RBX+RAX]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(rrw_itoa))
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))
+    sb2 = sbAppend(sb2, hexByte(0x5E)+hexByte(0x5B)+hexByte(0xC3))
+    pos = pos + 44
 
     emit sb_good + sbToString(sb2) + "\nOFFSETS\n" + offsets
 }
