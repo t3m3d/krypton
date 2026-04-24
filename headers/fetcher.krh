@@ -4,34 +4,15 @@
 jxt {
     c "kfetch_api.h"
 
-    // Shell command execution
     func exec(cmd)
-
-    // Console init and clear
     func kfinit()
     func kfcls()
-
-    // Memory info: returns "totalMB,freeMB"
     func kfmem()
-
-    // Disk info: newline-separated drive lines
     func kfdisk()
-
-    // Console size: returns "cols,rows"
     func kfconsize()
-
-    // Uptime in seconds
     func kfuptimesec()
-
-    // GPU VRAM: newline-separated "totalMB:usedMB"
     func kfvram()
-
-    // Shell detection via process tree
     func kfshell()
-
-    // Package counts (winget/scoop/choco)
     func kfpkgs()
-
-    // RAM bar with UTF-8 block chars
     func kframbar(usedMB, totalMB)
 }
