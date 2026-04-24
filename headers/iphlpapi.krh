@@ -6,8 +6,6 @@ jxt {
     c "winsock2.h"
     c "iphlpapi.h"
 
-    // ── Structs ────────────────────────────────────────────────────
-
     struct IP_ADAPTER_INFO {
         field Next            PTR
         field ComboIndex      DWORD
@@ -55,8 +53,6 @@ jxt {
         field dwNumEntries    DWORD
         field table           CHAR_ARRAY
     }
-
-    // ── Adapter Info ───────────────────────────────────────────────
 
     // Get adapter info (allocate buf with structNew or malloc)
     func GetAdaptersInfo(adapterInfo, sizePointer) -> DWORD
