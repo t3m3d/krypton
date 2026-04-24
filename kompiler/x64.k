@@ -3976,8 +3976,8 @@ just run {
     }
     let clean = sbToString(cleanSb)
 
-    // Bootstrap mode: only when building krypton_rt.dll itself from hand-written machine code (no FUNC in IR)
-    if isDll == "1" && rtDllName == "krypton_rt_legacy.dll" && contains(clean, "FUNC") == "0" { isBootstrap = "1" }
+    // Bootstrap mode: fires when building krypton_rt.dll (FUNC ignored in bootstrap)
+    if isDll == "1" && rtDllName == "krypton_rt_legacy.dll" { isBootstrap = "1" }
 
     // Collect EXPORT directives
     let exportNamesSb = sbNew()
