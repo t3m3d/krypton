@@ -2536,7 +2536,7 @@ func sbToString(sb) {
 
 func cRuntime() {
     let r = sbNew()
-    r = sbAppend(r, "#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n#include <time.h>\n#include <ctype.h>\n#include <stdarg.h>\n\nstatic int _argc; static char** _argv;\n\ntypedef struct ABlock { struct ABlock* next; int cap; int used; } ABlock;\n")
+    r = sbAppend(r, "#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n#include <time.h>\n#include <ctype.h>\n#include <stdarg.h>\n#include <stdint.h>\n#if defined(_WIN32) || defined(_WIN64)\n#include <string.h>\n#else\n#include <strings.h>\n#define _stricmp strcasecmp\n#endif\n\nstatic int _argc; static char** _argv;\n\ntypedef struct ABlock { struct ABlock* next; int cap; int used; } ABlock;\n")
     r = sbAppend(r, "static ABlock* _arena = 0;\nstatic char* _alloc(int n) {\n    n = (n + 7) & ~7;\n    if (!_arena || _arena->used + n > _arena->cap) {\n        int cap = 64*1024*1024;\n        if (n > cap) cap = n;\n        ABlock* b = (ABlock*)malloc(sizeof(ABlock) + cap);\n")
     r = sbAppend(r, "        if (!b) { fprintf(stderr, \"out of memory\\n\"); exit(1); }\n")
     r = sbAppend(r, "        b->cap = cap; b->used = 0; b->next = _arena; _arena = b;\n    }\n    char* p = (char*)(_arena + 1) + _arena->used;\n    _arena->used += n;\n    return p;\n}\n\n")
@@ -3740,7 +3740,7 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
 
 
 just run {
-    let kccVer = "1.3.0"
+    let kccVer = "1.3.7"
 
     // Parse flags: --version, --ir, --headers PATH, -o OUTFILE
     let irMode = 0

@@ -31,33 +31,38 @@ just run {
 
 ### Requirements
 
-- **GCC** (or any C99 compiler) — for all platforms
-- **LLVM / clang** (optional) — for native compilation via `build_llvm.bat` / `make native`
+- **GCC** (or any C99 compiler) — for all platforms. Windows: TDM-GCC or MSYS2 mingw-w64.
+- **LLVM / clang** (optional) — only needed for the `--llvm` backend.
 
 ---
 
-### Linux / macOS
+### Linux / WSL
+
+One-line install (clones, builds, symlinks `kcc` into `/usr/local/bin`):
 
 ```bash
-git clone https://github.com/t3m3d/krypton
-cd krypton
-chmod +x build.sh
-./build.sh
+git clone https://github.com/t3m3d/krypton && cd krypton && ./install.sh
 ```
 
-This bootstraps a native `kcc` binary from source in four steps:
-1. Compiles the C interpreter (`archive/c/run.c`) with GCC
-2. Uses that interpreter to compile the self-hosting compiler (`kompiler/compile.k`) to C
-3. Compiles the resulting C to a fast native `kcc` binary
-4. Builds the IR optimizer and LLVM backend
+This:
+1. Builds `kcc` from `bootstrap/kcc_seed.c` (a pre-generated C source of the self-hosting compiler).
+2. Self-rebuilds: the new `kcc` recompiles `kompiler/compile.k` to verify it can rebuild itself.
+3. Smoke-tests by compiling and running `examples/fibonacci.k`.
+4. Symlinks `/usr/local/bin/kcc → ./kcc` so future `./build.sh` rebuilds are picked up automatically. Pass a different prefix with `./install.sh ~/.local` if you don't want sudo.
 
-Or use `make`:
+Build only (no install):
 
 ```bash
-make              # build everything
-make run F=hello.k   # compile + run a file
-make test         # run the test suite
+git clone https://github.com/t3m3d/krypton && cd krypton && ./build.sh
+./build.sh run examples/fibonacci.k    # compile + run a .k file
+./build.sh test                         # run the test suite
 ```
+
+**Note:** `kcc --native` (PE binary emission) is Windows-only. On Linux, `kcc` transpiles `.k` to C — link with `gcc` for a native ELF binary. ELF backend is planned.
+
+### macOS
+
+Same as Linux / WSL above — the build script works on any POSIX system with `gcc` (or `cc`) on `PATH`.
 
 ---
 
@@ -66,14 +71,21 @@ make test         # run the test suite
 ```
 git clone https://github.com/t3m3d/krypton
 cd krypton
-build_v100.bat
+build_v137.bat
 ```
 
-Requires [TDM-GCC](https://jmeubank.github.io/tdm-gcc/). For native LLVM compilation:
+Requires [TDM-GCC](https://jmeubank.github.io/tdm-gcc/) (or MSYS2 mingw-w64). The build produces `kcc.exe` (gcc-built, with icon) and `kcc_native.exe` (self-hosted via the bootstrap `krypton_rt.dll`, no gcc needed at runtime).
 
+Native PE compilation (no gcc):
+```
+kcc.sh --native hello.k -o hello.exe
+```
+
+LLVM IR backend (optional):
 ```
 winget install LLVM.LLVM
-build_llvm.bat hello.k
+kcc.sh --llvm hello.k -o hello.ll
+clang hello.ll -o hello.exe
 ```
 
 ---
@@ -98,22 +110,24 @@ gcc hello.c -o hello -lm
 
 **Windows:**
 ```
-kcc_v100.exe hello.k > hello.c
+kcc.exe hello.k > hello.c
 gcc hello.c -o hello.exe -lm
 hello.exe
 ```
 
-### Compile to native via LLVM
+### Compile to a native binary (Windows only, no gcc)
 
-**Linux / macOS:**
-```bash
-make native F=hello.k
+```
+kcc.sh --native hello.k -o hello.exe
 ```
 
-**Windows:**
+This emits PE/COFF directly via the Krypton x64 backend. Produces a Windows `.exe` that imports only `kernel32.dll` (via `krypton_rt.dll`). ELF emission for Linux is not yet implemented — on Linux, use the C path above.
+
+### Compile via LLVM IR (cross-platform)
+
 ```
-.\build_llvm.bat hello.k
-hello_llvm.exe
+kcc.sh --llvm hello.k -o hello.ll
+clang hello.ll -o hello       # or hello.exe on Windows
 ```
 
 ---
@@ -269,18 +283,25 @@ source.k
     │
     ├─ C backend (default):
     │      kcc source.k > source.c
-    │      gcc source.c -o source.exe -lm
+    │      gcc source.c -o source -lm
     │
-    └─ LLVM native backend:
-           .\build_llvm.bat source.k
-           
-           source.k → .kir → .kir (opt) → .ll → .o → source_llvm.exe
+    ├─ Native PE backend (Windows, no gcc):
+    │      kcc.sh --native source.k -o source.exe
+    │
+    │      source.k → .kir → .kir (opt) → x64 PE → source.exe
+    │      (uses runtime/krypton_rt.dll, kernel32-only)
+    │
+    └─ LLVM IR backend:
+           kcc.sh --llvm source.k -o source.ll
+           clang source.ll -o source
+
+           source.k → .kir → .kir (opt) → .ll → object → binary
 ```
 
 ### Krypton IR
 
 ```
-kcc_v098.exe --ir source.k > source.kir
+kcc --ir source.k > source.kir
 ```
 
 Emits `.kir` — a stack-based intermediate representation, one instruction per line:
@@ -334,35 +355,41 @@ STORE/LOAD elimination, empty jump removal, unused local removal.
 ```
 krypton/
 ├── kompiler/
-│   ├── compile.k          # Self-hosting compiler (3,567 lines)
-│   ├── optimize.k         # IR optimizer (348 lines)
-│   ├── llvm.k             # LLVM IR backend (437 lines)
-│   └── run.k              # Interpreter (2,092 lines)
+│   ├── compile.k          # Self-hosting compiler (4,735 lines)
+│   ├── optimize.k         # IR optimizer (335 lines)
+│   ├── x64.k              # Native PE/COFF backend (5,274 lines)
+│   ├── llvm.k             # LLVM IR backend (441 lines)
+│   └── run.k              # Interpreter (2,084 lines)
 ├── runtime/
-│   └── krypton_runtime.c  # C runtime for LLVM-compiled programs
-├── stdlib/                # 35 standard library modules
+│   ├── krypton_rt.k       # Krypton runtime (Phase 2 — self-hosted)
+│   └── krypton_rt.dll     # Bootstrap runtime (kernel32-only, hand-emitted by x64.k)
+├── bootstrap/
+│   └── kcc_seed.c         # Pre-generated C source of compile.k for cold-start builds
+├── stdlib/                # Standard library modules
 ├── examples/              # Example programs
-├── algorithms/            # Classic algorithm implementations
-├── tutorial/              # Progressive tutorial
+├── headers/               # .krh module headers
 ├── tests/                 # Test suite
-├── assets/                # Icon and Windows resource
-├── versions/              # Bootstrap chain binaries
-├── Spec.md                # Language specification
+├── assets/                # Windows icon resource (krypton_rc.o)
+├── versions/              # Historical bootstrap binaries
+├── build.sh               # Linux/macOS/WSL build
+├── build_v137.bat         # Windows build
+├── install.sh             # Linux install (build + symlink to /usr/local/bin)
+├── Makefile               # Cross-platform make wrapper around build scripts
 ├── CHANGELOG.md           # Full version history
+├── RELEASE_NOTES_*.md     # Per-release notes
+├── Spec.md                # Language specification
 └── LICENSE                # Apache 2.0
 ```
 
 ---
 
-## Bootstrap Chain
+## Bootstrap
 
-```
-kcc (C++) → v010 → v020 → v030 → v040 → v050 → v060
-          → v070 → v071 → v072 → v075 → v077 → v080
-          → v085 → v086 → v090 → v095 → v097 → v098
-```
+Linux / macOS / WSL: `bootstrap/kcc_seed.c` is a pre-generated C source of the self-hosting compiler. `build.sh` compiles it with gcc, then uses the resulting `kcc` to recompile `kompiler/compile.k` (verifying self-host).
 
-Each version compiled by the previous. The compiler has been self-hosting since v0.1.0.
+Windows: `build_v137.bat` does the same plus builds `kcc_native.exe` (self-hosted via `runtime/krypton_rt.dll`, no gcc at runtime) and links the icon from `assets/krypton_rc.o`.
+
+The compiler has been self-hosting since the v0.1 series. Historical bootstrap binaries live in `versions/`.
 
 ---
 
