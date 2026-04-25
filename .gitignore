@@ -17,6 +17,7 @@ krypton.res
 *.o
 *.c
 *.cpp
+!bootstrap/kcc_seed.c
 *.kir
 *.ll
 .claude/
