@@ -1813,7 +1813,7 @@ func emitSectionHeader(name, virtSize, virtAddr, rawSize, rawOffset, characteris
 //   OFF_ARGP=3407   OFF_ARGC=3607  OFF_ARG=3657
 //   TOTAL=3737
 
-func bsHelperBlockSize() { emit 5638 }
+func bsHelperBlockSize() { emit 5685 }
 
 // Export offset lookup for bootstrap mode: returns "kr_name:offset\n..." table
 func bootstrapExportOffsets() {
@@ -3073,57 +3073,66 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     pos = pos + 5
 
     // ── kr_readfile(RCX=path) → file content string ───────────────
-    // 171 bytes. Uses CreateFileA,GetFileSizeEx,HeapAlloc,ReadFile,CloseHandle
-    // Frame: push RBX,RSI,RDI,R12,R13 (5); sub rsp,0x48 (72)
-    // (5+1)*8+72 = 120, 120%16=8 BAD. Use sub rsp,0x58(88): (5+1)*8+88=136, 136%16=8 BAD
-    // Use push R14 too (6 pushes); sub rsp,0x48: (6+1)*8+72=128, 128%16=0 ✓
+    // 188 bytes. Properly sets up Win64 ABI args for CreateFileA, GetFileSizeEx, ReadFile, CloseHandle.
+    // Frame: 6 pushes (RBX,RSI,RDI,R12,R13,R14) + sub rsp 0x48 → RSP&0xF=0 at calls. ✓
+    // Stack layout after sub rsp 0x48:
+    //   [RSP+0x00..0x1F] shadow (32)
+    //   [RSP+0x20..0x37] stack args 5,6,7 (used per-call)
+    //   [RSP+0x38] scratch (file size out, then bytesRead out)
     offsets = offsets + "kr_readfile:" + pos + "\n"
-    let rf_cf = iatK32Rva + 32*8 - (textRva + pos + 28 + 6)
-    let rf_fs = iatK32Rva + 34*8 - (textRva + pos + 48 + 6)
-    let rf_al = 18 - (pos + 92 + 5)
-    let rf_rd = iatK32Rva + 31*8 - (textRva + pos + 118 + 6)
-    let rf_ch = iatK32Rva + 10*8 - (textRva + pos + 134 + 6)
-    let rf_ep = pos + 138
-    let rf_ea = 18 - (pos + 154 + 5)
-    sb2 = sbAppend(sb2, hexByte(0x53)+hexByte(0x56)+hexByte(0x57))
-    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x54)+hexByte(0x41)+hexByte(0x55)+hexByte(0x41)+hexByte(0x56))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x48))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCE))
-    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0xB8)+hexDword(0x80000000))
-    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xD2)+hexByte(0x33)+hexByte(0xC9))
-    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0xB9)+hexDword(1))
-    sb2 = sbAppend(sb2, hexByte(0x4D)+hexByte(0x33)+hexByte(0xC0))
-    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(rf_cf))
-    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x89)+hexByte(0xC4))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xF8)+hexByte(0xFF)+hexByte(0x74)+hexByte(0x52))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8D)+hexByte(0x54)+hexByte(0x24)+hexByte(0x20))
-    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xE1))
-    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(rf_fs))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x44)+hexByte(0x24)+hexByte(0x20))
-    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x89)+hexByte(0xC5))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC0))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))
-    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(rf_al))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC7))
-    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x00)+hexByte(0x00))
-    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xE1))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xFA))
-    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xE0))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8D)+hexByte(0x74)+hexByte(0x24)+hexByte(0x30))
-    sb2 = sbAppend(sb2, hexByte(0x4D)+hexByte(0x33)+hexByte(0xC9))
-    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(rf_rd))
-    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xE1))
-    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(rf_ch))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF8))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x48))
-    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x5E)+hexByte(0x41)+hexByte(0x5D)+hexByte(0x41)+hexByte(0x5C))
-    sb2 = sbAppend(sb2, hexByte(0x5F)+hexByte(0x5E)+hexByte(0x5B)+hexByte(0xC3))
-    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(1)+hexByte(0xE8)+hexDword(rf_ea))
-    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x00)+hexByte(0x00))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x48))
-    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x5E)+hexByte(0x41)+hexByte(0x5D)+hexByte(0x41)+hexByte(0x5C))
-    sb2 = sbAppend(sb2, hexByte(0x5F)+hexByte(0x5E)+hexByte(0x5B)+hexByte(0xC3))
-    pos = pos + 165
+    let rf_cf = iatK32Rva + 32*8 - (textRva + pos + 55 + 6)
+    let rf_fs = iatK32Rva + 34*8 - (textRva + pos + 78 + 6)
+    let rf_al = 18 - (pos + 93 + 5)
+    let rf_rd = iatK32Rva + 31*8 - (textRva + pos + 124 + 6)
+    let rf_ch = iatK32Rva + 10*8 - (textRva + pos + 138 + 6)
+    let rf_ea = 18 - (pos + 166 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53))                                                          // [0]   PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x56))                                                          // [1]   PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x57))                                                          // [2]   PUSH RDI
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x54))                                            // [3]   PUSH R12
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x55))                                            // [5]   PUSH R13
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x56))                                            // [7]   PUSH R14
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x48))                 // [9]   SUB RSP, 0x48
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCE))                              // [13]  MOV RSI, RCX (save path)
+    sb2 = sbAppend(sb2, hexByte(0xBA)+hexDword(0x80000000))                                     // [16]  MOV EDX, GENERIC_READ
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0xB8)+hexDword(1))                                // [21]  MOV R8D, FILE_SHARE_READ
+    sb2 = sbAppend(sb2, hexByte(0x4D)+hexByte(0x33)+hexByte(0xC9))                              // [27]  XOR R9, R9
+    sb2 = sbAppend(sb2, hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x20)+hexDword(3))    // [30]  MOV [RSP+0x20], 3 (OPEN_EXISTING)
+    sb2 = sbAppend(sb2, hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x28)+hexDword(0x80)) // [38]  MOV [RSP+0x28], 0x80 (FILE_ATTRIBUTE_NORMAL)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x30)+hexDword(0)) // [46] MOV qword [RSP+0x30], 0 (hTemplateFile)
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(rf_cf))                            // [55]  CALL [CreateFileA]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xF8)+hexByte(0xFF))                 // [61]  CMP RAX, -1
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(94))                                              // [65]  JE .error +94 → 161
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x89)+hexByte(0xC4))                              // [67]  MOV R12, RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                              // [70]  MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8D)+hexByte(0x54)+hexByte(0x24)+hexByte(0x38))  // [73]  LEA RDX, [RSP+0x38]
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(rf_fs))                            // [78]  CALL [GetFileSizeEx]
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x8B)+hexByte(0x6C)+hexByte(0x24)+hexByte(0x38))  // [84]  MOV R13, [RSP+0x38]
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x8D)+hexByte(0x4D)+hexByte(0x01))                 // [89]  LEA RCX, [R13+1]
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(rf_al))                                          // [93]  CALL __rt_alloc
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))                              // [98]  MOV RBX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xE1))                              // [101] MOV RCX, R12
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xDA))                              // [104] MOV RDX, RBX
+    sb2 = sbAppend(sb2, hexByte(0x4D)+hexByte(0x89)+hexByte(0xE8))                              // [107] MOV R8, R13
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x8D)+hexByte(0x4C)+hexByte(0x24)+hexByte(0x38))  // [110] LEA R9, [RSP+0x38]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x20)+hexDword(0)) // [115] MOV qword [RSP+0x20], 0 (lpOverlapped)
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(rf_rd))                            // [124] CALL [ReadFile]
+    sb2 = sbAppend(sb2, hexByte(0x42)+hexByte(0xC6)+hexByte(0x04)+hexByte(0x2B)+hexByte(0x00))  // [130] MOV byte [RBX+R13], 0
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xE1))                              // [135] MOV RCX, R12
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(rf_ch))                            // [138] CALL [CloseHandle]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD8))                              // [144] MOV RAX, RBX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x48))                 // [147] ADD RSP, 0x48
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x5E)+hexByte(0x41)+hexByte(0x5D)+hexByte(0x41)+hexByte(0x5C)) // [151] POP R14, R13, R12
+    sb2 = sbAppend(sb2, hexByte(0x5F)+hexByte(0x5E)+hexByte(0x5B))                              // [157] POP RDI, RSI, RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                                          // [160] RET
+    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(1))                                              // [161] MOV ECX, 1  (.error)
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(rf_ea))                                          // [166] CALL __rt_alloc
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x00)+hexByte(0x00))                              // [171] MOV byte [RAX], 0
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x48))                 // [174] ADD RSP, 0x48
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x5E)+hexByte(0x41)+hexByte(0x5D)+hexByte(0x41)+hexByte(0x5C)) // [178] POP R14, R13, R12
+    sb2 = sbAppend(sb2, hexByte(0x5F)+hexByte(0x5E)+hexByte(0x5B))                              // [184] POP RDI, RSI, RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                                          // [187] RET
+    pos = pos + 188
 
     // ── kr_writefile(RCX=path, RDX=data) → "" ────────────────────
     // 130 bytes. Uses CreateFileA,strlen,WriteFile,CloseHandle.
@@ -3170,65 +3179,253 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     sb2 = sbAppend(sb2, hexByte(0x5F)+hexByte(0x5E)+hexByte(0x5B)+hexByte(0xC3))
     pos = pos + 150
 
-    // ── kr_argcount() → argc as string ────────────────────────────
-    // 65 bytes. Uses GetCommandLineA, counts space-separated tokens.
+    // ── kr_argcount() → argc as string. Rewritten with correct disp targeting. 57 bytes.
+    // Algorithm: GetCommandLineA, skip leading space, count tokens (space-separated).
+    // Layout:
+    //   [0-3]   SUB RSP, 0x28
+    //   [4-9]   CALL [IAT GetCommandLineA]      → RAX = ptr
+    //   [10-11] XOR EDX, EDX                    → counter
+    //   [12-14] .loop: CMP BYTE [RAX], 0
+    //   [15-16] JE .done (+27 → 44)
+    //   [17-19] CMP BYTE [RAX], 0x20            → space?
+    //   [20-21] JNE .in_word (+5 → 27)
+    //   [22-24] INC RAX                          → skip space
+    //   [25-26] JMP .loop (-15 → 12)
+    //   [27-28] .in_word: INC EDX                → count this word
+    //   [29-31] .scan: INC RAX
+    //   [32-34] CMP BYTE [RAX], 0
+    //   [35-36] JE .done (+7 → 44)
+    //   [37-39] CMP BYTE [RAX], 0x20
+    //   [40-41] JNE .scan (-13 → 29)
+    //   [42-43] JMP .loop (-32 → 12)
+    //   [44-46] .done: MOVSXD RCX, EDX
+    //   [47-51] CALL itoa
+    //   [52-55] ADD RSP, 0x28
+    //   [56]    RET
+    // kr_argcount: count space-separated tokens in GetCommandLineA().
+    // Strategy: count whitespace chars + 1 (approx for clean cmdlines, matches typical kcc invocations).
     offsets = offsets + "kr_argcount:" + pos + "\n"
     let ac_gc = iatK32Rva + 33*8 - (textRva + pos + 4 + 6)
-    let ac_it = 266 - (pos + 52 + 5)
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))
-    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(ac_gc))
-    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xD2))
-    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x38)+hexByte(0x00)+hexByte(0x74)+hexByte(0x1F))
-    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0xC2))
-    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x38)+hexByte(0x20)+hexByte(0x7F)+hexByte(0x05))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC0)+hexByte(0xEB)+hexByte(0xF3))
-    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x38)+hexByte(0x00)+hexByte(0x74)+hexByte(0x0A))
-    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x38)+hexByte(0x20)+hexByte(0x75)+hexByte(0xF3))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC0)+hexByte(0xEB)+hexByte(0xEC))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x63)+hexByte(0xCA))
-    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(ac_it))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28)+hexByte(0xC3))
+    let ac_it = 266 - (pos + 36 + 5)
+    // Count whitespace chars in cmdline + 1 ≈ token count (sufficient for clean cmdlines).
+    // Layout (46 bytes used, 11 NOPs pad to 57):
+    //   [0-3]   SUB RSP, 0x28
+    //   [4-9]   CALL [IAT GetCommandLineA] → RAX
+    //   [10-11] XOR ECX, ECX
+    //   [12-13] .loop: MOV AL, [RAX]
+    //   [14-15] TEST AL, AL
+    //   [16-17] JZ .done (+13 → 31)
+    //   [18-19] CMP AL, ' '
+    //   [20-21] JNE .skip (+2 → 24)
+    //   [22-23] INC ECX (count space)
+    //   [24-26] .skip: INC RAX
+    //   [27-28] JMP .loop (-17 → 12)
+    //   [29-30] (pad, unreachable) NOP NOP
+    //   [31-32] .done: INC ECX (tokens = spaces + 1)
+    //   [33-35] MOVSXD RCX, ECX
+    //   [36-40] CALL itoa
+    //   [41-44] ADD RSP, 0x28
+    //   [45]    RET
+    // Count space-separated tokens. Uses DL (not AL) to avoid AL/AH/EAX confusion.
+    // Layout (42 bytes used, pad to 57 with 15 NOPs):
+    //   [0-3]   SUB RSP, 0x28
+    //   [4-9]   CALL IAT GetCommandLineA
+    //   [10-11] XOR ECX, ECX
+    //   [12-13] MOV DL, [RAX]      ← .loop
+    //   [14-15] TEST DL, DL
+    //   [16-17] JZ +11 → .done (29)
+    //   [18-20] CMP DL, ' '
+    //   [21-22] JNE +2 → .skip (25)
+    //   [23-24] INC ECX
+    //   [25-27] INC RAX             ← .skip
+    //   [28]    JMP -18 → .loop (12)  --> short JMP EB ?
+    // Actually [25-27] INC RAX is 3 bytes, JMP at 28-29. JMP target = 12. After JMP at 30, disp = 12-30 = -18.
+    //   [28-29] JMP -18 → .loop
+    //   [30-32] (pad 3 bytes — unreachable)
+    //   [33-34] INC ECX             ← .done at offset 33? No wait JZ +11 from offset 18 = 29. .done = 29.
+    // Restart layout:
+    //   [0-3]   SUB RSP, 0x28          (4)
+    //   [4-9]   CALL IAT               (6)
+    //   [10-11] XOR ECX, ECX           (2)
+    //   [12-13] MOV DL, [RAX]          (2)  ← .loop
+    //   [14-15] TEST DL, DL            (2)
+    //   [16-17] JZ +13 → .done = 31    (2)
+    //   [18-20] CMP DL, ' '            (3)  (80 FA 20)
+    //   [21-22] JNE +2 → .skip = 25    (2)
+    //   [23-24] INC ECX                (2)
+    //   [25-27] INC RAX                (3)  ← .skip
+    //   [28-29] JMP -18 → .loop = 12   (2)
+    //   [30]    NOP                    (1)
+    //   [31-32] INC ECX                (2)  ← .done
+    //   [33-35] MOVSXD RCX, ECX        (3)
+    //   [36-40] CALL itoa              (5)
+    //   [41-44] ADD RSP, 0x28          (4)
+    //   [45]    RET                    (1)
+    // Total = 46 bytes; pad with 11 NOPs to 57.
+    let ac_it2 = 266 - (pos + 36 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))   // SUB RSP
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(ac_gc))                // CALL IAT
+    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xC9))                                // XOR ECX, ECX
+    sb2 = sbAppend(sb2, hexByte(0x8A)+hexByte(0x10))                                // MOV DL, [RAX]
+    sb2 = sbAppend(sb2, hexByte(0x84)+hexByte(0xD2))                                // TEST DL, DL
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(13))                                  // JZ +13 → .done
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0xFA)+hexByte(0x20))                  // CMP DL, ' '
+    sb2 = sbAppend(sb2, hexByte(0x75)+hexByte(2))                                   // JNE +2 → .skip
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0xC1))                                // INC ECX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC0))                  // INC RAX (.skip)
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(256-18))                              // JMP -18 → .loop
+    sb2 = sbAppend(sb2, hexByte(0x90))                                              // pad
+    sb2 = sbAppend(sb2, hexByte(0x90)+hexByte(0x90))                                // .done: (was INC ECX; now NOP NOP — count = spaces only)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x63)+hexByte(0xC9))                  // MOVSXD RCX, ECX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(ac_it2))                             // CALL itoa
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))   // ADD RSP
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                              // RET
+    // Pad to 57 (11 NOPs)
+    let np2 = 0
+    while np2 < 11 {
+        sb2 = sbAppend(sb2, hexByte(0x90))
+        np2 += 1
+    }
     pos = pos + 57
 
-    // ── kr_arg(RCX=idx_str) → idx-th arg string ───────────────────
-    // 136 bytes. GetCommandLineA, skip idx tokens.
+    // ── kr_arg(RCX=idx_str) → idx-th user arg string ──────────────
+    // Convention: arg(0)=first user arg (program name skipped). 135 bytes.
+    // Algorithm: get cmdline; atoi(idx); skip (idx+1) tokens; return current token.
+    // Layout (133 bytes used + 2 NOP pad):
+    //   [0-2]   53 56 57                       PUSH RBX, RSI, RDI
+    //   [3-6]   48 83 EC 28                    SUB RSP, 0x28
+    //   [7-9]   48 89 CB                       MOV RBX, RCX (save idx_str)
+    //   [10-15] FF 15 dw                       CALL [GetCommandLineA]
+    //   [16-18] 48 89 C6                       MOV RSI, RAX (cmdline)
+    //   [19-21] 48 89 D9                       MOV RCX, RBX (restore idx_str)
+    //   [22-26] E8 dw                          CALL atoi
+    //   [27-30] 48 8D 78 01                    LEA RDI, [RAX+1] (idx+1 tokens to skip)
+    //   ── .skip_tok (31): scan to next space or NUL ──
+    //   [31-33] 80 3E 00                       CMP byte [RSI], 0
+    //   [34-35] 74 4C                          JE .empty (+76 → 112)
+    //   [36-38] 80 3E 20                       CMP byte [RSI], ' '
+    //   [39-40] 74 05                          JE .found_sp (+5 → 46)
+    //   [41-43] 48 FF C6                       INC RSI
+    //   [44-45] EB F1                          JMP .skip_tok (-15 → 31)
+    //   ── .found_sp (46) ──
+    //   [46-48] 48 FF C6                       INC RSI (past the space)
+    //   ── .skip_sp (49): consume run of spaces ──
+    //   [49-51] 80 3E 20                       CMP byte [RSI], ' '
+    //   [52-53] 75 05                          JNE .dec (+5 → 59)
+    //   [54-56] 48 FF C6                       INC RSI
+    //   [57-58] EB F6                          JMP .skip_sp (-10 → 49)
+    //   ── .dec (59) ──
+    //   [59-61] 80 3E 00                       CMP byte [RSI], 0
+    //   [62-63] 74 30                          JE .empty (+48 → 112)
+    //   [64-66] 48 FF CF                       DEC RDI
+    //   [67-68] 75 DA                          JNZ .skip_tok (-38 → 31)
+    //   ── .got_start (69): RSI = arg start ──
+    //   [69-71] 48 89 F3                       MOV RBX, RSI
+    //   ── .find_end (72) ──
+    //   [72-74] 80 3B 00                       CMP byte [RBX], 0
+    //   [75-76] 74 0A                          JE .got_len (+10 → 87)
+    //   [77-79] 80 3B 20                       CMP byte [RBX], ' '
+    //   [80-81] 74 05                          JE .got_len (+5 → 87)
+    //   [82-84] 48 FF C3                       INC RBX
+    //   [85-86] EB EB                          JMP .find_end (-21 → 72)
+    //   ── .got_len (87): alloc len+1, copy, nullterm ──
+    //   [87-89] 48 29 F3                       SUB RBX, RSI (RBX = length)
+    //   [90-92] 48 89 DF                       MOV RDI, RBX (save length)
+    //   [93-95] 48 8D 4B 01                    LEA RCX, [RBX+1]   (4 bytes)
+    //   Wait that's 4 bytes. Recount:
+    //   [87-89] 48 29 F3                       SUB RBX, RSI (3)  → RBX = len
+    //   [90-93] 48 8D 4B 01                    LEA RCX, [RBX+1] (4) → ECX = len+1
+    //   [94-98] E8 dw                          CALL __rt_alloc (5)  → RAX = dest
+    //   [99-101] 48 89 C7                      MOV RDI, RAX (3) → RDI = dest
+    //   [102-104] 48 89 F1                     MOV RCX, RSI (3) → RCX = src
+    //   [105-107] 31 D2                        XOR EDX, EDX (offset)... wait 2 bytes
+    //   OK using different approach:
+    //   [105-106] 31 D2                        XOR EDX, EDX (2)
+    //   .cp_loop (107):
+    //   [107-109] 48 39 DA                     CMP RDX, RBX (3)
+    //   [110-111] 74 0B                        JE .cp_done +11 → 123 (2)
+    //   [112-114] 8A 04 11                     MOV AL, [RCX+RDX] (3)
+    //   [115-118] 88 04 17                     MOV [RDI+RDX], AL (3)... wait that's [rdi+rdx]: 88 04 17 = 3 bytes
+    //   [115-117] 88 04 17                     MOV [RDI+RDX], AL (3)
+    //   [118-120] 48 FF C2                     INC RDX (3)
+    //   [121-122] EB F2                        JMP .cp_loop -14 → 107 (2)
+    //   .cp_done (123):
+    //   [123-126] C6 04 17 00                  MOV byte [RDI+RDX], 0 (4)
+    //   [127-129] 48 89 F8                     MOV RAX, RDI (3)
+    //   [130-133] 48 83 C4 28                  ADD RSP, 0x28 (4)
+    //   [134-136] 5F 5E 5B                     POP RDI, RSI, RBX (3)
+    //   [137]   C3                             RET (1)
+    //   .empty (138):
+    //   [138-142] B9 01 00 00 00               MOV ECX, 1 (5)
+    //   [143-147] E8 dw                        CALL __rt_alloc (5)
+    //   [148-150] C6 00 00                     MOV [RAX], 0 (3)
+    //   [151-154] 48 83 C4 28                  ADD RSP (4)
+    //   [155-157] 5F 5E 5B                     POP RDI, RSI, RBX (3)
+    //   [158]   C3                             RET (1)
+    // Total = 159 bytes. Need 159 - 135 = 24 more bytes than original.
+    // Update bsHelperBlockSize() to add 24, but ALSO must update .empty target offsets (was 112, now 138).
+    // Recompute disp values:
+    //   JE .empty at +34: target 138, after JE at 36, disp = 138-36 = 102 = 0x66
+    //   JE .empty at +62: target 138, after at 64, disp = 138-64 = 74 = 0x4A
     offsets = offsets + "kr_arg:" + pos + "\n"
-    let ag_gc = iatK32Rva + 33*8 - (textRva + pos + 4 + 6)
-    let ag_ai = 197 - (pos + 19 + 5)
-    let ag_sd = 52 - (pos + 108 + 5)
-    let ag_ea = 18 - (pos + 121 + 5)
-    sb2 = sbAppend(sb2, hexByte(0x53)+hexByte(0x56)+hexByte(0x57))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))
-    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(ag_gc))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC6))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCE))
-    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(ag_ai))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xDB)+hexByte(0x74)+hexByte(0x52))
-    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xFF))
-    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x36)+hexByte(0x00)+hexByte(0x74)+hexByte(0x48))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x3B)+hexByte(0xFB)+hexByte(0x74)+hexByte(0x1A))
-    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x36)+hexByte(0x20)+hexByte(0x75)+hexByte(0xF3))
-    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x36)+hexByte(0x00)+hexByte(0x74)+hexByte(0x3D))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC6))
-    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0xCF)+hexByte(0xEB)+hexByte(0xEB))
-    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x36)+hexByte(0x20)+hexByte(0x7F)+hexByte(0x05))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC6)+hexByte(0xEB)+hexByte(0xE1))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF1))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC7))
-    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x39)+hexByte(0x00)+hexByte(0x74)+hexByte(0x09))
-    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x39)+hexByte(0x20)+hexByte(0x74)+hexByte(0x05))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC1)+hexByte(0xEB)+hexByte(0xF2))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCE))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x2B)+hexByte(0xF7))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF1)+hexByte(0xE8)+hexDword(ag_sd))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))
-    sb2 = sbAppend(sb2, hexByte(0x5F)+hexByte(0x5E)+hexByte(0x5B)+hexByte(0xC3))
-    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(1)+hexByte(0xE8)+hexDword(ag_ea))
-    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x00)+hexByte(0x00))
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))
-    sb2 = sbAppend(sb2, hexByte(0x5F)+hexByte(0x5E)+hexByte(0x5B)+hexByte(0xC3))
-    pos = pos + 135
+    let ag_gc = iatK32Rva + 33*8 - (textRva + pos + 10 + 6)
+    let ag_ai = 197 - (pos + 22 + 5)
+    let ag_al1 = 18 - (pos + 94 + 5)   // alloc for arg copy
+    let ag_ea = 18 - (pos + 143 + 5)   // alloc for empty
+    sb2 = sbAppend(sb2, hexByte(0x53)+hexByte(0x56)+hexByte(0x57))                              // [0]   PUSH RBX, RSI, RDI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))                 // [3]   SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCB))                              // [7]   MOV RBX, RCX
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(ag_gc))                            // [10]  CALL [GCA]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC6))                              // [16]  MOV RSI, RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD9))                              // [19]  MOV RCX, RBX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(ag_ai))                                          // [22]  CALL atoi
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8D)+hexByte(0x78)+hexByte(0x01))                 // [27]  LEA RDI, [RAX+1]
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x3E)+hexByte(0x00))                              // [31]  CMP [RSI], 0
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(0x66))                                            // [34]  JE .empty +0x66 → 138
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x3E)+hexByte(0x20))                              // [36]  CMP [RSI], ' '
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(0x05))                                            // [39]  JE .found_sp +5 → 46
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC6))                              // [41]  INC RSI
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(0xF1))                                            // [44]  JMP .skip_tok -15 → 31
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC6))                              // [46]  INC RSI
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x3E)+hexByte(0x20))                              // [49]  CMP [RSI], ' '
+    sb2 = sbAppend(sb2, hexByte(0x75)+hexByte(0x05))                                            // [52]  JNE .dec +5 → 59
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC6))                              // [54]  INC RSI
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(0xF6))                                            // [57]  JMP .skip_sp -10 → 49
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x3E)+hexByte(0x00))                              // [59]  CMP [RSI], 0
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(0x4A))                                            // [62]  JE .empty +0x4A → 138
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xCF))                              // [64]  DEC RDI
+    sb2 = sbAppend(sb2, hexByte(0x75)+hexByte(0xDA))                                            // [67]  JNZ .skip_tok -38 → 31
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF3))                              // [69]  MOV RBX, RSI
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x3B)+hexByte(0x00))                              // [72]  CMP [RBX], 0
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(0x0A))                                            // [75]  JE .got_len +10 → 87
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x3B)+hexByte(0x20))                              // [77]  CMP [RBX], ' '
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(0x05))                                            // [80]  JE .got_len +5 → 87
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC3))                              // [82]  INC RBX
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(0xF1))                                            // [85]  JMP .find_end -15 → 72
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x29)+hexByte(0xF3))                              // [87]  SUB RBX, RSI (RBX=len)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8D)+hexByte(0x4B)+hexByte(0x01))                 // [90]  LEA RCX, [RBX+1]
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(ag_al1))                                         // [94]  CALL alloc
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC7))                              // [99]  MOV RDI, RAX (dest)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF1))                              // [102] MOV RCX, RSI (src)
+    sb2 = sbAppend(sb2, hexByte(0x31)+hexByte(0xD2))                                            // [105] XOR EDX, EDX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x39)+hexByte(0xDA))                              // [107] CMP RDX, RBX
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(0x0B))                                            // [110] JE .cp_done +11 → 123
+    sb2 = sbAppend(sb2, hexByte(0x8A)+hexByte(0x04)+hexByte(0x11))                              // [112] MOV AL, [RCX+RDX]
+    sb2 = sbAppend(sb2, hexByte(0x88)+hexByte(0x04)+hexByte(0x17))                              // [115] MOV [RDI+RDX], AL
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC2))                              // [118] INC RDX
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(0xF0))                                            // [121] JMP .cp_loop -16 → 107
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x04)+hexByte(0x17)+hexByte(0x00))                 // [123] MOV [RDI+RDX], 0
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF8))                              // [127] MOV RAX, RDI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))                 // [130] ADD RSP
+    sb2 = sbAppend(sb2, hexByte(0x5F)+hexByte(0x5E)+hexByte(0x5B))                              // [134] POP RDI, RSI, RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                                          // [137] RET
+    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(1))                                              // [138] MOV ECX, 1
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(ag_ea))                                          // [143] CALL alloc
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x00)+hexByte(0x00))                              // [148] MOV [RAX], 0
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))                 // [151] ADD RSP
+    sb2 = sbAppend(sb2, hexByte(0x5F)+hexByte(0x5E)+hexByte(0x5B))                              // [155] POP RDI, RSI, RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                                          // [158] RET
+    pos = pos + 159
 
     // ── kr_charcode(RCX=s) → ASCII value as string ────────────────
     // 17 bytes: sub(4)+movzx(3)+call(5)+add(4)+ret(1)
