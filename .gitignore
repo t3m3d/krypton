@@ -79,8 +79,6 @@ test*
 *.ir
 *.dll
 !runtime/krypton_rt.dll
-!runtime/krypton_rt_legacy.dll
-!runtime/native_rt.c
 *.obj
 *.lib
 *.txt
