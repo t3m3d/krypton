@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
-# build.sh — Krypton build script for Linux / macOS
-# Usage:
-#   ./build.sh              — full bootstrap + self-host build
-#   ./build.sh run FILE=x.k — compile and run a single file
-#   ./build.sh test         — run test suite
+# build.sh — Krypton bootstrap build for Linux / macOS / WSL
+#
+# Layer 1 of Linux support: C-transpile mode only.
+#   1) compile bootstrap/kcc_seed.c (a pre-generated C source of compile.k) → ./kcc
+#   2) use ./kcc to re-emit compile.k → C → rebuild ./kcc (self-rebuild check)
+#   3) smoke test: kcc compiles fibonacci, gcc links, run, check output
+#
+# After this, ./kcc translates .k files to C. To produce a runnable program:
+#   ./kcc source.k > source.c && gcc source.c -o prog -lm -w && ./prog
+#
+# Native ELF emission (kcc --native on Linux) is NOT supported yet — the
+# native PE emitter in kompiler/x64.k targets Windows PE/COFF.
+
 set -euo pipefail
 
 # ── Colours ─────────────────────────────────────────────────────────────────
@@ -15,152 +23,105 @@ fail() { echo -e "${RED}FAIL${RESET}  $*"; exit 1; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# ── Config ───────────────────────────────────────────────────────────────────
-RUNTIME_C="archive/c/run.c"       # The C-compiled interpreter (bootstrap)
-COMPILE_K="kompiler/compile.k"    # Self-hosting compiler (Krypton source)
-OPTIMIZE_K="kompiler/optimize.k"  # IR optimizer (Krypton source)
-LLVM_K="kompiler/llvm.k"          # LLVM IR emitter (Krypton source)
-
-KRUN="./krun"                     # Interpreter binary (built from run.c)
-KCC="./kcc"                       # Native compiler binary (after bootstrap)
-
+# ── Config ──────────────────────────────────────────────────────────────────
+SEED_C="bootstrap/kcc_seed.c"
+COMPILE_K="kompiler/compile.k"
+KCC="./kcc"
 CC="${CC:-gcc}"
+CFLAGS="-O2 -lm -w"
 
-# ── Subcommand dispatch ───────────────────────────────────────────────────────
 MODE="${1:-build}"
 
-# ── run FILE=x.k ─────────────────────────────────────────────────────────────
+# ── run FILE.k ──────────────────────────────────────────────────────────────
 if [[ "$MODE" == "run" ]]; then
     FILE="${2:-}"
-    if [[ -z "$FILE" ]]; then
-        fail "Usage: ./build.sh run <file.k>"
-    fi
-    if [[ ! -f "$FILE" ]]; then
-        fail "File not found: $FILE"
-    fi
-    if [[ -x "$KCC" ]]; then
-        info "Compiling with kcc..."
-        "$KCC" "$FILE" > /tmp/_kr_out.c
-        "$CC" /tmp/_kr_out.c -o /tmp/_kr_run -lm -w
-        /tmp/_kr_run
-    elif [[ -x "$KRUN" ]]; then
-        info "Running via interpreter (kcc not built yet)..."
-        "$KRUN" "$COMPILE_K" "$FILE" > /tmp/_kr_out.c
-        "$CC" /tmp/_kr_out.c -o /tmp/_kr_run -lm -w
-        /tmp/_kr_run
-    else
-        fail "Neither kcc nor krun found. Run ./build.sh first."
-    fi
+    [[ -n "$FILE" && -f "$FILE" ]] || fail "Usage: ./build.sh run <file.k>"
+    [[ -x "$KCC" ]] || fail "kcc not built — run ./build.sh first"
+    "$KCC" "$FILE" > /tmp/_kr_out.c
+    "$CC" /tmp/_kr_out.c -o /tmp/_kr_run $CFLAGS
+    /tmp/_kr_run
+    rm -f /tmp/_kr_out.c /tmp/_kr_run
     exit 0
 fi
 
-# ── test ─────────────────────────────────────────────────────────────────────
+# ── test ────────────────────────────────────────────────────────────────────
 if [[ "$MODE" == "test" ]]; then
-    if [[ ! -x "$KCC" ]] && [[ ! -x "$KRUN" ]]; then
-        fail "Build first: ./build.sh"
-    fi
+    [[ -x "$KCC" ]] || fail "kcc not built — run ./build.sh first"
     PASSED=0; FAILED=0
     echo ""
     echo "Running tests..."
     echo "────────────────────────────────────────"
     for TEST in tests/test_*.k; do
         NAME=$(basename "$TEST")
-        if [[ -x "$KCC" ]]; then
-            "$KCC" "$TEST" > /tmp/_kr_test.c 2>/dev/null
+        if "$KCC" "$TEST" > /tmp/_kr_test.c 2>/dev/null \
+           && "$CC" /tmp/_kr_test.c -o /tmp/_kr_test_bin $CFLAGS 2>/dev/null \
+           && /tmp/_kr_test_bin > /dev/null 2>&1; then
+            ok "$NAME"
+            PASSED=$((PASSED + 1))
         else
-            "$KRUN" "$COMPILE_K" "$TEST" > /tmp/_kr_test.c 2>/dev/null
-        fi
-        if "$CC" /tmp/_kr_test.c -o /tmp/_kr_test_bin -lm -w 2>/dev/null; then
-            if /tmp/_kr_test_bin > /dev/null 2>&1; then
-                ok "$NAME"
-                PASSED=$((PASSED + 1))
-            else
-                echo -e "${RED}FAIL${RESET}  $NAME  (runtime error)"
-                FAILED=$((FAILED + 1))
-            fi
-        else
-            echo -e "${RED}FAIL${RESET}  $NAME  (compile error)"
+            echo -e "${RED}FAIL${RESET}  $NAME"
             FAILED=$((FAILED + 1))
         fi
     done
+    rm -f /tmp/_kr_test.c /tmp/_kr_test_bin
     echo "────────────────────────────────────────"
     echo "  Passed: $PASSED  Failed: $FAILED"
-    echo ""
     [[ $FAILED -eq 0 ]] || exit 1
     exit 0
 fi
 
-# ── build (default) ───────────────────────────────────────────────────────────
+# ── build (default) ─────────────────────────────────────────────────────────
 echo ""
 echo "════════════════════════════════════════════════════"
-echo "  Krypton — Linux/macOS Build"
+echo "  Krypton Linux/WSL Bootstrap Build"
 echo "════════════════════════════════════════════════════"
 echo ""
 
-# Step 1 — Build the C interpreter (bootstrap)
-echo "[1/4] Building interpreter from C source..."
-if [[ ! -f "$RUNTIME_C" ]]; then
-    fail "Missing $RUNTIME_C — is the archive/ directory present?"
-fi
-"$CC" "$RUNTIME_C" -o "$KRUN" -lm -w
-ok "krun built"
+# Sanity
+[[ -f "$SEED_C" ]]    || fail "missing $SEED_C — generate on Windows: kcc.exe kompiler/compile.k > $SEED_C"
+[[ -f "$COMPILE_K" ]] || fail "missing $COMPILE_K"
+command -v "$CC" >/dev/null || fail "$CC not found in PATH"
 
-# Smoke test the interpreter
-echo 'just run { kp("ok") }' > /tmp/_kr_smoke.k
-SMOKE=$("$KRUN" /tmp/_kr_smoke.k 2>/dev/null || true)
-
-# Step 2 — Compile compile.k to C using the interpreter, producing kcc
+info "compiler: $CC"
+info "seed:     $SEED_C ($(wc -l < "$SEED_C") lines)"
 echo ""
-echo "[2/4] Self-hosting: compiling kompiler/compile.k via interpreter..."
-echo "      (this takes ~30–120 seconds on first run)"
-"$KRUN" "$COMPILE_K" "$COMPILE_K" > /tmp/_kcc.c
-ok "compile.k compiled to C"
 
-# Step 3 — Compile the resulting C to a native kcc binary
+# [1/3] Build kcc from the seed C
+echo "[1/3] Building kcc from bootstrap seed..."
+"$CC" "$SEED_C" -o "$KCC" $CFLAGS || fail "gcc compilation of seed failed"
+ok "$KCC built ($(stat -c%s "$KCC" 2>/dev/null || stat -f%z "$KCC") bytes)"
+
+# [2/3] Self-rebuild: ./kcc compile.k → fresh .c → gcc → kcc2; replace kcc
 echo ""
-echo "[3/4] Building native kcc from generated C..."
-"$CC" /tmp/_kcc.c -o "$KCC" -lm -w
-ok "kcc built → $SCRIPT_DIR/kcc"
+echo "[2/3] Self-rebuilding kcc from $COMPILE_K..."
+"$KCC" "$COMPILE_K" > /tmp/_kcc_self.c || fail "kcc failed to compile compile.k"
+"$CC" /tmp/_kcc_self.c -o /tmp/_kcc_self $CFLAGS || fail "gcc failed on self-rebuilt kcc"
+mv /tmp/_kcc_self "$KCC"
+rm -f /tmp/_kcc_self.c
+ok "$KCC self-rebuilt"
 
-# Step 4 — Build the optimizer and LLVM emitter
+# [3/3] Smoke test: fibonacci
 echo ""
-echo "[4/4] Building optimizer and LLVM backend..."
-"$KCC" "$OPTIMIZE_K" > /tmp/_optimizer.c
-"$CC" /tmp/_optimizer.c -o ./koptimize -lm -w
-ok "koptimize built"
+echo "[3/3] Smoke test: examples/fibonacci.k..."
+"$KCC" examples/fibonacci.k > /tmp/_fib.c || fail "kcc failed on fibonacci.k"
+"$CC" /tmp/_fib.c -o /tmp/_fib $CFLAGS || fail "gcc failed on fibonacci"
+OUTPUT=$(/tmp/_fib)
+echo "$OUTPUT" | grep -q "fib(19) = 4181" || fail "fibonacci output wrong: $OUTPUT"
+rm -f /tmp/_fib.c /tmp/_fib
+ok "fibonacci → 4181"
 
-"$KCC" "$LLVM_K" > /tmp/_llvmbe.c
-"$CC" /tmp/_llvmbe.c -o ./kllvmbe -lm -w
-ok "kllvmbe built"
-
-# ── Self-host verification ────────────────────────────────────────────────────
-echo ""
-echo "Verifying self-host (kcc compiles itself)..."
-"$KCC" "$COMPILE_K" > /tmp/_kcc_selfhost.c
-"$CC" /tmp/_kcc_selfhost.c -o /tmp/_kcc_selfhost_bin -lm -w
-# Check the two binaries produce identical output on a test file
-"$KCC" examples/fibonacci.k > /tmp/_fib_a.c
-/tmp/_kcc_selfhost_bin examples/fibonacci.k > /tmp/_fib_b.c
-if diff -q /tmp/_fib_a.c /tmp/_fib_b.c > /dev/null 2>&1; then
-    ok "Self-host verified — kcc and kcc² produce identical output"
-else
-    echo "  Warning: self-host output differs (may be non-fatal)"
-fi
-
+# Version
+VERSION=$("$KCC" --version 2>&1 | head -1)
 echo ""
 echo "════════════════════════════════════════════════════"
-echo "  Build complete!"
+echo "  Build complete: $VERSION"
+echo "════════════════════════════════════════════════════"
 echo ""
 echo "  Usage:"
-echo "    ./build.sh run hello.k       compile + run a .k file"
+echo "    ./build.sh run hello.k       compile and run a .k file"
 echo "    ./build.sh test              run the test suite"
-echo "    ./kcc source.k > source.c    compile to C manually"
-echo "    gcc source.c -o program -lm  link the C output"
+echo "    ./kcc source.k > source.c    transpile .k → C"
+echo "    $CC source.c -o prog -lm     link into a Linux binary"
 echo ""
-echo "  LLVM pipeline:"
-echo "    ./kcc --ir source.k > source.kir"
-echo "    ./koptimize source.kir > source_opt.kir"
-echo "    ./kllvmbe source_opt.kir > source.ll"
-echo "    clang source.ll runtime/krypton_runtime.c -o program"
-echo "════════════════════════════════════════════════════"
+echo "  Note: --native (PE emission) is Windows-only. ELF backend not built yet."
 echo ""
