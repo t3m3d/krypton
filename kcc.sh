@@ -87,14 +87,6 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
         "$GCC_EXE" /tmp/_kcc_x64_build.c -o "$X64_BIN" $LIBS && rm -f /tmp/_kcc_x64_build.c
         if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build x64 codegen" >&2; exit 1; fi
     fi
-    # Rebuild krypton_rt_legacy.dll from native_rt.c when the source changes
-    RT_LEGACY_SRC="$SCRIPT_DIR/runtime/native_rt.c"
-    RT_LEGACY_DLL="$SCRIPT_DIR/runtime/krypton_rt_legacy.dll"
-    if [[ ! -f "$RT_LEGACY_DLL" || "$RT_LEGACY_SRC" -nt "$RT_LEGACY_DLL" ]]; then
-        echo "kcc: building krypton_rt_legacy.dll from native_rt.c..." >&2
-        "$GCC_EXE" -shared -O2 -w "$RT_LEGACY_SRC" -o "$RT_LEGACY_DLL" -lkernel32 -Wl,--export-all-symbols
-        if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build krypton_rt_legacy.dll" >&2; exit 1; fi
-    fi
 
     # Step 1: emit IR
     "$KCC_EXE" --ir $HEADERS_FLAG "$SRCFILE" > "$TMPIR"
@@ -110,14 +102,12 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
     rm -f "$TMPIR" "$TMPOPT"
     if [[ $X64_RET -ne 0 ]]; then echo "kcc --native: x64 codegen failed" >&2; exit 1; fi
 
-    # Copy runtime DLLs next to output
+    # Copy runtime DLL next to output
     RT_DLL="$SCRIPT_DIR/runtime/krypton_rt.dll"
-    RT_LEGACY="$SCRIPT_DIR/runtime/krypton_rt_legacy.dll"
     OUT_DIR="$(dirname "$OUTFILE")"
     if [[ -f "$RT_DLL" && "$OUT_DIR" != "$(dirname "$RT_DLL")" ]]; then
         cp "$RT_DLL" "$OUT_DIR/krypton_rt.dll" 2>/dev/null || true
-        cp "$RT_LEGACY" "$OUT_DIR/krypton_rt_legacy.dll" 2>/dev/null || true
-        echo "kcc: copied runtime DLLs to $OUT_DIR" >&2
+        echo "kcc: copied runtime DLL to $OUT_DIR" >&2
     fi
     exit 0
 fi
