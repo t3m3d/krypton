@@ -1,17 +1,33 @@
 #!/usr/bin/env bash
 # kcc - Krypton compiler driver
-# Usage: kcc source.k [-o output.exe] [-lFOO ...] [--ir] [--native] [--llvm]
+# Usage: kcc source.k [-o output] [-lFOO ...] [--ir] [--native] [--llvm]
 #
-# Without -o:      writes C to stdout (same as kcc.exe)
-# With -o:         compiles all the way to a native .exe via gcc (default)
-# With --native:   .k → .kir → optimize → x64.k → .exe  (no gcc, needs krypton_rt.dll)
+# Without -o:      writes C to stdout
+# With -o:         compiles all the way to a native binary (default = native pipeline)
+# With --native:   no gcc — uses x64.k (Windows PE/COFF) or elf.k (Linux ELF)
 # With --llvm:     .k → .kir → optimize → llvm.k → .ll  (LLVM IR output, use clang)
+# With --gcc:      force the gcc-via-C path
 # With --ir:       .k → .kir  (emit IR only)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-KCC_EXE="$SCRIPT_DIR/kcc.exe"
-KCC_HEADERS_UNIX="$SCRIPT_DIR/headers"
-KCC_HEADERS="$(echo "$KCC_HEADERS_UNIX" | sed 's|^/\([a-zA-Z]\)/|\1:/|')"
+
+# ── Platform detection ─────────────────────────────────────────────
+# On Linux: ./kcc (ELF), --native uses elf.k → ELF
+# On Windows / MSYS: ./kcc.exe, --native uses x64.k → PE/COFF
+case "$(uname -s 2>/dev/null)" in
+    Linux*)  PLATFORM=linux ;;
+    Darwin*) PLATFORM=macos ;;
+    *)       PLATFORM=windows ;;
+esac
+
+if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
+    KCC_EXE="$SCRIPT_DIR/kcc"
+    KCC_HEADERS="$SCRIPT_DIR/headers"
+else
+    KCC_EXE="$SCRIPT_DIR/kcc.exe"
+    KCC_HEADERS_UNIX="$SCRIPT_DIR/headers"
+    KCC_HEADERS="$(echo "$KCC_HEADERS_UNIX" | sed 's|^/\([a-zA-Z]\)/|\1:/|')"
+fi
 
 # Find gcc
 GCC_EXE="$(command -v gcc 2>/dev/null)"
@@ -64,15 +80,42 @@ if [[ -n "$IRFLAG" && -z "$OUTFILE" ]]; then
     exit $?
 fi
 
-# ── --native pipeline: .k → .kir → optimize → x64 → .exe ─────────
+# ── --native pipeline ───────────────────────────────────────────────
+# Linux/macOS: .k → .kir → elf.k → ELF binary (no gcc, no libc)
+# Windows:     .k → .kir → optimize → x64.k → .exe (no gcc, needs krypton_rt.dll)
 if [[ $NATIVE_MODE -eq 1 ]]; then
     if [[ -z "$OUTFILE" ]]; then
-        OUTFILE="${SRCFILE%.k}.exe"
+        if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
+            OUTFILE="${SRCFILE%.k}"
+        else
+            OUTFILE="${SRCFILE%.k}.exe"
+        fi
     fi
     TMPIR="/tmp/_kcc_native_$$.kir"
-    TMPOPT="/tmp/_kcc_native_opt_$$.kir"
 
-    # Pre-build optimize.k and x64.k into cached binaries (kompiler/*.exe)
+    if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
+        # Linux ELF backend via kompiler/elf.k
+        ELF_BIN="$SCRIPT_DIR/kompiler/elf_host"
+        if [[ ! -f "$ELF_BIN" || "$SCRIPT_DIR/kompiler/elf.k" -nt "$ELF_BIN" ]]; then
+            echo "kcc: building elf host..." >&2
+            "$KCC_EXE" "$SCRIPT_DIR/kompiler/elf.k" > /tmp/_kcc_elf_build.c && \
+            "$GCC_EXE" /tmp/_kcc_elf_build.c -o "$ELF_BIN" $LIBS && rm -f /tmp/_kcc_elf_build.c
+            if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build elf codegen" >&2; exit 1; fi
+        fi
+
+        "$KCC_EXE" --ir $HEADERS_FLAG "$SRCFILE" > "$TMPIR"
+        if [[ $? -ne 0 ]]; then echo "kcc --native: IR emission failed" >&2; rm -f "$TMPIR"; exit 1; fi
+
+        "$ELF_BIN" "$TMPIR" "$OUTFILE"
+        ELF_RET=$?
+        rm -f "$TMPIR"
+        if [[ $ELF_RET -ne 0 ]]; then echo "kcc --native: elf codegen failed" >&2; exit 1; fi
+        chmod +x "$OUTFILE"
+        exit 0
+    fi
+
+    # Windows: PE/COFF backend
+    TMPOPT="/tmp/_kcc_native_opt_$$.kir"
     OPT_BIN="$SCRIPT_DIR/kompiler/optimize_host.exe"
     X64_BIN="$SCRIPT_DIR/kompiler/x64_host.exe"
     if [[ ! -f "$OPT_BIN" || "$SCRIPT_DIR/kompiler/optimize.k" -nt "$OPT_BIN" ]]; then
@@ -88,21 +131,17 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
         if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build x64 codegen" >&2; exit 1; fi
     fi
 
-    # Step 1: emit IR
     "$KCC_EXE" --ir $HEADERS_FLAG "$SRCFILE" > "$TMPIR"
     if [[ $? -ne 0 ]]; then echo "kcc --native: IR emission failed" >&2; rm -f "$TMPIR"; exit 1; fi
 
-    # Step 2: optimize IR
     "$OPT_BIN" "$TMPIR" > "$TMPOPT"
     if [[ $? -ne 0 ]]; then echo "kcc --native: optimizer failed" >&2; rm -f "$TMPIR" "$TMPOPT"; exit 1; fi
 
-    # Step 3: x64 code generation → .exe
     "$X64_BIN" "$TMPOPT" "$OUTFILE"
     X64_RET=$?
     rm -f "$TMPIR" "$TMPOPT"
     if [[ $X64_RET -ne 0 ]]; then echo "kcc --native: x64 codegen failed" >&2; exit 1; fi
 
-    # Copy runtime DLL next to output
     RT_DLL="$SCRIPT_DIR/runtime/krypton_rt.dll"
     OUT_DIR="$(dirname "$OUTFILE")"
     if [[ -f "$RT_DLL" && "$OUT_DIR" != "$(dirname "$RT_DLL")" ]]; then
