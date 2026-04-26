@@ -88,6 +88,31 @@ func hexBytesLen(s) { emit len(s) / 3 }
 // so we manufacture a guaranteed-unique single byte that won't appear in IR/strings.
 func sepChar() { emit fromCharCode("1") }
 
+// Extract block at index `idx` from a sepChar()-separated string. Returns "" if not found.
+// Krypton's `||` does NOT short-circuit reliably for array-index accesses, so we use
+// nested ifs with explicit boundary checks.
+func extractBlock(s, idx) {
+    let n = len(s)
+    let bIdx = 0
+    let bStart = 0
+    let i = 0
+    let sep = sepChar()
+    while i <= n {
+        let isBoundary = "0"
+        if i == n { isBoundary = "1" }
+        if i < n {
+            if s[i] == sep { isBoundary = "1" }
+        }
+        if isBoundary == "1" {
+            if bIdx == idx { emit substring(s, bStart, i) }
+            bIdx += 1
+            bStart = i + 1
+        }
+        i += 1
+    }
+    emit ""
+}
+
 // ── IR parsing helpers ─────────────────────────────────────────────
 
 // Strip leading whitespace; return rest
@@ -216,19 +241,189 @@ func emitKrPrintCode() {
 }
 func krPrintSize() { emit 37 }
 
-// _start: call __main__, use return value (RAX) as exit code, SYS_exit.
-//   [0]  E8 disp32         CALL __main__                  (5)
-//   [5]  48 89 C7          MOV RDI, RAX                   (3)  ; exit code = main's return
-//   [8]  B8 3C 00 00 00    MOV EAX, 60                    (5)
-//   [13] 0F 05             SYSCALL                        (2)
-// Total: 15 bytes.
-func startSize() { emit 15 }
+// kr_alloc: bump allocator using R15 (heap_next).
+//   In:  RDI = size in bytes
+//   Out: RAX = pointer to allocated block
+//
+// Layout (7 bytes):
+//   [0]  4C 89 F8         MOV RAX, R15          (3)
+//   [3]  49 01 FF         ADD R15, RDI          (3)
+//   [6]  C3               RET                   (1)
+func emitKrAllocCode() {
+    let c = ""
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xF8)
+    c = c + hexByte(0x49) + hexByte(0x01) + hexByte(0xFF)
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krAllocSize() { emit 7 }
+
+
+// Re-emit kr_str_int with the kr_alloc CALL disp filled in.
+// strIntVAddr  = vaddr of kr_str_int's first byte
+// allocVAddr   = vaddr of kr_alloc's first byte
+func emitKrStrIntCodeFinal(strIntVAddr, allocVAddr) {
+    // CALL is at offset 11, ends at 16. disp = allocVAddr - (strIntVAddr + 16)
+    let callDisp = allocVAddr - (strIntVAddr + 16)
+    let c = ""
+    c = c + hexByte(0x53)
+    c = c + hexByte(0x41) + hexByte(0x54)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xFC)
+    c = c + hexByte(0xBF) + hexDword(24)
+    c = c + hexByte(0xE8) + hexDword(callDisp)                     // CALL kr_alloc (resolved)
+    c = c + hexByte(0x48) + hexByte(0x8D) + hexByte(0x58) + hexByte(0x17)
+    c = c + hexByte(0xC6) + hexByte(0x03) + hexByte(0x00)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE0)
+    c = c + hexByte(0x31) + hexByte(0xC9)
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)
+    c = c + hexByte(0x79) + hexByte(0x05)
+    c = c + hexByte(0x48) + hexByte(0xF7) + hexByte(0xD8)
+    c = c + hexByte(0xFF) + hexByte(0xC1)
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)
+    c = c + hexByte(0x75) + hexByte(0x08)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xCB)
+    c = c + hexByte(0xC6) + hexByte(0x03) + hexByte(0x30)
+    c = c + hexByte(0xEB) + hexByte(0x21)
+    c = c + hexByte(0x31) + hexByte(0xD2)
+    c = c + hexByte(0xBE) + hexDword(10)
+    c = c + hexByte(0x48) + hexByte(0xF7) + hexByte(0xF6)
+    c = c + hexByte(0x80) + hexByte(0xC2) + hexByte(0x30)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xCB)
+    c = c + hexByte(0x88) + hexByte(0x13)
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)
+    c = c + hexByte(0x75) + hexByte(256 - 23)
+    c = c + hexByte(0x85) + hexByte(0xC9)
+    c = c + hexByte(0x74) + hexByte(0x06)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xCB)
+    c = c + hexByte(0xC6) + hexByte(0x03) + hexByte(0x2D)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xD8)
+    c = c + hexByte(0x41) + hexByte(0x5C)
+    c = c + hexByte(0x5B)
+    c = c + hexByte(0xC3)
+    emit c
+}
+
+// kr_str_int: convert signed 64-bit integer to NUL-terminated decimal string.
+//   In:  RDI = integer
+//   Out: RAX = pointer to first digit
+//
+// Strategy: allocate 24 bytes, build string from the END backward (so digits
+// land in correct order without a reverse loop). Returns ptr to first digit.
+//
+// Byte-by-byte layout (offsets in [brackets]):
+//   [0]   53                    PUSH RBX
+//   [1]   41 54                 PUSH R12
+//   [3]   49 89 FC              MOV R12, RDI       ; save n
+//   [6]   BF 18 00 00 00        MOV EDI, 24
+//   [11]  E8 00 00 00 00        CALL kr_alloc      ; PATCHED post-emit
+//   [16]  48 8D 58 17           LEA RBX, [RAX+23]  ; ptr = buf+23
+//   [20]  C6 03 00              MOV byte [RBX], 0  ; nullterm
+//   [23]  4C 89 E0              MOV RAX, R12       ; restore n
+//   [26]  31 C9                 XOR ECX, ECX       ; neg flag
+//   [28]  48 85 C0              TEST RAX, RAX
+//   [31]  79 05                 JNS +5 → 38 (.pos)
+//   [33]  48 F7 D8              NEG RAX
+//   [36]  FF C1                 INC ECX
+//   [38]  48 85 C0              TEST RAX, RAX     ; .pos:
+//   [41]  75 08                 JNZ +8 → 51 (.digit_loop)
+//   [43]  48 FF CB              DEC RBX
+//   [46]  C6 03 30              MOV byte [RBX], '0'
+//   [49]  EB 20                 JMP +32 → 83 (.done)
+//   [51]  31 D2                 XOR EDX, EDX       ; .digit_loop:
+//   [53]  BE 0A 00 00 00        MOV ESI, 10
+//   [58]  48 F7 F6              DIV RSI            ; rax /= 10, rdx = rem
+//   [61]  80 C2 30              ADD DL, '0'
+//   [64]  48 FF CB              DEC RBX
+//   [67]  88 13                 MOV [RBX], DL
+//   [69]  48 85 C0              TEST RAX, RAX
+//   [72]  75 ED                 JNZ -19 → 51 (.digit_loop)  ; 74 + (-19) = 55... wait
+//   ...
+//
+// Recomputed disp values below.
+func emitKrStrIntCode() {
+    let c = ""
+    c = c + hexByte(0x53)                                          // [0]   PUSH RBX
+    c = c + hexByte(0x41) + hexByte(0x54)                          // [1-2] PUSH R12
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xFC)          // [3-5] MOV R12, RDI
+    c = c + hexByte(0xBF) + hexDword(24)                           // [6-10] MOV EDI, 24
+    c = c + hexByte(0xE8) + hexDword(0)                            // [11-15] CALL kr_alloc (PATCHED)
+    c = c + hexByte(0x48) + hexByte(0x8D) + hexByte(0x58) + hexByte(0x17)  // [16-19] LEA RBX, [RAX+23]
+    c = c + hexByte(0xC6) + hexByte(0x03) + hexByte(0x00)          // [20-22] MOV byte [RBX], 0
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE0)          // [23-25] MOV RAX, R12
+    c = c + hexByte(0x31) + hexByte(0xC9)                          // [26-27] XOR ECX, ECX
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)          // [28-30] TEST RAX, RAX
+    c = c + hexByte(0x79) + hexByte(0x05)                          // [31-32] JNS +5 → 38
+    c = c + hexByte(0x48) + hexByte(0xF7) + hexByte(0xD8)          // [33-35] NEG RAX
+    c = c + hexByte(0xFF) + hexByte(0xC1)                          // [36-37] INC ECX
+    // .pos at 38:
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)          // [38-40] TEST RAX, RAX
+    c = c + hexByte(0x75) + hexByte(0x08)                          // [41-42] JNZ +8 → 51
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xCB)          // [43-45] DEC RBX
+    c = c + hexByte(0xC6) + hexByte(0x03) + hexByte(0x30)          // [46-48] MOV [RBX], '0'
+    c = c + hexByte(0xEB) + hexByte(0x21)                          // [49-50] JMP +33 → 84 (.done)
+    // .digit_loop at 51:
+    c = c + hexByte(0x31) + hexByte(0xD2)                          // [51-52] XOR EDX, EDX
+    c = c + hexByte(0xBE) + hexDword(10)                           // [53-57] MOV ESI, 10
+    c = c + hexByte(0x48) + hexByte(0xF7) + hexByte(0xF6)          // [58-60] DIV RSI
+    c = c + hexByte(0x80) + hexByte(0xC2) + hexByte(0x30)          // [61-63] ADD DL, '0'
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xCB)          // [64-66] DEC RBX
+    c = c + hexByte(0x88) + hexByte(0x13)                          // [67-68] MOV [RBX], DL
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)          // [69-71] TEST RAX, RAX
+    c = c + hexByte(0x75) + hexByte(256 - 23)                      // [72-73] JNZ -23 → 51
+    c = c + hexByte(0x85) + hexByte(0xC9)                          // [74-75] TEST ECX, ECX
+    c = c + hexByte(0x74) + hexByte(0x06)                          // [76-77] JZ +6 → 84 (.done)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xCB)          // [78-80] DEC RBX
+    c = c + hexByte(0xC6) + hexByte(0x03) + hexByte(0x2D)          // [81-83] MOV [RBX], '-'
+    // Hmm that puts '-' write at 81-83 which collides with .done...
+    // Recount: 78-80 (DEC RBX, 3 bytes), 81-83 (MOV byte [RBX], '-', 3 bytes).
+    // .done would then be at 84.
+    // .done at 84:
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xD8)          // [84-86] MOV RAX, RBX
+    c = c + hexByte(0x41) + hexByte(0x5C)                          // [87-88] POP R12
+    c = c + hexByte(0x5B)                                          // [89]   POP RBX
+    c = c + hexByte(0xC3)                                          // [90]   RET
+    emit c
+}
+// 91 bytes total. Need to fix the JMP +32 → 83 above to JMP +33 → 84.
+func krStrIntSize() { emit 91 }
+
+// _start:
+//   1. mmap(0, 65536, PROT_R|PROT_W, MAP_PRIVATE|MAP_ANON, -1, 0) → R15 = heap base
+//   2. CALL __main__
+//   3. SYS_exit(RAX)
+//
+// R15 is reserved as the heap-bump pointer for kr_alloc.
+//
+// Layout (53 bytes):
+//   [0]  B8 09 00 00 00         MOV EAX, 9          (SYS_mmap)        (5)
+//   [5]  31 FF                  XOR EDI, EDI        (addr=0)          (2)
+//   [7]  BE 00 00 01 00         MOV ESI, 0x10000    (size=64KB)       (5)
+//   [12] BA 03 00 00 00         MOV EDX, 3          (PROT_READ|WRITE) (5)
+//   [17] 41 BA 22 00 00 00      MOV R10D, 0x22      (PRIV|ANON)       (6)
+//   [23] 49 C7 C0 FF FF FF FF   MOV R8, -1          (fd=-1)           (7)
+//   [30] 45 31 C9               XOR R9D, R9D        (offset=0)        (3)
+//   [33] 0F 05                  SYSCALL                               (2)
+//   [35] 49 89 C7               MOV R15, RAX        (heap base → R15) (3)
+//   [38] E8 dw                  CALL __main__                         (5)
+//   [43] 48 89 C7               MOV RDI, RAX        (exit code)       (3)
+//   [46] B8 3C 00 00 00         MOV EAX, 60         (SYS_exit)        (5)
+//   [51] 0F 05                  SYSCALL                               (2)
+func startSize() { emit 53 }
 func emitStartCode(callDisp) {
     let c = ""
-    c = c + hexByte(0xE8) + hexDword(callDisp)
-    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)
-    c = c + hexByte(0xB8) + hexDword(60)
-    c = c + hexByte(0x0F) + hexByte(0x05)
+    c = c + hexByte(0xB8) + hexDword(9)                                      // MOV EAX, 9
+    c = c + hexByte(0x31) + hexByte(0xFF)                                    // XOR EDI, EDI
+    c = c + hexByte(0xBE) + hexDword(65536)                                  // MOV ESI, 64KB
+    c = c + hexByte(0xBA) + hexDword(3)                                      // MOV EDX, 3
+    c = c + hexByte(0x41) + hexByte(0xBA) + hexDword(0x22)                   // MOV R10D, 0x22
+    c = c + hexByte(0x49) + hexByte(0xC7) + hexByte(0xC0) + hexDword(0 - 1)  // MOV R8, -1
+    c = c + hexByte(0x45) + hexByte(0x31) + hexByte(0xC9)                    // XOR R9D, R9D
+    c = c + hexByte(0x0F) + hexByte(0x05)                                    // SYSCALL
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC7)                    // MOV R15, RAX
+    c = c + hexByte(0xE8) + hexDword(callDisp)                               // CALL __main__
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)                    // MOV RDI, RAX
+    c = c + hexByte(0xB8) + hexDword(60)                                     // MOV EAX, 60
+    c = c + hexByte(0x0F) + hexByte(0x05)                                    // SYSCALL
     emit c
 }
 
@@ -310,6 +505,7 @@ func opByteSize(op) {
     if op == "GTE"        { emit 11 }
     if op == "RETURN"     { emit 6 }    // POP RAX (1) + MOV RSP,RBP (3) + POP RBP (1) + RET (1)
     if op == "BUILTIN_KP" { emit 8 }    // POP RDI (1) + CALL d32 (5) + PUSH 0 (2)
+    if op == "BUILTIN_TOSTR" { emit 7 } // POP RDI (1) + CALL d32 (5) + PUSH RAX (1)
     if op == "POP"        { emit 1 }
     if op == "LABEL"      { emit 0 }
     if op == "JUMP"       { emit 5 }    // E9 + d32
@@ -512,6 +708,8 @@ func parseIR(ir) {
                 if opCount > 0 { opSb = sbAppend(opSb, "\n") }
                 if bname == "kp" || bname == "print" {
                     opSb = sbAppend(opSb, "BUILTIN_KP")
+                } else if bname == "toStr" || bname == "kr_str" {
+                    opSb = sbAppend(opSb, "BUILTIN_TOSTR")
                 } else {
                     opSb = sbAppend(opSb, "UNSUPPORTED " + bname)
                 }
@@ -582,8 +780,9 @@ func computeLayout(opList, localCount) {
 // argcount: number of parameters (used to compute PARAM offsets above RBP)
 // funcVAddrs: name→vaddr table for CALL targets (lines: "name:vaddr"). Pass "" if unused.
 // funcStartVAddr: virtual address of THIS function's first byte (for CALL disp calc)
+// krPrintVAddr/krStrIntVAddr: vaddrs of runtime helpers, used by BUILTIN_KP/BUILTIN_TOSTR
 
-func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr) {
+func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr) {
     let c = ""
     c = c + hexByte(0x55)                                             // [+0] PUSH RBP
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xE5)             // [+1] MOV RBP, RSP
@@ -705,9 +904,17 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             c = c + hexByte(0x5D)
             c = c + hexByte(0xC3)
         } else if op == "BUILTIN_KP" {
+            // POP RDI ; CALL kr_print (resolved) ; PUSH 0 (kp returns void)
             c = c + hexByte(0x5F)
-            c = c + hexByte(0xE8) + hexDword(0)                       // CALL kr_print (patched post-emit)
-            c = c + hexByte(0x6A) + hexByte(0x00)                     // PUSH 0
+            let kpDisp = krPrintVAddr - (funcStartVAddr + off + 6)
+            c = c + hexByte(0xE8) + hexDword(kpDisp)
+            c = c + hexByte(0x6A) + hexByte(0x00)
+        } else if op == "BUILTIN_TOSTR" {
+            // POP RDI ; CALL kr_str_int ; PUSH RAX
+            c = c + hexByte(0x5F)
+            let tsDisp = krStrIntVAddr - (funcStartVAddr + off + 6)
+            c = c + hexByte(0xE8) + hexDword(tsDisp)
+            c = c + hexByte(0x50)
         } else if op == "CALL_FUNC" {
             // Parse "name argcount"
             let cj = 0
@@ -902,28 +1109,13 @@ just run {
     let flSb = sbNew()
     let flFirst = "1"
 
-    // Helper to extract block i
-    // (inline since we don't have higher-order funcs)
+    // ── Layout pass: per function, compute labels and code size ──────
+    let krSiSz = krStrIntSize()
+    let krAlSz = krAllocSize()
+
     let fIdx = 0
     while fIdx < funcCount {
-        // Walk funcBlocks to find block fIdx
-        let bj = 0
-        let bStart = 0
-        let bI = 0
-        let bbn = len(funcBlocks)
-        let block = ""
-        while bI <= bbn {
-            if bI == bbn || funcBlocks[bI] == sepChar() {
-                if bj == fIdx {
-                    block = substring(funcBlocks, bStart, bI)
-                    break
-                }
-                bj += 1
-                bStart = bI + 1
-            }
-            bI += 1
-        }
-        // Parse block
+        let block = extractBlock(funcBlocks, fIdx)
         let header = getLine(block, 0)
         let hsp1 = 0
         while hsp1 < len(header) && header[hsp1] != " " { hsp1 += 1 }
@@ -931,14 +1123,9 @@ just run {
         while hsp2 < len(header) && header[hsp2] != " " { hsp2 += 1 }
         let hsp3 = hsp2 + 1
         while hsp3 < len(header) && header[hsp3] != " " { hsp3 += 1 }
-        let argcStr = substring(header, hsp2 + 1, hsp3)
-        let lcStr = substring(header, hsp3 + 1, len(header))
-        let argc = toInt(argcStr)
-        let lcCount = toInt(lcStr)
+        let lcCount = toInt(substring(header, hsp3 + 1, len(header)))
 
-        // ops are everything after line 3 (header, params, locals, opCount). But getLine works per-line.
         let blockNl = lineCount(block)
-        let opcLine = toInt(getLine(block, 3))
         let opSb2 = sbNew()
         let ok = 4
         while ok < blockNl {
@@ -982,23 +1169,7 @@ just run {
     let oIdx = 0
     while oIdx < funcCount {
         let fid = toInt(getLine(order, oIdx))
-        // Get func name
-        let bj2 = 0
-        let bStart2 = 0
-        let bI2 = 0
-        let bbn2 = len(funcBlocks)
-        let blk2 = ""
-        while bI2 <= bbn2 {
-            if bI2 == bbn2 || funcBlocks[bI2] == sepChar() {
-                if bj2 == fid {
-                    blk2 = substring(funcBlocks, bStart2, bI2)
-                    break
-                }
-                bj2 += 1
-                bStart2 = bI2 + 1
-            }
-            bI2 += 1
-        }
+        let blk2 = extractBlock(funcBlocks, fid)
         let h = getLine(blk2, 0)
         let s1 = 0
         while s1 < len(h) && h[s1] != " " { s1 += 1 }
@@ -1012,10 +1183,13 @@ just run {
         oIdx += 1
     }
 
+    // Layout: _start | functions | kr_print | kr_str_int | kr_alloc | strings
     let krPrintVAddr = SEG_BASE_VADDR + startSz + totalCodeSize
+    let krStrIntVAddr = krPrintVAddr + krpSz
+    let krAllocVAddr = krStrIntVAddr + krSiSz
 
-    // String virtual addresses (after kr_print)
-    let stringsBase = krPrintVAddr + krpSz
+    // String virtual addresses (after all runtime helpers)
+    let stringsBase = krAllocVAddr + krAlSz
     let strVAddrs = ""
     let strData = ""
     let curOff = 0
@@ -1029,28 +1203,12 @@ just run {
         si += 1
     }
 
-    // ── Emit pass: for each function in order, emit code with real funcVAddrs ──
+    // ── Emit pass: for each function in order, emit code with resolved CALL targets ──
     let allFuncCode = ""
     let oIdx2 = 0
     while oIdx2 < funcCount {
         let fid2 = toInt(getLine(order, oIdx2))
-        // Re-extract block
-        let bj3 = 0
-        let bStart3 = 0
-        let bI3 = 0
-        let bbn3 = len(funcBlocks)
-        let blk3 = ""
-        while bI3 <= bbn3 {
-            if bI3 == bbn3 || funcBlocks[bI3] == sepChar() {
-                if bj3 == fid2 {
-                    blk3 = substring(funcBlocks, bStart3, bI3)
-                    break
-                }
-                bj3 += 1
-                bStart3 = bI3 + 1
-            }
-            bI3 += 1
-        }
+        let blk3 = extractBlock(funcBlocks, fid2)
         let hh = getLine(blk3, 0)
         let ss1 = 0
         while ss1 < len(hh) && hh[ss1] != " " { ss1 += 1 }
@@ -1070,77 +1228,27 @@ just run {
         }
         let opStr2 = sbToString(opSb3)
 
-        // Get this func's labels
-        let bj4 = 0
-        let bStart4 = 0
-        let bI4 = 0
-        let bbn4 = len(funcLabelsList)
-        let lab2 = ""
-        while bI4 <= bbn4 {
-            if bI4 == bbn4 || funcLabelsList[bI4] == sepChar() {
-                if bj4 == fid2 {
-                    lab2 = substring(funcLabelsList, bStart4, bI4)
-                    break
-                }
-                bj4 += 1
-                bStart4 = bI4 + 1
-            }
-            bI4 += 1
-        }
-
+        let lab2 = extractBlock(funcLabelsList, fid2)
         let nm2 = substring(hh, ss1 + 1, ss2)
         let funcStartV2 = toInt(funcVAddr(funcVAddrs, nm2))
 
-        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2)
+        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr)
         allFuncCode = allFuncCode + codeI
         oIdx2 += 1
     }
 
-    // Patch BUILTIN_KP CALL placeholders (E8 00 00 00 00 6A 00 → real disp to kr_print)
-    // Walk allFuncCode looking for the marker. funcStartVAddr changes per func, but we know
-    // each func's start vaddr from funcVAddrs. To patch, we need each byte's absolute vaddr.
-    // We track byte-offset within the combined code; vaddr = SEG_BASE+startSz+offset.
-    let allFuncStartVAddr = SEG_BASE_VADDR + startSz
-    let patchedSb = sbNew()
-    let ml = hexBytesLen(allFuncCode)
-    let mi = 0
-    while mi < ml {
-        let triple = substring(allFuncCode, mi*3, mi*3 + 3)
-        let b = substring(triple, 1, 3)
-        let isCall = "0"
-        if b == "E8" && mi + 6 < ml {
-            let z1 = substring(allFuncCode, (mi+1)*3 + 1, (mi+1)*3 + 3)
-            let z2 = substring(allFuncCode, (mi+2)*3 + 1, (mi+2)*3 + 3)
-            let z3 = substring(allFuncCode, (mi+3)*3 + 1, (mi+3)*3 + 3)
-            let z4 = substring(allFuncCode, (mi+4)*3 + 1, (mi+4)*3 + 3)
-            let p1 = substring(allFuncCode, (mi+5)*3 + 1, (mi+5)*3 + 3)
-            let p2 = substring(allFuncCode, (mi+6)*3 + 1, (mi+6)*3 + 3)
-            if z1 == "00" && z2 == "00" && z3 == "00" && z4 == "00" && p1 == "6A" && p2 == "00" {
-                isCall = "1"
-            }
-        }
-        if isCall == "1" {
-            let ripAfter = allFuncStartVAddr + mi + 5
-            let disp = krPrintVAddr - ripAfter
-            patchedSb = sbAppend(patchedSb, hexByte(0xE8))
-            patchedSb = sbAppend(patchedSb, hexDword(disp))
-            mi = mi + 5
-        } else {
-            patchedSb = sbAppend(patchedSb, triple)
-            mi = mi + 1
-        }
-    }
-    let allFuncCodePatched = sbToString(patchedSb)
-
-    // _start: CALL __main__
+    // _start: CALL __main__ (mmap'd heap initialization is in emitStartCode)
     let startVAddr = SEG_BASE_VADDR
     let mainVAddr = toInt(funcVAddr(funcVAddrs, "__main__"))
-    let startCallDisp = mainVAddr - (startVAddr + 5)
+    // CALL is at offset 38 in start code (after mmap setup). After CALL = 43.
+    let startCallDisp = mainVAddr - (startVAddr + 43)
     let startCode = emitStartCode(startCallDisp)
 
     let krPrintCode = emitKrPrintCode()
+    let krStrIntCode = emitKrStrIntCodeFinal(krStrIntVAddr, krAllocVAddr)
+    let krAllocCode = emitKrAllocCode()
 
-    let segment = startCode + allFuncCodePatched + krPrintCode + strData
+    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + strData
     let segSize = hexBytesLen(segment)
     let fileSize = HDR_SIZE + segSize
 
