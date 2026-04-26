@@ -84,6 +84,10 @@ func hexStr(s) {
 // hexBytesLen: number of bytes encoded in a hexByte stream (each byte is "xHH" = 3 chars)
 func hexBytesLen(s) { emit len(s) / 3 }
 
+// Inter-block separator: SOH (0x01) — Krypton's lexer doesn't process "\r" escape,
+// so we manufacture a guaranteed-unique single byte that won't appear in IR/strings.
+func sepChar() { emit fromCharCode("1") }
+
 // ── IR parsing helpers ─────────────────────────────────────────────
 
 // Strip leading whitespace; return rest
@@ -829,7 +833,7 @@ just run {
 
             // Encode function: header\n{params}\n{locals}\n{opCount}\n{ops}
             // Use \r as inter-block separator (rare in source).
-            if funcFirst == "0" { funcBlocksSb = sbAppend(funcBlocksSb, "\r") }
+            if funcFirst == "0" { funcBlocksSb = sbAppend(funcBlocksSb, sepChar()) }
             funcFirst = "0"
             funcBlocksSb = sbAppend(funcBlocksSb, header + "\n" + pms + "\n" + lcs + "\n" + opc + "\n" + sbToString(opSb))
             funcCount += 1
@@ -846,16 +850,18 @@ just run {
     // Find __main__ index — it must be emitted first.
     let mainIdx = 0 - 1
     let fbi = 0
-    let cur = ""
     let fbn = len(funcBlocks)
     let fi = 0
     let fStart = 0
     while fi <= fbn {
-        if fi == fbn || funcBlocks[fi] == "\r" {
+        let isBoundary = "0"
+        if fi == fbn { isBoundary = "1" }
+        if fi < fbn {
+            if funcBlocks[fi] == sepChar() { isBoundary = "1" }
+        }
+        if isBoundary == "1" {
             let block = substring(funcBlocks, fStart, fi)
             let header = getLine(block, 0)
-            // header = "FUNC name argc lcCount"
-            // parse name (3rd whitespace-separated... wait FUNC is 1st, name 2nd)
             let hsp1 = 0
             while hsp1 < len(header) && header[hsp1] != " " { hsp1 += 1 }
             let hsp2 = hsp1 + 1
@@ -907,7 +913,7 @@ just run {
         let bbn = len(funcBlocks)
         let block = ""
         while bI <= bbn {
-            if bI == bbn || funcBlocks[bI] == "\r" {
+            if bI == bbn || funcBlocks[bI] == sepChar() {
                 if bj == fIdx {
                     block = substring(funcBlocks, bStart, bI)
                     break
@@ -962,7 +968,7 @@ just run {
         }
         if len(funcSizes) > 0 { funcSizes = funcSizes + "\n" }
         funcSizes = funcSizes + csize
-        if flFirst == "0" { flSb = sbAppend(flSb, "\r") }
+        if flFirst == "0" { flSb = sbAppend(flSb, sepChar()) }
         flFirst = "0"
         flSb = sbAppend(flSb, lab)
 
@@ -983,7 +989,7 @@ just run {
         let bbn2 = len(funcBlocks)
         let blk2 = ""
         while bI2 <= bbn2 {
-            if bI2 == bbn2 || funcBlocks[bI2] == "\r" {
+            if bI2 == bbn2 || funcBlocks[bI2] == sepChar() {
                 if bj2 == fid {
                     blk2 = substring(funcBlocks, bStart2, bI2)
                     break
@@ -1035,7 +1041,7 @@ just run {
         let bbn3 = len(funcBlocks)
         let blk3 = ""
         while bI3 <= bbn3 {
-            if bI3 == bbn3 || funcBlocks[bI3] == "\r" {
+            if bI3 == bbn3 || funcBlocks[bI3] == sepChar() {
                 if bj3 == fid2 {
                     blk3 = substring(funcBlocks, bStart3, bI3)
                     break
@@ -1071,7 +1077,7 @@ just run {
         let bbn4 = len(funcLabelsList)
         let lab2 = ""
         while bI4 <= bbn4 {
-            if bI4 == bbn4 || funcLabelsList[bI4] == "\r" {
+            if bI4 == bbn4 || funcLabelsList[bI4] == sepChar() {
                 if bj4 == fid2 {
                     lab2 = substring(funcLabelsList, bStart4, bI4)
                     break
