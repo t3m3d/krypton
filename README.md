@@ -44,25 +44,25 @@ One-line install (clones, builds, symlinks `kcc` into `/usr/local/bin`):
 git clone https://github.com/t3m3d/krypton && cd krypton && ./install.sh
 ```
 
-This:
-1. Builds `kcc` from `bootstrap/kcc_seed.c` (a pre-generated C source of the self-hosting compiler).
-2. Self-rebuilds: the new `kcc` recompiles `kompiler/compile.k` to verify it can rebuild itself.
-3. Smoke-tests by compiling and running `examples/fibonacci.k`.
-4. Symlinks `/usr/local/bin/kcc → ./kcc` so future `./build.sh` rebuilds are picked up automatically. Pass a different prefix with `./install.sh ~/.local` if you don't want sudo.
+`./build.sh` picks one of two paths:
 
-Build only (no install):
+- **Prebuilt seed (no gcc required)**: if `bootstrap/kcc_seed_<os>_<arch>` exists for your platform (currently `linux_x86_64` ships in the repo), it's copied directly as `./kcc`. Pure `cp` — no compiler involved.
+- **Source seed (gcc required)**: otherwise compiles `bootstrap/kcc_seed.c` (pre-generated C source of the self-hosting compiler) with gcc, then self-rebuilds via `compile.k`.
+
+After install, native ELF compilation is **fully gcc-free** via the `--native` flag:
 
 ```bash
-git clone https://github.com/t3m3d/krypton && cd krypton && ./build.sh
-./build.sh run examples/fibonacci.k    # compile + run a .k file
-./build.sh test                         # run the test suite
+kcc.sh --native examples/hello.k -o hello
+./hello                                 # static Linux ELF, no libc, no gcc
 ```
 
-**Note:** `kcc --native` (PE binary emission) is Windows-only. On Linux, `kcc` transpiles `.k` to C — link with `gcc` for a native ELF binary. ELF backend is planned.
+This pipeline (`compile.k → IR → kompiler/elf.k → x86-64 ELF`) emits direct Linux syscalls, no library dependencies. Tested with 23+ programs including `examples/fibonacci.k`.
+
+The traditional C path still works for users who want it (`./kcc source.k > out.c && gcc out.c -o prog -lm`).
 
 ### macOS
 
-Same as Linux / WSL above — the build script works on any POSIX system with `gcc` (or `cc`) on `PATH`.
+Same as Linux / WSL above — `./build.sh` falls through to source-seed mode (no prebuilt macOS binary in the repo yet) and compiles via gcc/clang. The `--native` ELF backend is Linux-only; macOS programs go through the C path.
 
 ---
 
