@@ -2,10 +2,10 @@
 
 **A self-hosting programming language with a native compilation pipeline.**
 
-> Version 1.3.8
+> Version 1.3.9
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.3.8-brightgreen)
+![Version](https://img.shields.io/badge/version-1.3.9-brightgreen)
 
 Krypton is a dynamically typed language with clean syntax, 147 built-in functions, and a compiler written in itself. It compiles to C for broad compatibility, and to native machine code via the **`--native`** backend (ELF on Linux, PE on Windows) — no external compiler in the critical path.
 
