@@ -2,30 +2,42 @@
 
 All notable changes to the Krypton language and compiler.
 
-## [1.3.9] - 2026-04-26
+## [1.4.0] - 2026-04-26
 
-### ELF Backend — Five New Builtins
+### New `jxt` syntax — bracketless
 
-Expanded the Linux ELF backend's runtime with five hand-emitted machine-code helpers, unlocking string manipulation and file I/O for native programs:
+Imports can now be written without braces. Each line is `inc "path"`, and the file extension determines the include type (`.k` → Krypton module, `.h` / `.krh` → C header). The block ends at the first non-`inc` token.
 
-- **`substring(s, start, end)`** — 74-byte routine. Allocates a fresh string and copies `[start, end)` from `s` via REP MOVSB. Accepts integer-or-string args (smart `kr_atoi` passthrough).
-- **`sbNew()` / `sbAppend(sb, s)` / `sbToString(sb)`** — StringBuilder primitives. `sbNew` allocates a 1-byte NUL; `sbAppend` aliases to `kr_concat`; `sbToString` is a no-op (the buffer pointer IS the string). Simple O(N²) implementation that matches the pre-v1.2.0 path; sufficient for all current example programs.
-- **`readFile(path)`** — 103-byte routine. `SYS_open` → `SYS_fstat` → `kr_alloc(size+1)` → `SYS_read` → `SYS_close`. Returns the file contents as a fresh string. Reads `st_size` from the 144-byte stat struct (offset 48) on the stack.
-- **`writeFile(path, content)`** — 66-byte routine. `SYS_open(O_WRONLY|O_CREAT|O_TRUNC, 0644)` → `kr_strlen` → `SYS_write` → `SYS_close`. Returns 0.
+**New (recommended):**
 
-### Builtins now supported by the ELF backend
+```
+jxt
+inc "stdlib/result.k"
+inc "stdlib/math_utils.k"
 
-`kp`, `toStr`, `toInt`, `length`, `len`, `split`, `range`, `arg`, `argCount`, `substring`, `sbNew`, `sbAppend`, `sbToString`, `readFile`, `writeFile`, plus `s[i]` indexing.
+just run { ... }
+```
 
-### Bug fix
+**Old (still supported):**
 
-`emitKrReadfileCode`'s `CALL kr_alloc` displacement was off by one — used `+60` (CALL opcode start) instead of `+61` (next instruction start). This caused the call to land one byte inside `kr_alloc`, decoding as `MOV EAX, EDI` and returning the size argument instead of the buffer pointer. Programs printed the file size instead of contents. Caught immediately by the readFile test.
+```
+jxt {
+    k "stdlib/result.k"
+    k "stdlib/math_utils.k"
+}
+```
+
+Implemented in [kompiler/compile.k](kompiler/compile.k)'s tokenizer — when `jxt` is followed by anything other than `{`, the tokenizer synthesizes the equivalent brace-form token stream (`LBRACE`, `ID:k|c`, `STR:path`..., `RBRACE`). Downstream parsing is unchanged. Self-host verified: `./kcc kompiler/compile.k` produces byte-identical C output between old and new compilers.
+
+### Bug fix — `jxt { k "..." }` was infinite-looping
+
+The `k` branch of compile.k's jxt-block parser ([kompiler/compile.k:4184](kompiler/compile.k#L4184)) was missing the `jxtPos += 2` advance that the `c` and `t` branches had. Any program using `jxt { k "..." }` would hang in kcc forever. Discovered while testing the new bracketless syntax. The `--ir`, default C, and `--native` paths were all affected (anything that goes through compile.k's main parsing). Fixed.
 
 ### Verification
 
-All 23 previously-passing regression programs still pass. Three new test groups verified end-to-end (substring × 3, StringBuilder × 3, readFile × 3, writeFile × 3) on `wsl -d archlinux`.
+All 23 ELF regression programs still pass. Four new jxt syntax test cases verified (brace form with k, bracketless single inc, bracketless multiple inc, bracketless followed by func) on `wsl -d archlinux`. Self-host check: `./kcc kompiler/compile.k` produces byte-identical C output between old and new kcc.
 
-## [1.3.8] - 2026-04-26
+## [1.3.9] - 2026-04-26
 
 ### Linux Native ELF Backend — Complete
 
