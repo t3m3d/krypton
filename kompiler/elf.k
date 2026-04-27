@@ -445,6 +445,281 @@ func emitKrAtoiCode() {
 }
 func krAtoiSize() { emit 73 }
 
+// kr_length: count comma-separated elements in a Krypton list string.
+//   In:  RDI = list string
+//   Out: RAX = count (0 if empty, else 1 + comma count)
+//
+// Layout (28 bytes):
+//   [0-1]   31 C0            XOR EAX, EAX                  (2)
+//   [2-4]   80 3F 00         CMP byte [RDI], 0             (3)
+//   [5-6]   74 14            JZ +20 → 27 (.ret)            (2)
+//   [7-8]   FF C0            INC EAX                       (2)
+// .loop at 9:
+//   [9-10]  8A 0F            MOV CL, [RDI]                 (2)
+//   [11-12] 84 C9            TEST CL, CL                   (2)
+//   [13-14] 74 0C            JZ +12 → 27 (.ret)            (2)
+//   [15-17] 80 F9 2C         CMP CL, ','                   (3)
+//   [18-19] 75 02            JNE +2 → 22 (.skip)           (2)
+//   [20-21] FF C0            INC EAX                       (2)
+// .skip at 22:
+//   [22-24] 48 FF C7         INC RDI                       (3)
+//   [25-26] EB EE            JMP -18 → 9                   (2)
+// .ret at 27:
+//   [27]    C3               RET                           (1)
+func emitKrLengthCode() {
+    let c = ""
+    c = c + hexByte(0x31) + hexByte(0xC0)
+    c = c + hexByte(0x80) + hexByte(0x3F) + hexByte(0x00)
+    c = c + hexByte(0x74) + hexByte(0x14)
+    c = c + hexByte(0xFF) + hexByte(0xC0)
+    c = c + hexByte(0x8A) + hexByte(0x0F)
+    c = c + hexByte(0x84) + hexByte(0xC9)
+    c = c + hexByte(0x74) + hexByte(0x0C)
+    c = c + hexByte(0x80) + hexByte(0xF9) + hexByte(0x2C)
+    c = c + hexByte(0x75) + hexByte(0x02)
+    c = c + hexByte(0xFF) + hexByte(0xC0)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC7)
+    c = c + hexByte(0xEB) + hexByte(256 - 18)
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krLengthSize() { emit 28 }
+
+// kr_split: extract idx-th comma-separated element from a list string.
+//   In:  RDI = list string ptr, RSI = idx (string or already-int)
+//   Out: RAX = ptr to fresh heap-allocated element string
+//
+// Layout (113 bytes):
+//   [0]     53                PUSH RBX                                     (1)
+//   [1-2]   41 54             PUSH R12                                     (2)
+//   [3-4]   41 55             PUSH R13                                     (2)
+//   [5-7]   49 89 FC          MOV R12, RDI            (save s)             (3)
+//   [8-10]  48 89 F7          MOV RDI, RSI                                 (3)
+//   [11-15] E8 dw             CALL kr_atoi                                 (5)
+//   [16-18] 49 89 C5          MOV R13, RAX            (remaining = idx)    (3)
+//   [19-21] 4C 89 E7          MOV RDI, R12            (current ptr)        (3)
+// .skip at 22:
+//   [22-24] 4D 85 ED          TEST R13, R13                                (3)
+//   [25-26] 74 0D             JZ +13 → 40 (.scan_setup)                    (2)
+//   [27-28] 8A 07             MOV AL, [RDI]                                (2)
+//   [29-30] 84 C0             TEST AL, AL                                  (2)
+//   [31-32] 74 40             JZ +64 → 97 (.empty)                         (2)
+//   [33-35] 48 FF C7          INC RDI                                      (3)
+//   [36-37] 3C 2C             CMP AL, ','                                  (2)
+//   [38-39] 75 EE             JNE -18 → 22 (.skip)                         (2)
+//   [40-42] 49 FF CD          DEC R13                                      (3)
+//   [43-44] EB E9             JMP -23 → 22 (.skip)                         (2)
+// .scan_setup at 45:
+//   [45-47] 48 89 FB          MOV RBX, RDI            (element start)      (3)
+// .scan at 48:
+//   [48-49] 8A 07             MOV AL, [RDI]                                (2)
+//   [50-51] 84 C0             TEST AL, AL                                  (2)
+//   [52-53] 74 08             JZ +8 → 63 (.got_end)                        (2)
+//   [54-55] 3C 2C             CMP AL, ','                                  (2)
+//   [56-57] 74 04             JE +4 → 63 (.got_end)                        (2)
+//   [58-60] 48 FF C7          INC RDI                                      (3)
+//   [61-62] EB F1             JMP -15 → 48 (.scan)                         (2)
+// .got_end at 63:
+//   [63-65] 4C 89 FD          MOV R13, RDI            (end ptr)            (3)
+//   [66-68] 4D 29 DD          SUB R13, RBX            (length)             (3)
+//   [69-72] 49 8D 7D 01       LEA RDI, [R13+1]                             (4)
+//   [73-77] E8 dw             CALL kr_alloc                                (5)
+//   [78]    50                PUSH RAX                (save dest_start)    (1)
+//   [79-81] 48 89 C7          MOV RDI, RAX                                 (3)
+//   [82-84] 48 89 DE          MOV RSI, RBX                                 (3)
+//   [85-87] 4C 89 E9          MOV RCX, R13                                 (3)
+//   [88-89] F3 A4             REP MOVSB                                    (2)
+//   [90]    58                POP RAX                                      (1)
+//   [91-92] 41 5D             POP R13                                      (2)
+//   [93-94] 41 5C             POP R12                                      (2)
+//   [95]    5B                POP RBX                                      (1)
+//   [96]    C3                RET                                          (1)
+// .empty at 97:
+//   [97-101] BF 01 00 00 00   MOV EDI, 1                                   (5)
+//   [102-106] E8 dw           CALL kr_alloc                                (5)
+//   [107-108] 41 5D           POP R13                                      (2)
+//   [109-110] 41 5C           POP R12                                      (2)
+//   [111]    5B               POP RBX                                      (1)
+//   [112]    C3               RET                                          (1)
+func emitKrSplitCodeFinal(thisVAddr, atoiVAddr, allocVAddr) {
+    let dAtoi   = atoiVAddr  - (thisVAddr + 16)
+    let dAlloc1 = allocVAddr - (thisVAddr + 78)
+    let dAlloc2 = allocVAddr - (thisVAddr + 107)
+    let c = ""
+    c = c + hexByte(0x53)
+    c = c + hexByte(0x41) + hexByte(0x54)
+    c = c + hexByte(0x41) + hexByte(0x55)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xFC)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xF7)
+    c = c + hexByte(0xE8) + hexDword(dAtoi)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC5)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE7)
+    c = c + hexByte(0x4D) + hexByte(0x85) + hexByte(0xED)
+    c = c + hexByte(0x74) + hexByte(0x12)   // JZ +18 → .scan_setup at 45
+    c = c + hexByte(0x8A) + hexByte(0x07)
+    c = c + hexByte(0x84) + hexByte(0xC0)
+    c = c + hexByte(0x74) + hexByte(0x40)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC7)
+    c = c + hexByte(0x3C) + hexByte(0x2C)
+    c = c + hexByte(0x75) + hexByte(256 - 18)
+    c = c + hexByte(0x49) + hexByte(0xFF) + hexByte(0xCD)
+    c = c + hexByte(0xEB) + hexByte(256 - 23)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xFB)
+    c = c + hexByte(0x8A) + hexByte(0x07)
+    c = c + hexByte(0x84) + hexByte(0xC0)
+    c = c + hexByte(0x74) + hexByte(0x09)   // JZ +9 → .got_end (was off-by-one)
+    c = c + hexByte(0x3C) + hexByte(0x2C)
+    c = c + hexByte(0x74) + hexByte(0x05)   // JE +5 → .got_end (was off-by-one)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC7)
+    c = c + hexByte(0xEB) + hexByte(256 - 15)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xFD)   // MOV R13, RDI
+    c = c + hexByte(0x49) + hexByte(0x29) + hexByte(0xDD)   // SUB R13, RBX (was wrong REX)
+    c = c + hexByte(0x49) + hexByte(0x8D) + hexByte(0x7D) + hexByte(0x01)
+    c = c + hexByte(0xE8) + hexDword(dAlloc1)
+    c = c + hexByte(0x50)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDE)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE9)
+    c = c + hexByte(0xF3) + hexByte(0xA4)
+    c = c + hexByte(0x58)
+    c = c + hexByte(0x41) + hexByte(0x5D)
+    c = c + hexByte(0x41) + hexByte(0x5C)
+    c = c + hexByte(0x5B)
+    c = c + hexByte(0xC3)
+    c = c + hexByte(0xBF) + hexDword(1)
+    c = c + hexByte(0xE8) + hexDword(dAlloc2)
+    c = c + hexByte(0x41) + hexByte(0x5D)
+    c = c + hexByte(0x41) + hexByte(0x5C)
+    c = c + hexByte(0x5B)
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krSplitSize() { emit 113 }
+
+// kr_range: build comma-separated list "a,a+1,...,b-1".
+//   In:  RDI = a (start), RSI = b (end)
+//   Out: RAX = ptr to fresh "a,a+1,...,b-1" or "" if a >= b
+//
+// Strategy: atoi both, alloc (end-start)*12+1 bytes (12 = max digits for any int we'll see),
+// loop calling kr_str_int for each i and copying digits + comma. Last iteration skips comma.
+//
+// Layout (135 bytes):
+//   [0]      53                PUSH RBX                          (1)
+//   [1-2]    41 54             PUSH R12                          (2)
+//   [3-4]    41 55             PUSH R13                          (2)
+//   [5-6]    41 56             PUSH R14                          (2)
+//   [7-11]   E8 dw             CALL kr_atoi   (RDI=a still)      (5)
+//   [12-14]  49 89 C4          MOV R12, RAX   (start)            (3)
+//   [15-17]  48 89 F7          MOV RDI, RSI                      (3)
+//   [18-22]  E8 dw             CALL kr_atoi                      (5)
+//   [23-25]  49 89 C5          MOV R13, RAX   (end)              (3)
+//   [26-28]  4D 39 EC          CMP R12, R13                      (3)
+//   [29-30]  7D 56             JGE +86 → 117 (.empty)            (2)
+//   [31-33]  4C 89 E8          MOV RAX, R13                      (3)
+//   [34-36]  4C 29 E0          SUB RAX, R12                      (3)
+//   [37-40]  48 6B C0 0C       IMUL RAX, RAX, 12                 (4)
+//   [41-43]  48 FF C0          INC RAX                           (3)
+//   [44-46]  48 89 C7          MOV RDI, RAX                      (3)
+//   [47-51]  E8 dw             CALL kr_alloc                     (5)
+//   [52-54]  48 89 C3          MOV RBX, RAX   (write ptr)        (3)
+//   [55-57]  49 89 C6          MOV R14, RAX   (saved buf start)  (3)
+// .loop at 58:
+//   [58-60]  4D 39 EC          CMP R12, R13                      (3)
+//   [61-62]  7D 2B             JGE +43 → 106 (.done)             (2)
+//   [63-65]  4C 89 E7          MOV RDI, R12                      (3)
+//   [66-70]  E8 dw             CALL kr_str_int                   (5)
+//   [71-73]  48 89 C6          MOV RSI, RAX                      (3)
+// .copy at 74:
+//   [74-75]  8A 0E             MOV CL, [RSI]                     (2)
+//   [76-77]  84 C9             TEST CL, CL                       (2)
+//   [78-79]  74 0A             JZ +10 → 90 (.add_comma)          (2)
+//   [80-81]  88 0B             MOV [RBX], CL                     (2)
+//   [82-84]  48 FF C3          INC RBX                           (3)
+//   [85-87]  48 FF C6          INC RSI                           (3)
+//   [88-89]  EB F0             JMP -16 → 74 (.copy)              (2)
+// .add_comma at 90:
+//   [90-92]  49 FF C4          INC R12                           (3)
+//   [93-95]  4D 39 EC          CMP R12, R13                      (3)
+//   [96-97]  7D D8             JGE -40 → 58 (.loop)              (2)  ; last iter
+//   [98-100] C6 03 2C          MOV byte [RBX], ','               (3)
+//   [101-103] 48 FF C3         INC RBX                           (3)
+//   [104-105] EB D0            JMP -48 → 58 (.loop)              (2)
+// .done at 106:
+//   [106-108] 4C 89 F0         MOV RAX, R14                      (3)
+//   [109-110] 41 5E            POP R14                           (2)
+//   [111-112] 41 5D            POP R13                           (2)
+//   [113-114] 41 5C            POP R12                           (2)
+//   [115]    5B                POP RBX                           (1)
+//   [116]    C3                RET                               (1)
+// .empty at 117:
+//   [117-121] BF 01 00 00 00   MOV EDI, 1                        (5)
+//   [122-126] E8 dw            CALL kr_alloc                     (5)
+//   [127-128] 41 5E            POP R14                           (2)
+//   [129-130] 41 5D            POP R13                           (2)
+//   [131-132] 41 5C            POP R12                           (2)
+//   [133]    5B                POP RBX                           (1)
+//   [134]    C3                RET                               (1)
+func emitKrRangeCodeFinal(thisVAddr, atoiVAddr, allocVAddr, strIntVAddr) {
+    let dAtoi1 = atoiVAddr   - (thisVAddr + 12)
+    let dAtoi2 = atoiVAddr   - (thisVAddr + 23)
+    let dAlloc1 = allocVAddr - (thisVAddr + 52)
+    let dStrInt = strIntVAddr - (thisVAddr + 71)
+    let dAlloc2 = allocVAddr - (thisVAddr + 127)
+    let c = ""
+    c = c + hexByte(0x53)
+    c = c + hexByte(0x41) + hexByte(0x54)
+    c = c + hexByte(0x41) + hexByte(0x55)
+    c = c + hexByte(0x41) + hexByte(0x56)
+    c = c + hexByte(0xE8) + hexDword(dAtoi1)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC4)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xF7)
+    c = c + hexByte(0xE8) + hexDword(dAtoi2)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC5)
+    c = c + hexByte(0x4D) + hexByte(0x39) + hexByte(0xEC)
+    c = c + hexByte(0x7D) + hexByte(0x56)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE8)
+    c = c + hexByte(0x4C) + hexByte(0x29) + hexByte(0xE0)
+    c = c + hexByte(0x48) + hexByte(0x6B) + hexByte(0xC0) + hexByte(0x0C)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC0)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)
+    c = c + hexByte(0xE8) + hexDword(dAlloc1)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC3)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC6)
+    c = c + hexByte(0x4D) + hexByte(0x39) + hexByte(0xEC)
+    c = c + hexByte(0x7D) + hexByte(0x2B)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE7)
+    c = c + hexByte(0xE8) + hexDword(dStrInt)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC6)
+    c = c + hexByte(0x8A) + hexByte(0x0E)
+    c = c + hexByte(0x84) + hexByte(0xC9)
+    c = c + hexByte(0x74) + hexByte(0x0A)
+    c = c + hexByte(0x88) + hexByte(0x0B)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC3)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC6)
+    c = c + hexByte(0xEB) + hexByte(256 - 16)
+    c = c + hexByte(0x49) + hexByte(0xFF) + hexByte(0xC4)
+    c = c + hexByte(0x4D) + hexByte(0x39) + hexByte(0xEC)
+    c = c + hexByte(0x7D) + hexByte(256 - 40)
+    c = c + hexByte(0xC6) + hexByte(0x03) + hexByte(0x2C)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC3)
+    c = c + hexByte(0xEB) + hexByte(256 - 48)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xF0)
+    c = c + hexByte(0x41) + hexByte(0x5E)
+    c = c + hexByte(0x41) + hexByte(0x5D)
+    c = c + hexByte(0x41) + hexByte(0x5C)
+    c = c + hexByte(0x5B)
+    c = c + hexByte(0xC3)
+    c = c + hexByte(0xBF) + hexDword(1)
+    c = c + hexByte(0xE8) + hexDword(dAlloc2)
+    c = c + hexByte(0x41) + hexByte(0x5E)
+    c = c + hexByte(0x41) + hexByte(0x5D)
+    c = c + hexByte(0x41) + hexByte(0x5C)
+    c = c + hexByte(0x5B)
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krRangeSize() { emit 135 }
+
 
 // Re-emit kr_str_int with the kr_alloc CALL disp filled in.
 // strIntVAddr  = vaddr of kr_str_int's first byte
@@ -700,6 +975,10 @@ func opByteSize(op) {
     if op == "BUILTIN_KP" { emit 25 }   // smart: POP+CMP+JAE+kr_str_int+kr_print+PUSH 0
     if op == "BUILTIN_TOSTR" { emit 7 } // POP RDI (1) + CALL d32 (5) + PUSH RAX (1)
     if op == "BUILTIN_TOINT" { emit 7 } // POP RDI + CALL kr_atoi + PUSH RAX
+    if op == "BUILTIN_LENGTH"{ emit 7 } // POP RDI + CALL kr_length + PUSH RAX
+    if op == "BUILTIN_LEN"   { emit 7 } // POP RDI + CALL kr_strlen + PUSH RAX (string length)
+    if op == "BUILTIN_SPLIT" { emit 8 } // POP RSI(1) + POP RDI(1) + CALL kr_split(5) + PUSH RAX(1)
+    if op == "BUILTIN_RANGE" { emit 8 } // POP RSI + POP RDI + CALL kr_range + PUSH RAX
     if op == "POP"        { emit 1 }
     if op == "LABEL"      { emit 0 }
     if op == "JUMP"       { emit 5 }    // E9 + d32
@@ -906,6 +1185,14 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_TOSTR")
                 } else if bname == "toInt" || bname == "parseInt" {
                     opSb = sbAppend(opSb, "BUILTIN_TOINT")
+                } else if bname == "length" {
+                    opSb = sbAppend(opSb, "BUILTIN_LENGTH")
+                } else if bname == "len" {
+                    opSb = sbAppend(opSb, "BUILTIN_LEN")
+                } else if bname == "split" {
+                    opSb = sbAppend(opSb, "BUILTIN_SPLIT")
+                } else if bname == "range" {
+                    opSb = sbAppend(opSb, "BUILTIN_RANGE")
                 } else {
                     opSb = sbAppend(opSb, "UNSUPPORTED " + bname)
                 }
@@ -978,7 +1265,7 @@ func computeLayout(opList, localCount) {
 // funcStartVAddr: virtual address of THIS function's first byte (for CALL disp calc)
 // krPrintVAddr/krStrIntVAddr: vaddrs of runtime helpers, used by BUILTIN_KP/BUILTIN_TOSTR
 
-func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr) {
+func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr) {
     let c = ""
     c = c + hexByte(0x55)                                             // [+0] PUSH RBP
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xE5)             // [+1] MOV RBP, RSP
@@ -1260,6 +1547,32 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             let tiDisp = krAtoiVAddr - (funcStartVAddr + off + 6)
             c = c + hexByte(0xE8) + hexDword(tiDisp)
             c = c + hexByte(0x50)
+        } else if op == "BUILTIN_LENGTH" {
+            // POP RDI ; CALL kr_length ; PUSH RAX
+            c = c + hexByte(0x5F)
+            let lnDisp = krLengthVAddr - (funcStartVAddr + off + 6)
+            c = c + hexByte(0xE8) + hexDword(lnDisp)
+            c = c + hexByte(0x50)
+        } else if op == "BUILTIN_LEN" {
+            // POP RDI ; CALL kr_strlen ; PUSH RAX (string length)
+            c = c + hexByte(0x5F)
+            let slDisp = krStrlenVAddr - (funcStartVAddr + off + 6)
+            c = c + hexByte(0xE8) + hexDword(slDisp)
+            c = c + hexByte(0x50)
+        } else if op == "BUILTIN_SPLIT" {
+            // POP RSI (idx, top) ; POP RDI (list) ; CALL kr_split ; PUSH RAX
+            c = c + hexByte(0x5E)
+            c = c + hexByte(0x5F)
+            let spDisp = krSplitVAddr - (funcStartVAddr + off + 7)
+            c = c + hexByte(0xE8) + hexDword(spDisp)
+            c = c + hexByte(0x50)
+        } else if op == "BUILTIN_RANGE" {
+            // POP RSI (b, top) ; POP RDI (a) ; CALL kr_range ; PUSH RAX
+            c = c + hexByte(0x5E)
+            c = c + hexByte(0x5F)
+            let rgDisp = krRangeVAddr - (funcStartVAddr + off + 7)
+            c = c + hexByte(0xE8) + hexDword(rgDisp)
+            c = c + hexByte(0x50)
         } else if op == "CALL_FUNC" {
             // Parse "name argcount"
             let cj = 0
@@ -1460,6 +1773,9 @@ just run {
     let krSlSz = krStrlenSize()
     let krCcSz = krConcatSize()
     let krAiSz = krAtoiSize()
+    let krLnSz = krLengthSize()
+    let krSpSz = krSplitSize()
+    let krRgSz = krRangeSize()
 
     let fIdx = 0
     while fIdx < funcCount {
@@ -1531,16 +1847,19 @@ just run {
         oIdx += 1
     }
 
-    // Layout: _start | functions | kr_print | kr_str_int | kr_alloc | kr_strlen | kr_concat | kr_atoi | strings
+    // Layout: _start | functions | kr_print | kr_str_int | kr_alloc | kr_strlen | kr_concat | kr_atoi | kr_length | strings
     let krPrintVAddr  = SEG_BASE_VADDR + startSz + totalCodeSize
     let krStrIntVAddr = krPrintVAddr + krpSz
     let krAllocVAddr  = krStrIntVAddr + krSiSz
     let krStrlenVAddr = krAllocVAddr + krAlSz
     let krConcatVAddr = krStrlenVAddr + krSlSz
     let krAtoiVAddr   = krConcatVAddr + krCcSz
+    let krLengthVAddr = krAtoiVAddr + krAiSz
+    let krSplitVAddr  = krLengthVAddr + krLnSz
+    let krRangeVAddr  = krSplitVAddr + krSpSz
 
     // String virtual addresses (after all runtime helpers)
-    let stringsBase = krAtoiVAddr + krAiSz
+    let stringsBase = krRangeVAddr + krRgSz
     let strVAddrs = ""
     let strData = ""
     let curOff = 0
@@ -1583,7 +1902,7 @@ just run {
         let nm2 = substring(hh, ss1 + 1, ss2)
         let funcStartV2 = toInt(funcVAddr(funcVAddrs, nm2))
 
-        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr)
+        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr)
         allFuncCode = allFuncCode + codeI
         oIdx2 += 1
     }
@@ -1603,8 +1922,11 @@ just run {
     let krStrlenCode = emitKrStrlenCode()
     let krConcatCode = emitKrConcatCodeFinal(krConcatVAddr, krStrIntVAddr, krStrlenVAddr, krAllocVAddr)
     let krAtoiCode   = emitKrAtoiCode()
+    let krLengthCode = emitKrLengthCode()
+    let krSplitCode  = emitKrSplitCodeFinal(krSplitVAddr, krAtoiVAddr, krAllocVAddr)
+    let krRangeCode  = emitKrRangeCodeFinal(krRangeVAddr, krAtoiVAddr, krAllocVAddr, krStrIntVAddr)
 
-    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + strData
+    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + strData
     let segSize = hexBytesLen(segment)
     let fileSize = HDR_SIZE + segSize
 
