@@ -137,6 +137,7 @@ func hexBytesLen(s) { emit len(s) / 3 }
 func MH_MAGIC_64()     { emit 0xFEEDFACF }
 func MH_EXECUTE()      { emit 2 }
 func MH_NOUNDEFS()     { emit 1 }
+func MH_PIE()          { emit 0x200000 }   // position-independent — required by recent macOS
 
 func CPU_TYPE_X86_64() { emit 0x01000007 }
 func CPU_TYPE_ARM64()  { emit 0x0100000C }
@@ -172,6 +173,10 @@ func emitMachHeader(arch, ncmds, sizeofcmds) {
         cputype = CPU_TYPE_ARM64()
         subtype = CPU_SUBTYPE_ARM64_ALL()
     }
+    // Flags: NOUNDEFS + PIE. PIE means kernel applies a random slide to the
+    // binary's vmaddr — code MUST use PC-relative addressing (RIP-relative
+    // on x86_64, ADRP+ADD on ARM64) so addresses survive the slide.
+    let flags = MH_NOUNDEFS() + MH_PIE()
     let c = ""
     c = c + hexDword(MH_MAGIC_64())
     c = c + hexDword(cputype)
@@ -179,7 +184,7 @@ func emitMachHeader(arch, ncmds, sizeofcmds) {
     c = c + hexDword(MH_EXECUTE())
     c = c + hexDword(ncmds)
     c = c + hexDword(sizeofcmds)
-    c = c + hexDword(MH_NOUNDEFS())
+    c = c + hexDword(flags)
     c = c + hexDword(0)
     emit c
 }
@@ -407,9 +412,20 @@ func emitUnixThread(arch, entryLo, entryHi) {
 func x86_emitMovEaxImm32(n) { emit hexByte(0xB8) + hexDword(n) }
 func x86_emitMovEdiImm32(n) { emit hexByte(0xBF) + hexDword(n) }
 func x86_emitMovEdxImm32(n) { emit hexByte(0xBA) + hexDword(n) }
-func x86_emitMovRsiImm64(loDword, hiDword) {
-    emit hexByte(0x48) + hexByte(0xBE) + hexDword(loDword) + hexDword(hiDword)
+
+// LEA RSI, [RIP + disp32] — load PC-relative address into RSI. 7 bytes:
+//   48      REX.W
+//   8D      LEA opcode
+//   35      ModR/M: mod=00 reg=110(RSI) r/m=101 (RIP-relative in 64-bit mode)
+//   dd dd dd dd  signed 32-bit displacement
+//
+// Effective address = address-of-byte-after-this-instruction + disp32.
+// Required for PIE binaries where absolute MOV RSI,imm64 would not survive
+// the kernel's randomized binary slide.
+func x86_emitLeaRsiRipRel(disp32) {
+    emit hexByte(0x48) + hexByte(0x8D) + hexByte(0x35) + hexDword(disp32)
 }
+
 func x86_emitXorEdiEdi() { emit hexByte(0x31) + hexByte(0xFF) }
 func x86_emitSyscall()   { emit hexByte(0x0F) + hexByte(0x05) }
 
@@ -534,10 +550,12 @@ just run {
     let ncmds = 6
     let codeOffset = 32 + cmdsSize
 
-    // Code size per arch (see comments above on instruction counts):
-    //   x86_64: 36 bytes
+    // Code size per arch:
+    //   x86_64: 33 bytes — uses LEA RSI,[RIP+disp32] (7B) instead of MOV RSI,imm64 (10B)
+    //                      because MH_PIE requires PC-relative addressing.
+    //                      5+5+7+5+2+5+2+2 = 33
     //   arm64:  40 bytes (10 instructions × 4)
-    let codeSize = 36
+    let codeSize = 33
     if arch == "arm64" { codeSize = 40 }
 
     let msgOffset = codeOffset + codeSize
@@ -598,10 +616,26 @@ just run {
         // SVC #0x80
         code = code + arm64_emitSvc(0x80)
     } else {
-        // x86_64 BSD-class syscalls (number OR'd with 0x2000000)
+        // x86_64 BSD-class syscalls (number OR'd with 0x2000000).
+        //
+        // RSI gets the message address via LEA RIP-relative. Layout within
+        // the 33-byte code block:
+        //   [0..4]   MOV EAX, 0x2000004           (5)
+        //   [5..9]   MOV EDI, 1                   (5)
+        //   [10..16] LEA RSI, [RIP + disp]        (7)  ← PC after = code+17
+        //   [17..21] MOV EDX, msgLen              (5)
+        //   [22..23] SYSCALL                      (2)
+        //   [24..28] MOV EAX, 0x2000001           (5)
+        //   [29..30] XOR EDI, EDI                 (2)
+        //   [31..32] SYSCALL                      (2)
+        //
+        // disp = msg_offset - (code_offset + 17) — both file offsets.
+        // Equivalently, disp = msgLen-after-code = (codeSize - 17) since
+        // msg starts immediately after code: msg_offset = code_offset+codeSize.
+        let leaDisp = codeSize - 17                          // = 33 - 17 = 16
         code = code + x86_emitMovEaxImm32(0x2000004)        // SYS_write
         code = code + x86_emitMovEdiImm32(1)                // fd
-        code = code + x86_emitMovRsiImm64(msgVAddrLo, 1)    // RSI = msg addr
+        code = code + x86_emitLeaRsiRipRel(leaDisp)         // RSI = msg
         code = code + x86_emitMovEdxImm32(msgLen)
         code = code + x86_emitSyscall()
         code = code + x86_emitMovEaxImm32(0x2000001)        // SYS_exit
