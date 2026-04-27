@@ -60,11 +60,11 @@ run_one_arch() {
     local out="/tmp/hello_${arch}"
 
     echo "════════════════════════════════════════════════════"
-    echo "  arch = $arch"
+    echo "  arch = $arch  (hardcoded hello-world via --hello-test)"
     echo "════════════════════════════════════════════════════"
 
-    echo "[1/4] Generating $asm..."
-    /tmp/_macho_host --arch "$arch" "$asm"
+    echo "[1/4] Generating $asm (hardcoded asm)..."
+    /tmp/_macho_host --hello-test --arch "$arch" "$asm"
 
     echo ""
     echo "[2/4] clang -arch $arch $asm -o $out ..."
@@ -99,9 +99,71 @@ run_one_arch() {
     return 0
 }
 
+# IR-driven test: real Krypton source → kcc IR → macho.k → .s → clang → run
+run_ir_test_one_arch() {
+    local arch="$1"
+    local asm="/tmp/krir_${arch}.s"
+    local out="/tmp/krir_${arch}"
+    local k="/tmp/krir.k"
+    local ir="/tmp/krir.kir"
+    local expected="Hi, mac! (via Krypton IR)"
+
+    echo "════════════════════════════════════════════════════"
+    echo "  arch = $arch  (IR-driven from .k source)"
+    echo "════════════════════════════════════════════════════"
+
+    cat > "$k" <<EOF
+just run { kp("$expected") }
+EOF
+
+    echo "[1/4] kcc --ir $k → $ir ..."
+    ./kcc --ir "$k" > "$ir"
+
+    echo ""
+    echo "[2/4] macho_host $ir → $asm ..."
+    /tmp/_macho_host --arch "$arch" "$ir" "$asm"
+
+    echo ""
+    echo "[3/4] clang -arch $arch $asm -o $out ..."
+    "$CC" -arch "$arch" "$asm" -o "$out" 2>&1
+    file "$out"
+
+    if [[ "$arch" != "$HOST_NAME" && "$HOST_NAME" == "x86_64" ]]; then
+        echo "      skip exec: arm64 binary on Intel host cannot run natively"
+        return 0
+    fi
+
+    echo ""
+    echo "[4/4] Run..."
+    local exec_out exec_ec
+    exec_out=$("$out" 2>&1)
+    exec_ec=$?
+    echo "      output: $exec_out"
+    echo "      exit:   $exec_ec"
+    if [[ "$exec_out" != "$expected" ]]; then
+        echo "FAIL: unexpected output (expected: $expected)"
+        return 1
+    fi
+    if [[ $exec_ec -ne 0 ]]; then
+        echo "FAIL: nonzero exit"
+        return 1
+    fi
+    return 0
+}
+
 FAILED=0
 for arch in "${ARCHES_TO_RUN[@]}"; do
     if ! run_one_arch "$arch"; then
+        FAILED=$((FAILED + 1))
+    fi
+    echo ""
+done
+
+echo ""
+echo "═══════════ Phase 2: IR-driven from real Krypton source ═══════════"
+echo ""
+for arch in "${ARCHES_TO_RUN[@]}"; do
+    if ! run_ir_test_one_arch "$arch"; then
         FAILED=$((FAILED + 1))
     fi
     echo ""
@@ -114,7 +176,7 @@ if [[ $FAILED -eq 0 ]]; then
     exit 0
 else
     echo "════════════════════════════════════════════════════"
-    echo "  Mach-O smoke test FAILED ($FAILED arch(es))"
+    echo "  Mach-O smoke test FAILED ($FAILED phase(s))"
     echo "════════════════════════════════════════════════════"
     exit 1
 fi
