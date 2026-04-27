@@ -801,6 +801,243 @@ func emitKrArgCodeFinal(thisVAddr, atoiVAddr) {
 }
 func krArgSize() { emit 17 }
 
+// kr_substring: returns substring of s from start (inclusive) to end (exclusive).
+//   In:  RDI = str ptr, RSI = start (string or int), RDX = end (string or int)
+//   Out: RAX = ptr to new alloc'd string
+//
+// Stack layout at entry: caller did POP RDX (end) ; POP RSI (start) ; POP RDI (str).
+// kr_atoi accepts both string ptrs (parses) and small ints (passthrough).
+//
+// Layout (73 bytes):
+//   [0]      53                PUSH RBX                              (1)
+//   [1-2]    41 54             PUSH R12                              (2)
+//   [3-4]    41 55             PUSH R13                              (2)
+//   [5-7]    49 89 D5          MOV R13, RDX                          (3)  ; raw end
+//   [8-10]   49 89 F4          MOV R12, RSI                          (3)  ; raw start
+//   [11-13]  48 89 FB          MOV RBX, RDI                          (3)  ; src ptr (preserved)
+//   [14-16]  4C 89 EF          MOV RDI, R13                          (3)
+//   [17-21]  E8 dw             CALL kr_atoi                          (5)
+//   [22-24]  49 89 C5          MOV R13, RAX                          (3)  ; end as int
+//   [25-27]  4C 89 E7          MOV RDI, R12                          (3)
+//   [28-32]  E8 dw             CALL kr_atoi                          (5)
+//   [33-35]  49 89 C4          MOV R12, RAX                          (3)  ; start as int
+//   [36-38]  4C 89 EF          MOV RDI, R13                          (3)
+//   [39-41]  4C 29 E7          SUB RDI, R12                          (3)  ; len = end - start
+//   [42-45]  48 83 C7 01       ADD RDI, 1                            (4)  ; +NUL
+//   [46-50]  E8 dw             CALL kr_alloc                         (5)
+//   [51-53]  48 89 C7          MOV RDI, RAX                          (3)  ; dest
+//   [54-56]  48 89 DE          MOV RSI, RBX                          (3)
+//   [57-59]  4C 01 E6          ADD RSI, R12                          (3)  ; src + start
+//   [60-62]  4C 89 E9          MOV RCX, R13                          (3)
+//   [63-65]  4C 29 E1          SUB RCX, R12                          (3)  ; len bytes
+//   [66-67]  F3 A4             REP MOVSB                             (2)
+//   [68-69]  41 5D             POP R13                               (2)
+//   [70-71]  41 5C             POP R12                               (2)
+//   [72]     5B                POP RBX                               (1)
+//   [73]     C3                RET                                   (1)
+// (alloc'd memory is mmap'd zero-init, so trailing NUL is automatic; we asked for len+1)
+//
+// Wait, that's 74 bytes total. Recount: 1+2+2+3+3+3+3+5+3+3+5+3+3+3+4+5+3+3+3+3+3+2+2+2+1+1 = 73.
+// Let me recount layout offsets: [0]=PUSH RBX (1B), [1]=PUSH R12 (2B → 1-2), [3]=PUSH R13 (2B → 3-4),
+// [5]=MOV R13,RDX (3B → 5-7), [8]=MOV R12,RSI (3B → 8-10), [11]=MOV RBX,RDI (3B → 11-13),
+// [14]=MOV RDI,R13 (3B → 14-16), [17]=CALL (5B → 17-21), [22]=MOV R13,RAX (3B → 22-24),
+// [25]=MOV RDI,R12 (3B → 25-27), [28]=CALL (5B → 28-32), [33]=MOV R12,RAX (3B → 33-35),
+// [36]=MOV RDI,R13 (3B → 36-38), [39]=SUB RDI,R12 (3B → 39-41), [42]=ADD RDI,1 (4B → 42-45),
+// [46]=CALL kr_alloc (5B → 46-50), [51]=MOV RDI,RAX (3B → 51-53), [54]=MOV RSI,RBX (3B → 54-56),
+// [57]=ADD RSI,R12 (3B → 57-59), [60]=MOV RCX,R13 (3B → 60-62), [63]=SUB RCX,R12 (3B → 63-65),
+// [66]=REP MOVSB (2B → 66-67), [68]=POP R13 (2B → 68-69), [70]=POP R12 (2B → 70-71),
+// [72]=POP RBX (1B → 72), [73]=RET (1B → 73). Total = 74 bytes.
+func emitKrSubstringCode(thisVAddr, atoiVAddr, allocVAddr) {
+    let dAtoi1  = atoiVAddr  - (thisVAddr + 22)
+    let dAtoi2  = atoiVAddr  - (thisVAddr + 33)
+    let dAlloc  = allocVAddr - (thisVAddr + 51)
+    let c = ""
+    c = c + hexByte(0x53)
+    c = c + hexByte(0x41) + hexByte(0x54)
+    c = c + hexByte(0x41) + hexByte(0x55)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xD5)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xF4)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xFB)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xEF)
+    c = c + hexByte(0xE8) + hexDword(dAtoi1)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC5)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE7)
+    c = c + hexByte(0xE8) + hexDword(dAtoi2)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC4)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xEF)
+    c = c + hexByte(0x4C) + hexByte(0x29) + hexByte(0xE7)
+    c = c + hexByte(0x48) + hexByte(0x83) + hexByte(0xC7) + hexByte(0x01)
+    c = c + hexByte(0xE8) + hexDword(dAlloc)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDE)
+    c = c + hexByte(0x4C) + hexByte(0x01) + hexByte(0xE6)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE9)
+    c = c + hexByte(0x4C) + hexByte(0x29) + hexByte(0xE1)
+    c = c + hexByte(0xF3) + hexByte(0xA4)
+    c = c + hexByte(0x41) + hexByte(0x5D)
+    c = c + hexByte(0x41) + hexByte(0x5C)
+    c = c + hexByte(0x5B)
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krSubstringSize() { emit 74 }
+
+// kr_readfile: read entire file into a fresh allocation.
+//   In:  RDI = path string ptr (NUL-terminated)
+//   Out: RAX = ptr to file contents (NUL-terminated; length = file size)
+//
+// Syscalls used (Linux x86-64):
+//   SYS_open  = 2,  args: path (RDI), flags (RSI), mode (RDX) → fd in RAX
+//   SYS_read  = 0,  args: fd (RDI), buf (RSI), count (RDX)    → nbytes in RAX
+//   SYS_close = 3,  args: fd (RDI)                            → 0 in RAX
+//   SYS_fstat = 5,  args: fd (RDI), statbuf (RSI)             → 0 in RAX
+// Linux struct stat: 144 bytes total; st_size at offset 48 (8 bytes).
+//
+// SYSCALL clobbers RCX and R11. All other regs (incl. R12-R15) are preserved.
+// We use 144 bytes of stack as the statbuf scratch area.
+//
+// No error handling in this version: open() failing leaves fd negative; subsequent
+// syscalls fail; we still return whatever buf we allocated. Caller responsibility.
+//
+// Layout (103 bytes):
+//   [0]      53                PUSH RBX                                 (1)
+//   [1-2]    41 54             PUSH R12                                 (2)
+//   [3-4]    41 55             PUSH R13                                 (2)
+//   [5-11]   48 81 EC 90 00 00 00   SUB RSP, 144   (statbuf area)      (7)
+//   [12-14]  48 89 FB          MOV RBX, RDI       (save path)           (3)
+//   [15-19]  B8 02 00 00 00    MOV EAX, 2         (SYS_open)            (5)
+//   [20-22]  48 89 DF          MOV RDI, RBX                             (3)
+//   [23-24]  31 F6             XOR ESI, ESI       (O_RDONLY = 0)        (2)
+//   [25-26]  31 D2             XOR EDX, EDX       (mode = 0)            (2)
+//   [27-28]  0F 05             SYSCALL                                  (2)
+//   [29-31]  49 89 C4          MOV R12, RAX       (fd)                  (3)
+//   [32-36]  B8 05 00 00 00    MOV EAX, 5         (SYS_fstat)           (5)
+//   [37-39]  4C 89 E7          MOV RDI, R12                             (3)
+//   [40-42]  48 89 E6          MOV RSI, RSP       (statbuf @ RSP)       (3)
+//   [43-44]  0F 05             SYSCALL                                  (2)
+//   [45-49]  4C 8B 6C 24 30    MOV R13, [RSP + 48]   (st_size)          (5)
+//   [50-52]  4C 89 EF          MOV RDI, R13                             (3)
+//   [53-55]  48 FF C7          INC RDI            (size + 1 for NUL)    (3)
+//   [56-60]  E8 dw             CALL kr_alloc                            (5)
+//   [61-63]  48 89 C3          MOV RBX, RAX       (buf)                 (3)
+//   [64-65]  31 C0             XOR EAX, EAX       (SYS_read)            (2)
+//   [66-68]  4C 89 E7          MOV RDI, R12       (fd)                  (3)
+//   [69-71]  48 89 DE          MOV RSI, RBX       (buf)                 (3)
+//   [72-74]  4C 89 EA          MOV RDX, R13       (size)                (3)
+//   [75-76]  0F 05             SYSCALL                                  (2)
+//   [77-81]  B8 03 00 00 00    MOV EAX, 3         (SYS_close)           (5)
+//   [82-84]  4C 89 E7          MOV RDI, R12                             (3)
+//   [85-86]  0F 05             SYSCALL                                  (2)
+//   [87-89]  48 89 D8          MOV RAX, RBX       (return buf)          (3)
+//   [90-96]  48 81 C4 90 00 00 00   ADD RSP, 144                       (7)
+//   [97-98]  41 5D             POP R13                                  (2)
+//   [99-100] 41 5C             POP R12                                  (2)
+//   [101]    5B                POP RBX                                  (1)
+//   [102]    C3                RET                                      (1)
+func emitKrReadfileCode(thisVAddr, allocVAddr) {
+    // CALL kr_alloc spans bytes 56..60 (5-byte E8+dword); next instr at 61.
+    let dAlloc = allocVAddr - (thisVAddr + 61)
+    let c = ""
+    c = c + hexByte(0x53)
+    c = c + hexByte(0x41) + hexByte(0x54)
+    c = c + hexByte(0x41) + hexByte(0x55)
+    c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xEC) + hexDword(144)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xFB)
+    c = c + hexByte(0xB8) + hexDword(2)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDF)
+    c = c + hexByte(0x31) + hexByte(0xF6)
+    c = c + hexByte(0x31) + hexByte(0xD2)
+    c = c + hexByte(0x0F) + hexByte(0x05)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC4)
+    c = c + hexByte(0xB8) + hexDword(5)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE7)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xE6)
+    c = c + hexByte(0x0F) + hexByte(0x05)
+    c = c + hexByte(0x4C) + hexByte(0x8B) + hexByte(0x6C) + hexByte(0x24) + hexByte(0x30)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xEF)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC7)
+    c = c + hexByte(0xE8) + hexDword(dAlloc)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC3)
+    c = c + hexByte(0x31) + hexByte(0xC0)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE7)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDE)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xEA)
+    c = c + hexByte(0x0F) + hexByte(0x05)
+    c = c + hexByte(0xB8) + hexDword(3)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE7)
+    c = c + hexByte(0x0F) + hexByte(0x05)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xD8)
+    c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xC4) + hexDword(144)
+    c = c + hexByte(0x41) + hexByte(0x5D)
+    c = c + hexByte(0x41) + hexByte(0x5C)
+    c = c + hexByte(0x5B)
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krReadfileSize() { emit 103 }
+
+// kr_writefile: write content to path (truncating). Returns 0.
+//   In:  RDI = path ptr, RSI = content ptr (NUL-terminated)
+//   Out: RAX = 0
+//
+// Syscalls:
+//   SYS_open  = 2,  flags = O_WRONLY|O_CREAT|O_TRUNC = 1|64|512 = 577, mode = 0644 = 420
+//   SYS_write = 1
+//   SYS_close = 3
+//
+// Layout (66 bytes):
+//   [0]      53                PUSH RBX                                  (1)
+//   [1-2]    41 54             PUSH R12                                  (2)
+//   [3-5]    48 89 F3          MOV RBX, RSI       (save content)         (3)
+//   [6-10]   B8 02 00 00 00    MOV EAX, 2         (SYS_open)             (5)
+//   [11-15]  BE 41 02 00 00    MOV ESI, 577       (O_WRONLY|CREAT|TRUNC) (5)
+//   [16-20]  BA A4 01 00 00    MOV EDX, 420       (mode 0644)            (5)
+//   [21-22]  0F 05             SYSCALL                                   (2)
+//   [23-25]  49 89 C4          MOV R12, RAX       (fd)                   (3)
+//   [26-28]  48 89 DF          MOV RDI, RBX       (content)              (3)
+//   [29-33]  E8 dw             CALL kr_strlen     (RAX = len)            (5)
+//   [34-36]  48 89 C2          MOV RDX, RAX                              (3)
+//   [37-39]  48 89 DE          MOV RSI, RBX                              (3)
+//   [40-42]  4C 89 E7          MOV RDI, R12                              (3)
+//   [43-47]  B8 01 00 00 00    MOV EAX, 1         (SYS_write)            (5)
+//   [48-49]  0F 05             SYSCALL                                   (2)
+//   [50-54]  B8 03 00 00 00    MOV EAX, 3         (SYS_close)            (5)
+//   [55-57]  4C 89 E7          MOV RDI, R12                              (3)
+//   [58-59]  0F 05             SYSCALL                                   (2)
+//   [60-61]  31 C0             XOR EAX, EAX                              (2)
+//   [62-63]  41 5C             POP R12                                   (2)
+//   [64]     5B                POP RBX                                   (1)
+//   [65]     C3                RET                                       (1)
+func emitKrWritefileCode(thisVAddr, strlenVAddr) {
+    // CALL kr_strlen ends at offset 34.
+    let dStrlen = strlenVAddr - (thisVAddr + 34)
+    let c = ""
+    c = c + hexByte(0x53)
+    c = c + hexByte(0x41) + hexByte(0x54)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xF3)
+    c = c + hexByte(0xB8) + hexDword(2)
+    c = c + hexByte(0xBE) + hexDword(577)
+    c = c + hexByte(0xBA) + hexDword(420)
+    c = c + hexByte(0x0F) + hexByte(0x05)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC4)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDF)
+    c = c + hexByte(0xE8) + hexDword(dStrlen)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC2)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDE)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE7)
+    c = c + hexByte(0xB8) + hexDword(1)
+    c = c + hexByte(0x0F) + hexByte(0x05)
+    c = c + hexByte(0xB8) + hexDword(3)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE7)
+    c = c + hexByte(0x0F) + hexByte(0x05)
+    c = c + hexByte(0x31) + hexByte(0xC0)
+    c = c + hexByte(0x41) + hexByte(0x5C)
+    c = c + hexByte(0x5B)
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krWritefileSize() { emit 66 }
+
 
 // Re-emit kr_str_int with the kr_alloc CALL disp filled in.
 // strIntVAddr  = vaddr of kr_str_int's first byte
@@ -1074,6 +1311,12 @@ func opByteSize(op) {
     if op == "INDEX"         { emit 8 } // POP RSI + POP RDI + CALL kr_index + PUSH RAX
     if op == "BUILTIN_ARG"   { emit 7 } // POP RDI + CALL kr_arg + PUSH RAX
     if op == "BUILTIN_ARGCOUNT"{ emit 6 } // CALL kr_argcount + PUSH RAX (no args)
+    if op == "BUILTIN_SUBSTRING" { emit 9 } // POP RDX + POP RSI + POP RDI + CALL + PUSH RAX
+    if op == "BUILTIN_SB_NEW"    { emit 11 } // MOV EDI,1 + CALL kr_alloc + PUSH RAX
+    if op == "BUILTIN_SB_APPEND" { emit 8 }  // POP RSI + POP RDI + CALL kr_concat + PUSH RAX
+    if op == "BUILTIN_SB_TOSTR"  { emit 0 }  // no-op: ptr stays on stack
+    if op == "BUILTIN_READFILE"  { emit 7 }  // POP RDI + CALL kr_readfile + PUSH RAX
+    if op == "BUILTIN_WRITEFILE" { emit 8 }  // POP RSI + POP RDI + CALL kr_writefile + PUSH RAX
     if op == "POP"        { emit 1 }
     if op == "LABEL"      { emit 0 }
     if op == "JUMP"       { emit 5 }    // E9 + d32
@@ -1292,6 +1535,18 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_ARG")
                 } else if bname == "argCount" {
                     opSb = sbAppend(opSb, "BUILTIN_ARGCOUNT")
+                } else if bname == "substring" {
+                    opSb = sbAppend(opSb, "BUILTIN_SUBSTRING")
+                } else if bname == "sbNew" {
+                    opSb = sbAppend(opSb, "BUILTIN_SB_NEW")
+                } else if bname == "sbAppend" {
+                    opSb = sbAppend(opSb, "BUILTIN_SB_APPEND")
+                } else if bname == "sbToString" {
+                    opSb = sbAppend(opSb, "BUILTIN_SB_TOSTR")
+                } else if bname == "readFile" {
+                    opSb = sbAppend(opSb, "BUILTIN_READFILE")
+                } else if bname == "writeFile" {
+                    opSb = sbAppend(opSb, "BUILTIN_WRITEFILE")
                 } else {
                     opSb = sbAppend(opSb, "UNSUPPORTED " + bname)
                 }
@@ -1364,7 +1619,7 @@ func computeLayout(opList, localCount) {
 // funcStartVAddr: virtual address of THIS function's first byte (for CALL disp calc)
 // krPrintVAddr/krStrIntVAddr: vaddrs of runtime helpers, used by BUILTIN_KP/BUILTIN_TOSTR
 
-func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr) {
+func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr) {
     let c = ""
     c = c + hexByte(0x55)                                             // [+0] PUSH RBP
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xE5)             // [+1] MOV RBP, RSP
@@ -1690,6 +1945,42 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             let acDisp = krArgcountVAddr - (funcStartVAddr + off + 5)
             c = c + hexByte(0xE8) + hexDword(acDisp)
             c = c + hexByte(0x50)
+        } else if op == "BUILTIN_SUBSTRING" {
+            // POP RDX (end, top) ; POP RSI (start) ; POP RDI (str) ; CALL kr_substring ; PUSH RAX
+            c = c + hexByte(0x5A)
+            c = c + hexByte(0x5E)
+            c = c + hexByte(0x5F)
+            let sbDisp = krSubstringVAddr - (funcStartVAddr + off + 8)
+            c = c + hexByte(0xE8) + hexDword(sbDisp)
+            c = c + hexByte(0x50)
+        } else if op == "BUILTIN_SB_NEW" {
+            // MOV EDI, 1 ; CALL kr_alloc ; PUSH RAX  (sb starts as a 1-byte NUL)
+            c = c + hexByte(0xBF) + hexDword(1)
+            let snDisp = krAllocVAddr - (funcStartVAddr + off + 10)
+            c = c + hexByte(0xE8) + hexDword(snDisp)
+            c = c + hexByte(0x50)
+        } else if op == "BUILTIN_SB_APPEND" {
+            // POP RSI (s) ; POP RDI (sb) ; CALL kr_concat ; PUSH RAX
+            c = c + hexByte(0x5E)
+            c = c + hexByte(0x5F)
+            let saDisp = krConcatVAddr - (funcStartVAddr + off + 7)
+            c = c + hexByte(0xE8) + hexDword(saDisp)
+            c = c + hexByte(0x50)
+        } else if op == "BUILTIN_SB_TOSTR" {
+            // no-op: the sb pointer IS the string. Leave it on the stack untouched.
+        } else if op == "BUILTIN_READFILE" {
+            // POP RDI ; CALL kr_readfile ; PUSH RAX
+            c = c + hexByte(0x5F)
+            let rfDisp = krReadfileVAddr - (funcStartVAddr + off + 6)
+            c = c + hexByte(0xE8) + hexDword(rfDisp)
+            c = c + hexByte(0x50)
+        } else if op == "BUILTIN_WRITEFILE" {
+            // POP RSI (content, top) ; POP RDI (path) ; CALL kr_writefile ; PUSH RAX
+            c = c + hexByte(0x5E)
+            c = c + hexByte(0x5F)
+            let wfDisp = krWritefileVAddr - (funcStartVAddr + off + 7)
+            c = c + hexByte(0xE8) + hexDword(wfDisp)
+            c = c + hexByte(0x50)
         } else if op == "CALL_FUNC" {
             // Parse "name argcount"
             let cj = 0
@@ -1896,6 +2187,9 @@ just run {
     let krIxSz = krIndexSize()
     let krAgSz = krArgSize()
     let krAcSz = krArgcountSize()
+    let krSbSz = krSubstringSize()
+    let krRfSz = krReadfileSize()
+    let krWfSz = krWritefileSize()
 
     let fIdx = 0
     while fIdx < funcCount {
@@ -1980,9 +2274,12 @@ just run {
     let krIndexVAddr  = krRangeVAddr + krRgSz
     let krArgVAddr    = krIndexVAddr + krIxSz
     let krArgcountVAddr = krArgVAddr + krAgSz
+    let krSubstringVAddr = krArgcountVAddr + krAcSz
+    let krReadfileVAddr  = krSubstringVAddr + krSbSz
+    let krWritefileVAddr = krReadfileVAddr + krRfSz
 
     // String virtual addresses (after all runtime helpers)
-    let stringsBase = krArgcountVAddr + krAcSz
+    let stringsBase = krWritefileVAddr + krWfSz
     let strVAddrs = ""
     let strData = ""
     let curOff = 0
@@ -2025,7 +2322,7 @@ just run {
         let nm2 = substring(hh, ss1 + 1, ss2)
         let funcStartV2 = toInt(funcVAddr(funcVAddrs, nm2))
 
-        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr)
+        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr)
         allFuncCode = allFuncCode + codeI
         oIdx2 += 1
     }
@@ -2051,8 +2348,11 @@ just run {
     let krIndexCode  = emitKrIndexCodeFinal(krIndexVAddr, krAtoiVAddr, krAllocVAddr)
     let krArgCode    = emitKrArgCodeFinal(krArgVAddr, krAtoiVAddr)
     let krArgcountCode = emitKrArgcountCode()
+    let krSubstringCode = emitKrSubstringCode(krSubstringVAddr, krAtoiVAddr, krAllocVAddr)
+    let krReadfileCode  = emitKrReadfileCode(krReadfileVAddr, krAllocVAddr)
+    let krWritefileCode = emitKrWritefileCode(krWritefileVAddr, krStrlenVAddr)
 
-    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + strData
+    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + krSubstringCode + krReadfileCode + krWritefileCode + strData
     let segSize = hexBytesLen(segment)
     let fileSize = HDR_SIZE + segSize
 
