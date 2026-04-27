@@ -80,7 +80,7 @@ run_one_arch() {
 
     echo ""
     echo "[4/5] otool -l (load commands)..."
-    otool -l "$out" | head -60
+    otool -l "$out"
 
     echo ""
     echo "[5/5] codesign + run..."

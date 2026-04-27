@@ -240,21 +240,29 @@ func emitTextSegment(filesize, vmsize, codeOffset, codeAndDataSize) {
     emit c
 }
 
+// Pre-reserved space for the code signature blob, in bytes. Must be 16-aligned.
+// 256 is comfortably larger than the ad-hoc signature for any binary we emit
+// today (typical ad-hoc sig: SuperBlob 12 + BlobIndex 8 + CodeDirectory ~50
+// + identifier ~10 + N×32 page hashes ≈ 110 bytes). codesign will overwrite
+// the reserved bytes with the real signature and update the actual size in
+// LC_CODE_SIGNATURE.datasize. Bumping this is cheap if a future binary needs
+// more page hashes (one per page of __TEXT).
+func sigReservedSize() { emit 256 }
+
 // LC_SEGMENT_64 __LINKEDIT — 72 bytes, no sections.
 //
 // macOS 11+ requires a __LINKEDIT segment. This is where the code signature
-// will live (and traditionally where symbol/string tables live too, but we
-// have no symbols in our static minimal binary). Initially the segment is
-// empty (filesize=0). codesign will append the signature blob to the file
-// and update both LC_LINKEDIT.filesize and LC_CODE_SIGNATURE.datasize.
+// will live. We pre-reserve `sigReservedSize` bytes for the signature; both
+// __LINKEDIT.filesize and LC_CODE_SIGNATURE.datasize are set to that value
+// so codesign sees a valid placeholder it can write into.
 //
 //   fileoff    = 16-byte-aligned end of __TEXT region
-//   filesize   = 0 initially (codesign extends)
+//   filesize   = sigReservedSize (codesign overwrites in place, may shrink)
 //   vmaddr     = __TEXT_vmaddr + __TEXT_vmsize  (right after __TEXT)
 //   vmsize     = page-aligned (0x4000 to match __TEXT's vmsize)
 //   maxprot    = R only (1)
 //   initprot   = R only (1)
-func emitLinkEditSegment(fileoff, vmaddrLo) {
+func emitLinkEditSegment(fileoff, vmaddrLo, filesize) {
     let c = ""
     c = c + hexDword(LC_SEGMENT_64())
     c = c + hexDword(72)
@@ -262,7 +270,7 @@ func emitLinkEditSegment(fileoff, vmaddrLo) {
     c = c + hex4GPlus(vmaddrLo)                  // vmaddr (low + 1 in high)
     c = c + hexQword(0x4000)                     // vmsize (16K page)
     c = c + hexQword(fileoff)                    // fileoff
-    c = c + hexQword(0)                          // filesize (codesign extends)
+    c = c + hexQword(filesize)                   // filesize
     c = c + hexDword(1)                          // maxprot R
     c = c + hexDword(1)                          // initprot R
     c = c + hexDword(0)                          // nsects
@@ -270,18 +278,17 @@ func emitLinkEditSegment(fileoff, vmaddrLo) {
     emit c
 }
 
-// LC_CODE_SIGNATURE — 16 bytes. Reserved slot that codesign fills in.
+// LC_CODE_SIGNATURE — 16 bytes.
 //
-// codesign reads this load command, computes the signature blob, writes it
-// at `dataoff` in the file (extending the file if needed), and updates
-// `datasize`. We initialize datasize=0 and dataoff to a 16-byte-aligned
-// position right after our code+data.
-func emitCodeSignatureCmd(dataoff) {
+// dataoff = 16-aligned offset where the signature blob lives.
+// datasize = pre-allocated reservation (codesign writes within this; may
+//   update to actual size after signing).
+func emitCodeSignatureCmd(dataoff, datasize) {
     let c = ""
     c = c + hexDword(LC_CODE_SIGNATURE())
     c = c + hexDword(16)
     c = c + hexDword(dataoff)
-    c = c + hexDword(0)                           // datasize (codesign fills)
+    c = c + hexDword(datasize)
     emit c
 }
 
@@ -501,7 +508,7 @@ just run {
     let msgVAddrLo = msgOffset
 
     // End of code+data, then pad to 16-byte align so the signature data area
-    // (which codesign appends) starts on a 16-byte boundary.
+    // starts on a 16-byte boundary (codesign requires this).
     let codeAndDataEnd = codeOffset + codeSize + msgLen
     let codeAndDataAligned = codeAndDataEnd
     let alignRem = codeAndDataEnd % 16
@@ -510,15 +517,18 @@ just run {
     }
     let alignPadBytes = codeAndDataAligned - codeAndDataEnd
 
+    // Pre-reserve sigReservedSize() bytes for the code signature blob.
+    // codesign writes the actual signature into this region; macOS Tahoe
+    // (26.x) refuses to extend the file itself, so we must allocate up front.
+    let sigSize = sigReservedSize()
+
     // __TEXT covers the file from offset 0 up to the (aligned) end of code+data.
-    // __LINKEDIT starts at codeAndDataAligned with filesize=0 (codesign extends).
+    // __LINKEDIT covers the signature reservation right after.
     let textFileSize = codeAndDataAligned
     let textVmSize   = alignUp16K(textFileSize)
-    // __LINKEDIT vmaddr is right after __TEXT in vm space.
     let linkeditVmAddrLo = textVmSize
 
-    // Initial filesize (before codesign extends) = codeAndDataAligned.
-    let filesize = codeAndDataAligned
+    let filesize = codeAndDataAligned + sigSize
 
     let entryLo = codeOffset
     let entryHi = 1                                // 0x100000000
@@ -527,10 +537,10 @@ just run {
     let header   = emitMachHeader(arch, ncmds, cmdsSize)
     let pagezero = emitPageZero()
     let textSeg  = emitTextSegment(textFileSize, textVmSize, codeOffset, codeSize + msgLen)
-    let linkSeg  = emitLinkEditSegment(codeAndDataAligned, linkeditVmAddrLo)
+    let linkSeg  = emitLinkEditSegment(codeAndDataAligned, linkeditVmAddrLo, sigSize)
     let buildVer = emitBuildVersion()
     let unixThr  = emitUnixThread(arch, entryLo, entryHi)
-    let codeSig  = emitCodeSignatureCmd(codeAndDataAligned)
+    let codeSig  = emitCodeSignatureCmd(codeAndDataAligned, sigSize)
 
     // ── Emit code (per arch) ────────────────────────────────────────────
     let code = ""
@@ -565,8 +575,10 @@ just run {
 
     let data = hexStr(msg)
     let pad  = hexPad(alignPadBytes)
+    let sigPlaceholder = hexPad(sigSize)
     // Load command order: PAGEZERO, TEXT, LINKEDIT, BUILD_VERSION, UNIXTHREAD, CODE_SIGNATURE
-    let all  = header + pagezero + textSeg + linkSeg + buildVer + unixThr + codeSig + code + data + pad
+    // File layout: header + cmds + code + data + alignment pad + signature reservation
+    let all  = header + pagezero + textSeg + linkSeg + buildVer + unixThr + codeSig + code + data + pad + sigPlaceholder
 
     let bytesEmitted = hexBytesLen(all)
     if bytesEmitted != filesize {
