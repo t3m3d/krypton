@@ -76,20 +76,17 @@ git clone https://github.com/t3m3d/krypton && cd krypton && ./build.sh
 **Compile-and-run:**
 
 ```bash
-./kcc.sh hello.k -o hello       # uses clang/gcc — produces a Mach-O binary
+./kcc.sh hello.k                # default: native Mach-O via macho.k → clang
 ./hello
 ```
 
-**`--native` falls back to clang on macOS for now.** A standalone Mach-O backend ([kompiler/macho.k](kompiler/macho.k)) is in early skeleton form — emits a hello-world binary for both `x86_64` and `arm64` (Apple Silicon), but doesn't yet parse user IR. To validate the format works on your Mac:
+The default pipeline is `.k → kcc --ir → macho.k → .s → clang → Mach-O`. `clang` is invoked as the assembler+linker (not as a C compiler) — `kompiler/macho.k` emits AT&T-syntax assembly text and clang turns it into a code-signed Mach-O ready to run.
 
-```bash
-./verify_macho.sh             # auto-detects host arch; runs codesign + executes
-./verify_macho.sh --both      # try both x86_64 and arm64
-```
+**Why this differs from Linux/Windows:** macOS Tahoe (26.x)+ AMFI rejects hand-rolled static binaries even when properly code-signed. Apple effectively requires dyld-linked Mach-Os, which clang+ld64 produce automatically. Going through clang avoids reproducing all of dyld's scaffolding ourselves.
 
-Until the Mach-O backend handles full IR, `kcc.sh --native` on macOS prints a warning and routes through the C path.
+**`./verify_macho.sh`** runs both a hardcoded hello-world test and an IR-driven test from a real `.k` source.
 
-**Requirements on macOS:** Xcode Command Line Tools (`xcode-select --install`) provide `clang` and `codesign`. That's all you need.
+**Requirements on macOS:** Xcode Command Line Tools (`xcode-select --install`) provide `clang`, `as`, `ld`, and `codesign`. That's all you need.
 
 ---
 
@@ -128,44 +125,27 @@ just run {
 }
 ```
 
-### Compile to a native binary (recommended — no gcc)
+### Compile to a native binary (default)
 
-**Linux:**
 ```bash
-kcc.sh --native hello.k -o hello
-./hello                            # static ELF, direct syscalls, no libc
-```
-
-Emits ELF64 directly via [kompiler/elf.k](kompiler/elf.k). Static binary, calls Linux syscalls (`SYS_write`, `SYS_mmap`, `SYS_exit`) directly, no libc, no dynamic linker.
-
-**Windows:**
-```
-kcc.sh --native hello.k -o hello.exe
-```
-
-Emits PE/COFF directly via [kompiler/x64.k](kompiler/x64.k). The `.exe` imports only `kernel32.dll` (via `runtime/krypton_rt.dll`).
-
-### Compile to C (fallback — requires gcc)
-
-**Linux / macOS:**
-```bash
-./kcc hello.k > hello.c
-gcc hello.c -o hello -lm
+kcc.sh hello.k                # produces ./hello (Linux/macOS) or ./hello.exe (Windows)
 ./hello
 ```
 
-**Windows:**
-```
-kcc.exe hello.k > hello.c
-gcc hello.c -o hello.exe -lm
-hello.exe
-```
+Per-platform pipeline (chosen automatically):
 
-### Compile via LLVM IR (optional — requires clang)
+- **Linux** — emits ELF64 directly via [kompiler/elf.k](kompiler/elf.k). Static binary, direct syscalls, no libc, no dynamic linker.
+- **Windows** — emits PE/COFF directly via [kompiler/x64.k](kompiler/x64.k). Imports only `kernel32.dll` (via `runtime/krypton_rt.dll`).
+- **macOS** — emits assembly via [kompiler/macho.k](kompiler/macho.k); `clang` assembles + links + signs into a Mach-O. (Tahoe AMFI rejects hand-rolled static binaries — clang produces a properly dyld-linked binary the kernel will accept.)
 
-```
-kcc.sh --llvm hello.k -o hello.ll
-clang hello.ll -o hello       # or hello.exe on Windows
+### Other compilation modes (opt-in)
+
+```bash
+kcc.sh --c hello.k                       # emit C source to stdout (legacy)
+kcc.sh --c hello.k -o hello.c            # emit C source to a file
+kcc.sh --gcc hello.k                     # produce a binary, but route through C+gcc internally
+kcc.sh --llvm hello.k -o hello.ll        # emit LLVM IR; pair with `clang hello.ll -o hello`
+kcc.sh --ir hello.k                      # emit Krypton IR (.kir) to stdout
 ```
 
 ---
@@ -318,30 +298,29 @@ Float builtins: `fadd`, `fsub`, `fmul`, `fdiv`, `fsqrt`, `ffloor`, `fceil`, `fro
 
 ## Compilation Pipeline
 
+The default `kcc.sh source.k` invocation produces a native binary. The exact pipeline depends on the host OS:
+
 ```
 source.k
     │
-    ├─ Native ELF backend (Linux, no gcc, no libc):
-    │      kcc.sh --native source.k -o source
+    ├─ Linux  (default):     source.k → .kir → kompiler/elf.k  → ELF static binary
+    │                        (direct syscalls, no libc, no linker)
     │
-    │      source.k → .kir → .kir (opt) → x86-64 ELF → source
-    │      (direct syscalls, static binary)
+    ├─ Windows (default):    source.k → .kir → kompiler/x64.k  → PE/COFF (.exe)
+    │                        (uses runtime/krypton_rt.dll, kernel32-only)
     │
-    ├─ Native PE backend (Windows, no gcc):
-    │      kcc.sh --native source.k -o source.exe
+    ├─ macOS (default):      source.k → .kir → kompiler/macho.k → .s → clang → Mach-O
+    │                        (clang invoked as assembler+linker; required because
+    │                         macOS Tahoe AMFI rejects hand-rolled static binaries)
     │
-    │      source.k → .kir → .kir (opt) → x64 PE → source.exe
-    │      (uses runtime/krypton_rt.dll, kernel32-only)
+    ├─ --c (legacy):         source.k → C source (stdout or -o file)
+    │                        Pair with `gcc out.c -o out -lm` to build manually.
     │
-    ├─ C backend (fallback, requires gcc):
-    │      kcc source.k > source.c
-    │      gcc source.c -o source -lm
+    ├─ --gcc:                source.k → C source → gcc → native binary
+    │                        Same target as default but routed through C internally.
     │
-    └─ LLVM IR backend (optional, requires clang):
-           kcc.sh --llvm source.k -o source.ll
-           clang source.ll -o source
-
-           source.k → .kir → .kir (opt) → .ll → object → binary
+    └─ --llvm:               source.k → .kir → .kir (opt) → kompiler/llvm.k → .ll
+                             Pair with `clang hello.ll -o hello`.
 ```
 
 ### Krypton IR

@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # kcc - Krypton compiler driver
-# Usage: kcc source.k [-o output] [-lFOO ...] [--ir] [--native] [--llvm]
 #
-# Without -o:      writes C to stdout
-# With -o:         compiles all the way to a native binary (default = native pipeline)
-# With --native:   no gcc — uses x64.k (Windows PE/COFF) or elf.k (Linux ELF)
-# With --llvm:     .k → .kir → optimize → llvm.k → .ll  (LLVM IR output, use clang)
-# With --gcc:      force the gcc-via-C path
-# With --ir:       .k → .kir  (emit IR only)
+# Usage: kcc source.k [-o output] [--native | --gcc | --llvm | --c | --ir]
+#
+# DEFAULT (no flag, no -o):  produce a native binary at ./<basename>
+# DEFAULT (no flag, with -o): produce a native binary at <output>
+# --native:  explicit native pipeline (elf.k on Linux, x64.k on Windows;
+#            macOS falls back to C+clang internally until Mach-O lands)
+# --gcc:     force C+gcc/clang internally (still produces a native binary)
+# --c:       emit C source — to stdout if no -o, to <output> if -o (legacy)
+# --llvm:    emit LLVM IR — to stdout if no -o, to <output> if -o
+# --ir:      emit Krypton IR (.kir) to stdout
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -54,6 +57,7 @@ IRFLAG=""
 NATIVE_MODE=0
 LLVM_MODE=0
 GCC_MODE=0
+C_MODE=0       # --c: emit C source (legacy; default is native binary now)
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -61,6 +65,7 @@ while [[ $# -gt 0 ]]; do
         --native)  NATIVE_MODE=1; shift ;;
         --llvm)    LLVM_MODE=1; shift ;;
         --gcc)     GCC_MODE=1; shift ;;
+        --c)       C_MODE=1; shift ;;
         -o)        OUTFILE="$2"; shift 2 ;;
         -l*|-L*|-W*) LIBS="$LIBS $1"; shift ;;
         *)         SRCFILE="$1"; shift ;;
@@ -85,20 +90,58 @@ fi
 # ── --native pipeline ───────────────────────────────────────────────
 # Linux:   .k → .kir → elf.k → ELF binary (no gcc, no libc)
 # Windows: .k → .kir → optimize → x64.k → .exe (no gcc, needs krypton_rt.dll)
-# macOS:   no Mach-O backend yet — falls back to the C path with a warning
-if [[ $NATIVE_MODE -eq 1 && "$PLATFORM" == "macos" ]]; then
-    echo "kcc: --native not yet supported on macOS (no Mach-O backend); using C path via $GCC_EXE" >&2
-    NATIVE_MODE=0
-fi
+# macOS:   .k → .kir → macho.k → .s → clang → Mach-O (clang+ld required;
+#                                                    AMFI on Tahoe forbids
+#                                                    self-emitted Mach-O)
 if [[ $NATIVE_MODE -eq 1 ]]; then
     if [[ -z "$OUTFILE" ]]; then
-        if [[ "$PLATFORM" == "linux" ]]; then
+        if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
             OUTFILE="${SRCFILE%.k}"
         else
             OUTFILE="${SRCFILE%.k}.exe"
         fi
     fi
     TMPIR="/tmp/_kcc_native_$$.kir"
+
+    if [[ "$PLATFORM" == "macos" ]]; then
+        # macOS Mach-O backend via kompiler/macho.k → .s → clang
+        MACHO_BIN="$SCRIPT_DIR/kompiler/macho_host"
+
+        case "$(uname -m 2>/dev/null)" in
+            x86_64|amd64) _MARCH=x86_64 ;;
+            arm64|aarch64) _MARCH=arm64 ;;
+            *) _MARCH=$(uname -m) ;;
+        esac
+
+        # Build macho host if missing or stale (uses host C compiler — clang
+        # ships with Xcode CLT). No prebuilt seed since this is brand-new.
+        if [[ ! -f "$MACHO_BIN" || "$SCRIPT_DIR/kompiler/macho.k" -nt "$MACHO_BIN" ]]; then
+            CC_HOST="${CC:-clang}"
+            command -v "$CC_HOST" >/dev/null || {
+                echo "kcc --native: $CC_HOST not found (install Xcode Command Line Tools: xcode-select --install)" >&2
+                exit 1
+            }
+            echo "kcc: building macho host..." >&2
+            "$KCC_EXE" "$SCRIPT_DIR/kompiler/macho.k" > /tmp/_kcc_macho_build.c && \
+            "$CC_HOST" /tmp/_kcc_macho_build.c -o "$MACHO_BIN" $LIBS && rm -f /tmp/_kcc_macho_build.c
+            if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build macho host" >&2; exit 1; fi
+        fi
+
+        TMPS="/tmp/_kcc_native_$$.s"
+        "$KCC_EXE" --ir $HEADERS_FLAG "$SRCFILE" > "$TMPIR"
+        if [[ $? -ne 0 ]]; then echo "kcc --native: IR emission failed" >&2; rm -f "$TMPIR"; exit 1; fi
+
+        "$MACHO_BIN" --arch "$_MARCH" "$TMPIR" "$TMPS"
+        if [[ $? -ne 0 ]]; then echo "kcc --native: macho codegen failed" >&2; rm -f "$TMPIR" "$TMPS"; exit 1; fi
+
+        # clang assembles + links + signs in one step.
+        clang -arch "$_MARCH" "$TMPS" -o "$OUTFILE"
+        CLANG_RET=$?
+        rm -f "$TMPIR" "$TMPS"
+        if [[ $CLANG_RET -ne 0 ]]; then echo "kcc --native: clang link failed" >&2; exit 1; fi
+        chmod +x "$OUTFILE"
+        exit 0
+    fi
 
     if [[ "$PLATFORM" == "linux" ]]; then
         # Linux ELF backend via kompiler/elf.k
@@ -211,19 +254,40 @@ if [[ $LLVM_MODE -eq 1 ]]; then
     exit $RET
 fi
 
-# ── Default: emit C (no -o) or native exe (with -o) ──────────────
-if [[ -z "$OUTFILE" ]]; then
-    "$KCC_EXE" $HEADERS_FLAG "$SRCFILE"
-    exit $?
+# ── --c (legacy): emit C source ──────────────────────────────────
+# Without -o, prints to stdout. With -o, writes to file.
+# Same as the old default behaviour of `kcc.sh foo.k`. Kept for users who
+# still want C output (porting to other platforms, debugging codegen, etc.).
+if [[ $C_MODE -eq 1 ]]; then
+    if [[ -z "$OUTFILE" ]]; then
+        "$KCC_EXE" $HEADERS_FLAG "$SRCFILE"
+        exit $?
+    else
+        "$KCC_EXE" $HEADERS_FLAG "$SRCFILE" > "$OUTFILE"
+        exit $?
+    fi
 fi
 
-# With -o: use native pipeline by default on Linux/Windows (no Mach-O yet on macOS);
-#          macOS goes through the C/gcc path. --gcc on any platform forces gcc.
-if [[ "$GCC_MODE" -ne 1 && "$PLATFORM" != "macos" ]]; then
+# ── Default: produce a native binary ─────────────────────────────
+# No -o: derive output name from source basename (e.g. hello.k → hello on
+#        Linux/macOS, hello.exe on Windows).
+# Linux/Windows: native pipeline (elf.k / x64.k → ELF/PE, no gcc).
+# macOS:         falls back to C+clang internally (Mach-O backend in progress).
+# --gcc:         force C+gcc on any platform.
+if [[ -z "$OUTFILE" ]]; then
+    if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
+        OUTFILE="${SRCFILE%.k}"
+    else
+        OUTFILE="${SRCFILE%.k}.exe"
+    fi
+fi
+
+if [[ "$GCC_MODE" -ne 1 ]]; then
     NATIVE_MODE=1
     exec "$0" --native -o "$OUTFILE" "$SRCFILE"
 fi
 
+# C+gcc path — opt-in via --gcc on any platform.
 TMPFILE="${OUTFILE}__kcc_tmp.c"
 "$KCC_EXE" $HEADERS_FLAG "$SRCFILE" > "$TMPFILE"
 if [[ $? -ne 0 ]]; then

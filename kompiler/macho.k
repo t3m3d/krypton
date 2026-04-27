@@ -39,6 +39,35 @@ func startsWithStr(s, prefix) {
     emit 1
 }
 
+// Look up a local variable's slot index in the function's local table.
+// localTable is newline-separated names in declaration order. Returns the
+// 0-based index, or -1 if not found.
+func findLocalIdx(table, name) {
+    let i = 0
+    let n = len(table)
+    let curIdx = 0
+    let curSb = sbNew()
+    while i <= n {
+        let isEnd = 0
+        if i == n { isEnd = 1 }
+        if i < n {
+            if table[i] == "\n" { isEnd = 1 }
+        }
+        if isEnd == 1 {
+            let cur = sbToString(curSb)
+            curSb = sbNew()
+            if len(cur) > 0 {
+                if cur == name { emit curIdx }
+                curIdx += 1
+            }
+        } else {
+            curSb = sbAppend(curSb, table[i])
+        }
+        i += 1
+    }
+    emit -1
+}
+
 // Extract the substring between the FIRST and LAST quote in line.
 // E.g. `PUSH "Hello, world!"` → `Hello, world!`.
 // Assumes IR's quote-escaping convention (no unescaped " inside).
@@ -132,6 +161,12 @@ func compileIRToAsm(ir, arch) {
     let strDecls = sbNew()
     let strCounter = 0
 
+    // Per-function state — reset on FUNC.
+    let localTable = ""
+    let localCount = 0
+    let paramTable = ""
+    let paramCount = 0
+
     let n = len(ir)
     let curSb = sbNew()
     let i = 0
@@ -154,14 +189,126 @@ func compileIRToAsm(ir, arch) {
 
             if len(line) > 0 {
                 if isComment == 0 {
-                    if startsWithStr(line, "FUNC __main__") {
-                        out = sbAppend(out, "_main:\n")
+                    if startsWithStr(line, "FUNC ") {
+                        // Parse: FUNC <name> <argcount>
+                        let frest = substring(line, 5, len(line))
+                        let fsi = 0
+                        while fsi < len(frest) {
+                            if frest[fsi] == " " { break }
+                            fsi += 1
+                        }
+                        let fname = substring(frest, 0, fsi)
+                        if fname == "__main__" {
+                            out = sbAppend(out, "_main:\n")
+                        } else {
+                            // Prefix non-main functions with _kr_ to avoid
+                            // colliding with libSystem/clang-emitted symbols.
+                            out = sbAppend(out, "    .globl _kr_" + fname + "\n")
+                            out = sbAppend(out, "_kr_" + fname + ":\n")
+                        }
                         if arch == "arm64" {
                             out = sbAppend(out, "    stp x29, x30, [sp, #-16]!\n")
                             out = sbAppend(out, "    mov x29, sp\n")
                         } else {
                             out = sbAppend(out, "    pushq %rbp\n")
                             out = sbAppend(out, "    movq %rsp, %rbp\n")
+                        }
+                        // Reset per-function state
+                        localTable = ""
+                        localCount = 0
+                        paramTable = ""
+                        paramCount = 0
+                    } else if startsWithStr(line, "PARAM ") {
+                        let pname = substring(line, 6, len(line))
+                        if len(paramTable) > 0 {
+                            paramTable = paramTable + "\n" + pname
+                        } else {
+                            paramTable = pname
+                        }
+                        paramCount += 1
+                    } else if startsWithStr(line, "CALL ") {
+                        // Parse: CALL <name> <argc>
+                        let crest = substring(line, 5, len(line))
+                        let csi = 0
+                        while csi < len(crest) {
+                            if crest[csi] == " " { break }
+                            csi += 1
+                        }
+                        let cname = substring(crest, 0, csi)
+                        let cargc = 0
+                        if csi < len(crest) {
+                            cargc = toInt(substring(crest, csi + 1, len(crest)))
+                        }
+                        let cleanup = cargc * 8
+                        // SysV requires RSP 16-aligned at CALL. Prior PUSHes
+                        // misalign by 8 each — odd argc means we need a pad.
+                        let pad = 0
+                        if cargc % 2 == 1 { pad = 8 }
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    // TODO: arm64 CALL " + cname + "\n")
+                        } else {
+                            if pad > 0 {
+                                out = sbAppend(out, "    subq $8, %rsp\n")
+                            }
+                            out = sbAppend(out, "    callq _kr_" + cname + "\n")
+                            let totalCleanup = cleanup + pad
+                            if totalCleanup > 0 {
+                                out = sbAppend(out, "    addq $" + totalCleanup + ", %rsp\n")
+                            }
+                            out = sbAppend(out, "    pushq %rax\n")
+                        }
+                    } else if startsWithStr(line, "LOCAL ") {
+                        // Allocate a 16-byte slot per local. The high 8 bytes
+                        // are alignment padding; we use the low 8 bytes for
+                        // the value. This keeps the stack 16-byte aligned at
+                        // every IR boundary, simplifying CALL alignment.
+                        let lname = substring(line, 6, len(line))
+                        if len(localTable) > 0 {
+                            localTable = localTable + "\n" + lname
+                        } else {
+                            localTable = lname
+                        }
+                        localCount += 1
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    sub sp, sp, #16\n")
+                        } else {
+                            out = sbAppend(out, "    subq $16, %rsp\n")
+                        }
+                    } else if startsWithStr(line, "STORE ") {
+                        // STORE only writes to LOCALs (PARAMs are read-only).
+                        let sname = substring(line, 6, len(line))
+                        let sidx = findLocalIdx(localTable, sname)
+                        let soff = 16 * (sidx + 1)
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    ldr x0, [sp], #16\n")
+                            out = sbAppend(out, "    str x0, [x29, #-" + soff + "]\n")
+                        } else {
+                            out = sbAppend(out, "    popq %rax\n")
+                            out = sbAppend(out, "    movq %rax, -" + soff + "(%rbp)\n")
+                        }
+                    } else if startsWithStr(line, "LOAD ") {
+                        // Check params first (they're at positive RBP offset),
+                        // then fall through to locals (negative RBP offset).
+                        let lname2 = substring(line, 5, len(line))
+                        let pidx = findLocalIdx(paramTable, lname2)
+                        if pidx >= 0 {
+                            let poff = 16 + 8 * (paramCount - 1 - pidx)
+                            if arch == "arm64" {
+                                out = sbAppend(out, "    // TODO: arm64 PARAM access\n")
+                            } else {
+                                out = sbAppend(out, "    movq " + poff + "(%rbp), %rax\n")
+                                out = sbAppend(out, "    pushq %rax\n")
+                            }
+                        } else {
+                            let lidx = findLocalIdx(localTable, lname2)
+                            let loff = 16 * (lidx + 1)
+                            if arch == "arm64" {
+                                out = sbAppend(out, "    ldr x0, [x29, #-" + loff + "]\n")
+                                out = sbAppend(out, "    str x0, [sp, #-16]!\n")
+                            } else {
+                                out = sbAppend(out, "    movq -" + loff + "(%rbp), %rax\n")
+                                out = sbAppend(out, "    pushq %rax\n")
+                            }
                         }
                     } else if startsWithStr(line, "PUSH \"") {
                         let s = extractQuotedString(line)
@@ -176,6 +323,212 @@ func compileIRToAsm(ir, arch) {
                         }
                         strDecls = sbAppend(strDecls, label + ":\n    .asciz \"" + s + "\"\n")
                         strCounter += 1
+                    } else if startsWithStr(line, "PUSH ") {
+                        // PUSH integer (unquoted). The text after "PUSH " is
+                        // the digit literal (possibly with leading minus).
+                        let nstr = substring(line, 5, len(line))
+                        if arch == "arm64" {
+                            // mov x0, #N — assembler handles large/negative
+                            // via internal MOVZ/MOVN/MOVK sequence.
+                            out = sbAppend(out, "    mov x0, #" + nstr + "\n")
+                            out = sbAppend(out, "    str x0, [sp, #-16]!\n")
+                        } else {
+                            // pushq $N — sign-extends imm32 to 64-bit. The
+                            // assembler picks pushq imm8 vs imm32 encoding.
+                            out = sbAppend(out, "    pushq $" + nstr + "\n")
+                        }
+                    } else if line == "RETURN" {
+                        // Pop top of runtime stack into return register, then
+                        // tear down the frame. Caller-side stack-balanced.
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    ldr x0, [sp], #16\n")
+                            out = sbAppend(out, "    ldp x29, x30, [sp], #16\n")
+                            out = sbAppend(out, "    ret\n")
+                        } else {
+                            out = sbAppend(out, "    popq %rax\n")
+                            out = sbAppend(out, "    movq %rbp, %rsp\n")
+                            out = sbAppend(out, "    popq %rbp\n")
+                            out = sbAppend(out, "    retq\n")
+                        }
+                    } else if line == "ADD" {
+                        // pop b (top), pop a, push (a + b). Numeric only —
+                        // smart-int / string-concat dispatch deferred to a
+                        // future runtime helper.
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    ldr x1, [sp], #16\n")
+                            out = sbAppend(out, "    ldr x0, [sp], #16\n")
+                            out = sbAppend(out, "    add x0, x0, x1\n")
+                            out = sbAppend(out, "    str x0, [sp, #-16]!\n")
+                        } else {
+                            out = sbAppend(out, "    popq %rcx\n")
+                            out = sbAppend(out, "    popq %rax\n")
+                            out = sbAppend(out, "    addq %rcx, %rax\n")
+                            out = sbAppend(out, "    pushq %rax\n")
+                        }
+                    } else if line == "SUB" {
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    ldr x1, [sp], #16\n")
+                            out = sbAppend(out, "    ldr x0, [sp], #16\n")
+                            out = sbAppend(out, "    sub x0, x0, x1\n")
+                            out = sbAppend(out, "    str x0, [sp, #-16]!\n")
+                        } else {
+                            out = sbAppend(out, "    popq %rcx\n")
+                            out = sbAppend(out, "    popq %rax\n")
+                            out = sbAppend(out, "    subq %rcx, %rax\n")
+                            out = sbAppend(out, "    pushq %rax\n")
+                        }
+                    } else if line == "MUL" {
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    ldr x1, [sp], #16\n")
+                            out = sbAppend(out, "    ldr x0, [sp], #16\n")
+                            out = sbAppend(out, "    mul x0, x0, x1\n")
+                            out = sbAppend(out, "    str x0, [sp, #-16]!\n")
+                        } else {
+                            out = sbAppend(out, "    popq %rcx\n")
+                            out = sbAppend(out, "    popq %rax\n")
+                            out = sbAppend(out, "    imulq %rcx, %rax\n")
+                            out = sbAppend(out, "    pushq %rax\n")
+                        }
+                    } else if line == "DIV" {
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    ldr x1, [sp], #16\n")
+                            out = sbAppend(out, "    ldr x0, [sp], #16\n")
+                            out = sbAppend(out, "    sdiv x0, x0, x1\n")
+                            out = sbAppend(out, "    str x0, [sp, #-16]!\n")
+                        } else {
+                            out = sbAppend(out, "    popq %rcx\n")
+                            out = sbAppend(out, "    popq %rax\n")
+                            out = sbAppend(out, "    cqo\n")
+                            out = sbAppend(out, "    idivq %rcx\n")
+                            out = sbAppend(out, "    pushq %rax\n")
+                        }
+                    } else if line == "EQ" {
+                        // pop b, pop a, push (a == b ? 1 : 0)
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    ldr x1, [sp], #16\n")
+                            out = sbAppend(out, "    ldr x0, [sp], #16\n")
+                            out = sbAppend(out, "    cmp x0, x1\n")
+                            out = sbAppend(out, "    cset x0, eq\n")
+                            out = sbAppend(out, "    str x0, [sp, #-16]!\n")
+                        } else {
+                            out = sbAppend(out, "    popq %rcx\n")
+                            out = sbAppend(out, "    popq %rax\n")
+                            out = sbAppend(out, "    xorq %rdx, %rdx\n")
+                            out = sbAppend(out, "    cmpq %rcx, %rax\n")
+                            out = sbAppend(out, "    sete %dl\n")
+                            out = sbAppend(out, "    pushq %rdx\n")
+                        }
+                    } else if line == "NEQ" {
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    ldr x1, [sp], #16\n")
+                            out = sbAppend(out, "    ldr x0, [sp], #16\n")
+                            out = sbAppend(out, "    cmp x0, x1\n")
+                            out = sbAppend(out, "    cset x0, ne\n")
+                            out = sbAppend(out, "    str x0, [sp, #-16]!\n")
+                        } else {
+                            out = sbAppend(out, "    popq %rcx\n")
+                            out = sbAppend(out, "    popq %rax\n")
+                            out = sbAppend(out, "    xorq %rdx, %rdx\n")
+                            out = sbAppend(out, "    cmpq %rcx, %rax\n")
+                            out = sbAppend(out, "    setne %dl\n")
+                            out = sbAppend(out, "    pushq %rdx\n")
+                        }
+                    } else if line == "LT" {
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    ldr x1, [sp], #16\n")
+                            out = sbAppend(out, "    ldr x0, [sp], #16\n")
+                            out = sbAppend(out, "    cmp x0, x1\n")
+                            out = sbAppend(out, "    cset x0, lt\n")
+                            out = sbAppend(out, "    str x0, [sp, #-16]!\n")
+                        } else {
+                            out = sbAppend(out, "    popq %rcx\n")
+                            out = sbAppend(out, "    popq %rax\n")
+                            out = sbAppend(out, "    xorq %rdx, %rdx\n")
+                            out = sbAppend(out, "    cmpq %rcx, %rax\n")
+                            out = sbAppend(out, "    setl %dl\n")
+                            out = sbAppend(out, "    pushq %rdx\n")
+                        }
+                    } else if line == "GT" {
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    ldr x1, [sp], #16\n")
+                            out = sbAppend(out, "    ldr x0, [sp], #16\n")
+                            out = sbAppend(out, "    cmp x0, x1\n")
+                            out = sbAppend(out, "    cset x0, gt\n")
+                            out = sbAppend(out, "    str x0, [sp, #-16]!\n")
+                        } else {
+                            out = sbAppend(out, "    popq %rcx\n")
+                            out = sbAppend(out, "    popq %rax\n")
+                            out = sbAppend(out, "    xorq %rdx, %rdx\n")
+                            out = sbAppend(out, "    cmpq %rcx, %rax\n")
+                            out = sbAppend(out, "    setg %dl\n")
+                            out = sbAppend(out, "    pushq %rdx\n")
+                        }
+                    } else if line == "LTE" {
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    ldr x1, [sp], #16\n")
+                            out = sbAppend(out, "    ldr x0, [sp], #16\n")
+                            out = sbAppend(out, "    cmp x0, x1\n")
+                            out = sbAppend(out, "    cset x0, le\n")
+                            out = sbAppend(out, "    str x0, [sp, #-16]!\n")
+                        } else {
+                            out = sbAppend(out, "    popq %rcx\n")
+                            out = sbAppend(out, "    popq %rax\n")
+                            out = sbAppend(out, "    xorq %rdx, %rdx\n")
+                            out = sbAppend(out, "    cmpq %rcx, %rax\n")
+                            out = sbAppend(out, "    setle %dl\n")
+                            out = sbAppend(out, "    pushq %rdx\n")
+                        }
+                    } else if line == "GTE" {
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    ldr x1, [sp], #16\n")
+                            out = sbAppend(out, "    ldr x0, [sp], #16\n")
+                            out = sbAppend(out, "    cmp x0, x1\n")
+                            out = sbAppend(out, "    cset x0, ge\n")
+                            out = sbAppend(out, "    str x0, [sp, #-16]!\n")
+                        } else {
+                            out = sbAppend(out, "    popq %rcx\n")
+                            out = sbAppend(out, "    popq %rax\n")
+                            out = sbAppend(out, "    xorq %rdx, %rdx\n")
+                            out = sbAppend(out, "    cmpq %rcx, %rax\n")
+                            out = sbAppend(out, "    setge %dl\n")
+                            out = sbAppend(out, "    pushq %rdx\n")
+                        }
+                    } else if startsWithStr(line, "LABEL ") {
+                        let labNum = substring(line, 6, len(line))
+                        out = sbAppend(out, "L_kr" + labNum + ":\n")
+                    } else if startsWithStr(line, "JUMP ") {
+                        let jNum = substring(line, 5, len(line))
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    b L_kr" + jNum + "\n")
+                        } else {
+                            out = sbAppend(out, "    jmp L_kr" + jNum + "\n")
+                        }
+                    } else if startsWithStr(line, "JUMPIFNOT ") {
+                        // pop top; if zero, jump to label
+                        let jnNum = substring(line, 10, len(line))
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    ldr x0, [sp], #16\n")
+                            out = sbAppend(out, "    cbz x0, L_kr" + jnNum + "\n")
+                        } else {
+                            out = sbAppend(out, "    popq %rax\n")
+                            out = sbAppend(out, "    testq %rax, %rax\n")
+                            out = sbAppend(out, "    jz L_kr" + jnNum + "\n")
+                        }
+                    } else if line == "MOD" {
+                        if arch == "arm64" {
+                            // x0 mod x1 = x0 - (x0/x1)*x1   via msub
+                            out = sbAppend(out, "    ldr x1, [sp], #16\n")
+                            out = sbAppend(out, "    ldr x0, [sp], #16\n")
+                            out = sbAppend(out, "    sdiv x2, x0, x1\n")
+                            out = sbAppend(out, "    msub x0, x2, x1, x0\n")
+                            out = sbAppend(out, "    str x0, [sp, #-16]!\n")
+                        } else {
+                            out = sbAppend(out, "    popq %rcx\n")
+                            out = sbAppend(out, "    popq %rax\n")
+                            out = sbAppend(out, "    cqo\n")
+                            out = sbAppend(out, "    idivq %rcx\n")
+                            out = sbAppend(out, "    pushq %rdx\n")
+                        }
                     } else if startsWithStr(line, "BUILTIN kp") {
                         // Pop arg, call _puts, push return for stack balance.
                         if arch == "arm64" {
