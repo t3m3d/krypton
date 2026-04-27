@@ -720,6 +720,87 @@ func emitKrRangeCodeFinal(thisVAddr, atoiVAddr, allocVAddr, strIntVAddr) {
 }
 func krRangeSize() { emit 135 }
 
+// kr_index: return s[i] as a 1-char NUL-terminated string.
+//   In:  RDI = string ptr, RSI = idx (string or int)
+//   Out: RAX = ptr to fresh 2-byte heap-allocated string [s[i], 0]
+//
+// Layout (36 bytes):
+//   [0]    53               PUSH RBX                          (1)
+//   [1-2]  41 54            PUSH R12                          (2)
+//   [3-5]  49 89 FC         MOV R12, RDI    (save string)     (3)
+//   [6-8]  48 89 F7         MOV RDI, RSI                      (3)
+//   [9-13] E8 dw            CALL kr_atoi    (RAX = idx)       (5)
+//   [14-17] 41 8A 0C 04     MOV CL, [R12+RAX*1]               (4)
+//   [18-19] 88 CB           MOV BL, CL                        (2)
+//   [20-24] BF 02 00 00 00  MOV EDI, 2                        (5)
+//   [25-29] E8 dw           CALL kr_alloc                     (5)
+//   [30-31] 88 18           MOV [RAX], BL                     (2)
+//   [32-33] 41 5C           POP R12                           (2)
+//   [34]    5B              POP RBX                           (1)
+//   [35]    C3              RET                               (1)
+func emitKrIndexCodeFinal(thisVAddr, atoiVAddr, allocVAddr) {
+    let dAtoi  = atoiVAddr  - (thisVAddr + 14)
+    let dAlloc = allocVAddr - (thisVAddr + 30)
+    let c = ""
+    c = c + hexByte(0x53)
+    c = c + hexByte(0x41) + hexByte(0x54)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xFC)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xF7)
+    c = c + hexByte(0xE8) + hexDword(dAtoi)
+    c = c + hexByte(0x41) + hexByte(0x8A) + hexByte(0x0C) + hexByte(0x04)
+    c = c + hexByte(0x88) + hexByte(0xCB)
+    c = c + hexByte(0xBF) + hexDword(2)
+    c = c + hexByte(0xE8) + hexDword(dAlloc)
+    c = c + hexByte(0x88) + hexByte(0x18)
+    c = c + hexByte(0x41) + hexByte(0x5C)
+    c = c + hexByte(0x5B)
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krIndexSize() { emit 36 }
+
+// kr_argcount: returns argc - 1 (number of user args, matching Krypton convention).
+//   Out: RAX = argc - 1
+//
+// argc is stashed at [R14] by _start.
+//
+// Layout (7 bytes):
+//   [0-2]  49 8B 06     MOV RAX, [R14]
+//   [3-5]  48 FF C8     DEC RAX
+//   [6]    C3           RET
+func emitKrArgcountCode() {
+    let c = ""
+    c = c + hexByte(0x49) + hexByte(0x8B) + hexByte(0x06)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC8)
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krArgcountSize() { emit 7 }
+
+// kr_arg: return argv[idx + 1] as a string ptr (idx+1 to skip program name).
+//   In:  RDI = idx (string or int)
+//   Out: RAX = ptr to argv[idx+1] (or undefined if out of range)
+//
+// argv ptr is stashed at [R14+8].
+//
+// Layout (17 bytes):
+//   [0-4]   E8 dw            CALL kr_atoi              (5)
+//   [5-7]   48 FF C0         INC RAX                   (3)  ; skip argv[0]
+//   [8-11]  49 8B 7E 08      MOV RDI, [R14+8]          (4)  ; argv ptr
+//   [12-15] 48 8B 04 C7      MOV RAX, [RDI + RAX*8]    (4)
+//   [16]    C3               RET                       (1)
+func emitKrArgCodeFinal(thisVAddr, atoiVAddr) {
+    let dAtoi = atoiVAddr - (thisVAddr + 5)
+    let c = ""
+    c = c + hexByte(0xE8) + hexDword(dAtoi)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC0)
+    c = c + hexByte(0x49) + hexByte(0x8B) + hexByte(0x7E) + hexByte(0x08)
+    c = c + hexByte(0x48) + hexByte(0x8B) + hexByte(0x04) + hexByte(0xC7)
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krArgSize() { emit 17 }
+
 
 // Re-emit kr_str_int with the kr_alloc CALL disp filled in.
 // strIntVAddr  = vaddr of kr_str_int's first byte
@@ -850,32 +931,40 @@ func emitKrStrIntCode() {
 func krStrIntSize() { emit 91 }
 
 // _start:
-//   1. mmap(0, 65536, PROT_R|PROT_W, MAP_PRIVATE|MAP_ANON, -1, 0) → R15 = heap base
-//   2. CALL __main__
-//   3. CALL kr_atoi(RDI=RAX) to convert returned string→int (or pass int through)
-//   4. SYS_exit(RAX)
+//   1. Save argc + argv ptr from stack (RSP layout: argc, argv[0..N], NULL, envp...)
+//   2. mmap(0, 65536, PROT_R|PROT_W, MAP_PRIVATE|MAP_ANON, -1, 0) → heap base
+//   3. Stash argc at [heap+0], argv ptr at [heap+8]
+//   4. R14 = heap base (globals — argc/argv lookup); R15 = heap_next (= heap+16)
+//   5. CALL __main__
+//   6. CALL kr_atoi on return value (string→int OR int passthrough)
+//   7. SYS_exit(RAX)
 //
-// R15 is reserved as the heap-bump pointer for kr_alloc.
-//
-// Layout (61 bytes):
-//   [0-4]   B8 09 00 00 00         MOV EAX, 9          (5)
-//   [5-6]   31 FF                  XOR EDI, EDI        (2)
-//   [7-11]  BE 00 00 01 00         MOV ESI, 0x10000    (5)
-//   [12-16] BA 03 00 00 00         MOV EDX, 3          (5)
-//   [17-22] 41 BA 22 00 00 00      MOV R10D, 0x22      (6)
-//   [23-29] 49 C7 C0 FF FF FF FF   MOV R8, -1          (7)
-//   [30-32] 45 31 C9               XOR R9D, R9D        (3)
-//   [33-34] 0F 05                  SYSCALL             (2)
-//   [35-37] 49 89 C7               MOV R15, RAX        (3)
-//   [38-42] E8 dw                  CALL __main__       (5)
-//   [43-45] 48 89 C7               MOV RDI, RAX        (3)
-//   [46-50] E8 dw                  CALL kr_atoi        (5)  NEW
-//   [51-53] 48 89 C7               MOV RDI, RAX        (3)  NEW
-//   [54-58] B8 3C 00 00 00         MOV EAX, 60         (5)
-//   [59-60] 0F 05                  SYSCALL             (2)
-func startSize() { emit 61 }
+// Layout (81 bytes):
+//   [0-3]   4C 8B 24 24            MOV R12, [RSP]      (argc)            (4)
+//   [4-8]   4C 8D 6C 24 08         LEA R13, [RSP+8]    (argv ptr)        (5)
+//   [9-13]  B8 09 00 00 00         MOV EAX, 9          (SYS_mmap)        (5)
+//   [14-15] 31 FF                  XOR EDI, EDI                          (2)
+//   [16-20] BE 00 00 01 00         MOV ESI, 0x10000    (size=64KB)       (5)
+//   [21-25] BA 03 00 00 00         MOV EDX, 3                            (5)
+//   [26-31] 41 BA 22 00 00 00      MOV R10D, 0x22                        (6)
+//   [32-38] 49 C7 C0 FF FF FF FF   MOV R8, -1                            (7)
+//   [39-41] 45 31 C9               XOR R9D, R9D                          (3)
+//   [42-43] 0F 05                  SYSCALL                               (2)
+//   [44-46] 4C 89 20               MOV [RAX], R12      (heap[0]=argc)    (3)
+//   [47-50] 4C 89 68 08            MOV [RAX+8], R13    (heap[8]=argv)    (4)
+//   [51-53] 49 89 C6               MOV R14, RAX        (globals base)    (3)
+//   [54-57] 4C 8D 78 10            LEA R15, [RAX+16]   (heap_next past globals) (4)
+//   [58-62] E8 dw                  CALL __main__                         (5)
+//   [63-65] 48 89 C7               MOV RDI, RAX                          (3)
+//   [66-70] E8 dw                  CALL kr_atoi                          (5)
+//   [71-73] 48 89 C7               MOV RDI, RAX                          (3)
+//   [74-78] B8 3C 00 00 00         MOV EAX, 60                           (5)
+//   [79-80] 0F 05                  SYSCALL                               (2)
+func startSize() { emit 81 }
 func emitStartCode(callDisp, atoiDisp) {
     let c = ""
+    c = c + hexByte(0x4C) + hexByte(0x8B) + hexByte(0x24) + hexByte(0x24)
+    c = c + hexByte(0x4C) + hexByte(0x8D) + hexByte(0x6C) + hexByte(0x24) + hexByte(0x08)
     c = c + hexByte(0xB8) + hexDword(9)
     c = c + hexByte(0x31) + hexByte(0xFF)
     c = c + hexByte(0xBE) + hexDword(65536)
@@ -884,7 +973,10 @@ func emitStartCode(callDisp, atoiDisp) {
     c = c + hexByte(0x49) + hexByte(0xC7) + hexByte(0xC0) + hexDword(0 - 1)
     c = c + hexByte(0x45) + hexByte(0x31) + hexByte(0xC9)
     c = c + hexByte(0x0F) + hexByte(0x05)
-    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC7)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0x20)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0x68) + hexByte(0x08)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC6)
+    c = c + hexByte(0x4C) + hexByte(0x8D) + hexByte(0x78) + hexByte(0x10)
     c = c + hexByte(0xE8) + hexDword(callDisp)
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)
     c = c + hexByte(0xE8) + hexDword(atoiDisp)
@@ -979,6 +1071,9 @@ func opByteSize(op) {
     if op == "BUILTIN_LEN"   { emit 7 } // POP RDI + CALL kr_strlen + PUSH RAX (string length)
     if op == "BUILTIN_SPLIT" { emit 8 } // POP RSI(1) + POP RDI(1) + CALL kr_split(5) + PUSH RAX(1)
     if op == "BUILTIN_RANGE" { emit 8 } // POP RSI + POP RDI + CALL kr_range + PUSH RAX
+    if op == "INDEX"         { emit 8 } // POP RSI + POP RDI + CALL kr_index + PUSH RAX
+    if op == "BUILTIN_ARG"   { emit 7 } // POP RDI + CALL kr_arg + PUSH RAX
+    if op == "BUILTIN_ARGCOUNT"{ emit 6 } // CALL kr_argcount + PUSH RAX (no args)
     if op == "POP"        { emit 1 }
     if op == "LABEL"      { emit 0 }
     if op == "JUMP"       { emit 5 }    // E9 + d32
@@ -1193,13 +1288,17 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_SPLIT")
                 } else if bname == "range" {
                     opSb = sbAppend(opSb, "BUILTIN_RANGE")
+                } else if bname == "arg" {
+                    opSb = sbAppend(opSb, "BUILTIN_ARG")
+                } else if bname == "argCount" {
+                    opSb = sbAppend(opSb, "BUILTIN_ARGCOUNT")
                 } else {
                     opSb = sbAppend(opSb, "UNSUPPORTED " + bname)
                 }
                 opCount += 1
             } else if op == "ADD" || op == "SUB" || op == "MUL" || op == "DIV" || op == "MOD"
                    || op == "EQ" || op == "NEQ" || op == "LT" || op == "GT" || op == "LTE" || op == "GTE"
-                   || op == "CAT" || op == "POP" || op == "RETURN" {
+                   || op == "CAT" || op == "INDEX" || op == "POP" || op == "RETURN" {
                 if opCount > 0 { opSb = sbAppend(opSb, "\n") }
                 opSb = sbAppend(opSb, op)
                 opCount += 1
@@ -1265,7 +1364,7 @@ func computeLayout(opList, localCount) {
 // funcStartVAddr: virtual address of THIS function's first byte (for CALL disp calc)
 // krPrintVAddr/krStrIntVAddr: vaddrs of runtime helpers, used by BUILTIN_KP/BUILTIN_TOSTR
 
-func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr) {
+func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr) {
     let c = ""
     c = c + hexByte(0x55)                                             // [+0] PUSH RBP
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xE5)             // [+1] MOV RBP, RSP
@@ -1573,6 +1672,24 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             let rgDisp = krRangeVAddr - (funcStartVAddr + off + 7)
             c = c + hexByte(0xE8) + hexDword(rgDisp)
             c = c + hexByte(0x50)
+        } else if op == "INDEX" {
+            // POP RSI (idx, top) ; POP RDI (string) ; CALL kr_index ; PUSH RAX
+            c = c + hexByte(0x5E)
+            c = c + hexByte(0x5F)
+            let ixDisp = krIndexVAddr - (funcStartVAddr + off + 7)
+            c = c + hexByte(0xE8) + hexDword(ixDisp)
+            c = c + hexByte(0x50)
+        } else if op == "BUILTIN_ARG" {
+            // POP RDI ; CALL kr_arg ; PUSH RAX
+            c = c + hexByte(0x5F)
+            let agDisp = krArgVAddr - (funcStartVAddr + off + 6)
+            c = c + hexByte(0xE8) + hexDword(agDisp)
+            c = c + hexByte(0x50)
+        } else if op == "BUILTIN_ARGCOUNT" {
+            // CALL kr_argcount ; PUSH RAX
+            let acDisp = krArgcountVAddr - (funcStartVAddr + off + 5)
+            c = c + hexByte(0xE8) + hexDword(acDisp)
+            c = c + hexByte(0x50)
         } else if op == "CALL_FUNC" {
             // Parse "name argcount"
             let cj = 0
@@ -1776,6 +1893,9 @@ just run {
     let krLnSz = krLengthSize()
     let krSpSz = krSplitSize()
     let krRgSz = krRangeSize()
+    let krIxSz = krIndexSize()
+    let krAgSz = krArgSize()
+    let krAcSz = krArgcountSize()
 
     let fIdx = 0
     while fIdx < funcCount {
@@ -1857,9 +1977,12 @@ just run {
     let krLengthVAddr = krAtoiVAddr + krAiSz
     let krSplitVAddr  = krLengthVAddr + krLnSz
     let krRangeVAddr  = krSplitVAddr + krSpSz
+    let krIndexVAddr  = krRangeVAddr + krRgSz
+    let krArgVAddr    = krIndexVAddr + krIxSz
+    let krArgcountVAddr = krArgVAddr + krAgSz
 
     // String virtual addresses (after all runtime helpers)
-    let stringsBase = krRangeVAddr + krRgSz
+    let stringsBase = krArgcountVAddr + krAcSz
     let strVAddrs = ""
     let strData = ""
     let curOff = 0
@@ -1902,7 +2025,7 @@ just run {
         let nm2 = substring(hh, ss1 + 1, ss2)
         let funcStartV2 = toInt(funcVAddr(funcVAddrs, nm2))
 
-        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr)
+        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr)
         allFuncCode = allFuncCode + codeI
         oIdx2 += 1
     }
@@ -1911,9 +2034,9 @@ just run {
     let startVAddr = SEG_BASE_VADDR
     let mainVAddr = toInt(funcVAddr(funcVAddrs, "__main__"))
     // CALL __main__ is at offset 38 in start code (after mmap setup). After CALL = 43.
-    let startCallDisp = mainVAddr - (startVAddr + 43)
+    let startCallDisp = mainVAddr - (startVAddr + 63)
     // CALL kr_atoi is at offset 46. After CALL = 51.
-    let startAtoiDisp = krAtoiVAddr - (startVAddr + 51)
+    let startAtoiDisp = krAtoiVAddr - (startVAddr + 71)
     let startCode = emitStartCode(startCallDisp, startAtoiDisp)
 
     let krPrintCode  = emitKrPrintCode()
@@ -1925,8 +2048,11 @@ just run {
     let krLengthCode = emitKrLengthCode()
     let krSplitCode  = emitKrSplitCodeFinal(krSplitVAddr, krAtoiVAddr, krAllocVAddr)
     let krRangeCode  = emitKrRangeCodeFinal(krRangeVAddr, krAtoiVAddr, krAllocVAddr, krStrIntVAddr)
+    let krIndexCode  = emitKrIndexCodeFinal(krIndexVAddr, krAtoiVAddr, krAllocVAddr)
+    let krArgCode    = emitKrArgCodeFinal(krArgVAddr, krAtoiVAddr)
+    let krArgcountCode = emitKrArgcountCode()
 
-    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + strData
+    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + strData
     let segSize = hexBytesLen(segment)
     let fileSize = HDR_SIZE + segSize
 
