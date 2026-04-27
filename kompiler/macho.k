@@ -2,47 +2,66 @@
 //
 // PHILOSOPHY (different from elf.k / x64.k by design):
 //
-// On Linux we emit the final ELF directly because the kernel will run any
-// well-formed static binary. On Windows we emit the final PE directly because
-// the loader is permissive too. On modern macOS — especially Tahoe (26.x)+ —
-// AMFI rejects hand-rolled static binaries even when properly code-signed.
-// Apple effectively requires dyld-linked Mach-Os built through their toolchain.
+// On Linux we emit final ELF directly (kernel runs any well-formed static
+// binary). On Windows we emit final PE directly (loader is permissive).
+// On modern macOS — especially Tahoe (26.x)+ — AMFI rejects hand-rolled
+// static binaries even when properly code-signed. Apple effectively requires
+// dyld-linked Mach-Os built through their toolchain.
 //
-// Rather than reproduce all of dyld's scaffolding (chained fixups, exports
-// trie, dyld linkage, symbol stubs — multi-day work without a Mac in the dev
-// loop), this backend emits **assembly source** (`.s`). The macOS toolchain
-// (clang internally invoking `as` + `ld64`) does the rest:
-//   - Resolves libSystem references (`_puts`, `_exit`, etc.)
-//   - Generates dyld scaffolding (`LC_LOAD_DYLINKER`, chained fixups, etc.)
-//   - Signs the final binary
+// So this backend emits **assembly source** (`.s`) and lets `clang` invoke
+// `as` + `ld64` to handle dyld scaffolding, libSystem linkage, and signing.
 //
 // External requirement: Xcode Command Line Tools (`xcode-select --install`).
 //
 // Usage:
-//   kcc kompiler/macho.k --arch x86_64|arm64 <out.s>
-//   then:
-//   clang -arch <arch> <out.s> -o <out>
+//   kcc kompiler/macho.k [--arch x86_64|arm64] <input.kir> <output.s>
+//   clang -arch <arch> <output.s> -o <output>
 //
-// First milestone: hardcoded hello-world. Once verified on Tahoe, expand to
-// IR parsing the way elf.k did.
+// Or, for the hardcoded hello-world demo:
+//   kcc kompiler/macho.k --hello-test [--arch x86_64|arm64] <output.s>
+//
+// IR ops supported in this version (matches elf.k v1):
+//   FUNC __main__ N       - only __main__ recognized; treated as _main entry
+//   PUSH "literal"        - push string ptr onto runtime stack
+//   BUILTIN kp 1          - pop 1, call _puts (libSystem, prints + newline)
+//   POP                   - drop top of stack
+//   END                   - function epilogue (return 0 from _main)
+//
+// More ops (locals, arithmetic, control flow, other builtins) are planned.
 
-func charCodeOf(s, i) { emit charCode(s[i]) }
+func startsWithStr(s, prefix) {
+    if len(s) < len(prefix) { emit 0 }
+    let i = 0
+    while i < len(prefix) {
+        if s[i] != prefix[i] { emit 0 }
+        i += 1
+    }
+    emit 1
+}
 
-// ── x86_64 hello-world assembly ────────────────────────────────────────────
-//
-// Standard SysV-on-macOS calling convention:
-//   RDI = arg1, return in RAX, stack 16-aligned at call boundary
-//
-//   pushq %rbp              ; save caller's frame ptr  (1 byte)
-//   movq  %rsp, %rbp        ; new frame                (3 bytes)
-//   leaq  L_msg(%rip), %rdi ; arg1 = msg               (7 bytes)
-//   callq _puts             ; libSystem puts (adds \n) (5 bytes, ld relocates)
-//   xorl  %eax, %eax        ; return 0                 (2 bytes)
-//   popq  %rbp                                          (1 byte)
-//   retq                                                (1 byte)
-//
-// Returning from `_main` triggers libSystem's exit handler — no explicit exit
-// syscall needed.
+// Extract the substring between the FIRST and LAST quote in line.
+// E.g. `PUSH "Hello, world!"` → `Hello, world!`.
+// Assumes IR's quote-escaping convention (no unescaped " inside).
+func extractQuotedString(line) {
+    let i = 0
+    let n = len(line)
+    while i < n {
+        if line[i] == "\"" { i = i + 1  break }
+        i += 1
+    }
+    let start = i
+    let j = n - 1
+    while j >= start {
+        if line[j] == "\"" { break }
+        j -= 1
+    }
+    if j <= start { emit "" }
+    emit substring(line, start, j)
+}
+
+
+// ── Hardcoded hello-world (kept for the smoke test) ───────────────────────
+
 func x86_64HelloAsm() {
     let s = ""
     s = s + "    .section __TEXT,__text,regular,pure_instructions" + fromCharCode(10)
@@ -63,22 +82,6 @@ func x86_64HelloAsm() {
     emit s
 }
 
-// ── ARM64 hello-world assembly ─────────────────────────────────────────────
-//
-// AAPCS64 calling convention:
-//   X0 = arg1, return in W0/X0, FP/LR pair must be saved on entry.
-//
-//   stp  x29, x30, [sp, #-16]! ; save FP+LR, allocate frame  (4B)
-//   mov  x29, sp               ; new frame                    (4B)
-//   adrp x0, L_msg@PAGE        ; page address of msg          (4B)
-//   add  x0, x0, L_msg@PAGEOFF ; add page offset              (4B)
-//   bl   _puts                 ; libSystem puts               (4B, relocated)
-//   mov  w0, #0                ; return 0                     (4B)
-//   ldp  x29, x30, [sp], #16   ; restore FP+LR, dealloc frame (4B)
-//   ret                                                       (4B)
-//
-// ADRP+ADD is the standard PC-relative address load on ARM64 (mandatory for
-// PIE binaries — and on Apple Silicon, all binaries are PIE).
 func arm64HelloAsm() {
     let s = ""
     s = s + "    .section __TEXT,__text,regular,pure_instructions" + fromCharCode(10)
@@ -101,11 +104,133 @@ func arm64HelloAsm() {
 }
 
 
-// ── Main: write hello-world .s for the requested arch ──────────────────────
+// ── IR-driven assembly compilation ─────────────────────────────────────────
+//
+// Walks the .kir text line by line and emits assembly. Strings are collected
+// into per-occurrence labels (no deduplication yet — slight space waste but
+// simpler and correct).
+//
+// Stack convention (matches elf.k's stack-machine model):
+//   PUSH X                       → push value to runtime stack
+//   BUILTIN <name> <argc>        → pop argc args, call helper, push result
+//   POP                          → discard top of stack
+//
+// Native stack mapping:
+//   x86_64: pushq/popq with rsp; callq aligns 16-byte at call boundary
+//   arm64:  str x0,[sp,#-16]! / ldr x0,[sp],#16 (16-byte slots maintain SP align)
+
+func compileIRToAsm(ir, arch) {
+    let out = sbNew()
+    out = sbAppend(out, "    .section __TEXT,__text,regular,pure_instructions\n")
+    out = sbAppend(out, "    .globl _main\n")
+    if arch == "arm64" {
+        out = sbAppend(out, "    .p2align 2\n")
+    } else {
+        out = sbAppend(out, "    .p2align 4, 0x90\n")
+    }
+
+    let strDecls = sbNew()
+    let strCounter = 0
+
+    let n = len(ir)
+    let curSb = sbNew()
+    let i = 0
+
+    while i <= n {
+        let isLineEnd = 0
+        if i == n { isLineEnd = 1 }
+        if i < n {
+            if ir[i] == "\n" { isLineEnd = 1 }
+        }
+
+        if isLineEnd == 1 {
+            let line = sbToString(curSb)
+            curSb = sbNew()
+
+            let isComment = 0
+            if len(line) > 0 {
+                if line[0] == ";" { isComment = 1 }
+            }
+
+            if len(line) > 0 {
+                if isComment == 0 {
+                    if startsWithStr(line, "FUNC __main__") {
+                        out = sbAppend(out, "_main:\n")
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    stp x29, x30, [sp, #-16]!\n")
+                            out = sbAppend(out, "    mov x29, sp\n")
+                        } else {
+                            out = sbAppend(out, "    pushq %rbp\n")
+                            out = sbAppend(out, "    movq %rsp, %rbp\n")
+                        }
+                    } else if startsWithStr(line, "PUSH \"") {
+                        let s = extractQuotedString(line)
+                        let label = "L_str" + strCounter
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    adrp x0, " + label + "@PAGE\n")
+                            out = sbAppend(out, "    add x0, x0, " + label + "@PAGEOFF\n")
+                            out = sbAppend(out, "    str x0, [sp, #-16]!\n")
+                        } else {
+                            out = sbAppend(out, "    leaq " + label + "(%rip), %rax\n")
+                            out = sbAppend(out, "    pushq %rax\n")
+                        }
+                        strDecls = sbAppend(strDecls, label + ":\n    .asciz \"" + s + "\"\n")
+                        strCounter += 1
+                    } else if startsWithStr(line, "BUILTIN kp") {
+                        // Pop arg, call _puts, push return for stack balance.
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    ldr x0, [sp], #16\n")
+                            out = sbAppend(out, "    bl _puts\n")
+                            out = sbAppend(out, "    str x0, [sp, #-16]!\n")
+                        } else {
+                            out = sbAppend(out, "    popq %rdi\n")
+                            out = sbAppend(out, "    callq _puts\n")
+                            out = sbAppend(out, "    pushq %rax\n")
+                        }
+                    } else if line == "POP" {
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    ldr x0, [sp], #16\n")
+                        } else {
+                            out = sbAppend(out, "    popq %rax\n")
+                        }
+                    } else if line == "END" {
+                        if arch == "arm64" {
+                            out = sbAppend(out, "    mov w0, #0\n")
+                            out = sbAppend(out, "    ldp x29, x30, [sp], #16\n")
+                            out = sbAppend(out, "    ret\n")
+                        } else {
+                            out = sbAppend(out, "    movq %rbp, %rsp\n")
+                            out = sbAppend(out, "    popq %rbp\n")
+                            out = sbAppend(out, "    xorl %eax, %eax\n")
+                            out = sbAppend(out, "    retq\n")
+                        }
+                    }
+                    // Unknown ops silently skipped — will surface as missing
+                    // behavior at runtime; future op support gets added here.
+                }
+            }
+        } else {
+            curSb = sbAppend(curSb, ir[i])
+        }
+        i += 1
+    }
+
+    out = sbAppend(out, "\n    .section __TEXT,__cstring,cstring_literals\n")
+    out = sbAppend(out, sbToString(strDecls))
+
+    emit sbToString(out)
+}
+
+
+// ── Main ──────────────────────────────────────────────────────────────────
 
 just run {
     let arch = "x86_64"
-    let outPath = ""
+    let inFile = ""
+    let outFile = ""
+    let helloTest = 0
+    let posCount = 0
+
     let ai = 0
     let n = argCount()
     while ai < n {
@@ -113,12 +238,23 @@ just run {
         if a == "--arch" {
             ai += 1
             if ai < n { arch = arg(ai) }
-        } else if startsWith(a, "--arch=") {
+        } else if startsWithStr(a, "--arch=") {
             arch = substring(a, 7, len(a))
+        } else if a == "--hello-test" {
+            helloTest = 1
         } else {
-            outPath = a
+            if posCount == 0 { inFile = a } else { outFile = a }
+            posCount += 1
         }
         ai += 1
+    }
+
+    // For --hello-test, the single positional arg is the output path.
+    if helloTest == 1 {
+        if posCount == 1 {
+            outFile = inFile
+            inFile = ""
+        }
     }
 
     if arch != "x86_64" {
@@ -128,19 +264,32 @@ just run {
         }
     }
 
-    if len(outPath) == 0 {
-        printErr("macho: usage: macho [--arch x86_64|arm64] <output.s>")
+    if len(outFile) == 0 {
+        printErr("usage: macho [--arch x86_64|arm64] <input.kir> <output.s>")
+        printErr("       macho [--arch x86_64|arm64] --hello-test <output.s>")
         exit(1)
     }
 
     let asmText = ""
-    if arch == "arm64" {
-        asmText = arm64HelloAsm()
+    if helloTest == 1 || len(inFile) == 0 {
+        if arch == "arm64" {
+            asmText = arm64HelloAsm()
+        } else {
+            asmText = x86_64HelloAsm()
+        }
     } else {
-        asmText = x86_64HelloAsm()
+        let ir = readFile(inFile)
+        if len(ir) == 0 {
+            printErr("macho: cannot read IR file: " + inFile)
+            exit(1)
+        }
+        asmText = compileIRToAsm(ir, arch)
     }
 
-    writeFile(outPath, asmText)
-    printErr("macho: wrote " + outPath + " (" + len(asmText) + " bytes of " + arch + " assembly)")
-    printErr("       Build with: clang -arch " + arch + " " + outPath + " -o <output>")
+    writeFile(outFile, asmText)
+    printErr("macho: wrote " + outFile + " (" + len(asmText) + " bytes, " + arch + ")")
+    if helloTest == 1 || len(inFile) == 0 {
+        printErr("       (hardcoded hello-world; use without --hello-test for IR mode)")
+    }
+    printErr("       Build with: clang -arch " + arch + " " + outFile + " -o <output>")
 }
