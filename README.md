@@ -2,7 +2,7 @@
 
 **A self-hosting programming language with a native compilation pipeline.**
 
-> Version 1.0.0 — The language is complete. The compiler is self-hosting. Native compilation via LLVM is working.
+> Version 1.3.8
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 ![Version](https://img.shields.io/badge/version-1.3.8-brightgreen)
