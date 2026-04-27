@@ -5,7 +5,7 @@
 > Version 1.0.0 — The language is complete. The compiler is self-hosting. Native compilation via LLVM is working.
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.2.0-brightgreen)
+![Version](https://img.shields.io/badge/version-1.3.8-brightgreen)
 
 Krypton is a dynamically typed language with clean syntax, 147 built-in functions, and a compiler written in itself. It compiles to C for broad compatibility, and to native machine code via LLVM for maximum performance — no GCC in the critical path.
 
@@ -71,10 +71,12 @@ Same as Linux / WSL above — `./build.sh` falls through to source-seed mode (no
 ```
 git clone https://github.com/t3m3d/krypton
 cd krypton
-build_v137.bat
+bootstrap.bat
 ```
 
-Requires [TDM-GCC](https://jmeubank.github.io/tdm-gcc/) (or MSYS2 mingw-w64). The build produces `kcc.exe` (gcc-built, with icon) and `kcc_native.exe` (self-hosted via the bootstrap `krypton_rt.dll`, no gcc needed at runtime).
+`bootstrap.bat` copies the prebuilt binaries (`kcc.exe`, `optimize_host.exe`, `x64_host.exe`) from `bootstrap/` into place. **No C compiler required.**
+
+For a from-source rebuild (with new icon, version bump, etc.), use `build_v137.bat` instead — that requires [TDM-GCC](https://jmeubank.github.io/tdm-gcc/) (or MSYS2 mingw-w64).
 
 Native PE compilation (no gcc):
 ```
