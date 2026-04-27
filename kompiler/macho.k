@@ -143,9 +143,10 @@ func CPU_TYPE_ARM64()  { emit 0x0100000C }
 func CPU_SUBTYPE_X86_64_ALL() { emit 3 }
 func CPU_SUBTYPE_ARM64_ALL()  { emit 0 }
 
-func LC_SEGMENT_64()    { emit 0x19 }
-func LC_UNIXTHREAD()    { emit 0x05 }
-func LC_BUILD_VERSION() { emit 0x32 }
+func LC_SEGMENT_64()     { emit 0x19 }
+func LC_UNIXTHREAD()     { emit 0x05 }
+func LC_BUILD_VERSION()  { emit 0x32 }
+func LC_CODE_SIGNATURE() { emit 0x1D }
 
 // Thread state flavors / counts
 func X86_THREAD_STATE64()       { emit 4 }
@@ -236,6 +237,51 @@ func emitTextSegment(filesize, vmsize, codeOffset, codeAndDataSize) {
     c = c + hexDword(0)                          // reserved1
     c = c + hexDword(0)                          // reserved2
     c = c + hexDword(0)                          // reserved3
+    emit c
+}
+
+// LC_SEGMENT_64 __LINKEDIT — 72 bytes, no sections.
+//
+// macOS 11+ requires a __LINKEDIT segment. This is where the code signature
+// will live (and traditionally where symbol/string tables live too, but we
+// have no symbols in our static minimal binary). Initially the segment is
+// empty (filesize=0). codesign will append the signature blob to the file
+// and update both LC_LINKEDIT.filesize and LC_CODE_SIGNATURE.datasize.
+//
+//   fileoff    = 16-byte-aligned end of __TEXT region
+//   filesize   = 0 initially (codesign extends)
+//   vmaddr     = __TEXT_vmaddr + __TEXT_vmsize  (right after __TEXT)
+//   vmsize     = page-aligned (0x4000 to match __TEXT's vmsize)
+//   maxprot    = R only (1)
+//   initprot   = R only (1)
+func emitLinkEditSegment(fileoff, vmaddrLo) {
+    let c = ""
+    c = c + hexDword(LC_SEGMENT_64())
+    c = c + hexDword(72)
+    c = c + hexName16("__LINKEDIT")
+    c = c + hex4GPlus(vmaddrLo)                  // vmaddr (low + 1 in high)
+    c = c + hexQword(0x4000)                     // vmsize (16K page)
+    c = c + hexQword(fileoff)                    // fileoff
+    c = c + hexQword(0)                          // filesize (codesign extends)
+    c = c + hexDword(1)                          // maxprot R
+    c = c + hexDword(1)                          // initprot R
+    c = c + hexDword(0)                          // nsects
+    c = c + hexDword(0)                          // flags
+    emit c
+}
+
+// LC_CODE_SIGNATURE — 16 bytes. Reserved slot that codesign fills in.
+//
+// codesign reads this load command, computes the signature blob, writes it
+// at `dataoff` in the file (extending the file if needed), and updates
+// `datasize`. We initialize datasize=0 and dataoff to a 16-byte-aligned
+// position right after our code+data.
+func emitCodeSignatureCmd(dataoff) {
+    let c = ""
+    c = c + hexDword(LC_CODE_SIGNATURE())
+    c = c + hexDword(16)
+    c = c + hexDword(dataoff)
+    c = c + hexDword(0)                           // datasize (codesign fills)
     emit c
 }
 
@@ -435,37 +481,44 @@ just run {
     let msgLen = len(msg)
 
     // ── Layout ──────────────────────────────────────────────────────────
-    //   header (32) + PAGEZERO (72) + TEXT (152) + BUILD_VERSION (24)
-    //                                            + UNIXTHREAD (varies)
+    // Load commands (in order):
+    //   PAGEZERO (72) + TEXT (152) + LINKEDIT (72) + BUILD_VERSION (24)
+    //                              + UNIXTHREAD (varies) + CODE_SIGNATURE (16)
     let unixThrSize = 184
     if arch == "arm64" { unixThrSize = 288 }
 
-    let cmdsSize = 72 + 152 + 24 + unixThrSize
-    let ncmds = 4
+    let cmdsSize = 72 + 152 + 72 + 24 + unixThrSize + 16
+    let ncmds = 6
     let codeOffset = 32 + cmdsSize
 
-    // Code size differs per arch:
-    //   x86_64: 36 bytes (5+5+10+5+2+5+2+2)
-    //   ARM64:  44 bytes (11 instructions × 4 bytes)
-    //     MOVZ X0,#1                    1 instr
-    //     load X1 = msg vaddr           3 instrs (MOVZ + 2x MOVK)
-    //     MOVZ X2,#msgLen               1 instr
-    //     MOVZ X16,#4 (write)           1 instr
-    //     SVC #0x80                     1 instr
-    //     MOVZ X0,#0 (status)           1 instr
-    //     MOVZ X16,#1 (exit)            1 instr
-    //     SVC #0x80                     1 instr
-    //     = 10 instrs = 40 bytes
-    //   Wait — recount: 1+3+1+1+1+1+1+1 = 10 instrs = 40 bytes.
+    // Code size per arch (see comments above on instruction counts):
+    //   x86_64: 36 bytes
+    //   arm64:  40 bytes (10 instructions × 4)
     let codeSize = 36
     if arch == "arm64" { codeSize = 40 }
 
     let msgOffset = codeOffset + codeSize
     let msgVAddrLo = msgOffset
 
-    let totalCodeAndData = codeSize + msgLen
-    let filesize = codeOffset + totalCodeAndData
-    let vmsize = alignUp16K(filesize)
+    // End of code+data, then pad to 16-byte align so the signature data area
+    // (which codesign appends) starts on a 16-byte boundary.
+    let codeAndDataEnd = codeOffset + codeSize + msgLen
+    let codeAndDataAligned = codeAndDataEnd
+    let alignRem = codeAndDataEnd % 16
+    if alignRem != 0 {
+        codeAndDataAligned = codeAndDataEnd + (16 - alignRem)
+    }
+    let alignPadBytes = codeAndDataAligned - codeAndDataEnd
+
+    // __TEXT covers the file from offset 0 up to the (aligned) end of code+data.
+    // __LINKEDIT starts at codeAndDataAligned with filesize=0 (codesign extends).
+    let textFileSize = codeAndDataAligned
+    let textVmSize   = alignUp16K(textFileSize)
+    // __LINKEDIT vmaddr is right after __TEXT in vm space.
+    let linkeditVmAddrLo = textVmSize
+
+    // Initial filesize (before codesign extends) = codeAndDataAligned.
+    let filesize = codeAndDataAligned
 
     let entryLo = codeOffset
     let entryHi = 1                                // 0x100000000
@@ -473,9 +526,11 @@ just run {
     // ── Emit headers ────────────────────────────────────────────────────
     let header   = emitMachHeader(arch, ncmds, cmdsSize)
     let pagezero = emitPageZero()
-    let textSeg  = emitTextSegment(filesize, vmsize, codeOffset, totalCodeAndData)
+    let textSeg  = emitTextSegment(textFileSize, textVmSize, codeOffset, codeSize + msgLen)
+    let linkSeg  = emitLinkEditSegment(codeAndDataAligned, linkeditVmAddrLo)
     let buildVer = emitBuildVersion()
     let unixThr  = emitUnixThread(arch, entryLo, entryHi)
+    let codeSig  = emitCodeSignatureCmd(codeAndDataAligned)
 
     // ── Emit code (per arch) ────────────────────────────────────────────
     let code = ""
@@ -509,7 +564,9 @@ just run {
     }
 
     let data = hexStr(msg)
-    let all  = header + pagezero + textSeg + buildVer + unixThr + code + data
+    let pad  = hexPad(alignPadBytes)
+    // Load command order: PAGEZERO, TEXT, LINKEDIT, BUILD_VERSION, UNIXTHREAD, CODE_SIGNATURE
+    let all  = header + pagezero + textSeg + linkSeg + buildVer + unixThr + codeSig + code + data + pad
 
     let bytesEmitted = hexBytesLen(all)
     if bytesEmitted != filesize {
