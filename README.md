@@ -80,9 +80,16 @@ git clone https://github.com/t3m3d/krypton && cd krypton && ./build.sh
 ./hello
 ```
 
-**`--native` is Linux-only.** On macOS, `kcc.sh --native` prints a warning and falls back to the C path automatically. A native Mach-O backend is on the roadmap; until then, macOS goes through `clang` / `gcc`.
+**`--native` falls back to clang on macOS for now.** A standalone Mach-O backend ([kompiler/macho.k](kompiler/macho.k)) is in early skeleton form — emits a hello-world binary for both `x86_64` and `arm64` (Apple Silicon), but doesn't yet parse user IR. To validate the format works on your Mac:
 
-**Requirements on macOS:** Xcode Command Line Tools (`xcode-select --install`) provide `clang`. That's all you need.
+```bash
+./verify_macho.sh             # auto-detects host arch; runs codesign + executes
+./verify_macho.sh --both      # try both x86_64 and arm64
+```
+
+Until the Mach-O backend handles full IR, `kcc.sh --native` on macOS prints a warning and routes through the C path.
+
+**Requirements on macOS:** Xcode Command Line Tools (`xcode-select --install`) provide `clang` and `codesign`. That's all you need.
 
 ---
 
