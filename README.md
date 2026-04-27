@@ -35,7 +35,7 @@ just run {
 Optional:
 - **GCC** — only if you want the C backend (`./kcc x.k > x.c && gcc x.c -o x -lm`) or to rebuild from source on a platform without a prebuilt seed.
 - **clang / LLVM** — only for the `--llvm` backend.
-- **TDM-GCC / MSYS2 mingw-w64** — only if you want a Windows from-source rebuild via `build_v137.bat`.
+- **TDM-GCC / MSYS2 mingw-w64** — only if you want a Windows from-source rebuild via `build_v140.bat`.
 
 ---
 
@@ -81,7 +81,7 @@ bootstrap.bat
 
 `bootstrap.bat` copies the prebuilt binaries (`kcc.exe`, `optimize_host.exe`, `x64_host.exe`) from `bootstrap/` into place. **No C compiler required.**
 
-For a from-source rebuild (with new icon, version bump, etc.), use `build_v137.bat` instead — that requires [TDM-GCC](https://jmeubank.github.io/tdm-gcc/) (or MSYS2 mingw-w64).
+For a from-source rebuild (with new icon, version bump, etc.), use `build_v140.bat` instead — that requires [TDM-GCC](https://jmeubank.github.io/tdm-gcc/) (or MSYS2 mingw-w64).
 
 Native PE compilation (no gcc):
 ```
@@ -403,7 +403,7 @@ krypton/
 ├── versions/              # Historical bootstrap binaries
 ├── build.sh               # Linux/macOS/WSL build (uses prebuilt seed when available)
 ├── bootstrap.bat          # Windows install (copies prebuilt binaries from bootstrap/)
-├── build_v137.bat         # Windows from-source rebuild (requires TDM-GCC)
+├── build_v140.bat         # Windows from-source rebuild (requires TDM-GCC)
 ├── install.sh             # Linux install (build + symlink to /usr/local/bin)
 ├── Makefile               # Cross-platform make wrapper around build scripts
 ├── CHANGELOG.md           # Full version history
@@ -420,7 +420,7 @@ Krypton solves the self-hosting chicken-and-egg problem by shipping prebuilt see
 
 **Linux / WSL:** `build.sh` copies `bootstrap/kcc_seed_linux_x86_64` directly as `./kcc` — pure `cp`, no gcc invoked. Falls back to compiling `bootstrap/kcc_seed.c` with gcc only if the prebuilt is missing for the host platform (e.g., aarch64). After that, `kcc.sh --native` uses `bootstrap/elf_host_linux_x86_64` (the prebuilt ELF emitter), so the entire `--native` pipeline is gcc-free too.
 
-**Windows:** `bootstrap.bat` copies `kcc_seed_windows_x86_64.exe`, `x64_host_windows_x86_64.exe`, and `optimize_host_windows_x86_64.exe` into place. `kcc.sh --native` uses those prebuilts directly. From-source rebuild (icon updates, version bumps) lives in `build_v137.bat` and requires TDM-GCC.
+**Windows:** `bootstrap.bat` copies `kcc_seed_windows_x86_64.exe`, `x64_host_windows_x86_64.exe`, and `optimize_host_windows_x86_64.exe` into place. `kcc.sh --native` uses those prebuilts directly. From-source rebuild (icon updates, version bumps) lives in `build_v140.bat` and requires TDM-GCC.
 
 **macOS:** falls through to source-seed mode (no prebuilt yet). Requires gcc/clang.
 

@@ -3798,7 +3798,7 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
 
 
 just run {
-    let kccVer = "1.3.7"
+    let kccVer = "1.4.0"
 
     // Parse flags: --version, --ir, --headers PATH, -o OUTFILE
     let irMode = 0
