@@ -331,20 +331,18 @@ func emitCodeSignatureCmd(dataoff, datasize) {
 }
 
 // LC_BUILD_VERSION — 24 bytes. Tells macOS what platform/version this binary
-// targets. Modern macOS (especially Apple Silicon) wants this; without it the
-// kernel may refuse to load. ntools = 0 (no embedded tool versions).
+// targets. Modern macOS wants this; without it the kernel may refuse to load.
+// ntools = 0 (no embedded tool versions).
 //
-// Version encoding: X.Y.Z packed as XXYYZZ in 32 bits (big-endian nibbles).
-// macOS 11.0 = 0x000B0000. We use macOS 11.0 as min and 11.0 as SDK to keep
-// it simple; that covers Apple Silicon (which started at 11.0) and is widely
-// compatible.
+// Version encoding: X.Y.Z packed as XXYYZZ in 32 bits.
+// macOS 14.0 = 0x000E0000.
 func emitBuildVersion() {
     let c = ""
     c = c + hexDword(LC_BUILD_VERSION())         // cmd
     c = c + hexDword(24)                          // cmdsize
     c = c + hexDword(PLATFORM_MACOS())            // platform = 1
-    c = c + hexDword(0x000B0000)                  // minos = 11.0.0
-    c = c + hexDword(0x000B0000)                  // sdk = 11.0.0
+    c = c + hexDword(0x000E0000)                  // minos = 14.0.0 (Sonoma)
+    c = c + hexDword(0x000E0000)                  // sdk = 14.0.0
     c = c + hexDword(0)                           // ntools
     emit c
 }
