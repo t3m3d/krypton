@@ -2,6 +2,55 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [1.3.8] - 2026-04-26
+
+### Linux Native ELF Backend — Complete
+
+A full standalone ELF emitter (`kompiler/elf.k`, ~2100 lines) ships native Linux x86-64 binaries with **no gcc, no libc, no external runtime**. Direct `syscall` instructions for `SYS_write`, `SYS_mmap`, `SYS_exit`. Static `PT_LOAD` segment with hand-emitted ELF64 header.
+
+```
+kcc.sh --native examples/hello.k -o hello
+./hello                                 # static Linux ELF, no libc, no gcc
+```
+
+**Runtime functions (all hand-emitted machine code):**
+- `kr_print` (37 B), `kr_alloc` (7 B), `kr_strlen` (14 B)
+- `kr_str_int` (91 B itoa), `kr_atoi` (73 B with smart-int passthrough)
+- `kr_concat` (118 B with int→string preamble)
+- `kr_length` (28 B), `kr_split` (113 B), `kr_range` (135 B)
+- `kr_index` (36 B) — string indexing `s[i]`
+- `kr_argcount` (7 B), `kr_arg` (17 B) — command-line args via `argCount()` / `arg(i)`
+
+**Smart value dispatch:** values < `0x400000` are integers, ≥ `0x400000` are string pointers. ADD, kp, and concat all check at runtime and route accordingly.
+
+**`_start` (81 bytes):** captures argc/argv from the stack, mmaps a 64KB heap, stashes argc/argv as globals at heap[0..15], sets `R14`=globals base / `R15`=bump pointer, calls `__main__`, runs `kr_atoi` on the return value, then `SYS_exit`.
+
+**23/23 regression programs verified** via `kcc.sh --native` on Linux: hello, math, combo, mul, cond, loop, divtest, userfn, recursion, fib, tostr, print_calc, fib_print, edge, concat, toint, indextest, argtest + 5 examples (hello, functions, test_basic, test_loop, fibonacci).
+
+`examples/fibonacci.k` produces a 1693-byte static ELF that prints the first 20 Fibonacci numbers.
+
+### Both Platforms — gcc-Free Bootstrap
+
+The `bootstrap/` directory now ships prebuilt host binaries for both Linux and Windows. No C compiler is required for clone-build-run on either platform.
+
+| File | OS | Purpose |
+|---|---|---|
+| `kcc_seed_linux_x86_64` | Linux | the kcc compiler ELF (280K) |
+| `elf_host_linux_x86_64` | Linux | --native ELF emitter (146K) |
+| `kcc_seed_windows_x86_64.exe` | Windows | the kcc compiler PE (820K) |
+| `x64_host_windows_x86_64.exe` | Windows | --native PE emitter (672K) |
+| `optimize_host_windows_x86_64.exe` | Windows | IR optimizer (388K) |
+
+**Linux** — `./build.sh` copies `bootstrap/kcc_seed_linux_x86_64` directly when present. Falls back to compiling `bootstrap/kcc_seed.c` with gcc only when the prebuilt is missing for the host platform. Verified gcc-free with `PATH=/usr/bin:/bin CC=nonexistent ./build.sh`.
+
+**Windows** — new `bootstrap.bat` copies all three Windows prebuilts into place. `kcc.sh`'s `--native` Windows path also auto-restores `x64_host.exe` and `optimize_host.exe` from prebuilts when missing, eliminating gcc from the runtime path.
+
+**Updates:**
+- `.gitignore` — added `!bootstrap/*.exe` exception so Windows prebuilts are tracked
+- `kcc.sh` — Linux + Windows `--native` paths both check for prebuilt seeds before invoking gcc
+- `bootstrap.bat` — new file, Windows analog of `build.sh`'s prebuilt-install path
+- `README.md` — Windows install section now points at `bootstrap.bat` (no compiler needed)
+
 ## [1.2.0] - 2026-04-22
 
 ### Native Pipeline — Memory Leak Fix
