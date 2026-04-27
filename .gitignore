@@ -93,3 +93,4 @@ runtime/krypton_runtime.c
 installer/
 assets/
 tests/*.cpp
+RELEASE*.md
