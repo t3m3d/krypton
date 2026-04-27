@@ -1,19 +1,14 @@
 #!/usr/bin/env bash
 # verify_macho.sh — verify the Mach-O backend on real macOS, both arches.
 #
-# What this proves: kompiler/macho.k produces binaries that
-#   1. macOS recognizes as valid Mach-O 64-bit executables (x86_64 and arm64),
-#   2. pass otool's structural inspection (header, load commands),
-#   3. run after ad-hoc code signing,
-#   4. print the expected hello message and exit cleanly (status 0).
+# kompiler/macho.k emits assembly source (.s); clang assembles+links+signs.
+# This script proves: macho.k → .s → clang → working Mach-O on macOS.
 #
 # Run on a Mac after `./build.sh`:
 #
-#   ./verify_macho.sh
-#
-# By default, runs ONLY the binary that matches the host architecture (since
-# x86_64 binaries on Apple Silicon need Rosetta 2). Pass --both to attempt
-# both. Pass --arch=arm64|x86_64 to force a specific one.
+#   ./verify_macho.sh                  # native arch only
+#   ./verify_macho.sh --both           # x86_64 + arm64
+#   ./verify_macho.sh --arch=arm64     # force one
 
 set -euo pipefail
 
@@ -25,7 +20,6 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
     exit 0
 fi
 
-# Pick which arch(es) to run.
 HOST_ARCH=$(uname -m)
 case "$HOST_ARCH" in
     arm64|aarch64) HOST_NAME=arm64 ;;
@@ -45,62 +39,57 @@ if [[ ! -x ./kcc ]]; then
     exit 1
 fi
 
-# Build the macho host (compiles macho.k → C → clang/gcc → executable)
+CC="${CC:-clang}"
+command -v "$CC" >/dev/null || {
+    echo "FAIL: $CC not found — install Xcode Command Line Tools"
+    echo "  xcode-select --install"
+    exit 1
+}
+
+# Build the macho host (compiles macho.k → C → clang → executable)
 echo "[setup] Building macho host..."
 ./kcc kompiler/macho.k > /tmp/_macho.c
-${CC:-clang} /tmp/_macho.c -o /tmp/_macho_host -lm -w
+"$CC" /tmp/_macho.c -o /tmp/_macho_host -lm -w
 rm -f /tmp/_macho.c
 echo "        OK  /tmp/_macho_host"
 echo ""
 
 run_one_arch() {
     local arch="$1"
-    local out="/tmp/hello_${arch}.macho"
+    local asm="/tmp/hello_${arch}.s"
+    local out="/tmp/hello_${arch}"
 
     echo "════════════════════════════════════════════════════"
     echo "  arch = $arch"
     echo "════════════════════════════════════════════════════"
 
-    echo "[1/5] Generating $out..."
-    /tmp/_macho_host --arch "$arch" "$out"
+    echo "[1/4] Generating $asm..."
+    /tmp/_macho_host --arch "$arch" "$asm"
 
     echo ""
-    echo "[2/5] file utility check..."
-    local f
-    f=$(file "$out")
-    echo "      $f"
-    if ! echo "$f" | grep -qE "Mach-O 64-bit.*$arch"; then
-        echo "FAIL: not recognized as Mach-O 64-bit $arch"
-        return 1
-    fi
+    echo "[2/4] clang -arch $arch $asm -o $out ..."
+    "$CC" -arch "$arch" "$asm" -o "$out" 2>&1
+    file "$out"
 
     echo ""
-    echo "[3/5] otool -h (header)..."
-    otool -h "$out"
+    echo "[3/4] otool -h ..."
+    otool -h "$out" || true
 
-    echo ""
-    echo "[4/5] otool -l (load commands)..."
-    otool -l "$out"
-
-    echo ""
-    echo "[5/5] codesign + run..."
-    codesign -s - --force "$out"
-    chmod +x "$out"
-
-    # If the requested arch doesn't match host, x86_64 on AS goes through
-    # Rosetta 2 (auto-installed on first use). ARM64 on Intel can't run.
+    # Native-arch binaries run directly. Cross-arch ones need Rosetta (x86_64 on AS).
     if [[ "$arch" != "$HOST_NAME" && "$HOST_NAME" == "x86_64" ]]; then
         echo "      skip exec: arm64 binary on Intel host cannot run natively"
         return 0
     fi
 
+    echo ""
+    echo "[4/4] Run..."
     local exec_out exec_ec
     exec_out=$("$out" 2>&1)
     exec_ec=$?
     echo "      output: $exec_out"
     echo "      exit:   $exec_ec"
     if [[ "$exec_out" != "Hello from Krypton on macOS!" ]]; then
-        echo "FAIL: unexpected output"
+        echo "FAIL: unexpected output (expected: Hello from Krypton on macOS!)"
         return 1
     fi
     if [[ $exec_ec -ne 0 ]]; then
