@@ -2,7 +2,19 @@
 
 All notable changes to the Krypton language and compiler.
 
-## [1.4.0] - 2026-04-26
+## [1.4.0] - 2026-04-27
+
+### macOS support — first-class baseline via the C path
+
+`build.sh`, `kcc.sh`, and the README now treat macOS as a first-class target. Until a native Mach-O backend exists, macOS goes through the C path automatically with the right defaults.
+
+- **`kcc.sh --native`** on macOS prints a warning and falls back to the C/clang path instead of silently producing non-runnable Linux ELF binaries.
+- **`kcc.sh -o foo`** (default behaviour) routes through the C path on macOS, `--native` on Linux/Windows.
+- **C compiler discovery**: `$CC` env var → `gcc` → `clang` → MinGW paths. macOS users with only Xcode Command Line Tools (`clang`) work out of the box.
+- **`build.sh`** banner says "Linux / macOS / WSL"; success message recommends the right command per platform.
+- README has a dedicated macOS section noting the C-path requirement.
+
+Generated C is verified portable to clang (only standard headers; no Linux-only includes).
 
 ### New `jxt` syntax — bracketless
 
@@ -27,15 +39,32 @@ jxt {
 }
 ```
 
-Implemented in [kompiler/compile.k](kompiler/compile.k)'s tokenizer — when `jxt` is followed by anything other than `{`, the tokenizer synthesizes the equivalent brace-form token stream (`LBRACE`, `ID:k|c`, `STR:path`..., `RBRACE`). Downstream parsing is unchanged. Self-host verified: `./kcc kompiler/compile.k` produces byte-identical C output between old and new compilers.
+Implemented in [kompiler/compile.k](kompiler/compile.k)'s tokenizer — when `jxt` is followed by anything other than `{`, the tokenizer synthesizes the equivalent brace-form token stream (`LBRACE`, `ID:k|c`, `STR:path`..., `RBRACE`). Downstream parsing is unchanged.
+
+### ELF Backend — 8 new builtins
+
+Eight new hand-emitted machine-code routines extend the Linux native pipeline (and become available on macOS once Mach-O lands):
+
+- **`printErr(s)`** — 37 B. Like `kp` but writes to fd 2 (stderr) via `SYS_write`.
+- **`charCode(s)`** — 4 B. `MOVZX EAX, byte [RDI]; RET`. Returns the first byte as an integer.
+- **`fromCharCode(n)`** — 23 B. Allocates 2 bytes, writes the byte + NUL, returns the pointer.
+- **`exit(n)`** — 16 B. `SYS_exit(atoi(n))`. Does not return.
+- **`isDigit(s)`** — 16 B. Returns 1 if first byte is `'0'`..`'9'`, else 0. Smart-int convention.
+- **`isAlpha(s)`** — 19 B. `OR 0x20` + range check `'a'`..`'z'` (handles both cases).
+- **`abs(n)`** — 14 B. `kr_atoi` + `TEST` + `JNS` + `NEG`.
+- **`startsWith(s, prefix)`** — 27 B. Byte loop comparing prefix against s; returns 1/0.
+
+### Builtins now supported by the ELF backend
+
+`kp`, `printErr`, `toStr`, `toInt`, `length`, `len`, `split`, `range`, `arg`, `argCount`, `substring`, `sbNew`, `sbAppend`, `sbToString`, `readFile`, `writeFile`, `charCode`, `fromCharCode`, `isDigit`, `isAlpha`, `abs`, `exit`, `startsWith`, plus `s[i]` indexing.
 
 ### Bug fix — `jxt { k "..." }` was infinite-looping
 
-The `k` branch of compile.k's jxt-block parser ([kompiler/compile.k:4184](kompiler/compile.k#L4184)) was missing the `jxtPos += 2` advance that the `c` and `t` branches had. Any program using `jxt { k "..." }` would hang in kcc forever. Discovered while testing the new bracketless syntax. The `--ir`, default C, and `--native` paths were all affected (anything that goes through compile.k's main parsing). Fixed.
+The `k` branch of compile.k's jxt-block parser ([kompiler/compile.k:4184](kompiler/compile.k#L4184)) was missing the `jxtPos += 2` advance that the `c` and `t` branches had. Any program using `jxt { k "..." }` would hang in kcc forever. Discovered while testing the new bracketless syntax. The `--ir`, default C, and `--native` paths were all affected. Fixed.
 
 ### Verification
 
-All 23 ELF regression programs still pass. Four new jxt syntax test cases verified (brace form with k, bracketless single inc, bracketless multiple inc, bracketless followed by func) on `wsl -d archlinux`. Self-host check: `./kcc kompiler/compile.k` produces byte-identical C output between old and new kcc.
+All 23 ELF regression programs still pass. New test groups: 4 jxt syntax tests, 4 batch-1 builtin tests (printErr, charCode, fromCharCode, exit), 4 batch-2 builtin tests (isDigit, isAlpha, abs, startsWith). macOS C-path verified end-to-end via simulated `uname -s = Darwin` in WSL. Self-host clean: byte-identical C output between old and new kcc.
 
 ## [1.3.9] - 2026-04-26
 

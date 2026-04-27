@@ -24,7 +24,16 @@ cd "$SCRIPT_DIR"
 SEED_C="bootstrap/kcc_seed.c"
 COMPILE_K="kompiler/compile.k"
 KCC="./kcc"
-CC="${CC:-gcc}"
+# Default C compiler: $CC env var, then gcc, then clang (macOS default).
+if [[ -n "${CC:-}" ]]; then
+    : # honour user override
+elif command -v gcc >/dev/null 2>&1; then
+    CC=gcc
+elif command -v clang >/dev/null 2>&1; then
+    CC=clang
+else
+    CC=gcc  # will fail later with a clear message if nothing's installed
+fi
 CFLAGS="-O2 -lm -w"
 
 # Detect platform → look for matching prebuilt seed binary.
@@ -83,7 +92,7 @@ fi
 # ── build (default) ─────────────────────────────────────────────────────────
 echo ""
 echo "════════════════════════════════════════════════════"
-echo "  Krypton Linux/WSL Bootstrap Build"
+echo "  Krypton Bootstrap Build  (Linux / macOS / WSL)"
 echo "════════════════════════════════════════════════════"
 echo ""
 
@@ -119,8 +128,12 @@ if [[ -f "$SEED_BIN" ]]; then
     echo "════════════════════════════════════════════════════"
     echo ""
     echo "  Usage:"
-    echo "    ./build.sh run hello.k        compile + run a .k file (needs gcc)"
-    echo "    ./kcc.sh --native hello.k -o hello   gcc-free native ELF"
+    echo "    ./build.sh run hello.k        compile + run a .k file (needs $CC)"
+    if [[ "$OSNAME" == "linux" ]]; then
+        echo "    ./kcc.sh --native hello.k -o hello   gcc-free native ELF"
+    elif [[ "$OSNAME" == "macos" ]]; then
+        echo "    ./kcc.sh hello.k -o hello            via $CC (Mach-O backend not yet implemented)"
+    fi
     echo "    ./build.sh test               run the test suite"
     echo ""
     exit 0
@@ -165,5 +178,9 @@ echo ""
 echo "  Usage:"
 echo "    ./build.sh run hello.k        compile + run a .k file"
 echo "    ./build.sh test               run the test suite"
-echo "    ./kcc.sh --native hello.k -o hello   gcc-free native ELF"
+if [[ "$OSNAME" == "linux" ]]; then
+    echo "    ./kcc.sh --native hello.k -o hello   gcc-free native ELF"
+elif [[ "$OSNAME" == "macos" ]]; then
+    echo "    ./kcc.sh hello.k -o hello            via $CC (Mach-O backend not yet implemented)"
+fi
 echo ""

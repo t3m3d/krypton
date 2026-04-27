@@ -29,8 +29,10 @@ else
     KCC_HEADERS="$(echo "$KCC_HEADERS_UNIX" | sed 's|^/\([a-zA-Z]\)/|\1:/|')"
 fi
 
-# Find gcc
-GCC_EXE="$(command -v gcc 2>/dev/null)"
+# Find a C compiler. Prefer $CC env var, then gcc, then clang (macOS default).
+GCC_EXE="${CC:-}"
+if [[ -z "$GCC_EXE" ]]; then GCC_EXE="$(command -v gcc 2>/dev/null)"; fi
+if [[ -z "$GCC_EXE" ]]; then GCC_EXE="$(command -v clang 2>/dev/null)"; fi
 if [[ -z "$GCC_EXE" ]]; then
     for _try in \
         "/c/TDM-GCC-64/bin/gcc.exe" \
@@ -81,11 +83,16 @@ if [[ -n "$IRFLAG" && -z "$OUTFILE" ]]; then
 fi
 
 # ── --native pipeline ───────────────────────────────────────────────
-# Linux/macOS: .k → .kir → elf.k → ELF binary (no gcc, no libc)
-# Windows:     .k → .kir → optimize → x64.k → .exe (no gcc, needs krypton_rt.dll)
+# Linux:   .k → .kir → elf.k → ELF binary (no gcc, no libc)
+# Windows: .k → .kir → optimize → x64.k → .exe (no gcc, needs krypton_rt.dll)
+# macOS:   no Mach-O backend yet — falls back to the C path with a warning
+if [[ $NATIVE_MODE -eq 1 && "$PLATFORM" == "macos" ]]; then
+    echo "kcc: --native not yet supported on macOS (no Mach-O backend); using C path via $GCC_EXE" >&2
+    NATIVE_MODE=0
+fi
 if [[ $NATIVE_MODE -eq 1 ]]; then
     if [[ -z "$OUTFILE" ]]; then
-        if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
+        if [[ "$PLATFORM" == "linux" ]]; then
             OUTFILE="${SRCFILE%.k}"
         else
             OUTFILE="${SRCFILE%.k}.exe"
@@ -93,7 +100,7 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
     fi
     TMPIR="/tmp/_kcc_native_$$.kir"
 
-    if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
+    if [[ "$PLATFORM" == "linux" ]]; then
         # Linux ELF backend via kompiler/elf.k
         ELF_BIN="$SCRIPT_DIR/kompiler/elf_host"
 
@@ -210,8 +217,9 @@ if [[ -z "$OUTFILE" ]]; then
     exit $?
 fi
 
-# With -o: use native pipeline by default; --gcc flag falls back to gcc
-if [[ "$GCC_MODE" -ne 1 ]]; then
+# With -o: use native pipeline by default on Linux/Windows (no Mach-O yet on macOS);
+#          macOS goes through the C/gcc path. --gcc on any platform forces gcc.
+if [[ "$GCC_MODE" -ne 1 && "$PLATFORM" != "macos" ]]; then
     NATIVE_MODE=1
     exec "$0" --native -o "$OUTFILE" "$SRCFILE"
 fi

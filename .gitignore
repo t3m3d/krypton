@@ -77,6 +77,7 @@ mono_crash.*
 *.swo
 *~
 build*.bat
+!build_v*.bat
 test*
 *.ir
 *.dll
@@ -94,3 +95,8 @@ installer/
 assets/
 tests/*.cpp
 RELEASE*.md
+!RELEASE_NOTES_*.md
+build_v130.bat
+build_v137.bat
+build_v140.bat
+RELEASE_NOTES_1.4.0.md
