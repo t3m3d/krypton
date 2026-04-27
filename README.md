@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 ![Version](https://img.shields.io/badge/version-1.3.8-brightgreen)
 
-Krypton is a dynamically typed language with clean syntax, 147 built-in functions, and a compiler written in itself. It compiles to C for broad compatibility, and to native machine code via LLVM for maximum performance — no GCC in the critical path.
+Krypton is a dynamically typed language with clean syntax, 147 built-in functions, and a compiler written in itself. It compiles to C for broad compatibility, and to native machine code via the **`--native`** backend (ELF on Linux, PE on Windows) — no external compiler in the critical path.
 
 ```
 jxt {
@@ -31,8 +31,12 @@ just run {
 
 ### Requirements
 
-- **GCC** (or any C99 compiler) — for all platforms. Windows: TDM-GCC or MSYS2 mingw-w64.
-- **LLVM / clang** (optional) — only needed for the `--llvm` backend.
+**Nothing.** Both Linux and Windows ship prebuilt seed binaries in `bootstrap/`. `git clone` and run.
+
+Optional:
+- **GCC** — only if you want the C backend (`./kcc x.k > x.c && gcc x.c -o x -lm`) or to rebuild from source on a platform without a prebuilt seed.
+- **clang / LLVM** — only for the `--llvm` backend.
+- **TDM-GCC / MSYS2 mingw-w64** — only if you want a Windows from-source rebuild via `build_v137.bat`.
 
 ---
 
@@ -56,13 +60,15 @@ kcc.sh --native examples/hello.k -o hello
 ./hello                                 # static Linux ELF, no libc, no gcc
 ```
 
-This pipeline (`compile.k → IR → kompiler/elf.k → x86-64 ELF`) emits direct Linux syscalls, no library dependencies. Tested with 23+ programs including `examples/fibonacci.k`.
+This pipeline (`compile.k → IR → kompiler/elf.k → x86-64 ELF`) emits direct Linux syscalls, no library dependencies.
 
-The traditional C path still works for users who want it (`./kcc source.k > out.c && gcc out.c -o prog -lm`).
+**Builtins supported by the ELF backend:** `kp`, `toStr`, `toInt`, `length`, `len`, `split`, `range`, `arg`, `argCount`, `substring`, `sbNew`, `sbAppend`, `sbToString`, `readFile`, `writeFile`, plus `s[i]` indexing. Tested with 23+ programs including `examples/fibonacci.k`. More builtins ship as the runtime grows.
+
+The traditional C path still works as a fallback if you have gcc (`./kcc source.k > out.c && gcc out.c -o prog -lm`).
 
 ### macOS
 
-Same as Linux / WSL above — `./build.sh` falls through to source-seed mode (no prebuilt macOS binary in the repo yet) and compiles via gcc/clang. The `--native` ELF backend is Linux-only; macOS programs go through the C path.
+Same as Linux / WSL above — `./build.sh` falls through to source-seed mode (no prebuilt macOS binary in the repo yet) and compiles via gcc/clang. The `--native` ELF backend is Linux-only for now; macOS programs go through the C path until a Mach-O backend is added.
 
 ---
 
@@ -101,7 +107,24 @@ just run {
 }
 ```
 
-### Compile to C (all platforms)
+### Compile to a native binary (recommended — no gcc)
+
+**Linux:**
+```bash
+kcc.sh --native hello.k -o hello
+./hello                            # static ELF, direct syscalls, no libc
+```
+
+Emits ELF64 directly via [kompiler/elf.k](kompiler/elf.k). Static binary, calls Linux syscalls (`SYS_write`, `SYS_mmap`, `SYS_exit`) directly, no libc, no dynamic linker.
+
+**Windows:**
+```
+kcc.sh --native hello.k -o hello.exe
+```
+
+Emits PE/COFF directly via [kompiler/x64.k](kompiler/x64.k). The `.exe` imports only `kernel32.dll` (via `runtime/krypton_rt.dll`).
+
+### Compile to C (fallback — requires gcc)
 
 **Linux / macOS:**
 ```bash
@@ -117,15 +140,7 @@ gcc hello.c -o hello.exe -lm
 hello.exe
 ```
 
-### Compile to a native binary (Windows only, no gcc)
-
-```
-kcc.sh --native hello.k -o hello.exe
-```
-
-This emits PE/COFF directly via the Krypton x64 backend. Produces a Windows `.exe` that imports only `kernel32.dll` (via `krypton_rt.dll`). ELF emission for Linux is not yet implemented — on Linux, use the C path above.
-
-### Compile via LLVM IR (cross-platform)
+### Compile via LLVM IR (optional — requires clang)
 
 ```
 kcc.sh --llvm hello.k -o hello.ll
@@ -204,21 +219,6 @@ func applyTwice(f, x) { emit f(f(x)) }
 kp(applyTwice(double, "3"))   // 12
 ```
 
-### Closures / Lambdas
-
-```
-// Assign anonymous functions to variables
-let double = func(x) { emit toInt(x) * 2 + "" }
-let add = func(a, b) { emit toInt(a) + toInt(b) + "" }
-
-kp(double("5"))      // 10
-kp(add("3", "4"))    // 7
-
-// Pass to higher-order functions
-func applyTwice(f, x) { emit f(f(x)) }
-kp(applyTwice(double, "3"))   // 12
-```
-
 ### Structs
 
 ```
@@ -283,9 +283,11 @@ Float builtins: `fadd`, `fsub`, `fmul`, `fdiv`, `fsqrt`, `ffloor`, `fceil`, `fro
 ```
 source.k
     │
-    ├─ C backend (default):
-    │      kcc source.k > source.c
-    │      gcc source.c -o source -lm
+    ├─ Native ELF backend (Linux, no gcc, no libc):
+    │      kcc.sh --native source.k -o source
+    │
+    │      source.k → .kir → .kir (opt) → x86-64 ELF → source
+    │      (direct syscalls, static binary)
     │
     ├─ Native PE backend (Windows, no gcc):
     │      kcc.sh --native source.k -o source.exe
@@ -293,7 +295,11 @@ source.k
     │      source.k → .kir → .kir (opt) → x64 PE → source.exe
     │      (uses runtime/krypton_rt.dll, kernel32-only)
     │
-    └─ LLVM IR backend:
+    ├─ C backend (fallback, requires gcc):
+    │      kcc source.k > source.c
+    │      gcc source.c -o source -lm
+    │
+    └─ LLVM IR backend (optional, requires clang):
            kcc.sh --llvm source.k -o source.ll
            clang source.ll -o source
 
@@ -359,22 +365,29 @@ krypton/
 ├── kompiler/
 │   ├── compile.k          # Self-hosting compiler (4,735 lines)
 │   ├── optimize.k         # IR optimizer (335 lines)
-│   ├── x64.k              # Native PE/COFF backend (5,274 lines)
+│   ├── x64.k              # Native PE/COFF backend, Windows (5,274 lines)
+│   ├── elf.k              # Native ELF64 backend, Linux (2,207 lines)
 │   ├── llvm.k             # LLVM IR backend (441 lines)
 │   └── run.k              # Interpreter (2,084 lines)
 ├── runtime/
 │   ├── krypton_rt.k       # Krypton runtime (Phase 2 — self-hosted)
-│   └── krypton_rt.dll     # Bootstrap runtime (kernel32-only, hand-emitted by x64.k)
-├── bootstrap/
-│   └── kcc_seed.c         # Pre-generated C source of compile.k for cold-start builds
+│   └── krypton_rt.dll     # Windows bootstrap runtime (kernel32-only, hand-emitted by x64.k)
+├── bootstrap/                              # Cold-start prebuilts — no compiler needed to install
+│   ├── kcc_seed.c                          # Pre-generated C source of compile.k (fallback)
+│   ├── kcc_seed_linux_x86_64               # Prebuilt Linux kcc ELF
+│   ├── elf_host_linux_x86_64               # Prebuilt Linux ELF emitter
+│   ├── kcc_seed_windows_x86_64.exe         # Prebuilt Windows kcc PE
+│   ├── x64_host_windows_x86_64.exe         # Prebuilt Windows PE emitter
+│   └── optimize_host_windows_x86_64.exe    # Prebuilt IR optimizer
 ├── stdlib/                # Standard library modules
 ├── examples/              # Example programs
 ├── headers/               # .krh module headers
 ├── tests/                 # Test suite
 ├── assets/                # Windows icon resource (krypton_rc.o)
 ├── versions/              # Historical bootstrap binaries
-├── build.sh               # Linux/macOS/WSL build
-├── build_v137.bat         # Windows build
+├── build.sh               # Linux/macOS/WSL build (uses prebuilt seed when available)
+├── bootstrap.bat          # Windows install (copies prebuilt binaries from bootstrap/)
+├── build_v137.bat         # Windows from-source rebuild (requires TDM-GCC)
 ├── install.sh             # Linux install (build + symlink to /usr/local/bin)
 ├── Makefile               # Cross-platform make wrapper around build scripts
 ├── CHANGELOG.md           # Full version history
@@ -387,9 +400,13 @@ krypton/
 
 ## Bootstrap
 
-Linux / macOS / WSL: `bootstrap/kcc_seed.c` is a pre-generated C source of the self-hosting compiler. `build.sh` compiles it with gcc, then uses the resulting `kcc` to recompile `kompiler/compile.k` (verifying self-host).
+Krypton solves the self-hosting chicken-and-egg problem by shipping prebuilt seed binaries in `bootstrap/`. A fresh clone needs **no compiler** to install on either Linux or Windows.
 
-Windows: `build_v137.bat` does the same plus builds `kcc_native.exe` (self-hosted via `runtime/krypton_rt.dll`, no gcc at runtime) and links the icon from `assets/krypton_rc.o`.
+**Linux / WSL:** `build.sh` copies `bootstrap/kcc_seed_linux_x86_64` directly as `./kcc` — pure `cp`, no gcc invoked. Falls back to compiling `bootstrap/kcc_seed.c` with gcc only if the prebuilt is missing for the host platform (e.g., aarch64). After that, `kcc.sh --native` uses `bootstrap/elf_host_linux_x86_64` (the prebuilt ELF emitter), so the entire `--native` pipeline is gcc-free too.
+
+**Windows:** `bootstrap.bat` copies `kcc_seed_windows_x86_64.exe`, `x64_host_windows_x86_64.exe`, and `optimize_host_windows_x86_64.exe` into place. `kcc.sh --native` uses those prebuilts directly. From-source rebuild (icon updates, version bumps) lives in `build_v137.bat` and requires TDM-GCC.
+
+**macOS:** falls through to source-seed mode (no prebuilt yet). Requires gcc/clang.
 
 The compiler has been self-hosting since the v0.1 series. Historical bootstrap binaries live in `versions/`.
 
