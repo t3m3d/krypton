@@ -1,12 +1,14 @@
-// macho.k — Krypton native Mach-O backend for x86-64 macOS.
+// macho.k — Krypton native Mach-O backend for macOS (x86_64 and ARM64).
 //
-// First milestone (THIS version): emit a static Mach-O hello-world. Once the
-// format is verified on real macOS hardware, we expand to full IR support
+// First milestone: emit a static hello-world Mach-O for either architecture.
+// Once the format is verified on real hardware, we expand to full IR support
 // the way elf.k did (parse .kir, emit user functions + runtime helpers).
 //
-// Why x86_64 first (not ARM64): same instruction emission as elf.k, runs on
-// Intel macOS natively AND on Apple Silicon via Rosetta 2. ARM64 would need
-// a brand-new ISA backend.
+// Architecture is selected via the `--arch` flag:
+//   --arch x86_64   (Intel Macs natively, Apple Silicon via Rosetta 2)
+//   --arch arm64    (Apple Silicon natively)
+//
+// Default: x86_64 (broadest compatibility).
 //
 // IMPORTANT — code signing:
 //   Apple Silicon (macOS 11+) REQUIRES a code signature. Without it the OS
@@ -18,34 +20,37 @@
 //     codesign -s - --force ./hello
 //
 //   The dash after `-s` means ad-hoc signing — no Apple Developer ID needed.
-//   `codesign` ships with Xcode Command Line Tools. We don't embed
-//   LC_CODE_SIGNATURE in this version; that's a future enhancement.
+//   `codesign` ships with Xcode Command Line Tools.
 //
-// Layout produced (file offsets):
+// Layout produced (file offsets, x86_64):
 //   [0..31]      mach_header_64                              (32 bytes)
 //   [32..103]    LC_SEGMENT_64 __PAGEZERO  (no sections)     (72 bytes)
 //   [104..255]   LC_SEGMENT_64 __TEXT      (1 section)       (152 bytes)
-//   [256..439]   LC_UNIXTHREAD             (x86 thread state) (184 bytes)
-//   [440..]      code (and string data, for now in same segment)
+//   [256..279]   LC_BUILD_VERSION                            (24 bytes)
+//   [280..463]   LC_UNIXTHREAD             (x86 thread state) (184 bytes)
+//   [464..]      code + string data
 //
-//   ncmds        = 3
-//   sizeofcmds   = 72 + 152 + 184 = 408
-//   header+cmds  = 32 + 408 = 440
+// Layout for ARM64 is the same except LC_UNIXTHREAD is 288 bytes
+// (ARM_THREAD_STATE64 has 33 fields = 272 bytes vs x86_64's 21 = 168), so
+// code starts at offset 568 instead of 464.
 //
-// Calling convention: same as Linux/SysV (RDI/RSI/RDX/R10/R8/R9). The only
-// real differences from ELF are: container format, syscall numbers (BSD
-// class — OR'd with 0x2000000), and the entry-point mechanism.
+// Calling convention per arch:
 //
-// macOS x86_64 syscall numbers (BSD class, prefix with 0x2000000):
-//   write = 4   →  RAX = 0x2000004
-//   exit  = 1   →  RAX = 0x2000001
-//   read  = 3   →  RAX = 0x2000003
-//   open  = 5   →  RAX = 0x2000005
-//   close = 6   →  RAX = 0x2000006
-//   mmap  = 197 →  RAX = 0x20000C5
+//   x86_64 (BSD class — syscall numbers OR'd with 0x2000000):
+//     RAX = syscall number (e.g., 0x2000004 for write)
+//     RDI/RSI/RDX/R10/R8/R9 = args
+//     SYSCALL instruction
+//     RAX = result, carry flag set on error
 //
-// Usage:  kcc kompiler/macho.k input.kir output (no extension; chmod +x by caller)
-//         then: codesign -s - --force output
+//   ARM64:
+//     X16 = syscall number (just the number, e.g., 4 for write)
+//     X0..X5 = args
+//     SVC #0x80 instruction
+//     X0 = result
+//
+// Syscall numbers (same for both archs, just different encoding):
+//   write = 4    exit  = 1    read  = 3
+//   open  = 5    close = 6    mmap  = 197
 
 // ── Hex helpers (duplicated from elf.k — keep in sync) ─────────────────────
 
@@ -82,19 +87,10 @@ func hexDword(n) {
 }
 
 func hexQword(n) {
-    // Krypton ints fit in ~63 bits via toInt, so the high dword is 0
-    // for any address we care about EXCEPT the __TEXT vmaddr (0x100000000)
-    // and PAGEZERO vmsize (also 0x100000000). Those need the high dword = 1.
-    // For all other 64-bit values used here, high dword = 0.
     emit hexDword(n) + hexDword(0)
 }
 
-// hexQword4G: emits 0x0000000100000000 (4GB), used for PAGEZERO vmsize and
-// __TEXT vmaddr. Krypton can't represent this as a single int directly.
 func hexQword4G() { emit hexDword(0) + hexDword(1) }
-
-// hex4GPlus: emits 0x100000000 + offset, where offset is < 4GB. Used for
-// section addresses and the entry-point RIP.
 func hex4GPlus(offset) { emit hexDword(offset) + hexDword(1) }
 
 func hexPad(n) {
@@ -117,7 +113,6 @@ func hexStr(s) {
     emit out
 }
 
-// 16-byte fixed-width segment/section name. Pads with NULs.
 func hexName16(s) {
     let n = len(s)
     if n > 16 { n = 16 }
@@ -139,56 +134,63 @@ func hexBytesLen(s) { emit len(s) / 3 }
 
 // ── Mach-O constants ───────────────────────────────────────────────────────
 
-func MH_MAGIC_64()  { emit 0xFEEDFACF }
-func CPU_TYPE_X86_64()    { emit 0x01000007 }   // 7 | CPU_ARCH_ABI64 (0x01000000)
+func MH_MAGIC_64()     { emit 0xFEEDFACF }
+func MH_EXECUTE()      { emit 2 }
+func MH_NOUNDEFS()     { emit 1 }
+
+func CPU_TYPE_X86_64() { emit 0x01000007 }
+func CPU_TYPE_ARM64()  { emit 0x0100000C }
 func CPU_SUBTYPE_X86_64_ALL() { emit 3 }
-func MH_EXECUTE()    { emit 2 }
-func MH_NOUNDEFS()   { emit 1 }
+func CPU_SUBTYPE_ARM64_ALL()  { emit 0 }
 
-func LC_SEGMENT_64() { emit 0x19 }
-func LC_UNIXTHREAD() { emit 0x05 }
+func LC_SEGMENT_64()    { emit 0x19 }
+func LC_UNIXTHREAD()    { emit 0x05 }
+func LC_BUILD_VERSION() { emit 0x32 }
 
-// x86_THREAD_STATE64 flavor and count
-func X86_THREAD_STATE64() { emit 4 }
-// thread state is 21 64-bit fields = 168 bytes = 42 dwords
-func X86_THREAD_STATE64_COUNT() { emit 42 }
+// Thread state flavors / counts
+func X86_THREAD_STATE64()       { emit 4 }
+func X86_THREAD_STATE64_COUNT() { emit 42 }   // 168 / 4 = 42 dwords
+func ARM_THREAD_STATE64()       { emit 6 }
+func ARM_THREAD_STATE64_COUNT() { emit 68 }   // 272 / 4 = 68 dwords
 
-// __TEXT segment vm permissions: maxprot/initprot
-func VM_PROT_READ()  { emit 1 }
-func VM_PROT_WRITE() { emit 2 }
-func VM_PROT_EXEC()  { emit 4 }
+// LC_BUILD_VERSION platform constants
+func PLATFORM_MACOS() { emit 1 }
 
 // __text section flags: S_REGULAR(0) | S_ATTR_PURE_INSTRUCTIONS(0x80000000)
 //                                    | S_ATTR_SOME_INSTRUCTIONS(0x400)
-// = 0x80000400
 func TEXT_SECT_FLAGS() { emit 0x80000400 }
 
 
 // ── Mach-O header emission ─────────────────────────────────────────────────
 
-// 32-byte mach_header_64.
-func emitMachHeader(ncmds, sizeofcmds) {
+// 32-byte mach_header_64. arch is "x86_64" or "arm64".
+func emitMachHeader(arch, ncmds, sizeofcmds) {
+    let cputype = CPU_TYPE_X86_64()
+    let subtype = CPU_SUBTYPE_X86_64_ALL()
+    if arch == "arm64" {
+        cputype = CPU_TYPE_ARM64()
+        subtype = CPU_SUBTYPE_ARM64_ALL()
+    }
     let c = ""
     c = c + hexDword(MH_MAGIC_64())
-    c = c + hexDword(CPU_TYPE_X86_64())
-    c = c + hexDword(CPU_SUBTYPE_X86_64_ALL())
+    c = c + hexDword(cputype)
+    c = c + hexDword(subtype)
     c = c + hexDword(MH_EXECUTE())
     c = c + hexDword(ncmds)
     c = c + hexDword(sizeofcmds)
     c = c + hexDword(MH_NOUNDEFS())
-    c = c + hexDword(0)                         // reserved
+    c = c + hexDword(0)
     emit c
 }
 
 // LC_SEGMENT_64 __PAGEZERO — 72 bytes, no sections.
-// Reserves the bottom 4GB so any null-deref or accidental low-address access
-// segfaults. Standard macOS layout.
+// Reserves the bottom 4GB. Mandatory on macOS.
 func emitPageZero() {
     let c = ""
-    c = c + hexDword(LC_SEGMENT_64())           // cmd
-    c = c + hexDword(72)                         // cmdsize
-    c = c + hexName16("__PAGEZERO")              // segname
-    c = c + hexQword(0)                          // vmaddr = 0
+    c = c + hexDword(LC_SEGMENT_64())
+    c = c + hexDword(72)
+    c = c + hexName16("__PAGEZERO")
+    c = c + hexQword(0)                          // vmaddr
     c = c + hexQword4G()                         // vmsize = 0x100000000
     c = c + hexQword(0)                          // fileoff
     c = c + hexQword(0)                          // filesize
@@ -199,184 +201,323 @@ func emitPageZero() {
     emit c
 }
 
-// LC_SEGMENT_64 __TEXT — 72 (segment) + 80 (one __text section) = 152 bytes.
-//
-//   vmaddr   = 0x100000000 (just past PAGEZERO)
-//   vmsize   = page-aligned filesize (0x1000 alignment)
-//   fileoff  = 0   (whole file from offset 0 is the segment)
+// LC_SEGMENT_64 __TEXT — 72 + 80 = 152 bytes (1 __text section).
+//   vmaddr   = 0x100000000
+//   vmsize   = page-aligned (0x4000 on Apple Silicon, 0x1000 on Intel; 0x4000 works for both)
+//   fileoff  = 0
 //   filesize = full file size
 //   maxprot  = R+W+X = 7
 //   initprot = R+X   = 5
 //   nsects   = 1
-//   section __text:
-//     addr    = vmaddr + (file offset of code)
-//     size    = code size + string data size
-//     offset  = file offset of code (440 for our 3-cmd layout)
-//     align   = 4 (2^4 = 16 bytes)
-//     flags   = S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS
 func emitTextSegment(filesize, vmsize, codeOffset, codeAndDataSize) {
     let c = ""
-    // segment header
+    // segment header (72 bytes)
     c = c + hexDword(LC_SEGMENT_64())
-    c = c + hexDword(152)                        // cmdsize = 72 + 80
+    c = c + hexDword(152)
     c = c + hexName16("__TEXT")
     c = c + hex4GPlus(0)                         // vmaddr = 0x100000000
-    c = c + hexQword(vmsize)                     // vmsize (page-aligned)
-    c = c + hexQword(0)                          // fileoff = 0
-    c = c + hexQword(filesize)                   // filesize
-    c = c + hexDword(7)                          // maxprot RWX
-    c = c + hexDword(5)                          // initprot RX
+    c = c + hexQword(vmsize)
+    c = c + hexQword(0)                          // fileoff
+    c = c + hexQword(filesize)
+    c = c + hexDword(7)                          // maxprot
+    c = c + hexDword(5)                          // initprot
     c = c + hexDword(1)                          // nsects
     c = c + hexDword(0)                          // flags
     // section __text (80 bytes)
-    c = c + hexName16("__text")                  // sectname
-    c = c + hexName16("__TEXT")                  // segname
-    c = c + hex4GPlus(codeOffset)                // addr (vmaddr + codeOffset)
+    c = c + hexName16("__text")
+    c = c + hexName16("__TEXT")
+    c = c + hex4GPlus(codeOffset)                // addr
     c = c + hexQword(codeAndDataSize)            // size
-    c = c + hexDword(codeOffset)                 // offset (file offset)
+    c = c + hexDword(codeOffset)                 // offset
     c = c + hexDword(4)                          // align (2^4 = 16)
     c = c + hexDword(0)                          // reloff
     c = c + hexDword(0)                          // nreloc
-    c = c + hexDword(TEXT_SECT_FLAGS())          // flags
+    c = c + hexDword(TEXT_SECT_FLAGS())
     c = c + hexDword(0)                          // reserved1
     c = c + hexDword(0)                          // reserved2
     c = c + hexDword(0)                          // reserved3
     emit c
 }
 
-// LC_UNIXTHREAD — 184 bytes for x86_64.
-//   cmd / cmdsize:    8 bytes  (LC_UNIXTHREAD, 184)
-//   flavor / count:   8 bytes  (4=x86_THREAD_STATE64, 42)
-//   thread state:   168 bytes  (21 × uint64 — RAX, RBX, RCX, RDX, RDI, RSI,
-//                                RBP, RSP, R8..R15, RIP, RFLAGS, CS, FS, GS)
+// LC_BUILD_VERSION — 24 bytes. Tells macOS what platform/version this binary
+// targets. Modern macOS (especially Apple Silicon) wants this; without it the
+// kernel may refuse to load. ntools = 0 (no embedded tool versions).
 //
-// We zero everything except RIP, which gets the entry-point virtual address.
-// Field order in x86_thread_state64_t (Apple headers):
-//   [0]  rax    [1]  rbx    [2]  rcx    [3]  rdx
-//   [4]  rdi    [5]  rsi    [6]  rbp    [7]  rsp
-//   [8]  r8     [9]  r9     [10] r10    [11] r11
-//   [12] r12    [13] r13    [14] r14    [15] r15
-//   [16] rip    [17] rflags [18] cs     [19] fs     [20] gs
-func emitUnixThread(entryVAddr, entryHi) {
+// Version encoding: X.Y.Z packed as XXYYZZ in 32 bits (big-endian nibbles).
+// macOS 11.0 = 0x000B0000. We use macOS 11.0 as min and 11.0 as SDK to keep
+// it simple; that covers Apple Silicon (which started at 11.0) and is widely
+// compatible.
+func emitBuildVersion() {
     let c = ""
-    c = c + hexDword(LC_UNIXTHREAD())            // cmd
-    c = c + hexDword(184)                         // cmdsize
-    c = c + hexDword(X86_THREAD_STATE64())        // flavor
-    c = c + hexDword(X86_THREAD_STATE64_COUNT())  // count (42 dwords of state)
-    // 16 GP regs zeroed = 16 × 8 = 128 bytes
-    c = c + hexPad(128)
-    // [16] RIP — entry point. Encode as low + high dword (high = 1 for >4GB vmaddr).
-    c = c + hexDword(entryVAddr) + hexDword(entryHi)
-    // RFLAGS, CS, FS, GS — all zero
-    c = c + hexPad(32)
+    c = c + hexDword(LC_BUILD_VERSION())         // cmd
+    c = c + hexDword(24)                          // cmdsize
+    c = c + hexDword(PLATFORM_MACOS())            // platform = 1
+    c = c + hexDword(0x000B0000)                  // minos = 11.0.0
+    c = c + hexDword(0x000B0000)                  // sdk = 11.0.0
+    c = c + hexDword(0)                           // ntools
+    emit c
+}
+
+// LC_UNIXTHREAD — entry point. Cmdsize and state layout differ per arch.
+//
+// x86_64 (184 bytes total):
+//   cmd / cmdsize:  8 bytes  (LC_UNIXTHREAD, 184)
+//   flavor / count: 8 bytes  (4=x86_THREAD_STATE64, 42)
+//   thread state: 168 bytes  (RAX..R15, RIP at idx 16, RFLAGS, CS, FS, GS)
+//
+// ARM64 (288 bytes total):
+//   cmd / cmdsize:  8 bytes  (LC_UNIXTHREAD, 288)
+//   flavor / count: 8 bytes  (6=ARM_THREAD_STATE64, 68)
+//   thread state: 272 bytes  (X0..X28, FP, LR, SP, PC, CPSR + 4 byte pad)
+//
+// arm_thread_state64_t layout (from <mach/arm/_structs.h>):
+//   uint64 x[29]      ; 232 bytes (X0..X28)
+//   uint64 fp         ; 8 bytes  (X29)
+//   uint64 lr         ; 8 bytes  (X30)
+//   uint64 sp         ; 8 bytes
+//   uint64 pc         ; 8 bytes  (we set this to entry vaddr)
+//   uint32 cpsr       ; 4 bytes
+//   uint32 __pad      ; 4 bytes
+//   = 272 bytes
+//
+// PC offset within state = 232 + 8 + 8 + 8 = 256 bytes from start of state.
+func emitUnixThread(arch, entryLo, entryHi) {
+    let c = ""
+    if arch == "arm64" {
+        c = c + hexDword(LC_UNIXTHREAD())
+        c = c + hexDword(288)                            // cmdsize
+        c = c + hexDword(ARM_THREAD_STATE64())
+        c = c + hexDword(ARM_THREAD_STATE64_COUNT())
+        // X0..X28 zeroed (29 * 8 = 232 bytes)
+        c = c + hexPad(232)
+        // FP, LR, SP zeroed (3 * 8 = 24 bytes)
+        c = c + hexPad(24)
+        // PC = entry vaddr (8 bytes)
+        c = c + hexDword(entryLo) + hexDword(entryHi)
+        // CPSR + pad = 8 bytes zeroed
+        c = c + hexPad(8)
+    } else {
+        // x86_64
+        c = c + hexDword(LC_UNIXTHREAD())
+        c = c + hexDword(184)                            // cmdsize
+        c = c + hexDword(X86_THREAD_STATE64())
+        c = c + hexDword(X86_THREAD_STATE64_COUNT())
+        // RAX..R15 = 16 regs × 8 = 128 bytes zeroed
+        c = c + hexPad(128)
+        // RIP = entry vaddr (8 bytes)
+        c = c + hexDword(entryLo) + hexDword(entryHi)
+        // RFLAGS, CS, FS, GS = 32 bytes zeroed
+        c = c + hexPad(32)
+    }
     emit c
 }
 
 
-// ── Code emitters (x86_64 instructions — same encoding as elf.k) ───────────
+// ── x86_64 instruction emitters ────────────────────────────────────────────
 
-// MOV EAX, imm32  →  B8 imm32       (5 bytes)
-func emitMovEaxImm32(n) { emit hexByte(0xB8) + hexDword(n) }
-// MOV EDI, imm32  →  BF imm32       (5 bytes)
-func emitMovEdiImm32(n) { emit hexByte(0xBF) + hexDword(n) }
-// MOV EDX, imm32  →  BA imm32       (5 bytes)
-func emitMovEdxImm32(n) { emit hexByte(0xBA) + hexDword(n) }
-// MOV RSI, imm64  →  48 BE imm64    (10 bytes)
-func emitMovRsiImm64Lo(loDword, hiDword) {
+func x86_emitMovEaxImm32(n) { emit hexByte(0xB8) + hexDword(n) }
+func x86_emitMovEdiImm32(n) { emit hexByte(0xBF) + hexDword(n) }
+func x86_emitMovEdxImm32(n) { emit hexByte(0xBA) + hexDword(n) }
+func x86_emitMovRsiImm64(loDword, hiDword) {
     emit hexByte(0x48) + hexByte(0xBE) + hexDword(loDword) + hexDword(hiDword)
 }
-// XOR EDI, EDI    →  31 FF          (2 bytes)
-func emitXorEdiEdi() { emit hexByte(0x31) + hexByte(0xFF) }
-// SYSCALL         →  0F 05          (2 bytes)
-func emitSyscall() { emit hexByte(0x0F) + hexByte(0x05) }
+func x86_emitXorEdiEdi() { emit hexByte(0x31) + hexByte(0xFF) }
+func x86_emitSyscall()   { emit hexByte(0x0F) + hexByte(0x05) }
+
+
+// ── ARM64 instruction emitters ─────────────────────────────────────────────
+//
+// All ARM64 instructions are 4 bytes, little-endian.
+//
+// MOVZ Xd, #imm16 {, LSL #(hw*16)}: zero-extend imm16 into Xd at shift hw.
+//   Encoding: 1 10 100101 hw imm16(16) Rd(5)
+//   hw: 0=no shift, 1=lsl16, 2=lsl32, 3=lsl48
+//
+// MOVK Xd, #imm16 {, LSL #(hw*16)}: keep other bits, write imm16 at shift.
+//   Encoding: 1 11 100101 hw imm16(16) Rd(5)
+//
+// SVC #imm16: supervisor call. Encoding: 11010100 000 imm16(16) 00001
+//
+// We build the 32-bit instruction word as integer math then emit little-endian.
+
+// emitArm64Word: encode a 32-bit instruction word as 4 little-endian bytes.
+// Delegates to hexDword which already handles Krypton's truncate-toward-zero
+// division correctly for high-bit-set values like 0xD2800020 (which Krypton
+// stores as a negative signed int).
+func emitArm64Word(w) { emit hexDword(w) }
+
+// MOVZ Xd, #imm16, LSL #(hw*16). Rd is 0..30. hw is 0..3.
+// Bit layout: 0xD2800000 | (hw << 21) | (imm16 << 5) | Rd
+func arm64_emitMovz(rd, imm16, hw) {
+    let w = 0xD2800000 + (hw * 0x200000) + (imm16 * 32) + rd
+    emit emitArm64Word(w)
+}
+
+// MOVK Xd, #imm16, LSL #(hw*16).
+// Bit layout: 0xF2800000 | (hw << 21) | (imm16 << 5) | Rd
+func arm64_emitMovk(rd, imm16, hw) {
+    let w = 0xF2800000 + (hw * 0x200000) + (imm16 * 32) + rd
+    emit emitArm64Word(w)
+}
+
+// SVC #imm16. Encoding: 0xD4000001 | (imm16 << 5)
+func arm64_emitSvc(imm16) {
+    let w = 0xD4000001 + (imm16 * 32)
+    emit emitArm64Word(w)
+}
+
+// Build a 64-bit value into Xd using exactly 3 instructions: MOVZ + 2 MOVKs.
+// Always emits 12 bytes regardless of address (constant code size). MOVK with
+// imm=0 is effectively a no-op (writes 0 over bits that are already 0 in the
+// MOVZ-cleared register).
+//
+// Full address = 0x100000000 + lowBits, where lowBits < 4GB. Target encoding:
+//   MOVZ Xd, #(lowBits & 0xFFFF)
+//   MOVK Xd, #((lowBits >> 16) & 0xFFFF), LSL #16    (bits 31-16 of lowBits)
+//   MOVK Xd, #1, LSL #32                              (the +0x100000000 high part)
+func arm64_emitLoadAddr64(rd, lowBits) {
+    let lo16 = lowBits % 65536
+    let hi16 = (lowBits / 65536) % 65536
+    let result = ""
+    result = result + arm64_emitMovz(rd, lo16, 0)
+    result = result + arm64_emitMovk(rd, hi16, 1)
+    result = result + arm64_emitMovk(rd, 1, 2)
+    emit result
+}
 
 
 // ── Page alignment ─────────────────────────────────────────────────────────
-// Mach-O __TEXT vmsize must be a multiple of 0x1000 (page size).
-func alignUp4K(n) {
-    let r = n % 4096
+// Apple Silicon uses 16K pages (0x4000), Intel uses 4K (0x1000). 16K alignment
+// works for both, so we use that universally.
+func alignUp16K(n) {
+    let r = n % 16384
     if r == 0 { emit n }
-    emit n + (4096 - r)
+    emit n + (16384 - r)
 }
 
 
-// ── Main: emit a hello-world Mach-O ────────────────────────────────────────
-//
-// First version is a hardcoded hello-world. Once the user verifies it runs
-// on their Mac (with `codesign -s - --force <output>`), we'll plumb in IR
-// parsing the way elf.k does.
+// ── Main: emit hello-world Mach-O for the requested arch ───────────────────
 
 just run {
-    let outPath = arg("1")
+    // Parse args: optional --arch flag + output path.
+    let arch = "x86_64"
+    let outPath = ""
+    let ai = 0
+    let n = argCount()
+    while ai < n {
+        let a = arg(ai)
+        if a == "--arch" {
+            ai += 1
+            if ai < n { arch = arg(ai) }
+        } else if startsWith(a, "--arch=") {
+            arch = substring(a, 7, len(a))
+        } else {
+            // treat the LAST positional arg as output path; ignore earlier
+            // ones (kcc.sh historically passes the IR file before the output)
+            outPath = a
+        }
+        ai += 1
+    }
+
+    if arch != "x86_64" {
+        if arch != "arm64" {
+            printErr("macho: unsupported --arch '" + arch + "' (use x86_64 or arm64)")
+            exit(1)
+        }
+    }
+
     if len(outPath) == 0 {
-        printErr("macho: usage: kcc kompiler/macho.k <ir-or-ignored> <output>")
+        printErr("macho: usage: macho [--arch x86_64|arm64] <output>")
         exit(1)
     }
 
-    // Hello message
     let msg = "Hello from Krypton on macOS!" + fromCharCode(10)
     let msgLen = len(msg)
 
-    // ── Compute layout ────────────────────────────────────────────────
-    // header (32) + PAGEZERO (72) + TEXT (152) + UNIXTHREAD (184) = 440
-    let codeOffset = 440
-    let textVAddrLo = codeOffset                  // low dword of section addr
-    // High dword of section addr = 1 (vmaddr 0x100000000 + small)
+    // ── Layout ──────────────────────────────────────────────────────────
+    //   header (32) + PAGEZERO (72) + TEXT (152) + BUILD_VERSION (24)
+    //                                            + UNIXTHREAD (varies)
+    let unixThrSize = 184
+    if arch == "arm64" { unixThrSize = 288 }
 
-    // Code:
-    //   _start:
-    //     mov eax, 0x2000004     ; SYS_write          (5)
-    //     mov edi, 1             ; fd = stdout        (5)
-    //     mov rsi, msgVAddr      ; absolute address   (10)
-    //     mov edx, msgLen                              (5)
-    //     syscall                                       (2)
-    //     mov eax, 0x2000001     ; SYS_exit            (5)
-    //     xor edi, edi           ; status = 0          (2)
-    //     syscall                                       (2)
+    let cmdsSize = 72 + 152 + 24 + unixThrSize
+    let ncmds = 4
+    let codeOffset = 32 + cmdsSize
+
+    // Code size differs per arch:
+    //   x86_64: 36 bytes (5+5+10+5+2+5+2+2)
+    //   ARM64:  44 bytes (11 instructions × 4 bytes)
+    //     MOVZ X0,#1                    1 instr
+    //     load X1 = msg vaddr           3 instrs (MOVZ + 2x MOVK)
+    //     MOVZ X2,#msgLen               1 instr
+    //     MOVZ X16,#4 (write)           1 instr
+    //     SVC #0x80                     1 instr
+    //     MOVZ X0,#0 (status)           1 instr
+    //     MOVZ X16,#1 (exit)            1 instr
+    //     SVC #0x80                     1 instr
+    //     = 10 instrs = 40 bytes
+    //   Wait — recount: 1+3+1+1+1+1+1+1 = 10 instrs = 40 bytes.
     let codeSize = 36
-    let msgOffset = codeOffset + codeSize          // file offset of msg
-    let msgVAddrLo = msgOffset                     // low dword (high = 1)
+    if arch == "arm64" { codeSize = 40 }
+
+    let msgOffset = codeOffset + codeSize
+    let msgVAddrLo = msgOffset
 
     let totalCodeAndData = codeSize + msgLen
     let filesize = codeOffset + totalCodeAndData
-    let vmsize = alignUp4K(filesize)
+    let vmsize = alignUp16K(filesize)
 
-    // Entry point RIP = vmaddr + codeOffset
     let entryLo = codeOffset
     let entryHi = 1                                // 0x100000000
 
-    // ── Emit everything ─────────────────────────────────────────────────
-    let header   = emitMachHeader(3, 408)
+    // ── Emit headers ────────────────────────────────────────────────────
+    let header   = emitMachHeader(arch, ncmds, cmdsSize)
     let pagezero = emitPageZero()
     let textSeg  = emitTextSegment(filesize, vmsize, codeOffset, totalCodeAndData)
-    let unixThr  = emitUnixThread(entryLo, entryHi)
+    let buildVer = emitBuildVersion()
+    let unixThr  = emitUnixThread(arch, entryLo, entryHi)
 
+    // ── Emit code (per arch) ────────────────────────────────────────────
     let code = ""
-    code = code + emitMovEaxImm32(0x2000004)       // SYS_write
-    code = code + emitMovEdiImm32(1)               // fd = stdout
-    code = code + emitMovRsiImm64Lo(msgVAddrLo, 1) // RSI = msg vaddr (high=1)
-    code = code + emitMovEdxImm32(msgLen)
-    code = code + emitSyscall()
-    code = code + emitMovEaxImm32(0x2000001)       // SYS_exit
-    code = code + emitXorEdiEdi()
-    code = code + emitSyscall()
+    if arch == "arm64" {
+        // X0 = 1 (fd = stdout)
+        code = code + arm64_emitMovz(0, 1, 0)
+        // X1 = msg vaddr (MOVZ + 2x MOVK to build 0x100000000 + msgOffset)
+        code = code + arm64_emitLoadAddr64(1, msgVAddrLo)
+        // X2 = msgLen
+        code = code + arm64_emitMovz(2, msgLen, 0)
+        // X16 = 4 (SYS_write)
+        code = code + arm64_emitMovz(16, 4, 0)
+        // SVC #0x80
+        code = code + arm64_emitSvc(0x80)
+        // X0 = 0 (exit status)
+        code = code + arm64_emitMovz(0, 0, 0)
+        // X16 = 1 (SYS_exit)
+        code = code + arm64_emitMovz(16, 1, 0)
+        // SVC #0x80
+        code = code + arm64_emitSvc(0x80)
+    } else {
+        // x86_64 BSD-class syscalls (number OR'd with 0x2000000)
+        code = code + x86_emitMovEaxImm32(0x2000004)        // SYS_write
+        code = code + x86_emitMovEdiImm32(1)                // fd
+        code = code + x86_emitMovRsiImm64(msgVAddrLo, 1)    // RSI = msg addr
+        code = code + x86_emitMovEdxImm32(msgLen)
+        code = code + x86_emitSyscall()
+        code = code + x86_emitMovEaxImm32(0x2000001)        // SYS_exit
+        code = code + x86_emitXorEdiEdi()
+        code = code + x86_emitSyscall()
+    }
 
     let data = hexStr(msg)
+    let all  = header + pagezero + textSeg + buildVer + unixThr + code + data
 
-    let all = header + pagezero + textSeg + unixThr + code + data
-
-    // hexBytesLen returns the number of actual bytes encoded (each "xHH" = 1 byte)
     let bytesEmitted = hexBytesLen(all)
-
-    // Sanity check: bytesEmitted should equal filesize
     if bytesEmitted != filesize {
         printErr("macho: internal layout error: emitted " + bytesEmitted + " bytes, expected " + filesize)
         exit(1)
     }
 
-    // writeBytes decodes our hex-encoded "xHH" stream into raw binary bytes.
-    // (writeFile would write the literal text "x4Fx45..." which is not what we want.)
     writeBytes(outPath, all)
-    printErr("macho: wrote " + outPath + " (" + filesize + " bytes)")
+    printErr("macho: wrote " + outPath + " (" + filesize + " bytes, arch=" + arch + ")")
     printErr("       Run `codesign -s - --force " + outPath + "` then `./" + outPath + "`")
 }
