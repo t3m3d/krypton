@@ -96,11 +96,30 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
     if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
         # Linux ELF backend via kompiler/elf.k
         ELF_BIN="$SCRIPT_DIR/kompiler/elf_host"
+
+        # Detect arch for prebuilt seed lookup
+        case "$(uname -m 2>/dev/null)" in
+            x86_64|amd64) _ARCH=x86_64 ;;
+            aarch64|arm64) _ARCH=aarch64 ;;
+            *) _ARCH=$(uname -m) ;;
+        esac
+        ELF_SEED="$SCRIPT_DIR/bootstrap/elf_host_${PLATFORM}_${_ARCH}"
+
         if [[ ! -f "$ELF_BIN" || "$SCRIPT_DIR/kompiler/elf.k" -nt "$ELF_BIN" ]]; then
-            echo "kcc: building elf host..." >&2
-            "$KCC_EXE" "$SCRIPT_DIR/kompiler/elf.k" > /tmp/_kcc_elf_build.c && \
-            "$GCC_EXE" /tmp/_kcc_elf_build.c -o "$ELF_BIN" $LIBS && rm -f /tmp/_kcc_elf_build.c
-            if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build elf codegen" >&2; exit 1; fi
+            # Prefer prebuilt seed (no gcc needed). Fall back to gcc-build if no seed.
+            if [[ -f "$ELF_SEED" && "$ELF_SEED" -nt "$SCRIPT_DIR/kompiler/elf.k" ]]; then
+                cp "$ELF_SEED" "$ELF_BIN"
+                chmod +x "$ELF_BIN"
+            else
+                if [[ -z "$GCC_EXE" || ! -x "$(command -v "$GCC_EXE" 2>/dev/null)$GCC_EXE" ]] && ! command -v "$GCC_EXE" >/dev/null 2>&1; then
+                    echo "kcc --native: no prebuilt elf_host seed for ${PLATFORM}_${_ARCH} and no gcc found" >&2
+                    exit 1
+                fi
+                echo "kcc: building elf host..." >&2
+                "$KCC_EXE" "$SCRIPT_DIR/kompiler/elf.k" > /tmp/_kcc_elf_build.c && \
+                "$GCC_EXE" /tmp/_kcc_elf_build.c -o "$ELF_BIN" $LIBS && rm -f /tmp/_kcc_elf_build.c
+                if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build elf codegen" >&2; exit 1; fi
+            fi
         fi
 
         "$KCC_EXE" --ir $HEADERS_FLAG "$SRCFILE" > "$TMPIR"
@@ -118,17 +137,29 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
     TMPOPT="/tmp/_kcc_native_opt_$$.kir"
     OPT_BIN="$SCRIPT_DIR/kompiler/optimize_host.exe"
     X64_BIN="$SCRIPT_DIR/kompiler/x64_host.exe"
+    OPT_SEED="$SCRIPT_DIR/bootstrap/optimize_host_windows_x86_64.exe"
+    X64_SEED="$SCRIPT_DIR/bootstrap/x64_host_windows_x86_64.exe"
+
     if [[ ! -f "$OPT_BIN" || "$SCRIPT_DIR/kompiler/optimize.k" -nt "$OPT_BIN" ]]; then
-        echo "kcc: building optimize host..." >&2
-        "$KCC_EXE" "$SCRIPT_DIR/kompiler/optimize.k" > /tmp/_kcc_opt_build.c && \
-        "$GCC_EXE" /tmp/_kcc_opt_build.c -o "$OPT_BIN" $LIBS && rm -f /tmp/_kcc_opt_build.c
-        if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build optimizer" >&2; exit 1; fi
+        # Prefer prebuilt seed (no gcc needed). Fall back to gcc-build.
+        if [[ -f "$OPT_SEED" && "$OPT_SEED" -nt "$SCRIPT_DIR/kompiler/optimize.k" ]]; then
+            cp "$OPT_SEED" "$OPT_BIN"
+        else
+            echo "kcc: building optimize host..." >&2
+            "$KCC_EXE" "$SCRIPT_DIR/kompiler/optimize.k" > /tmp/_kcc_opt_build.c && \
+            "$GCC_EXE" /tmp/_kcc_opt_build.c -o "$OPT_BIN" $LIBS && rm -f /tmp/_kcc_opt_build.c
+            if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build optimizer" >&2; exit 1; fi
+        fi
     fi
     if [[ ! -f "$X64_BIN" || "$SCRIPT_DIR/kompiler/x64.k" -nt "$X64_BIN" ]]; then
-        echo "kcc: building x64 host..." >&2
-        "$KCC_EXE" "$SCRIPT_DIR/kompiler/x64.k" > /tmp/_kcc_x64_build.c && \
-        "$GCC_EXE" /tmp/_kcc_x64_build.c -o "$X64_BIN" $LIBS && rm -f /tmp/_kcc_x64_build.c
-        if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build x64 codegen" >&2; exit 1; fi
+        if [[ -f "$X64_SEED" && "$X64_SEED" -nt "$SCRIPT_DIR/kompiler/x64.k" ]]; then
+            cp "$X64_SEED" "$X64_BIN"
+        else
+            echo "kcc: building x64 host..." >&2
+            "$KCC_EXE" "$SCRIPT_DIR/kompiler/x64.k" > /tmp/_kcc_x64_build.c && \
+            "$GCC_EXE" /tmp/_kcc_x64_build.c -o "$X64_BIN" $LIBS && rm -f /tmp/_kcc_x64_build.c
+            if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build x64 codegen" >&2; exit 1; fi
+        fi
     fi
 
     "$KCC_EXE" --ir $HEADERS_FLAG "$SRCFILE" > "$TMPIR"
