@@ -1,16 +1,13 @@
 #!/usr/bin/env bash
 # build.sh — Krypton bootstrap build for Linux / macOS / WSL
 #
-# Layer 1 of Linux support: C-transpile mode only.
-#   1) compile bootstrap/kcc_seed.c (a pre-generated C source of compile.k) → ./kcc
-#   2) use ./kcc to re-emit compile.k → C → rebuild ./kcc (self-rebuild check)
-#   3) smoke test: kcc compiles fibonacci, gcc links, run, check output
+# Two paths:
+#   1) Prebuilt seed (no gcc needed): if bootstrap/kcc_seed_<arch>_<os> exists,
+#      copy it directly as ./kcc. This is the gcc-free path.
+#   2) Source seed (needs gcc): if no prebuilt binary, compile bootstrap/kcc_seed.c
+#      with gcc to produce ./kcc, then self-rebuild via compile.k.
 #
-# After this, ./kcc translates .k files to C. To produce a runnable program:
-#   ./kcc source.k > source.c && gcc source.c -o prog -lm -w && ./prog
-#
-# Native ELF emission (kcc --native on Linux) is NOT supported yet — the
-# native PE emitter in kompiler/x64.k targets Windows PE/COFF.
+# After either path: smoke-test by compiling and running examples/fibonacci.k.
 
 set -euo pipefail
 
@@ -29,6 +26,19 @@ COMPILE_K="kompiler/compile.k"
 KCC="./kcc"
 CC="${CC:-gcc}"
 CFLAGS="-O2 -lm -w"
+
+# Detect platform → look for matching prebuilt seed binary.
+case "$(uname -s 2>/dev/null)" in
+    Linux*)  OSNAME=linux ;;
+    Darwin*) OSNAME=macos ;;
+    *)       OSNAME=other ;;
+esac
+case "$(uname -m 2>/dev/null)" in
+    x86_64|amd64) ARCH=x86_64 ;;
+    aarch64|arm64) ARCH=aarch64 ;;
+    *) ARCH=$(uname -m) ;;
+esac
+SEED_BIN="bootstrap/kcc_seed_${OSNAME}_${ARCH}"
 
 MODE="${1:-build}"
 
@@ -77,21 +87,58 @@ echo "  Krypton Linux/WSL Bootstrap Build"
 echo "════════════════════════════════════════════════════"
 echo ""
 
-# Sanity
-[[ -f "$SEED_C" ]]    || fail "missing $SEED_C — generate on Windows: kcc.exe kompiler/compile.k > $SEED_C"
 [[ -f "$COMPILE_K" ]] || fail "missing $COMPILE_K"
-command -v "$CC" >/dev/null || fail "$CC not found in PATH"
 
-info "compiler: $CC"
-info "seed:     $SEED_C ($(wc -l < "$SEED_C") lines)"
+# ── Path A: prebuilt seed binary (no gcc required) ──────────────────────────
+if [[ -f "$SEED_BIN" ]]; then
+    info "platform: ${OSNAME}/${ARCH}"
+    info "prebuilt: $SEED_BIN ($(stat -c%s "$SEED_BIN" 2>/dev/null || stat -f%z "$SEED_BIN") bytes)"
+    echo ""
+    echo "[1/2] Installing prebuilt kcc..."
+    cp "$SEED_BIN" "$KCC"
+    chmod +x "$KCC"
+    ok "$KCC ready (no gcc needed)"
+
+    echo ""
+    echo "[2/2] Smoke test: examples/fibonacci.k..."
+    if command -v "$CC" >/dev/null; then
+        "$KCC" examples/fibonacci.k > /tmp/_fib.c || fail "kcc failed on fibonacci.k"
+        "$CC" /tmp/_fib.c -o /tmp/_fib $CFLAGS || fail "gcc failed on fibonacci"
+        OUTPUT=$(/tmp/_fib)
+        echo "$OUTPUT" | grep -q "fib(19) = 4181" || fail "fibonacci output wrong: $OUTPUT"
+        rm -f /tmp/_fib.c /tmp/_fib
+        ok "fibonacci → 4181 (via gcc-built user program)"
+    else
+        info "gcc not present — skipping C-link smoke test"
+        info "kcc itself works without gcc; user programs need gcc OR use 'kcc.sh --native'"
+    fi
+    VERSION=$("$KCC" --version 2>&1 | head -1)
+    echo ""
+    echo "════════════════════════════════════════════════════"
+    echo "  Build complete: $VERSION (gcc-free bootstrap)"
+    echo "════════════════════════════════════════════════════"
+    echo ""
+    echo "  Usage:"
+    echo "    ./build.sh run hello.k        compile + run a .k file (needs gcc)"
+    echo "    ./kcc.sh --native hello.k -o hello   gcc-free native ELF"
+    echo "    ./build.sh test               run the test suite"
+    echo ""
+    exit 0
+fi
+
+# ── Path B: source seed (gcc required) ──────────────────────────────────────
+[[ -f "$SEED_C" ]] || fail "missing both $SEED_BIN and $SEED_C — cannot bootstrap"
+command -v "$CC" >/dev/null || fail "$CC not found in PATH (no prebuilt seed for ${OSNAME}/${ARCH} either)"
+
+info "platform:  ${OSNAME}/${ARCH}  (no prebuilt seed for this platform)"
+info "compiler:  $CC"
+info "seed:      $SEED_C ($(wc -l < "$SEED_C") lines)"
 echo ""
 
-# [1/3] Build kcc from the seed C
 echo "[1/3] Building kcc from bootstrap seed..."
 "$CC" "$SEED_C" -o "$KCC" $CFLAGS || fail "gcc compilation of seed failed"
 ok "$KCC built ($(stat -c%s "$KCC" 2>/dev/null || stat -f%z "$KCC") bytes)"
 
-# [2/3] Self-rebuild: ./kcc compile.k → fresh .c → gcc → kcc2; replace kcc
 echo ""
 echo "[2/3] Self-rebuilding kcc from $COMPILE_K..."
 "$KCC" "$COMPILE_K" > /tmp/_kcc_self.c || fail "kcc failed to compile compile.k"
@@ -100,7 +147,6 @@ mv /tmp/_kcc_self "$KCC"
 rm -f /tmp/_kcc_self.c
 ok "$KCC self-rebuilt"
 
-# [3/3] Smoke test: fibonacci
 echo ""
 echo "[3/3] Smoke test: examples/fibonacci.k..."
 "$KCC" examples/fibonacci.k > /tmp/_fib.c || fail "kcc failed on fibonacci.k"
@@ -110,7 +156,6 @@ echo "$OUTPUT" | grep -q "fib(19) = 4181" || fail "fibonacci output wrong: $OUTP
 rm -f /tmp/_fib.c /tmp/_fib
 ok "fibonacci → 4181"
 
-# Version
 VERSION=$("$KCC" --version 2>&1 | head -1)
 echo ""
 echo "════════════════════════════════════════════════════"
@@ -118,10 +163,7 @@ echo "  Build complete: $VERSION"
 echo "════════════════════════════════════════════════════"
 echo ""
 echo "  Usage:"
-echo "    ./build.sh run hello.k       compile and run a .k file"
-echo "    ./build.sh test              run the test suite"
-echo "    ./kcc source.k > source.c    transpile .k → C"
-echo "    $CC source.c -o prog -lm     link into a Linux binary"
-echo ""
-echo "  Note: --native (PE emission) is Windows-only. ELF backend not built yet."
+echo "    ./build.sh run hello.k        compile + run a .k file"
+echo "    ./build.sh test               run the test suite"
+echo "    ./kcc.sh --native hello.k -o hello   gcc-free native ELF"
 echo ""
