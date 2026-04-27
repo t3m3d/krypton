@@ -2,6 +2,29 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [1.3.9] - 2026-04-26
+
+### ELF Backend — Five New Builtins
+
+Expanded the Linux ELF backend's runtime with five hand-emitted machine-code helpers, unlocking string manipulation and file I/O for native programs:
+
+- **`substring(s, start, end)`** — 74-byte routine. Allocates a fresh string and copies `[start, end)` from `s` via REP MOVSB. Accepts integer-or-string args (smart `kr_atoi` passthrough).
+- **`sbNew()` / `sbAppend(sb, s)` / `sbToString(sb)`** — StringBuilder primitives. `sbNew` allocates a 1-byte NUL; `sbAppend` aliases to `kr_concat`; `sbToString` is a no-op (the buffer pointer IS the string). Simple O(N²) implementation that matches the pre-v1.2.0 path; sufficient for all current example programs.
+- **`readFile(path)`** — 103-byte routine. `SYS_open` → `SYS_fstat` → `kr_alloc(size+1)` → `SYS_read` → `SYS_close`. Returns the file contents as a fresh string. Reads `st_size` from the 144-byte stat struct (offset 48) on the stack.
+- **`writeFile(path, content)`** — 66-byte routine. `SYS_open(O_WRONLY|O_CREAT|O_TRUNC, 0644)` → `kr_strlen` → `SYS_write` → `SYS_close`. Returns 0.
+
+### Builtins now supported by the ELF backend
+
+`kp`, `toStr`, `toInt`, `length`, `len`, `split`, `range`, `arg`, `argCount`, `substring`, `sbNew`, `sbAppend`, `sbToString`, `readFile`, `writeFile`, plus `s[i]` indexing.
+
+### Bug fix
+
+`emitKrReadfileCode`'s `CALL kr_alloc` displacement was off by one — used `+60` (CALL opcode start) instead of `+61` (next instruction start). This caused the call to land one byte inside `kr_alloc`, decoding as `MOV EAX, EDI` and returning the size argument instead of the buffer pointer. Programs printed the file size instead of contents. Caught immediately by the readFile test.
+
+### Verification
+
+All 23 previously-passing regression programs still pass. Three new test groups verified end-to-end (substring × 3, StringBuilder × 3, readFile × 3, writeFile × 3) on `wsl -d archlinux`.
+
 ## [1.3.8] - 2026-04-26
 
 ### Linux Native ELF Backend — Complete
