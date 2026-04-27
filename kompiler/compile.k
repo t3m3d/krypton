@@ -254,6 +254,64 @@ func tokenize(text) {
                 }
             } else if isKW(id) {
                 out = sbAppend(out, "KW:" + id + "\n")
+                if id == "jxt" {
+                    // Bracketless jxt: jxt followed by anything other than `{`
+                    // is sugar for the brace form. Each subsequent line:
+                    //     inc "path"
+                    // generates the same tokens as `k "path"` (or `c "path"`
+                    // if the path ends in .h or .krh). Block ends at the
+                    // first non-`inc` token (typically `func`, `let`, `just`).
+                    let ji = skipWS(text, i)
+                    let bracketless = 0
+                    if ji < len(text) {
+                        if text[ji] != "{" {
+                            bracketless = 1
+                        }
+                    }
+                    if bracketless == 1 {
+                        out = sbAppend(out, "LBRACE\n")
+                        let done = 0
+                        while done == 0 {
+                            let ji2 = skipWS(text, ji)
+                            if ji2 >= len(text) {
+                                done = 1
+                            } else {
+                                if charIsAlpha(text[ji2]) {
+                                    let pp = readIdent(text, ji2)
+                                    let nm = pairVal(pp)
+                                    if nm == "inc" {
+                                        let ji3 = pairPos(pp)
+                                        ji3 = skipWS(text, ji3)
+                                        let haveStr = 0
+                                        if ji3 < len(text) {
+                                            if text[ji3] == "\"" {
+                                                haveStr = 1
+                                            }
+                                        }
+                                        if haveStr == 1 {
+                                            let sp = readString(text, ji3)
+                                            let path = pairVal(sp)
+                                            ji = pairPos(sp)
+                                            let lang = "k"
+                                            if endsWith(path, ".h") { lang = "c" }
+                                            if endsWith(path, ".krh") { lang = "c" }
+                                            out = sbAppend(out, "ID:" + lang + "\n")
+                                            out = sbAppend(out, "STR:" + path + "\n")
+                                        } else {
+                                            done = 1
+                                        }
+                                    } else {
+                                        done = 1
+                                    }
+                                } else {
+                                    done = 1
+                                }
+                            }
+                        }
+                        out = sbAppend(out, "RBRACE\n")
+                        i = ji
+                    }
+                }
             }
             else {
                 out = sbAppend(out, "ID:" + id + "\n")
@@ -4206,6 +4264,7 @@ just run {
                             printErr("kcc: jxt k not found: " + jFullPath)
                         }
                     }
+                    jxtPos += 2
                 } else if lang == "c" || lang == "t" {
                     // C header: c = prepend (foundation), t = append (depends on c headers)
                     jxtHasCHeader = 1

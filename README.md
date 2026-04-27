@@ -2,17 +2,16 @@
 
 **A self-hosting programming language with a native compilation pipeline.**
 
-> Version 1.3.9
+> Version 1.4.0
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.3.9-brightgreen)
+![Version](https://img.shields.io/badge/version-1.4.0-brightgreen)
 
 Krypton is a dynamically typed language with clean syntax, 147 built-in functions, and a compiler written in itself. It compiles to C for broad compatibility, and to native machine code via the **`--native`** backend (ELF on Linux, PE on Windows) — no external compiler in the critical path.
 
 ```
-jxt {
-    k "stdlib/math_utils.k"
-}
+jxt
+inc "stdlib/math_utils.k"
 
 func fibonacci(n) {
     if n <= 1 { emit n }
@@ -190,6 +189,23 @@ just run {
 
 ### Imports — jxt block
 
+**Bracketless form (recommended):**
+
+```
+jxt
+inc "stdlib/result.k"
+inc "stdlib/math_utils.k"
+inc "windows.h"
+
+just run { ... }
+```
+
+The block ends at the first non-`inc` line. Each `inc` is dispatched by the file extension:
+- `.k` → Krypton module (full source inlined at compile time)
+- `.h` / `.krh` → C header (emits `#include` in generated C)
+
+**Brace form (still supported):**
+
 ```
 jxt {
     k "stdlib/result.k"
@@ -198,8 +214,8 @@ jxt {
 }
 ```
 
-- `k` — Krypton module (full source inlined at compile time)
-- `c` — C header (emits `#include` in generated C)
+- `k` — Krypton module
+- `c` — C header
 - `t` — alias for `c` (family initial)
 
 The legacy `import` keyword still works.
