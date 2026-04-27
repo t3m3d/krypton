@@ -249,6 +249,44 @@ func emitTextSegment(filesize, vmsize, codeOffset, codeAndDataSize) {
 // more page hashes (one per page of __TEXT).
 func sigReservedSize() { emit 256 }
 
+// Big-endian dword. Code signature blobs are BIG-endian (unlike the rest of
+// Mach-O which is host-endian / little-endian).
+func hexDwordBE(n) {
+    let v = toInt(n)
+    let b3 = v % 256
+    if b3 < 0 { b3 = b3 + 256 }
+    let q1 = v / 256
+    if v % 256 != 0 && v < 0 { q1 = q1 - 1 }
+    let b2 = q1 % 256
+    if b2 < 0 { b2 = b2 + 256 }
+    let q2 = q1 / 256
+    if q1 % 256 != 0 && q1 < 0 { q2 = q2 - 1 }
+    let b1 = q2 % 256
+    if b1 < 0 { b1 = b1 + 256 }
+    let q3 = q2 / 256
+    if q2 % 256 != 0 && q2 < 0 { q3 = q3 - 1 }
+    let b0 = q3 % 256
+    if b0 < 0 { b0 = b0 + 256 }
+    emit hexByte(b0) + hexByte(b1) + hexByte(b2) + hexByte(b3)
+}
+
+// Empty SuperBlob placeholder — 12 bytes of valid signature format that
+// codesign recognizes as "an empty signature, replace me." Without this,
+// codesign reads our reserved region as a malformed blob and refuses with
+// "invalid or unsupported format for signature."
+//
+// Format (all big-endian):
+//   magic   = 0xFADE0CC0  (CSMAGIC_EMBEDDED_SIGNATURE)
+//   length  = 12          (header only, no blob entries)
+//   count   = 0           (no slots)
+func emitEmptySuperBlob() {
+    let c = ""
+    c = c + hexDwordBE(0xFADE0CC0)
+    c = c + hexDwordBE(12)
+    c = c + hexDwordBE(0)
+    emit c
+}
+
 // LC_SEGMENT_64 __LINKEDIT — 72 bytes, no sections.
 //
 // macOS 11+ requires a __LINKEDIT segment. This is where the code signature
@@ -575,7 +613,11 @@ just run {
 
     let data = hexStr(msg)
     let pad  = hexPad(alignPadBytes)
-    let sigPlaceholder = hexPad(sigSize)
+    // Signature placeholder: 12-byte empty SuperBlob followed by zeros up to
+    // sigReservedSize. Gives codesign a valid format header to recognize and
+    // replace; the trailing zeros are simply unused space until codesign's
+    // signature fills it (or stays as padding if signature is smaller).
+    let sigPlaceholder = emitEmptySuperBlob() + hexPad(sigSize - 12)
     // Load command order: PAGEZERO, TEXT, LINKEDIT, BUILD_VERSION, UNIXTHREAD, CODE_SIGNATURE
     // File layout: header + cmds + code + data + alignment pad + signature reservation
     let all  = header + pagezero + textSeg + linkSeg + buildVer + unixThr + codeSig + code + data + pad + sigPlaceholder
