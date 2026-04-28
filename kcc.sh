@@ -144,8 +144,9 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
     fi
 
     if [[ "$PLATFORM" == "linux" ]]; then
-        # Linux ELF backend via kompiler/elf.k
+        # Linux: .k → kir → optimize.k → kir' → elf.k → ELF
         ELF_BIN="$SCRIPT_DIR/kompiler/elf_host"
+        OPT_BIN="$SCRIPT_DIR/kompiler/optimize_host"
 
         # Detect arch for prebuilt seed lookup
         case "$(uname -m 2>/dev/null)" in
@@ -154,9 +155,10 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
             *) _ARCH=$(uname -m) ;;
         esac
         ELF_SEED="$SCRIPT_DIR/bootstrap/elf_host_${PLATFORM}_${_ARCH}"
+        OPT_SEED="$SCRIPT_DIR/bootstrap/optimize_host_${PLATFORM}_${_ARCH}"
 
+        # Build / restore elf_host
         if [[ ! -f "$ELF_BIN" || "$SCRIPT_DIR/kompiler/elf.k" -nt "$ELF_BIN" ]]; then
-            # Prefer prebuilt seed (no gcc needed). Fall back to gcc-build if no seed.
             if [[ -f "$ELF_SEED" && "$ELF_SEED" -nt "$SCRIPT_DIR/kompiler/elf.k" ]]; then
                 cp "$ELF_SEED" "$ELF_BIN"
                 chmod +x "$ELF_BIN"
@@ -172,8 +174,33 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
             fi
         fi
 
+        # Build / restore optimize_host (best-effort — if it fails to build we
+        # fall through to skip-optimize mode rather than blocking the build)
+        if [[ ! -f "$OPT_BIN" || "$SCRIPT_DIR/kompiler/optimize.k" -nt "$OPT_BIN" ]]; then
+            if [[ -f "$OPT_SEED" && "$OPT_SEED" -nt "$SCRIPT_DIR/kompiler/optimize.k" ]]; then
+                cp "$OPT_SEED" "$OPT_BIN"
+                chmod +x "$OPT_BIN"
+            elif command -v "$GCC_EXE" >/dev/null 2>&1; then
+                echo "kcc: building optimize host..." >&2
+                "$KCC_EXE" "$SCRIPT_DIR/kompiler/optimize.k" > /tmp/_kcc_opt_build.c && \
+                "$GCC_EXE" /tmp/_kcc_opt_build.c -o "$OPT_BIN" $LIBS && rm -f /tmp/_kcc_opt_build.c
+            fi
+        fi
+
+        # Generate IR
         "$KCC_EXE" --ir $HEADERS_FLAG "$SRCFILE" > "$TMPIR"
         if [[ $? -ne 0 ]]; then echo "kcc --native: IR emission failed" >&2; rm -f "$TMPIR"; exit 1; fi
+
+        # Optimize (skip silently if host not available)
+        if [[ -x "$OPT_BIN" ]]; then
+            TMPOPT="/tmp/_kcc_native_opt_$$.kir"
+            "$OPT_BIN" "$TMPIR" > "$TMPOPT" 2>/dev/null
+            if [[ -s "$TMPOPT" ]]; then
+                mv "$TMPOPT" "$TMPIR"
+            else
+                rm -f "$TMPOPT"
+            fi
+        fi
 
         "$ELF_BIN" "$TMPIR" "$OUTFILE"
         ELF_RET=$?
