@@ -1738,7 +1738,9 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_TOSTR")
                 } else if bname == "toInt" || bname == "parseInt" {
                     opSb = sbAppend(opSb, "BUILTIN_TOINT")
-                } else if bname == "length" {
+                } else if bname == "length" || bname == "count" {
+                    // count is an alias for length — both count comma-separated
+                    // elements in a string-as-list.
                     opSb = sbAppend(opSb, "BUILTIN_LENGTH")
                 } else if bname == "len" {
                     opSb = sbAppend(opSb, "BUILTIN_LEN")
