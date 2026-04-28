@@ -85,11 +85,9 @@ test*
 *.obj
 *.lib
 *.txt
-kcc
 hello_test.k
 native_ir_out.txt
 runtime/krypton_runtime.c
 installer/
 assets/
-RELEASE*.md
 build_v140.bat
