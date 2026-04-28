@@ -1207,6 +1207,28 @@ func emitKrAbsCode(thisVAddr, atoiVAddr) {
 }
 func krAbsSize() { emit 14 }
 
+// kr_istruthy: atoi the arg; return 1 if non-zero else 0.
+// Krypton convention: empty string "" or "0" or numeric 0 → false, else true.
+// kr_atoi handles both string and small-int via the smart-int passthrough.
+//
+// Layout (15 bytes):
+//   [0-4]   E8 dw             CALL kr_atoi                     (5)
+//   [5-7]   48 85 C0          TEST RAX, RAX                    (3)
+//   [8-10]  0F 95 C0          SETNE AL                          (3)
+//   [11-13] 0F B6 C0          MOVZX EAX, AL                     (3)
+//   [14]    C3                RET                               (1)
+func emitKrIstruthyCode(thisVAddr, atoiVAddr) {
+    let dAtoi = atoiVAddr - (thisVAddr + 5)
+    let c = ""
+    c = c + hexByte(0xE8) + hexDword(dAtoi)
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)
+    c = c + hexByte(0x0F) + hexByte(0x95) + hexByte(0xC0)
+    c = c + hexByte(0x0F) + hexByte(0xB6) + hexByte(0xC0)
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krIstruthySize() { emit 15 }
+
 // kr_startswith: returns 1 if s starts with prefix, 0 otherwise.
 //   In:  RDI = s, RSI = prefix  (both NUL-terminated)
 //   Out: RAX = 0 or 1
@@ -1532,6 +1554,7 @@ func opByteSize(op) {
     if op == "BUILTIN_ISALPHA"   { emit 7 }
     if op == "BUILTIN_ABS"       { emit 7 }
     if op == "BUILTIN_STARTSWITH"{ emit 8 }  // POP RSI + POP RDI + CALL + PUSH RAX
+    if op == "BUILTIN_ISTRUTHY"  { emit 7 }  // POP RDI + CALL + PUSH RAX
     if op == "POP"        { emit 1 }
     if op == "LABEL"      { emit 0 }
     if op == "JUMP"       { emit 5 }    // E9 + d32
@@ -1780,6 +1803,8 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_ABS")
                 } else if bname == "startsWith" {
                     opSb = sbAppend(opSb, "BUILTIN_STARTSWITH")
+                } else if bname == "isTruthy" {
+                    opSb = sbAppend(opSb, "BUILTIN_ISTRUTHY")
                 } else {
                     opSb = sbAppend(opSb, "UNSUPPORTED " + bname)
                 }
@@ -1852,7 +1877,7 @@ func computeLayout(opList, localCount) {
 // funcStartVAddr: virtual address of THIS function's first byte (for CALL disp calc)
 // krPrintVAddr/krStrIntVAddr: vaddrs of runtime helpers, used by BUILTIN_KP/BUILTIN_TOSTR
 
-func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr) {
+func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr) {
     let c = ""
     c = c + hexByte(0x55)                                             // [+0] PUSH RBP
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xE5)             // [+1] MOV RBP, RSP
@@ -2260,6 +2285,12 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             let swDisp = krStartswithVAddr - (funcStartVAddr + off + 7)
             c = c + hexByte(0xE8) + hexDword(swDisp)
             c = c + hexByte(0x50)
+        } else if op == "BUILTIN_ISTRUTHY" {
+            // POP RDI ; CALL kr_istruthy ; PUSH RAX
+            c = c + hexByte(0x5F)
+            let itDisp = krIstruthyVAddr - (funcStartVAddr + off + 6)
+            c = c + hexByte(0xE8) + hexDword(itDisp)
+            c = c + hexByte(0x50)
         } else if op == "CALL_FUNC" {
             // Parse "name argcount"
             let cj = 0
@@ -2483,6 +2514,7 @@ just run {
     let krIaSz = krIsalphaSize()
     let krAbSz = krAbsSize()
     let krSwSz = krStartswithSize()
+    let krItSz = krIstruthySize()
 
     let fIdx = 0
     while fIdx < funcCount {
@@ -2578,9 +2610,10 @@ just run {
     let krIsalphaVAddr   = krIsdigitVAddr + krIdSz
     let krAbsVAddr       = krIsalphaVAddr + krIaSz
     let krStartswithVAddr = krAbsVAddr + krAbSz
+    let krIstruthyVAddr   = krStartswithVAddr + krSwSz
 
     // String virtual addresses (after all runtime helpers)
-    let stringsBase = krStartswithVAddr + krSwSz
+    let stringsBase = krIstruthyVAddr + krItSz
     let strVAddrs = ""
     let strData = ""
     let curOff = 0
@@ -2623,7 +2656,7 @@ just run {
         let nm2 = substring(hh, ss1 + 1, ss2)
         let funcStartV2 = toInt(funcVAddr(funcVAddrs, nm2))
 
-        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr)
+        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr)
         allFuncCode = allFuncCode + codeI
         oIdx2 += 1
     }
@@ -2660,8 +2693,9 @@ just run {
     let krIsalphaCode   = emitKrIsalphaCode()
     let krAbsCode       = emitKrAbsCode(krAbsVAddr, krAtoiVAddr)
     let krStartswithCode = emitKrStartswithCode()
+    let krIstruthyCode   = emitKrIstruthyCode(krIstruthyVAddr, krAtoiVAddr)
 
-    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + krSubstringCode + krReadfileCode + krWritefileCode + krPrinterrCode + krCharcodeCode + krFromcharcodeCode + krExitCode + krIsdigitCode + krIsalphaCode + krAbsCode + krStartswithCode + strData
+    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + krSubstringCode + krReadfileCode + krWritefileCode + krPrinterrCode + krCharcodeCode + krFromcharcodeCode + krExitCode + krIsdigitCode + krIsalphaCode + krAbsCode + krStartswithCode + krIstruthyCode + strData
     let segSize = hexBytesLen(segment)
     let fileSize = HDR_SIZE + segSize
 
