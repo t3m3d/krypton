@@ -311,13 +311,13 @@ func emitKrConcatCodeFinal(thisVAddr, strIntVAddr, strlenVAddr, allocVAddr) {
     c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xFC)                    // [5-7] MOV R12, RDI (a)
     c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xF5)                    // [8-10] MOV R13, RSI (b)
     // Convert a (R12) if it's a small int
-    c = c + hexByte(0x49) + hexByte(0x81) + hexByte(0xFC) + hexDword(0x400000) // [11-17] CMP R12, 0x400000
+    c = c + hexByte(0x49) + hexByte(0x81) + hexByte(0xFC) + hexDword(0x40000000) // [11-17] CMP R12, 0x400000
     c = c + hexByte(0x73) + hexByte(0x0B)                                    // [18-19] JAE +11 → 31 (.a_ok)
     c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE7)                    // [20-22] MOV RDI, R12
     c = c + hexByte(0xE8) + hexDword(dStrInt1)                               // [23-27] CALL kr_str_int
     c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC4)                    // [28-30] MOV R12, RAX
     // .a_ok (31): convert b (R13) if it's a small int
-    c = c + hexByte(0x49) + hexByte(0x81) + hexByte(0xFD) + hexDword(0x400000) // [31-37] CMP R13, 0x400000
+    c = c + hexByte(0x49) + hexByte(0x81) + hexByte(0xFD) + hexDword(0x40000000) // [31-37] CMP R13, 0x400000
     c = c + hexByte(0x73) + hexByte(0x0B)                                    // [38-39] JAE +11 → 51 (.b_ok)
     c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xEF)                    // [40-42] MOV RDI, R13
     c = c + hexByte(0xE8) + hexDword(dStrInt2)                               // [43-47] CALL kr_str_int
@@ -414,7 +414,7 @@ func krConcatSize() { emit 118 }
 // JMP .digits from [62-63] (after at 64): target 29. disp = 29-64 = -35 = 0xDD
 func emitKrAtoiCode() {
     let c = ""
-    c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDword(0x400000)
+    c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDword(0x40000000)
     c = c + hexByte(0x73) + hexByte(0x04)
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xF8)
     c = c + hexByte(0xC3)
@@ -2022,7 +2022,7 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             //   CALL kr_concat at [29-33]: disp = krConcatVAddr - (funcStartVAddr + off + 34)
             let concatDisp = krConcatVAddr - (funcStartVAddr + off + 34)
             c = c + hexByte(0x59) + hexByte(0x58)                                  // [0-1] POP RCX, POP RAX
-            c = c + hexByte(0xBA) + hexDword(0x400000)                              // [2-6] MOV EDX, 0x400000
+            c = c + hexByte(0xBA) + hexDword(0x40000000)                              // [2-6] MOV EDX, 0x400000
             c = c + hexByte(0x48) + hexByte(0x39) + hexByte(0xD0)                  // [7-9] CMP RAX, RDX
             c = c + hexByte(0x73) + hexByte(0x0B)                                  // [10-11] JAE +11 → 23
             c = c + hexByte(0x48) + hexByte(0x39) + hexByte(0xD1)                  // [12-14] CMP RCX, RDX
@@ -2116,7 +2116,7 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             let siDisp = krStrIntVAddr - (funcStartVAddr + off + 15)
             let kpDisp = krPrintVAddr  - (funcStartVAddr + off + 23)
             c = c + hexByte(0x5F)
-            c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDword(0x400000)
+            c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDword(0x40000000)
             c = c + hexByte(0x73) + hexByte(0x08)
             c = c + hexByte(0xE8) + hexDword(siDisp)
             c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)
@@ -2441,7 +2441,13 @@ just run {
     }
 
     // ── Layout pass: compute size of each function (need labels per func) ─
-    let VADDR_BASE = 4194304
+    // VADDR_BASE = 0x40000000 (1 GiB). The smart-int convention treats
+    // values < VADDR_BASE as integers and ≥ VADDR_BASE as string pointers.
+    // Loading the binary at 1 GiB means integer values up to ~1 billion
+    // work correctly as ints (vs the previous 4M limit at 0x400000). CMP
+    // uses 32-bit sign-extended immediates, so 0x40000000 is the largest
+    // POSITIVE-treated threshold we can encode in a single instruction.
+    let VADDR_BASE = 0x40000000
     let HDR_SIZE = 120
     let SEG_BASE_VADDR = VADDR_BASE + HDR_SIZE
     let startSz = startSize()
