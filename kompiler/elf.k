@@ -1309,6 +1309,236 @@ func emitKrIstruthyCode(thisVAddr, atoiVAddr) {
 }
 func krIstruthySize() { emit 15 }
 
+// kr_trim: strip leading and trailing space (0x20) characters from s.
+// Returns a fresh allocation. Tab/newline/CR not handled (rare in trim usage).
+//
+// Layout (65 bytes):
+//   [0]     53            PUSH RBX                                 (1)
+//   [1-3]   48 89 FB      MOV RBX, RDI                              (3)
+//   .lead at [4]:
+//   [4-6]   80 3B 20      CMP byte [RBX], 0x20                      (3)
+//   [7-8]   75 05         JNE +5 → .find_end at 14                  (2)
+//   [9-11]  48 FF C3      INC RBX                                   (3)
+//   [12-13] EB F6         JMP -10 → .lead at 4                      (2)
+//   .find_end at [14]:
+//   [14-16] 48 89 DF      MOV RDI, RBX                              (3)
+//   [17-21] E8 dw         CALL kr_strlen                            (5)
+//   [22-24] 48 89 C1      MOV RCX, RAX                              (3)
+//   .trail at [25]:
+//   [25-27] 48 85 C9      TEST RCX, RCX                             (3)
+//   [28-29] 74 0C         JZ +12 → .copy at 42                      (2)
+//   [30-34] 80 7C 0B FF 20  CMP byte [RBX+RCX-1], 0x20              (5)
+//   [35-36] 75 05         JNE +5 → .copy at 42                      (2)
+//   [37-39] 48 FF C9      DEC RCX                                   (3)
+//   [40-41] EB EF         JMP -17 → .trail at 25                    (2)
+//   .copy at [42]:
+//   [42]    51            PUSH RCX                                  (1)
+//   [43-46] 48 8D 79 01   LEA RDI, [RCX+1]                          (4)
+//   [47-51] E8 dw         CALL kr_alloc                             (5)
+//   [52]    59            POP RCX                                   (1)
+//   [53]    50            PUSH RAX                                  (1)
+//   [54-56] 48 89 C7      MOV RDI, RAX                              (3)
+//   [57-59] 48 89 DE      MOV RSI, RBX                              (3)
+//   [60-61] F3 A4         REP MOVSB                                 (2)
+//   [62]    58            POP RAX                                   (1)
+//   [63]    5B            POP RBX                                   (1)
+//   [64]    C3            RET                                       (1)
+func emitKrTrimCode(thisVAddr, strlenVAddr, allocVAddr) {
+    let dStrlen = strlenVAddr - (thisVAddr + 22)
+    let dAlloc  = allocVAddr  - (thisVAddr + 52)
+    let c = ""
+    c = c + hexByte(0x53)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xFB)
+    c = c + hexByte(0x80) + hexByte(0x3B) + hexByte(0x20)
+    c = c + hexByte(0x75) + hexByte(0x05)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC3)
+    c = c + hexByte(0xEB) + hexByte(256 - 10)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDF)
+    c = c + hexByte(0xE8) + hexDword(dStrlen)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC1)
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC9)
+    c = c + hexByte(0x74) + hexByte(0x0C)
+    c = c + hexByte(0x80) + hexByte(0x7C) + hexByte(0x0B) + hexByte(0xFF) + hexByte(0x20)
+    c = c + hexByte(0x75) + hexByte(0x05)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC9)
+    c = c + hexByte(0xEB) + hexByte(256 - 17)
+    c = c + hexByte(0x51)
+    c = c + hexByte(0x48) + hexByte(0x8D) + hexByte(0x79) + hexByte(0x01)
+    c = c + hexByte(0xE8) + hexDword(dAlloc)
+    c = c + hexByte(0x59)
+    c = c + hexByte(0x50)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDE)
+    c = c + hexByte(0xF3) + hexByte(0xA4)
+    c = c + hexByte(0x58)
+    c = c + hexByte(0x5B)
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krTrimSize() { emit 65 }
+
+// kr_toupper: ASCII uppercase. Allocates a fresh string with each lowercase
+// letter (a-z, 0x61..0x7A) shifted by -32. Other bytes copied verbatim.
+//
+// Layout (60 bytes):
+//   [0]     53            PUSH RBX                                  (1)
+//   [1-3]   48 89 FB      MOV RBX, RDI                              (3)
+//   [4-8]   E8 dw         CALL kr_strlen                            (5)
+//   [9-11]  48 89 C1      MOV RCX, RAX                              (3)
+//   [12]    51            PUSH RCX                                  (1)
+//   [13-16] 48 8D 79 01   LEA RDI, [RCX+1]                          (4)
+//   [17-21] E8 dw         CALL kr_alloc                             (5)
+//   [22]    59            POP RCX                                   (1)
+//   [23]    50            PUSH RAX                                  (1)
+//   [24-26] 48 89 C7      MOV RDI, RAX                              (3)
+//   .loop at [27]:
+//   [27-29] 48 85 C9      TEST RCX, RCX                             (3)
+//   [30-31] 74 19         JZ +25 → .done at 57                      (2)
+//   [32-33] 8A 03         MOV AL, [RBX]                             (2)
+//   [34-35] 3C 61         CMP AL, 'a'                               (2)
+//   [36-37] 72 06         JB +6 → .copy at 44                       (2)
+//   [38-39] 3C 7A         CMP AL, 'z'                               (2)
+//   [40-41] 77 02         JA +2 → .copy at 44                       (2)
+//   [42-43] 2C 20         SUB AL, 32                                (2)
+//   .copy at [44]:
+//   [44-45] 88 07         MOV [RDI], AL                             (2)
+//   [46-48] 48 FF C7      INC RDI                                   (3)
+//   [49-51] 48 FF C3      INC RBX                                   (3)
+//   [52-54] 48 FF C9      DEC RCX                                   (3)
+//   [55-56] EB E2         JMP -30 → .loop at 27                     (2)
+//   .done at [57]:
+//   [57]    58            POP RAX                                   (1)
+//   [58]    5B            POP RBX                                   (1)
+//   [59]    C3            RET                                       (1)
+func emitKrToupperCode(thisVAddr, strlenVAddr, allocVAddr) {
+    let dStrlen = strlenVAddr - (thisVAddr + 9)
+    let dAlloc  = allocVAddr  - (thisVAddr + 22)
+    let c = ""
+    c = c + hexByte(0x53)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xFB)
+    c = c + hexByte(0xE8) + hexDword(dStrlen)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC1)
+    c = c + hexByte(0x51)
+    c = c + hexByte(0x48) + hexByte(0x8D) + hexByte(0x79) + hexByte(0x01)
+    c = c + hexByte(0xE8) + hexDword(dAlloc)
+    c = c + hexByte(0x59)
+    c = c + hexByte(0x50)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC9)
+    c = c + hexByte(0x74) + hexByte(0x19)
+    c = c + hexByte(0x8A) + hexByte(0x03)
+    c = c + hexByte(0x3C) + hexByte(0x61)
+    c = c + hexByte(0x72) + hexByte(0x06)
+    c = c + hexByte(0x3C) + hexByte(0x7A)
+    c = c + hexByte(0x77) + hexByte(0x02)
+    c = c + hexByte(0x2C) + hexByte(0x20)
+    c = c + hexByte(0x88) + hexByte(0x07)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC7)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC3)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC9)
+    c = c + hexByte(0xEB) + hexByte(256 - 30)
+    c = c + hexByte(0x58)
+    c = c + hexByte(0x5B)
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krToupperSize() { emit 60 }
+
+// kr_tolower: ASCII lowercase. Mirror of kr_toupper, range 'A'..'Z' shifted +32.
+// Same 60-byte layout, just CMP imms 0x41/0x5A and ADD AL, 32 (instead of SUB).
+func emitKrTolowerCode(thisVAddr, strlenVAddr, allocVAddr) {
+    let dStrlen = strlenVAddr - (thisVAddr + 9)
+    let dAlloc  = allocVAddr  - (thisVAddr + 22)
+    let c = ""
+    c = c + hexByte(0x53)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xFB)
+    c = c + hexByte(0xE8) + hexDword(dStrlen)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC1)
+    c = c + hexByte(0x51)
+    c = c + hexByte(0x48) + hexByte(0x8D) + hexByte(0x79) + hexByte(0x01)
+    c = c + hexByte(0xE8) + hexDword(dAlloc)
+    c = c + hexByte(0x59)
+    c = c + hexByte(0x50)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC9)
+    c = c + hexByte(0x74) + hexByte(0x19)
+    c = c + hexByte(0x8A) + hexByte(0x03)
+    c = c + hexByte(0x3C) + hexByte(0x41)            // CMP AL, 'A'
+    c = c + hexByte(0x72) + hexByte(0x06)
+    c = c + hexByte(0x3C) + hexByte(0x5A)            // CMP AL, 'Z'
+    c = c + hexByte(0x77) + hexByte(0x02)
+    c = c + hexByte(0x04) + hexByte(0x20)            // ADD AL, 32
+    c = c + hexByte(0x88) + hexByte(0x07)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC7)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC3)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC9)
+    c = c + hexByte(0xEB) + hexByte(256 - 30)
+    c = c + hexByte(0x58)
+    c = c + hexByte(0x5B)
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krTolowerSize() { emit 60 }
+
+// kr_reverse: byte-reverse a string. Allocates a fresh string of same length.
+//
+// Layout (58 bytes):
+//   [0]     53                PUSH RBX                              (1)
+//   [1-3]   48 89 FB          MOV RBX, RDI                          (3)
+//   [4-8]   E8 dw             CALL kr_strlen                        (5)
+//   [9-11]  48 89 C1          MOV RCX, RAX                          (3)
+//   [12]    51                PUSH RCX                              (1)
+//   [13-16] 48 8D 79 01       LEA RDI, [RCX+1]                      (4)
+//   [17-21] E8 dw             CALL kr_alloc                         (5)
+//   [22]    59                POP RCX                               (1)
+//   [23]    50                PUSH RAX                              (1)
+//   [24-26] 48 89 C7          MOV RDI, RAX                          (3)
+//   [27-29] 48 85 C9          TEST RCX, RCX                         (3)
+//   [30-31] 74 17             JZ +23 → .done at 55                  (2)
+//   [32-36] 48 8D 74 0B FF    LEA RSI, [RBX+RCX-1]                  (5)
+//   .loop at [37]:
+//   [37-38] 8A 06             MOV AL, [RSI]                         (2)
+//   [39-40] 88 07             MOV [RDI], AL                         (2)
+//   [41-43] 48 FF C7          INC RDI                               (3)
+//   [44-46] 48 FF CE          DEC RSI                               (3)
+//   [47-49] 48 FF C9          DEC RCX                               (3)
+//   [50-52] 48 85 C9          TEST RCX, RCX                         (3)
+//   [53-54] 75 EE             JNZ -18 → .loop at 37                 (2)
+//   .done at [55]:
+//   [55]    58                POP RAX                               (1)
+//   [56]    5B                POP RBX                               (1)
+//   [57]    C3                RET                                   (1)
+func emitKrReverseCode(thisVAddr, strlenVAddr, allocVAddr) {
+    let dStrlen = strlenVAddr - (thisVAddr + 9)
+    let dAlloc  = allocVAddr  - (thisVAddr + 22)
+    let c = ""
+    c = c + hexByte(0x53)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xFB)
+    c = c + hexByte(0xE8) + hexDword(dStrlen)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC1)
+    c = c + hexByte(0x51)
+    c = c + hexByte(0x48) + hexByte(0x8D) + hexByte(0x79) + hexByte(0x01)
+    c = c + hexByte(0xE8) + hexDword(dAlloc)
+    c = c + hexByte(0x59)
+    c = c + hexByte(0x50)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC9)
+    c = c + hexByte(0x74) + hexByte(0x17)
+    c = c + hexByte(0x48) + hexByte(0x8D) + hexByte(0x74) + hexByte(0x0B) + hexByte(0xFF)
+    c = c + hexByte(0x8A) + hexByte(0x06)
+    c = c + hexByte(0x88) + hexByte(0x07)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC7)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xCE)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC9)
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC9)
+    c = c + hexByte(0x75) + hexByte(256 - 18)
+    c = c + hexByte(0x58)
+    c = c + hexByte(0x5B)
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krReverseSize() { emit 58 }
+
 // kr_startswith: returns 1 if s starts with prefix, 0 otherwise.
 //   In:  RDI = s, RSI = prefix  (both NUL-terminated)
 //   Out: RAX = 0 or 1
@@ -1640,6 +1870,10 @@ func opByteSize(op) {
     if op == "BUILTIN_ISTRUTHY"  { emit 7 }  // POP RDI + CALL + PUSH RAX
     if op == "BUILTIN_LINECOUNT" { emit 7 }  // POP RDI + CALL + PUSH RAX
     if op == "BUILTIN_GETLINE"   { emit 8 }  // POP RSI + POP RDI + CALL + PUSH RAX
+    if op == "BUILTIN_TRIM"      { emit 7 }  // POP RDI + CALL + PUSH RAX
+    if op == "BUILTIN_TOUPPER"   { emit 7 }  // POP RDI + CALL + PUSH RAX
+    if op == "BUILTIN_TOLOWER"   { emit 7 }  // POP RDI + CALL + PUSH RAX
+    if op == "BUILTIN_REVERSE"   { emit 7 }  // POP RDI + CALL + PUSH RAX
     if op == "POP"        { emit 1 }
     if op == "LABEL"      { emit 0 }
     if op == "JUMP"       { emit 5 }    // E9 + d32
@@ -1908,6 +2142,12 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_LINECOUNT")
                 } else if bname == "getLine" {
                     opSb = sbAppend(opSb, "BUILTIN_GETLINE")
+                } else if bname == "trim" {
+                    opSb = sbAppend(opSb, "BUILTIN_TRIM")
+                } else if bname == "toUpper" {
+                    opSb = sbAppend(opSb, "BUILTIN_TOUPPER")
+                } else if bname == "toLower" {
+                    opSb = sbAppend(opSb, "BUILTIN_TOLOWER")
                 } else {
                     opSb = sbAppend(opSb, "UNSUPPORTED " + bname)
                 }
@@ -1980,7 +2220,7 @@ func computeLayout(opList, localCount) {
 // funcStartVAddr: virtual address of THIS function's first byte (for CALL disp calc)
 // krPrintVAddr/krStrIntVAddr: vaddrs of runtime helpers, used by BUILTIN_KP/BUILTIN_TOSTR
 
-func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr) {
+func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr) {
     let c = ""
     c = c + hexByte(0x55)                                             // [+0] PUSH RBP
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xE5)             // [+1] MOV RBP, RSP
@@ -2407,6 +2647,24 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             let glDisp = krGetlineVAddr - (funcStartVAddr + off + 7)
             c = c + hexByte(0xE8) + hexDword(glDisp)
             c = c + hexByte(0x50)
+        } else if op == "BUILTIN_TRIM" {
+            // POP RDI ; CALL kr_trim ; PUSH RAX (7 bytes)
+            c = c + hexByte(0x5F)
+            let trDisp = krTrimVAddr - (funcStartVAddr + off + 6)
+            c = c + hexByte(0xE8) + hexDword(trDisp)
+            c = c + hexByte(0x50)
+        } else if op == "BUILTIN_TOUPPER" {
+            // POP RDI ; CALL kr_toupper ; PUSH RAX (7 bytes)
+            c = c + hexByte(0x5F)
+            let tuDisp = krToupperVAddr - (funcStartVAddr + off + 6)
+            c = c + hexByte(0xE8) + hexDword(tuDisp)
+            c = c + hexByte(0x50)
+        } else if op == "BUILTIN_TOLOWER" {
+            // POP RDI ; CALL kr_tolower ; PUSH RAX (7 bytes)
+            c = c + hexByte(0x5F)
+            let tlDisp = krTolowerVAddr - (funcStartVAddr + off + 6)
+            c = c + hexByte(0xE8) + hexDword(tlDisp)
+            c = c + hexByte(0x50)
         } else if op == "CALL_FUNC" {
             // Parse "name argcount"
             let cj = 0
@@ -2633,6 +2891,9 @@ just run {
     let krItSz = krIstruthySize()
     let krLcSz = krLinecountSize()
     let krGlSz = krGetlineSize()
+    let krTrSz = krTrimSize()
+    let krTuSz = krToupperSize()
+    let krTlSz = krTolowerSize()
 
     let fIdx = 0
     while fIdx < funcCount {
@@ -2731,9 +2992,12 @@ just run {
     let krIstruthyVAddr   = krStartswithVAddr + krSwSz
     let krLinecountVAddr  = krIstruthyVAddr + krItSz
     let krGetlineVAddr    = krLinecountVAddr + krLcSz
+    let krTrimVAddr       = krGetlineVAddr + krGlSz
+    let krToupperVAddr    = krTrimVAddr + krTrSz
+    let krTolowerVAddr    = krToupperVAddr + krTuSz
 
     // String virtual addresses (after all runtime helpers)
-    let stringsBase = krGetlineVAddr + krGlSz
+    let stringsBase = krTolowerVAddr + krTlSz
     let strVAddrs = ""
     let strData = ""
     let curOff = 0
@@ -2776,7 +3040,7 @@ just run {
         let nm2 = substring(hh, ss1 + 1, ss2)
         let funcStartV2 = toInt(funcVAddr(funcVAddrs, nm2))
 
-        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr)
+        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr)
         allFuncCode = allFuncCode + codeI
         oIdx2 += 1
     }
@@ -2816,8 +3080,11 @@ just run {
     let krIstruthyCode   = emitKrIstruthyCode(krIstruthyVAddr, krAtoiVAddr)
     let krLinecountCode  = emitKrLinecountCode()
     let krGetlineCode    = emitKrGetlineCodeFinal(krGetlineVAddr, krAtoiVAddr, krAllocVAddr)
+    let krTrimCode       = emitKrTrimCode(krTrimVAddr, krStrlenVAddr, krAllocVAddr)
+    let krToupperCode    = emitKrToupperCode(krToupperVAddr, krStrlenVAddr, krAllocVAddr)
+    let krTolowerCode    = emitKrTolowerCode(krTolowerVAddr, krStrlenVAddr, krAllocVAddr)
 
-    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + krSubstringCode + krReadfileCode + krWritefileCode + krPrinterrCode + krCharcodeCode + krFromcharcodeCode + krExitCode + krIsdigitCode + krIsalphaCode + krAbsCode + krStartswithCode + krIstruthyCode + krLinecountCode + krGetlineCode + strData
+    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + krSubstringCode + krReadfileCode + krWritefileCode + krPrinterrCode + krCharcodeCode + krFromcharcodeCode + krExitCode + krIsdigitCode + krIsalphaCode + krAbsCode + krStartswithCode + krIstruthyCode + krLinecountCode + krGetlineCode + krTrimCode + krToupperCode + krTolowerCode + strData
     let segSize = hexBytesLen(segment)
     let fileSize = HDR_SIZE + segSize
 
