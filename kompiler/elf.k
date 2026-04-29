@@ -485,6 +485,28 @@ func emitKrLengthCode() {
 }
 func krLengthSize() { emit 28 }
 
+// kr_linecount: count newline-separated lines in a NUL-terminated string.
+// Identical to kr_length except separator is 0x0A ('\n') instead of 0x2C (',').
+// 28 bytes — same shape, single byte differs.
+func emitKrLinecountCode() {
+    let c = ""
+    c = c + hexByte(0x31) + hexByte(0xC0)
+    c = c + hexByte(0x80) + hexByte(0x3F) + hexByte(0x00)
+    c = c + hexByte(0x74) + hexByte(0x14)
+    c = c + hexByte(0xFF) + hexByte(0xC0)
+    c = c + hexByte(0x8A) + hexByte(0x0F)
+    c = c + hexByte(0x84) + hexByte(0xC9)
+    c = c + hexByte(0x74) + hexByte(0x0C)
+    c = c + hexByte(0x80) + hexByte(0xF9) + hexByte(0x0A)    // CMP CL, '\n' (was 0x2C)
+    c = c + hexByte(0x75) + hexByte(0x02)
+    c = c + hexByte(0xFF) + hexByte(0xC0)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC7)
+    c = c + hexByte(0xEB) + hexByte(256 - 18)
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krLinecountSize() { emit 28 }
+
 // kr_split: extract idx-th comma-separated element from a list string.
 //   In:  RDI = list string ptr, RSI = idx (string or already-int)
 //   Out: RAX = ptr to fresh heap-allocated element string
@@ -595,6 +617,64 @@ func emitKrSplitCodeFinal(thisVAddr, atoiVAddr, allocVAddr) {
     emit c
 }
 func krSplitSize() { emit 113 }
+
+// kr_getline: extract idx-th newline-separated line from a string.
+// Identical to kr_split except separator byte is 0x0A ('\n') not 0x2C (',').
+// Returns a fresh allocation containing the line (without the trailing \n).
+func emitKrGetlineCodeFinal(thisVAddr, atoiVAddr, allocVAddr) {
+    let dAtoi   = atoiVAddr  - (thisVAddr + 16)
+    let dAlloc1 = allocVAddr - (thisVAddr + 78)
+    let dAlloc2 = allocVAddr - (thisVAddr + 107)
+    let c = ""
+    c = c + hexByte(0x53)
+    c = c + hexByte(0x41) + hexByte(0x54)
+    c = c + hexByte(0x41) + hexByte(0x55)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xFC)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xF7)
+    c = c + hexByte(0xE8) + hexDword(dAtoi)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC5)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE7)
+    c = c + hexByte(0x4D) + hexByte(0x85) + hexByte(0xED)
+    c = c + hexByte(0x74) + hexByte(0x12)
+    c = c + hexByte(0x8A) + hexByte(0x07)
+    c = c + hexByte(0x84) + hexByte(0xC0)
+    c = c + hexByte(0x74) + hexByte(0x40)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC7)
+    c = c + hexByte(0x3C) + hexByte(0x0A)            // CMP AL, '\n' (was 0x2C)
+    c = c + hexByte(0x75) + hexByte(256 - 18)
+    c = c + hexByte(0x49) + hexByte(0xFF) + hexByte(0xCD)
+    c = c + hexByte(0xEB) + hexByte(256 - 23)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xFB)
+    c = c + hexByte(0x8A) + hexByte(0x07)
+    c = c + hexByte(0x84) + hexByte(0xC0)
+    c = c + hexByte(0x74) + hexByte(0x09)
+    c = c + hexByte(0x3C) + hexByte(0x0A)            // CMP AL, '\n' (was 0x2C)
+    c = c + hexByte(0x74) + hexByte(0x05)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC7)
+    c = c + hexByte(0xEB) + hexByte(256 - 15)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xFD)
+    c = c + hexByte(0x49) + hexByte(0x29) + hexByte(0xDD)
+    c = c + hexByte(0x49) + hexByte(0x8D) + hexByte(0x7D) + hexByte(0x01)
+    c = c + hexByte(0xE8) + hexDword(dAlloc1)
+    c = c + hexByte(0x50)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDE)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE9)
+    c = c + hexByte(0xF3) + hexByte(0xA4)
+    c = c + hexByte(0x58)
+    c = c + hexByte(0x41) + hexByte(0x5D)
+    c = c + hexByte(0x41) + hexByte(0x5C)
+    c = c + hexByte(0x5B)
+    c = c + hexByte(0xC3)
+    c = c + hexByte(0xBF) + hexDword(1)
+    c = c + hexByte(0xE8) + hexDword(dAlloc2)
+    c = c + hexByte(0x41) + hexByte(0x5D)
+    c = c + hexByte(0x41) + hexByte(0x5C)
+    c = c + hexByte(0x5B)
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krGetlineSize() { emit 113 }
 
 // kr_range: build comma-separated list "a,a+1,...,b-1".
 //   In:  RDI = a (start), RSI = b (end)
@@ -1409,6 +1489,9 @@ func krStrIntSize() { emit 91 }
 //   [0-3]   4C 8B 24 24            MOV R12, [RSP]      (argc)            (4)
 //   [4-8]   4C 8D 6C 24 08         LEA R13, [RSP+8]    (argv ptr)        (5)
 //   [9-13]  B8 09 00 00 00         MOV EAX, 9          (SYS_mmap)        (5)
+// (heap size note: bumped from 64KB → 16MB so larger programs don't exhaust
+//  the bump allocator. mmap is lazy on Linux — only pages actually touched
+//  get backed by physical memory, so the cost of reserving 16MB is near zero.)
 //   [14-15] 31 FF                  XOR EDI, EDI                          (2)
 //   [16-20] BE 00 00 01 00         MOV ESI, 0x10000    (size=64KB)       (5)
 //   [21-25] BA 03 00 00 00         MOV EDX, 3                            (5)
@@ -1433,7 +1516,7 @@ func emitStartCode(callDisp, atoiDisp) {
     c = c + hexByte(0x4C) + hexByte(0x8D) + hexByte(0x6C) + hexByte(0x24) + hexByte(0x08)
     c = c + hexByte(0xB8) + hexDword(9)
     c = c + hexByte(0x31) + hexByte(0xFF)
-    c = c + hexByte(0xBE) + hexDword(65536)
+    c = c + hexByte(0xBE) + hexDword(0x1000000)
     c = c + hexByte(0xBA) + hexDword(3)
     c = c + hexByte(0x41) + hexByte(0xBA) + hexDword(0x22)
     c = c + hexByte(0x49) + hexByte(0xC7) + hexByte(0xC0) + hexDword(0 - 1)
@@ -1555,6 +1638,8 @@ func opByteSize(op) {
     if op == "BUILTIN_ABS"       { emit 7 }
     if op == "BUILTIN_STARTSWITH"{ emit 8 }  // POP RSI + POP RDI + CALL + PUSH RAX
     if op == "BUILTIN_ISTRUTHY"  { emit 7 }  // POP RDI + CALL + PUSH RAX
+    if op == "BUILTIN_LINECOUNT" { emit 7 }  // POP RDI + CALL + PUSH RAX
+    if op == "BUILTIN_GETLINE"   { emit 8 }  // POP RSI + POP RDI + CALL + PUSH RAX
     if op == "POP"        { emit 1 }
     if op == "LABEL"      { emit 0 }
     if op == "JUMP"       { emit 5 }    // E9 + d32
@@ -1747,8 +1832,22 @@ func parseIR(ir) {
                     opCount += 1
                 }
             } else if op == "CALL" {
+                // Some Krypton builtins (getLine, lineCount, envGet, envSet, ...)
+                // are emitted by compile.k as CALL rather than BUILTIN. Intercept
+                // the known builtin-aliases here so they route through our
+                // hand-rolled runtime helpers instead of trying to call a
+                // (non-existent) user function symbol.
+                let cj = 0
+                while cj < len(rest) && rest[cj] != " " { cj += 1 }
+                let cname = substring(rest, 0, cj)
                 if opCount > 0 { opSb = sbAppend(opSb, "\n") }
-                opSb = sbAppend(opSb, "CALL_FUNC " + rest)
+                if cname == "getLine" {
+                    opSb = sbAppend(opSb, "BUILTIN_GETLINE")
+                } else if cname == "lineCount" {
+                    opSb = sbAppend(opSb, "BUILTIN_LINECOUNT")
+                } else {
+                    opSb = sbAppend(opSb, "CALL_FUNC " + rest)
+                }
                 opCount += 1
             } else if op == "BUILTIN" {
                 let bj = 0
@@ -1805,6 +1904,10 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_STARTSWITH")
                 } else if bname == "isTruthy" {
                     opSb = sbAppend(opSb, "BUILTIN_ISTRUTHY")
+                } else if bname == "lineCount" {
+                    opSb = sbAppend(opSb, "BUILTIN_LINECOUNT")
+                } else if bname == "getLine" {
+                    opSb = sbAppend(opSb, "BUILTIN_GETLINE")
                 } else {
                     opSb = sbAppend(opSb, "UNSUPPORTED " + bname)
                 }
@@ -1877,7 +1980,7 @@ func computeLayout(opList, localCount) {
 // funcStartVAddr: virtual address of THIS function's first byte (for CALL disp calc)
 // krPrintVAddr/krStrIntVAddr: vaddrs of runtime helpers, used by BUILTIN_KP/BUILTIN_TOSTR
 
-func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr) {
+func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr) {
     let c = ""
     c = c + hexByte(0x55)                                             // [+0] PUSH RBP
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xE5)             // [+1] MOV RBP, RSP
@@ -2291,6 +2394,19 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             let itDisp = krIstruthyVAddr - (funcStartVAddr + off + 6)
             c = c + hexByte(0xE8) + hexDword(itDisp)
             c = c + hexByte(0x50)
+        } else if op == "BUILTIN_LINECOUNT" {
+            // POP RDI ; CALL kr_linecount ; PUSH RAX (7 bytes)
+            c = c + hexByte(0x5F)
+            let lcDisp = krLinecountVAddr - (funcStartVAddr + off + 6)
+            c = c + hexByte(0xE8) + hexDword(lcDisp)
+            c = c + hexByte(0x50)
+        } else if op == "BUILTIN_GETLINE" {
+            // POP RSI (idx, top) ; POP RDI (str) ; CALL kr_getline ; PUSH RAX
+            c = c + hexByte(0x5E)
+            c = c + hexByte(0x5F)
+            let glDisp = krGetlineVAddr - (funcStartVAddr + off + 7)
+            c = c + hexByte(0xE8) + hexDword(glDisp)
+            c = c + hexByte(0x50)
         } else if op == "CALL_FUNC" {
             // Parse "name argcount"
             let cj = 0
@@ -2515,6 +2631,8 @@ just run {
     let krAbSz = krAbsSize()
     let krSwSz = krStartswithSize()
     let krItSz = krIstruthySize()
+    let krLcSz = krLinecountSize()
+    let krGlSz = krGetlineSize()
 
     let fIdx = 0
     while fIdx < funcCount {
@@ -2611,9 +2729,11 @@ just run {
     let krAbsVAddr       = krIsalphaVAddr + krIaSz
     let krStartswithVAddr = krAbsVAddr + krAbSz
     let krIstruthyVAddr   = krStartswithVAddr + krSwSz
+    let krLinecountVAddr  = krIstruthyVAddr + krItSz
+    let krGetlineVAddr    = krLinecountVAddr + krLcSz
 
     // String virtual addresses (after all runtime helpers)
-    let stringsBase = krIstruthyVAddr + krItSz
+    let stringsBase = krGetlineVAddr + krGlSz
     let strVAddrs = ""
     let strData = ""
     let curOff = 0
@@ -2656,7 +2776,7 @@ just run {
         let nm2 = substring(hh, ss1 + 1, ss2)
         let funcStartV2 = toInt(funcVAddr(funcVAddrs, nm2))
 
-        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr)
+        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr)
         allFuncCode = allFuncCode + codeI
         oIdx2 += 1
     }
@@ -2694,8 +2814,10 @@ just run {
     let krAbsCode       = emitKrAbsCode(krAbsVAddr, krAtoiVAddr)
     let krStartswithCode = emitKrStartswithCode()
     let krIstruthyCode   = emitKrIstruthyCode(krIstruthyVAddr, krAtoiVAddr)
+    let krLinecountCode  = emitKrLinecountCode()
+    let krGetlineCode    = emitKrGetlineCodeFinal(krGetlineVAddr, krAtoiVAddr, krAllocVAddr)
 
-    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + krSubstringCode + krReadfileCode + krWritefileCode + krPrinterrCode + krCharcodeCode + krFromcharcodeCode + krExitCode + krIsdigitCode + krIsalphaCode + krAbsCode + krStartswithCode + krIstruthyCode + strData
+    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + krSubstringCode + krReadfileCode + krWritefileCode + krPrinterrCode + krCharcodeCode + krFromcharcodeCode + krExitCode + krIsdigitCode + krIsalphaCode + krAbsCode + krStartswithCode + krIstruthyCode + krLinecountCode + krGetlineCode + strData
     let segSize = hexBytesLen(segment)
     let fileSize = HDR_SIZE + segSize
 
