@@ -2803,17 +2803,21 @@ just run {
     //     opCount ops (each on its own line)
 
     let pi = 0
-    // First, collect strTab
+    let strLines = 0
+    // First, collect strTab. Always insert a newline between lines based on
+    // iteration count, NOT on `len(strTab) > 0`: an interned "" (empty
+    // string) at index 0 produces an empty first line, and a length-based
+    // guard would silently drop it, shifting every later string by one.
     while pi < pn {
         let pl = getLine(parsed, pi)
         if pl == "~~~" { break }
-        if len(strTab) > 0 { strTab = strTab + "\n" }
+        if strLines > 0 { strTab = strTab + "\n" }
         strTab = strTab + pl
+        strLines += 1
         pi += 1
     }
 
-    let strCount = 0
-    if len(strTab) > 0 { strCount = lineCount(strTab) }
+    let strCount = strLines
 
     // Now walk function blocks. Build parallel structures encoded compactly.
     // We'll use sbAppend with markers, then parse per function when emitting.
