@@ -3307,7 +3307,7 @@ func irPrimary(tokens, pos, ntoks, lc) {
 
     // Backtick interpolation - emit as PUSH + CAT chain
     if tt == "INTERP" {
-        emit irInterpToIR(tv, pos) + "," + (pos + 1)
+        emit irInterpToIR(tv, pos, lc) + "," + (pos + 1)
     }
 
     // Boolean
@@ -3351,7 +3351,7 @@ func irPrimary(tokens, pos, ntoks, lc) {
     emit "PUSH \"\"\n," + (pos + 1)
 }
 
-func irInterpToIR(s, pos) {
+func irInterpToIR(s, pos, lc) {
     let code = ""
     let i = 0
     let seg = ""
@@ -3371,7 +3371,16 @@ func irInterpToIR(s, pos) {
                 i += 1
             }
             i += 1
-            code = code + "LOAD " + expr + "\n"
+            // Tokenize and compile the inner expression as proper IR
+            // (was: bare "LOAD <text>" — broken for anything but a single identifier)
+            let exprToks = tokenize(expr)
+            let exprNtoks = lineCount(exprToks)
+            if exprNtoks > 0 {
+                let ep = irExpr(exprToks, 0, exprNtoks, lc)
+                code = code + pairVal(ep)
+            } else {
+                code = code + "PUSH \"\"\n"
+            }
             if parts > 0 { code = code + "CAT\n" }
             parts += 1
         } else {
