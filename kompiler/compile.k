@@ -3237,17 +3237,31 @@ func irAdditive(tokens, pos, ntoks, lc) {
 }
 
 func irMultiplicative(tokens, pos, ntoks, lc) {
-    let pair = irUnary(tokens, pos, ntoks, lc)
+    let pair = irPow(tokens, pos, ntoks, lc)
     let code = pairVal(pair)
     let p = pairPos(pair)
     while tokAt(tokens, p) == "STAR" || tokAt(tokens, p) == "SLASH" || tokAt(tokens, p) == "MOD" {
         let op = tokAt(tokens, p)
-        let rp = irUnary(tokens, p + 1, ntoks, lc)
+        let rp = irPow(tokens, p + 1, ntoks, lc)
         let rcode = pairVal(rp)
         p = pairPos(rp)
         if op == "STAR" { code = code + rcode + "MUL\n" }
         if op == "SLASH" { code = code + rcode + "DIV\n" }
         if op == "MOD" { code = code + rcode + "MOD\n" }
+    }
+    emit code + "," + p
+}
+
+// Right-associative ** — `a ** b ** c` is `a ** (b ** c)`.
+func irPow(tokens, pos, ntoks, lc) {
+    let pair = irUnary(tokens, pos, ntoks, lc)
+    let code = pairVal(pair)
+    let p = pairPos(pair)
+    if tokAt(tokens, p) == "STARSTAR" {
+        let rp = irPow(tokens, p + 1, ntoks, lc)
+        let rcode = pairVal(rp)
+        p = pairPos(rp)
+        code = code + rcode + "BUILTIN pow 2\n"
     }
     emit code + "," + p
 }
@@ -3556,6 +3570,29 @@ func irStmt(tokens, pos, ntoks, lc, inFunc) {
             if nt == "MODEQ"   { op = "MOD\n" }
             emit "LOAD " + name + "\n" + rcode + op + "STORE " + name + "\n," + p
         }
+    }
+
+    // post-increment / post-decrement statement: i++  i--
+    if tt == "ID" {
+        let nt = tokAt(tokens, pos + 1)
+        if nt == "PLUSPLUS" || nt == "MINUSMINUS" {
+            let name = tokVal(tok)
+            let p = pos + 2
+            if tokAt(tokens, p) == "SEMI" { p += 1 }
+            let op = "ADD\n"
+            if nt == "MINUSMINUS" { op = "SUB\n" }
+            emit "LOAD " + name + "\nPUSH 1\n" + op + "STORE " + name + "\n," + p
+        }
+    }
+
+    // pre-increment / pre-decrement statement: ++i  --i
+    if tok == "PLUSPLUS" || tok == "MINUSMINUS" {
+        let name = tokVal(tokAt(tokens, pos + 1))
+        let p = pos + 2
+        if tokAt(tokens, p) == "SEMI" { p += 1 }
+        let op = "ADD\n"
+        if tok == "MINUSMINUS" { op = "SUB\n" }
+        emit "LOAD " + name + "\nPUSH 1\n" + op + "STORE " + name + "\n," + p
     }
 
     // plain assignment
