@@ -4749,6 +4749,10 @@ just run {
         sbIR = sbAppend(sbIR, "; Krypton IR\n; Source: " + file + "\n\n")
         sbIR = sbAppend(sbIR, importedIR)
 
+        // Collect top-level globals (let/const at file scope) so we can prepend
+        // their init code to __main__ as locals — gives globals a working
+        // home without a dedicated .bss region in the ELF backend.
+        let sbGlobInit = sbNew()
         let iri = 0
         while iri < ntoks {
             let irtok = tokAt(tokens, iri)
@@ -4767,6 +4771,27 @@ just run {
                 } else {
                     iri += 1
                 }
+            } else if irtok == "KW:just" || irtok == "KW:go" {
+                // Skip the entry block — it's handled separately via findEntry below.
+                // Without this skip, our top-level walk would treat `let` tokens
+                // inside `just run { ... }` as globals.
+                let entryP = iri + 2
+                while entryP < ntoks && tokAt(tokens, entryP) != "LBRACE" { entryP += 1 }
+                let depth = 0
+                while entryP < ntoks {
+                    let bt = tokAt(tokens, entryP)
+                    if bt == "LBRACE" { depth += 1 }
+                    if bt == "RBRACE" {
+                        depth -= 1
+                        if depth == 0 { entryP += 1; break }
+                    }
+                    entryP += 1
+                }
+                iri = entryP
+            } else if irtok == "KW:let" || irtok == "KW:const" {
+                let glp = irLetIR(tokens, iri + 1, ntoks, 0, "0")
+                sbGlobInit = sbAppend(sbGlobInit, pairVal(glp))
+                iri = pairPos(glp)
             } else {
                 iri += 1
             }
@@ -4775,7 +4800,7 @@ just run {
         let irEntry = findEntry(tokens, ntoks)
         if irEntry >= 0 {
             let ep = irBlockIR(tokens, irEntry, ntoks, 0, "0")
-            sbIR = sbAppend(sbIR, "FUNC __main__ 0\n" + pairVal(ep) + "END\n")
+            sbIR = sbAppend(sbIR, "FUNC __main__ 0\n" + sbToString(sbGlobInit) + pairVal(ep) + "END\n")
         }
 
         let irText = sbToString(sbIR)
