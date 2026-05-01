@@ -91,6 +91,23 @@ echo "      output (locals):"
 echo "$ACTUAL2" | sed 's/^/        /'
 [[ "$ACTUAL2" == "$EXPECTED2" && "$EXIT2" -eq 0 ]] || { echo "FAIL (IR mode locals)"; exit 1; }
 
+cat > /tmp/_macho_self_test3.k <<'KEOF'
+just run {
+    let x = 100
+    let y = 7
+    exit((x - 8) / y * 3 + x % y)
+}
+KEOF
+./kcc --ir /tmp/_macho_self_test3.k > /tmp/_macho_self_test3.kir
+"$HOST" --ir /tmp/_macho_self_test3.kir /tmp/_macho_self_ir3.macho
+chmod +x /tmp/_macho_self_ir3.macho
+codesign -v /tmp/_macho_self_ir3.macho
+EXIT3=0
+/tmp/_macho_self_ir3.macho || EXIT3=$?
+# (100 - 8) / 7 * 3 + 100 % 7  = 13 * 3 + 2 = 41
+echo "      arithmetic exit code: $EXIT3 (expected 41)"
+[[ "$EXIT3" -eq 41 ]] || { echo "FAIL (IR mode arithmetic)"; exit 1; }
+
 rm -f /tmp/_macho_self_test*.k /tmp/_macho_self_test*.kir /tmp/_macho_self_ir*.macho
 
 echo ""

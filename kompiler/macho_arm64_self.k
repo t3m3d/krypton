@@ -498,10 +498,13 @@ func arm64_ldr_imm(rt, rn, imm12_scaled) {
 // br Xn  →  0xd61f0000 | (Xn << 5)
 func arm64_br(rn) { emit hexDword(0xd61f0000 + rn * 0x20) }
 
-// str x0, [sp, #-16]!   (push x0 to eval stack)  → 0xf81f0fe0
-func arm64_push_x0() { emit hexDword(0xf81f0fe0) }
-// ldr x0, [sp], #16     (pop top of eval stack into x0) → 0xf84107e0
-func arm64_pop_x0()  { emit hexDword(0xf84107e0) }
+// str Xt, [sp, #-16]!   (push Xt to eval stack)  → 0xf81f0fe0 | Rt
+func arm64_push(rt) { emit hexDword(0xf81f0fe0 + rt) }
+// ldr Xt, [sp], #16     (pop top of eval stack into Xt) → 0xf84107e0 | Rt
+func arm64_pop(rt)  { emit hexDword(0xf84107e0 + rt) }
+// Convenience aliases for x0 (most common usage)
+func arm64_push_x0() { emit arm64_push(0) }
+func arm64_pop_x0()  { emit arm64_pop(0) }
 
 // sub sp, sp, #imm12 (64-bit)  → 0xd10003ff | (imm12 << 10)
 func arm64_sub_sp(imm12) {
@@ -545,6 +548,51 @@ func arm64_movz_w_imm(rd, imm16) {
     let insn = 0x52800000
     insn = insn + (imm16 * 0x20)
     insn = insn + rd
+    emit hexDword(insn)
+}
+// movz Xd, #imm16 (64-bit, no shift)  → 0xd2800000 | (imm16 << 5) | Rd
+func arm64_movz_x_imm(rd, imm16) {
+    let insn = 0xd2800000
+    insn = insn + (imm16 * 0x20)
+    insn = insn + rd
+    emit hexDword(insn)
+}
+// movn Xd, #imm16 (64-bit, no shift) — Rd = ~(imm16) sign-extended → 0x92800000 | (imm16 << 5) | Rd
+func arm64_movn_x_imm(rd, imm16) {
+    let insn = 0x92800000
+    insn = insn + (imm16 * 0x20)
+    insn = insn + rd
+    emit hexDword(insn)
+}
+
+// add Xd, Xn, Xm (64-bit, no shift) → 0x8b000000 | (Rm<<16) | (Rn<<5) | Rd
+func arm64_add_xxx(rd, rn, rm) {
+    let insn = 0x8b000000 + (rm * 0x10000) + (rn * 0x20) + rd
+    emit hexDword(insn)
+}
+// sub Xd, Xn, Xm (64-bit, no shift) → 0xcb000000 | (Rm<<16) | (Rn<<5) | Rd
+func arm64_sub_xxx(rd, rn, rm) {
+    let insn = 0xcb000000 + (rm * 0x10000) + (rn * 0x20) + rd
+    emit hexDword(insn)
+}
+// mul Xd, Xn, Xm (madd Xd, Xn, Xm, xzr) → 0x9b007c00 | (Rm<<16) | (Rn<<5) | Rd
+func arm64_mul_xxx(rd, rn, rm) {
+    let insn = 0x9b007c00 + (rm * 0x10000) + (rn * 0x20) + rd
+    emit hexDword(insn)
+}
+// sdiv Xd, Xn, Xm (signed divide) → 0x9ac00c00 | (Rm<<16) | (Rn<<5) | Rd
+func arm64_sdiv_xxx(rd, rn, rm) {
+    let insn = 0x9ac00c00 + (rm * 0x10000) + (rn * 0x20) + rd
+    emit hexDword(insn)
+}
+// msub Xd, Xn, Xm, Xa  →  Rd = Ra - Rn*Rm   → 0x9b008000 | (Rm<<16) | (Ra<<10) | (Rn<<5) | Rd
+func arm64_msub_xxxx(rd, rn, rm, ra) {
+    let insn = 0x9b008000 + (rm * 0x10000) + (ra * 0x400) + (rn * 0x20) + rd
+    emit hexDword(insn)
+}
+// svc #imm16 → 0xd4000001 | (imm16 << 5)
+func arm64_svc(imm16) {
+    let insn = 0xd4000001 + (imm16 * 0x20)
     emit hexDword(insn)
 }
 
@@ -617,8 +665,33 @@ func parseSimpleIR(ir) {
                             if nOps > 0 { opSb = sbAppend(opSb, "\n") }
                             opSb = sbAppend(opSb, "PUSH_STR " + idx)
                             nOps += 1
+                        } else {
+                            // Integer literal: keep as-is (might be negative)
+                            if nOps > 0 { opSb = sbAppend(opSb, "\n") }
+                            opSb = sbAppend(opSb, "PUSH_INT " + rest)
+                            nOps += 1
                         }
                     }
+                } else if op == "ADD" {
+                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
+                    opSb = sbAppend(opSb, "ADD")
+                    nOps += 1
+                } else if op == "SUB" {
+                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
+                    opSb = sbAppend(opSb, "SUB")
+                    nOps += 1
+                } else if op == "MUL" {
+                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
+                    opSb = sbAppend(opSb, "MUL")
+                    nOps += 1
+                } else if op == "DIV" {
+                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
+                    opSb = sbAppend(opSb, "DIV")
+                    nOps += 1
+                } else if op == "MOD" {
+                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
+                    opSb = sbAppend(opSb, "MOD")
+                    nOps += 1
                 } else if op == "LOCAL" {
                     let res = internIntoList(locals, nLocals, rest)
                     let bar = len(res) - 1
@@ -657,6 +730,10 @@ func parseSimpleIR(ir) {
                         opSb = sbAppend(opSb, "BUILTIN_KP")
                         nOps += 1
                         nKp += 1
+                    } else if bname == "exit" {
+                        if nOps > 0 { opSb = sbAppend(opSb, "\n") }
+                        opSb = sbAppend(opSb, "BUILTIN_EXIT")
+                        nOps += 1
                     }
                 } else if op == "POP" {
                     if nOps > 0 { opSb = sbAppend(opSb, "\n") }
@@ -745,21 +822,32 @@ func computeFrameSize(parsed) {
     emit ((nLocals + 1) / 2) * 16
 }
 
-// Per-op instruction count under the slice 3b eval-stack model.
+// Per-op instruction count under the slice 3b/3c eval-stack model.
 //   PUSH_STR     : 3  (adrp + add + str push)
+//   PUSH_INT     : 2  (movz/movn + str push)  [for 16-bit values]
 //   LOAD_LOCAL   : 2  (ldur + str push)
 //   STORE_LOCAL  : 2  (ldr pop + stur)
+//   ADD/SUB/MUL/DIV : 4 (ldr pop b + ldr pop a + op x0,x1,x0 + str push)
+//   MOD          : 5  (ldr + ldr + sdiv + msub + str)
 //   BUILTIN_KP   : 4  (ldr pop + bl + movz + str push 0)
+//   BUILTIN_EXIT : 5  (ldr pop + movz x16 + svc + movz dead + str dead)
 //   POP          : 1  (ldr discard)
 //   END          : 3  + 1 if frame (movz w0 0 + ldp + ret + maybe add sp first)
 //   prologue     : 2  + 1 if frame (stp + mov fp sp + maybe sub sp)
 func opInstrCount(opTok) {
-    if opTok == "PUSH_STR"    { emit 3 }
-    if opTok == "LOAD_LOCAL"  { emit 2 }
-    if opTok == "STORE_LOCAL" { emit 2 }
-    if opTok == "BUILTIN_KP"  { emit 4 }
-    if opTok == "POP"         { emit 1 }
-    if opTok == "END"         { emit 3 }
+    if opTok == "PUSH_STR"     { emit 3 }
+    if opTok == "PUSH_INT"     { emit 2 }
+    if opTok == "LOAD_LOCAL"   { emit 2 }
+    if opTok == "STORE_LOCAL"  { emit 2 }
+    if opTok == "ADD"          { emit 4 }
+    if opTok == "SUB"          { emit 4 }
+    if opTok == "MUL"          { emit 4 }
+    if opTok == "DIV"          { emit 4 }
+    if opTok == "MOD"          { emit 5 }
+    if opTok == "BUILTIN_KP"   { emit 4 }
+    if opTok == "BUILTIN_EXIT" { emit 5 }
+    if opTok == "POP"          { emit 1 }
+    if opTok == "END"          { emit 3 }
     emit 0
 }
 
@@ -833,6 +921,55 @@ func emitTextFromIR(parsed, strOffsets) {
             instrIdx += 1
             s = s + arm64_push_x0()
             instrIdx += 1
+        } else if opTok == "PUSH_INT" {
+            let n = toInt(restTok)
+            if n >= 0 {
+                s = s + arm64_movz_x_imm(0, n % 65536)   // movz x0, #imm16 (zero-ext)
+            } else {
+                s = s + arm64_movn_x_imm(0, (0 - n - 1) % 65536) // movn x0, #(~n & 0xffff)
+            }
+            instrIdx += 1
+            s = s + arm64_push_x0()
+            instrIdx += 1
+        } else if opTok == "ADD" {
+            s = s + arm64_pop(0)                    // x0 = b
+            s = s + arm64_pop(1)                    // x1 = a
+            s = s + arm64_add_xxx(0, 1, 0)          // x0 = a + b
+            s = s + arm64_push(0)
+            instrIdx += 4
+        } else if opTok == "SUB" {
+            s = s + arm64_pop(0)
+            s = s + arm64_pop(1)
+            s = s + arm64_sub_xxx(0, 1, 0)          // x0 = a - b
+            s = s + arm64_push(0)
+            instrIdx += 4
+        } else if opTok == "MUL" {
+            s = s + arm64_pop(0)
+            s = s + arm64_pop(1)
+            s = s + arm64_mul_xxx(0, 1, 0)
+            s = s + arm64_push(0)
+            instrIdx += 4
+        } else if opTok == "DIV" {
+            s = s + arm64_pop(0)
+            s = s + arm64_pop(1)
+            s = s + arm64_sdiv_xxx(0, 1, 0)         // signed divide
+            s = s + arm64_push(0)
+            instrIdx += 4
+        } else if opTok == "MOD" {
+            s = s + arm64_pop(0)                    // x0 = b
+            s = s + arm64_pop(1)                    // x1 = a
+            s = s + arm64_sdiv_xxx(2, 1, 0)         // x2 = a / b
+            s = s + arm64_msub_xxxx(0, 2, 0, 1)     // x0 = a - x2 * b = a mod b
+            s = s + arm64_push(0)
+            instrIdx += 5
+        } else if opTok == "BUILTIN_EXIT" {
+            s = s + arm64_pop_x0()                  // x0 = exit code
+            s = s + arm64_movz_x_imm(16, 1)         // x16 = SYS_exit
+            s = s + arm64_svc(0x80)                 // trap (no return)
+            // Dead code — keep for IR-level eval-stack/POP balance:
+            s = s + arm64_movz_w_imm(0, 0)
+            s = s + arm64_push_x0()
+            instrIdx += 5
         } else if opTok == "LOAD_LOCAL" {
             let lIdx = toInt(restTok)
             let off = 0 - (8 + lIdx * 8)
