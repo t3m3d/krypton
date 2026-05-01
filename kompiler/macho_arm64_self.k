@@ -498,17 +498,91 @@ func arm64_ldr_imm(rt, rn, imm12_scaled) {
 // br Xn  →  0xd61f0000 | (Xn << 5)
 func arm64_br(rn) { emit hexDword(0xd61f0000 + rn * 0x20) }
 
-// ── simple-subset IR parser (slice 3a) ──────────────────────────────────────
-// Supports just: FUNC __main__ 0 / PUSH "literal" / BUILTIN kp 1 / POP / END.
-// Returns a layout string in this exact format:
-//   line 0:                 nKpCalls (int)
-//   line 1:                 nStrings (int)
-//   lines 2..2+nStrings-1:  each unique string (one per line)
-//   lines 2+nStrings..:     normalized ops, one per line:
-//                             "PUSH_STR <idx>" | "BUILTIN_KP" | "POP" | "END"
+// str x0, [sp, #-16]!   (push x0 to eval stack)  → 0xf81f0fe0
+func arm64_push_x0() { emit hexDword(0xf81f0fe0) }
+// ldr x0, [sp], #16     (pop top of eval stack into x0) → 0xf84107e0
+func arm64_pop_x0()  { emit hexDword(0xf84107e0) }
+
+// sub sp, sp, #imm12 (64-bit)  → 0xd10003ff | (imm12 << 10)
+func arm64_sub_sp(imm12) {
+    let insn = 0xd10003ff
+    insn = insn + (imm12 * 0x400)
+    emit hexDword(insn)
+}
+// add sp, sp, #imm12 (64-bit)  → 0x910003ff | (imm12 << 10)
+func arm64_add_sp(imm12) {
+    let insn = 0x910003ff
+    insn = insn + (imm12 * 0x400)
+    emit hexDword(insn)
+}
+
+// stur Xt, [Xn, #imm9]  (signed 9-bit unscaled offset, 64-bit)
+//   encoding: 0xf8000000 | (imm9 << 12) | (Rn << 5) | Rt
+func arm64_stur(rt, rn, imm9) {
+    let i = imm9
+    if i < 0 { i = i + 512 }   // 9-bit two's complement
+    i = i % 512
+    let insn = 0xf8000000
+    insn = insn + (i * 0x1000)
+    insn = insn + (rn * 0x20)
+    insn = insn + rt
+    emit hexDword(insn)
+}
+// ldur Xt, [Xn, #imm9]  → 0xf8400000 | (imm9 << 12) | (Rn << 5) | Rt
+func arm64_ldur(rt, rn, imm9) {
+    let i = imm9
+    if i < 0 { i = i + 512 }
+    i = i % 512
+    let insn = 0xf8400000
+    insn = insn + (i * 0x1000)
+    insn = insn + (rn * 0x20)
+    insn = insn + rt
+    emit hexDword(insn)
+}
+
+// movz Wd, #imm16  (32-bit, no shift)  → 0x52800000 | (imm16 << 5) | Rd
+func arm64_movz_w_imm(rd, imm16) {
+    let insn = 0x52800000
+    insn = insn + (imm16 * 0x20)
+    insn = insn + rd
+    emit hexDword(insn)
+}
+
+// ── simple-subset IR parser (slice 3a/3b) ───────────────────────────────────
+// Supports: FUNC __main__ 0 / LOCAL <name> / PUSH "literal" / STORE <name> /
+//           LOAD <name> / BUILTIN kp 1 / POP / END.
+// Layout-string format:
+//   line 0: nKpCalls
+//   line 1: nStrings
+//   line 2: nLocals
+//   lines 3..3+nStrings-1:  each unique string content
+//   lines 3+nStrings..3+nStrings+nLocals-1: each unique local name
+//   remaining lines: normalized ops, one per line:
+//     PUSH_STR <idx> | LOAD_LOCAL <idx> | STORE_LOCAL <idx> |
+//     BUILTIN_KP | POP | END
+
+// Helper: find or add a name to a newline-separated list. Returns 0-based idx
+// (the result is the modified list with the new entry appended if not found,
+// followed by "|" then the index, allowing the caller to extract both).
+func internIntoList(list, count, name) {
+    let i = 0
+    while i < count {
+        if getLine(list, i) == name {
+            emit list + "|" + i
+        }
+        i += 1
+    }
+    let newList = list
+    if count > 0 { newList = newList + "\n" }
+    newList = newList + name
+    emit newList + "|" + count
+}
+
 func parseSimpleIR(ir) {
     let strings = ""
     let nStrings = 0
+    let locals = ""
+    let nLocals = 0
     let opSb = sbNew()
     let nOps = 0
     let nKp = 0
@@ -527,33 +601,53 @@ func parseSimpleIR(ir) {
                 if op == "PUSH" {
                     if len(rest) > 0 {
                         if rest[0] == "\"" {
-                            // Extract content between first/last quote (no escape handling for slice 3a)
                             let content = ""
                             let k = 1
                             while k < len(rest) && rest[k] != "\"" {
                                 content = content + rest[k]
                                 k += 1
                             }
-                            // intern: search for existing
-                            let idx = 0 - 1
-                            let si = 0
-                            while si < nStrings {
-                                if getLine(strings, si) == content {
-                                    if idx < 0 { idx = si }
-                                }
-                                si += 1
-                            }
-                            if idx < 0 {
-                                if nStrings > 0 { strings = strings + "\n" }
-                                strings = strings + content
-                                idx = nStrings
-                                nStrings += 1
-                            }
+                            let res = internIntoList(strings, nStrings, content)
+                            // res is "list|idx" — split on the last "|"
+                            let bar = len(res) - 1
+                            while bar >= 0 && res[bar] != "|" { bar -= 1 }
+                            strings = substring(res, 0, bar)
+                            let idx = toInt(substring(res, bar + 1, len(res)))
+                            if idx == nStrings { nStrings += 1 }
                             if nOps > 0 { opSb = sbAppend(opSb, "\n") }
                             opSb = sbAppend(opSb, "PUSH_STR " + idx)
                             nOps += 1
                         }
                     }
+                } else if op == "LOCAL" {
+                    let res = internIntoList(locals, nLocals, rest)
+                    let bar = len(res) - 1
+                    while bar >= 0 && res[bar] != "|" { bar -= 1 }
+                    locals = substring(res, 0, bar)
+                    let idx = toInt(substring(res, bar + 1, len(res)))
+                    if idx == nLocals { nLocals += 1 }
+                    // LOCAL emits no op — just declares the slot
+                } else if op == "LOAD" {
+                    // Auto-add if not declared (defensive)
+                    let res = internIntoList(locals, nLocals, rest)
+                    let bar = len(res) - 1
+                    while bar >= 0 && res[bar] != "|" { bar -= 1 }
+                    locals = substring(res, 0, bar)
+                    let idx = toInt(substring(res, bar + 1, len(res)))
+                    if idx == nLocals { nLocals += 1 }
+                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
+                    opSb = sbAppend(opSb, "LOAD_LOCAL " + idx)
+                    nOps += 1
+                } else if op == "STORE" {
+                    let res = internIntoList(locals, nLocals, rest)
+                    let bar = len(res) - 1
+                    while bar >= 0 && res[bar] != "|" { bar -= 1 }
+                    locals = substring(res, 0, bar)
+                    let idx = toInt(substring(res, bar + 1, len(res)))
+                    if idx == nLocals { nLocals += 1 }
+                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
+                    opSb = sbAppend(opSb, "STORE_LOCAL " + idx)
+                    nOps += 1
                 } else if op == "BUILTIN" {
                     let bj = 0
                     while bj < len(rest) && rest[bj] != " " { bj += 1 }
@@ -573,15 +667,28 @@ func parseSimpleIR(ir) {
                     opSb = sbAppend(opSb, "END")
                     nOps += 1
                 }
-                // Other IR ops silently ignored at this slice
             }
         }
         i += 1
     }
-    let r = "" + nKp + "\n" + nStrings + "\n"
+    let r = "" + nKp + "\n" + nStrings + "\n" + nLocals + "\n"
     if nStrings > 0 { r = r + strings + "\n" }
+    if nLocals > 0  { r = r + locals + "\n" }
     r = r + sbToString(opSb)
     emit r
+}
+
+// Lines 0..2 of the parsed format are nKp / nStrings / nLocals.
+// String entries start at line 3, locals after that, ops after locals.
+func irStringStart() { emit 3 }
+func irLocalStart(parsed) {
+    let nStrings = toInt(getLine(parsed, 1))
+    emit 3 + nStrings
+}
+func irOpStart(parsed) {
+    let nStrings = toInt(getLine(parsed, 1))
+    let nLocals = toInt(getLine(parsed, 2))
+    emit 3 + nStrings + nLocals
 }
 
 // Compute byte offset within __cstring for each interned string.
@@ -594,7 +701,7 @@ func computeStringOffsets(parsed) {
     while si < nStrings {
         if si > 0 { r = r + "\n" }
         r = r + ("" + off)
-        let s = getLine(parsed, 2 + si)
+        let s = getLine(parsed, irStringStart() + si)
         off = off + len(s) + 1     // +1 for NUL
         si += 1
     }
@@ -607,7 +714,7 @@ func computeCStringSize(parsed) {
     let off = 0
     let si = 0
     while si < nStrings {
-        let s = getLine(parsed, 2 + si)
+        let s = getLine(parsed, irStringStart() + si)
         off = off + len(s) + 1
         si += 1
     }
@@ -620,33 +727,83 @@ func emitCStringFromIR(parsed) {
     let s = ""
     let si = 0
     while si < nStrings {
-        let str = getLine(parsed, 2 + si)
+        let str = getLine(parsed, irStringStart() + si)
         s = s + asciiToHex(str) + hexByte(0)
         si += 1
     }
     emit s
 }
 
-// Emit the __text section bytes from parsed IR. Uses the 1-deep eval-stack
-// model where x0 holds the "top of stack". PUSH_STR loads the string addr into
-// x0, BUILTIN_KP calls _puts (already takes the string in x0), POP is a no-op,
-// END emits the epilogue.
-//
-// Layout assumption (slice 3a): all of __text + __stubs + __cstring fit on the
-// first 4 KB ADRP page (offset < 0x1000 from TEXT_VADDR), so adrp imm21 is 0.
-// strOffsets is the per-string-offset list from computeStringOffsets.
-func emitTextFromIR(parsed, strOffsets) {
-    let nStrings = toInt(getLine(parsed, 1))
-    let opStart = 2 + nStrings
+// Frame size for locals: 8 bytes per local, rounded up to 16.
+//   nLocals = 0 → 0
+//   nLocals = 1 → 16
+//   nLocals = 2 → 16
+//   nLocals = 3 → 32
+func computeFrameSize(parsed) {
+    let nLocals = toInt(getLine(parsed, 2))
+    if nLocals == 0 { emit 0 }
+    emit ((nLocals + 1) / 2) * 16
+}
+
+// Per-op instruction count under the slice 3b eval-stack model.
+//   PUSH_STR     : 3  (adrp + add + str push)
+//   LOAD_LOCAL   : 2  (ldur + str push)
+//   STORE_LOCAL  : 2  (ldr pop + stur)
+//   BUILTIN_KP   : 4  (ldr pop + bl + movz + str push 0)
+//   POP          : 1  (ldr discard)
+//   END          : 3  + 1 if frame (movz w0 0 + ldp + ret + maybe add sp first)
+//   prologue     : 2  + 1 if frame (stp + mov fp sp + maybe sub sp)
+func opInstrCount(opTok) {
+    if opTok == "PUSH_STR"    { emit 3 }
+    if opTok == "LOAD_LOCAL"  { emit 2 }
+    if opTok == "STORE_LOCAL" { emit 2 }
+    if opTok == "BUILTIN_KP"  { emit 4 }
+    if opTok == "POP"         { emit 1 }
+    if opTok == "END"         { emit 3 }
+    emit 0
+}
+
+// Total __text size in bytes, given parsed IR. Walks ops + adds prologue/frame.
+func computeTextSize(parsed) {
+    let opStart = irOpStart(parsed)
     let nOps = lineCount(parsed) - opStart
+    let frameSize = computeFrameSize(parsed)
+    let frameInstrs = 0
+    if frameSize > 0 { frameInstrs = 2 }     // sub sp + add sp (one each in prologue/epilogue)
+    let n = 2 + frameInstrs                  // prologue: stp + mov fp sp [+ sub sp]
+    let i = 0
+    while i < nOps {
+        let opLine = getLine(parsed, opStart + i)
+        let sp = 0
+        while sp < len(opLine) && opLine[sp] != " " { sp += 1 }
+        let tok = substring(opLine, 0, sp)
+        n = n + opInstrCount(tok)
+        i += 1
+    }
+    emit n * 4
+}
+
+// Emit __text bytes for the parsed IR. Eval stack lives at SP, growing toward
+// lower addresses; locals live at FP-negative offsets (8 bytes each).
+//
+// Layout assumption (slice 3a/3b): __text + __stubs + __cstring fits on the
+// first 4 KB ADRP page (offset < 0x1000 from TEXT_VADDR). For larger programs
+// we'll need real per-instruction page math.
+func emitTextFromIR(parsed, strOffsets) {
+    let opStart = irOpStart(parsed)
+    let nOps = lineCount(parsed) - opStart
+    let frameSize = computeFrameSize(parsed)
 
     let s = ""
-    // prologue
+    // prologue: stp x29, x30, [sp, #-16]!; mov x29, sp; [sub sp, sp, #frame]
     s = s + arm64_stp_fp_lr_pre16()
     s = s + arm64_mov_fp_sp()
     let instrIdx = 2
+    if frameSize > 0 {
+        s = s + arm64_sub_sp(frameSize)
+        instrIdx += 1
+    }
 
-    // Pre-computed addresses
     let textVaddr = 0x100000000
     let textOff = 0x460
     let stubsOff = textOff + g_TEXT_SIZE
@@ -667,24 +824,48 @@ func emitTextFromIR(parsed, strOffsets) {
             let strOff = toInt(getLine(strOffsets, strIdx))
             let strVaddr = textVaddr + cstringOff + strOff
             let adrpPc = textVaddr + textOff + instrIdx * 4
-            // 4 KB ADRP page math
             let pcPage = adrpPc / 4096 * 4096
             let strPage = strVaddr / 4096 * 4096
             let imm21 = (strPage - pcPage) / 4096
             s = s + arm64_adrp(0, imm21)
             instrIdx += 1
-            let addImm12 = strVaddr % 4096
-            s = s + arm64_add_imm(0, 0, addImm12)
+            s = s + arm64_add_imm(0, 0, strVaddr % 4096)
+            instrIdx += 1
+            s = s + arm64_push_x0()
+            instrIdx += 1
+        } else if opTok == "LOAD_LOCAL" {
+            let lIdx = toInt(restTok)
+            let off = 0 - (8 + lIdx * 8)
+            s = s + arm64_ldur(0, 29, off)         // ldur x0, [x29, #-(8+i*8)]
+            instrIdx += 1
+            s = s + arm64_push_x0()
+            instrIdx += 1
+        } else if opTok == "STORE_LOCAL" {
+            let lIdx = toInt(restTok)
+            let off = 0 - (8 + lIdx * 8)
+            s = s + arm64_pop_x0()
+            instrIdx += 1
+            s = s + arm64_stur(0, 29, off)         // stur x0, [x29, #-(8+i*8)]
             instrIdx += 1
         } else if opTok == "BUILTIN_KP" {
+            s = s + arm64_pop_x0()
+            instrIdx += 1
             let blPc = textVaddr + textOff + instrIdx * 4
-            let delta = stubVaddr - blPc
-            let rel26 = delta / 4
+            let rel26 = (stubVaddr - blPc) / 4
             s = s + arm64_bl(rel26)
             instrIdx += 1
+            s = s + arm64_movz_w_imm(0, 0)         // movz w0, #0 (return value)
+            instrIdx += 1
+            s = s + arm64_push_x0()
+            instrIdx += 1
         } else if opTok == "POP" {
-            // 1-deep eval stack via x0; nothing to do (puts return is discarded)
+            s = s + arm64_pop_x0()
+            instrIdx += 1
         } else if opTok == "END" {
+            if frameSize > 0 {
+                s = s + arm64_add_sp(frameSize)
+                instrIdx += 1
+            }
             s = s + arm64_movz_w0_zero()
             s = s + arm64_ldp_fp_lr_post16()
             s = s + arm64_ret()
@@ -693,14 +874,6 @@ func emitTextFromIR(parsed, strOffsets) {
         oi += 1
     }
     emit s
-}
-
-// Compute the size (in bytes) of __text given the parsed IR.
-// 5 fixed instructions (2 prologue + 3 epilogue) + 3 per kp call (adrp + add + bl).
-// Returns bytes (= instructions × 4).
-func computeTextSize(parsed) {
-    let nKp = toInt(getLine(parsed, 0))
-    emit (5 + 3 * nKp) * 4
 }
 
 // ── _main code (8 instructions, 32 bytes) ───────────────────────────────────
