@@ -50,7 +50,7 @@ echo "      output: $ACTUAL"
 echo "      exit:   $EXIT"
 [[ "$ACTUAL" == "Hi" && "$EXIT" -eq 0 ]] || { echo "FAIL (default mode)"; exit 1; }
 
-echo "[5/5] IR-driven path: compile a real .k via the simple subset..."
+echo "[5/5] IR-driven path: compile real .k programs (kp + locals)..."
 cat > /tmp/_macho_self_test.k <<'KEOF'
 just run {
     kp("Hello")
@@ -68,8 +68,30 @@ EXPECTED_IR=$'Hello\nWorld\nKrypton on M1'
 echo "      output:"
 echo "$ACTUAL_IR" | sed 's/^/        /'
 echo "      exit: $EXIT_IR"
-[[ "$ACTUAL_IR" == "$EXPECTED_IR" && "$EXIT_IR" -eq 0 ]] || { echo "FAIL (IR mode)"; exit 1; }
-rm -f /tmp/_macho_self_test.k /tmp/_macho_self_test.kir /tmp/_macho_self_ir.macho
+[[ "$ACTUAL_IR" == "$EXPECTED_IR" && "$EXIT_IR" -eq 0 ]] || { echo "FAIL (IR mode kp-sequence)"; exit 1; }
+
+cat > /tmp/_macho_self_test2.k <<'KEOF'
+just run {
+    let a = "first"
+    let b = "second"
+    kp(a)
+    kp(b)
+    a = "third"
+    kp(a)
+}
+KEOF
+./kcc --ir /tmp/_macho_self_test2.k > /tmp/_macho_self_test2.kir
+"$HOST" --ir /tmp/_macho_self_test2.kir /tmp/_macho_self_ir2.macho
+chmod +x /tmp/_macho_self_ir2.macho
+codesign -v /tmp/_macho_self_ir2.macho
+ACTUAL2=$(/tmp/_macho_self_ir2.macho)
+EXIT2=$?
+EXPECTED2=$'first\nsecond\nthird'
+echo "      output (locals):"
+echo "$ACTUAL2" | sed 's/^/        /'
+[[ "$ACTUAL2" == "$EXPECTED2" && "$EXIT2" -eq 0 ]] || { echo "FAIL (IR mode locals)"; exit 1; }
+
+rm -f /tmp/_macho_self_test*.k /tmp/_macho_self_test*.kir /tmp/_macho_self_ir*.macho
 
 echo ""
 echo "════════════════════════════════════════════════════"
