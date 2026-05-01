@@ -108,6 +108,30 @@ EXIT3=0
 echo "      arithmetic exit code: $EXIT3 (expected 41)"
 [[ "$EXIT3" -eq 41 ]] || { echo "FAIL (IR mode arithmetic)"; exit 1; }
 
+cat > /tmp/_macho_self_test4.k <<'KEOF'
+just run {
+    let n = 10
+    let a = 0
+    let b = 1
+    let i = 0
+    while i < n {
+        let t = a + b
+        a = b
+        b = t
+        i = i + 1
+    }
+    exit(a)
+}
+KEOF
+./kcc --ir /tmp/_macho_self_test4.k > /tmp/_macho_self_test4.kir
+"$HOST" --ir /tmp/_macho_self_test4.kir /tmp/_macho_self_ir4.macho
+chmod +x /tmp/_macho_self_ir4.macho
+codesign -v /tmp/_macho_self_ir4.macho
+EXIT4=0
+/tmp/_macho_self_ir4.macho || EXIT4=$?
+echo "      fib(10) exit code: $EXIT4 (expected 55)"
+[[ "$EXIT4" -eq 55 ]] || { echo "FAIL (IR mode control flow)"; exit 1; }
+
 rm -f /tmp/_macho_self_test*.k /tmp/_macho_self_test*.kir /tmp/_macho_self_ir*.macho
 
 echo ""

@@ -596,6 +596,36 @@ func arm64_svc(imm16) {
     emit hexDword(insn)
 }
 
+// cmp Xn, Xm  (alias for `subs xzr, Xn, Xm`) → 0xeb00001f | (Rm<<16) | (Rn<<5)
+func arm64_cmp_xx(rn, rm) {
+    emit hexDword(0xeb00001f + (rm * 0x10000) + (rn * 0x20))
+}
+// cset Xd, <cond>  (alias for `csinc Xd, xzr, xzr, invert(cond)`)
+//   csinc encoding: 0x9a800400 | (Rm<<16) | (cond<<12) | (Rn<<5) | Rd
+//   For CSET we set Rm=Rn=xzr(31) and use invert(cond) — flipping bit 0 of cond inverts.
+// AArch64 cond codes used here: EQ=0, NE=1, GE=0xA, LT=0xB, GT=0xC, LE=0xD.
+func arm64_cset(rd, cond) {
+    let inv = cond
+    if (cond % 2) == 0 { inv = cond + 1 } else { inv = cond - 1 }
+    emit hexDword(0x9a800400 + (31 * 0x10000) + (inv * 0x1000) + (31 * 0x20) + rd)
+}
+// b <imm26>  (unconditional branch, signed 26-bit in instruction units)
+//   encoding: 0x14000000 | (imm26 & 0x3ffffff)
+func arm64_b(rel) {
+    let r = rel
+    if r < 0 { r = r + 0x4000000 }
+    r = r % 0x4000000
+    emit hexDword(0x14000000 + r)
+}
+// cbz Xt, <imm19>  (compare and branch on zero, signed 19-bit)
+//   encoding: 0xb4000000 | ((imm19 & 0x7ffff) << 5) | Rt
+func arm64_cbz(rt, rel) {
+    let r = rel
+    if r < 0 { r = r + 0x80000 }
+    r = r % 0x80000
+    emit hexDword(0xb4000000 + (r * 0x20) + rt)
+}
+
 // ── simple-subset IR parser (slice 3a/3b) ───────────────────────────────────
 // Supports: FUNC __main__ 0 / LOCAL <name> / PUSH "literal" / STORE <name> /
 //           LOAD <name> / BUILTIN kp 1 / POP / END.
@@ -691,6 +721,22 @@ func parseSimpleIR(ir) {
                 } else if op == "MOD" {
                     if nOps > 0 { opSb = sbAppend(opSb, "\n") }
                     opSb = sbAppend(opSb, "MOD")
+                    nOps += 1
+                } else if op == "LT" || op == "GT" || op == "LE" || op == "GE" || op == "EQ" || op == "NE" {
+                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
+                    opSb = sbAppend(opSb, op)
+                    nOps += 1
+                } else if op == "LABEL" {
+                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
+                    opSb = sbAppend(opSb, "LABEL " + rest)
+                    nOps += 1
+                } else if op == "JUMP" {
+                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
+                    opSb = sbAppend(opSb, "JUMP " + rest)
+                    nOps += 1
+                } else if op == "JUMPIFNOT" {
+                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
+                    opSb = sbAppend(opSb, "JUMPIFNOT " + rest)
                     nOps += 1
                 } else if op == "LOCAL" {
                     let res = internIntoList(locals, nLocals, rest)
@@ -844,10 +890,73 @@ func opInstrCount(opTok) {
     if opTok == "MUL"          { emit 4 }
     if opTok == "DIV"          { emit 4 }
     if opTok == "MOD"          { emit 5 }
+    if opTok == "LT"           { emit 5 }   // pop b, pop a, cmp, cset, push
+    if opTok == "GT"           { emit 5 }
+    if opTok == "LE"           { emit 5 }
+    if opTok == "GE"           { emit 5 }
+    if opTok == "EQ"           { emit 5 }
+    if opTok == "NE"           { emit 5 }
+    if opTok == "JUMP"         { emit 1 }
+    if opTok == "JUMPIFNOT"    { emit 2 }   // pop x0, cbz x0, target
+    if opTok == "LABEL"        { emit 0 }
     if opTok == "BUILTIN_KP"   { emit 4 }
     if opTok == "BUILTIN_EXIT" { emit 5 }
     if opTok == "POP"          { emit 1 }
     if opTok == "END"          { emit 3 }
+    emit 0
+}
+
+// Build a label table: for each LABEL op, record its instruction index
+// (0-based, relative to the start of __text including prologue). Returns a
+// newline-separated list of "name=instr_idx" entries.
+func buildLabelTable(parsed) {
+    let opStart = irOpStart(parsed)
+    let nOps = lineCount(parsed) - opStart
+    let frameSize = computeFrameSize(parsed)
+    let table = ""
+    let n = 2
+    if frameSize > 0 { n = 3 }
+    let i = 0
+    while i < nOps {
+        let opLine = getLine(parsed, opStart + i)
+        let sp = 0
+        while sp < len(opLine) && opLine[sp] != " " { sp += 1 }
+        let tok = substring(opLine, 0, sp)
+        if tok == "LABEL" {
+            let name = trim(substring(opLine, sp + 1, len(opLine)))
+            if len(table) > 0 { table = table + "\n" }
+            table = table + name + "=" + ("" + n)
+        }
+        n = n + opInstrCount(tok)
+        i += 1
+    }
+    emit table
+}
+
+// Look up a label in the label table. Returns instruction index or -1 if not found.
+func findLabel(table, name) {
+    let nl = lineCount(table)
+    let i = 0
+    while i < nl {
+        let line = getLine(table, i)
+        let eq = 0
+        while eq < len(line) && line[eq] != "=" { eq += 1 }
+        if substring(line, 0, eq) == name {
+            emit toInt(substring(line, eq + 1, len(line)))
+        }
+        i += 1
+    }
+    emit 0 - 1
+}
+
+// Map IR comparison op token → AArch64 cond code.
+func irCmpToCond(opTok) {
+    if opTok == "EQ" { emit 0x0 }
+    if opTok == "NE" { emit 0x1 }
+    if opTok == "GE" { emit 0xa }
+    if opTok == "LT" { emit 0xb }
+    if opTok == "GT" { emit 0xc }
+    if opTok == "LE" { emit 0xd }
     emit 0
 }
 
@@ -881,6 +990,7 @@ func emitTextFromIR(parsed, strOffsets) {
     let opStart = irOpStart(parsed)
     let nOps = lineCount(parsed) - opStart
     let frameSize = computeFrameSize(parsed)
+    let labels = buildLabelTable(parsed)
 
     let s = ""
     // prologue: stp x29, x30, [sp, #-16]!; mov x29, sp; [sub sp, sp, #frame]
@@ -970,6 +1080,27 @@ func emitTextFromIR(parsed, strOffsets) {
             s = s + arm64_movz_w_imm(0, 0)
             s = s + arm64_push_x0()
             instrIdx += 5
+        } else if opTok == "LT" || opTok == "GT" || opTok == "LE" || opTok == "GE" || opTok == "EQ" || opTok == "NE" {
+            s = s + arm64_pop(0)                    // x0 = b
+            s = s + arm64_pop(1)                    // x1 = a
+            s = s + arm64_cmp_xx(1, 0)              // cmp a, b → flags
+            s = s + arm64_cset(0, irCmpToCond(opTok))
+            s = s + arm64_push(0)
+            instrIdx += 5
+        } else if opTok == "LABEL" {
+            // No instructions emitted; labels just record positions (handled in pre-pass)
+        } else if opTok == "JUMP" {
+            let target = findLabel(labels, restTok)
+            let delta = target - instrIdx
+            s = s + arm64_b(delta)
+            instrIdx += 1
+        } else if opTok == "JUMPIFNOT" {
+            s = s + arm64_pop_x0()
+            instrIdx += 1
+            let target = findLabel(labels, restTok)
+            let delta = target - instrIdx
+            s = s + arm64_cbz(0, delta)
+            instrIdx += 1
         } else if opTok == "LOAD_LOCAL" {
             let lIdx = toInt(restTok)
             let off = 0 - (8 + lIdx * 8)
