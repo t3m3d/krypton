@@ -169,6 +169,275 @@ func STRX_MH()    { emit 2 }   // "__mh_execute_header"
 func STRX_MAIN()  { emit 22 }  // "_main"
 func STRX_PUTS()  { emit 28 }  // "_puts"
 
+// ── byte/word readers over the "xHH"-encoded byte string ───────────────────
+// hexByte() returns "xHH" (3 chars). To read a byte at byte-index i, we look
+// at chars [i*3+1 .. i*3+2] and parse as hex.
+
+func hexCharVal(c) {
+    if c == "0" { emit 0 }
+    if c == "1" { emit 1 }
+    if c == "2" { emit 2 }
+    if c == "3" { emit 3 }
+    if c == "4" { emit 4 }
+    if c == "5" { emit 5 }
+    if c == "6" { emit 6 }
+    if c == "7" { emit 7 }
+    if c == "8" { emit 8 }
+    if c == "9" { emit 9 }
+    if c == "A" { emit 10 }
+    if c == "B" { emit 11 }
+    if c == "C" { emit 12 }
+    if c == "D" { emit 13 }
+    if c == "E" { emit 14 }
+    if c == "F" { emit 15 }
+    emit 0
+}
+
+func byteAtHex(hex, i) {
+    let p = i * 3
+    let hi = hexCharVal(hex[p + 1])
+    let lo = hexCharVal(hex[p + 2])
+    emit hi * 16 + lo
+}
+
+// 32-bit big-endian word at byte index i. Krypton ints are 32-bit signed but
+// the bit pattern is what matters; bitAnd/bitShr/bitShl from compile.k cast
+// to unsigned int internally so this works for high-bit-set values too.
+func u32BeAtHex(hex, i) {
+    let b0 = byteAtHex(hex, i)
+    let b1 = byteAtHex(hex, i + 1)
+    let b2 = byteAtHex(hex, i + 2)
+    let b3 = byteAtHex(hex, i + 3)
+    emit b0 * 0x1000000 + b1 * 0x10000 + b2 * 0x100 + b3
+}
+
+// Emit a 32-bit BE word as 4 hex bytes (for SHA-256 output and for big-endian
+// fields in CodeDirectory / SuperBlob).
+func hexDwordBe(n) {
+    let b3 = bitAnd(bitShr(n, 24), 0xff)
+    let b2 = bitAnd(bitShr(n, 16), 0xff)
+    let b1 = bitAnd(bitShr(n, 8),  0xff)
+    let b0 = bitAnd(n, 0xff)
+    emit hexByte(b3) + hexByte(b2) + hexByte(b1) + hexByte(b0)
+}
+
+// ── unsigned 32-bit primitives (use language builtins; runtime casts to uint) ─
+// rotr — bitwise rotate right by n in [1, 31]
+func u32_rotr(v, n) { emit bitOr(bitShr(v, n), bitShl(v, 32 - n)) }
+// shr — logical right shift (already unsigned via kr_bitshr)
+func u32_shr(v, n) { emit bitShr(v, n) }
+// add wrapping mod 2^32 — Krypton's signed add naturally wraps in 32 bits
+func u32_add(a, b) { emit a + b }
+
+// ── SHA-256 ────────────────────────────────────────────────────────────────
+// Hashes byteCount bytes of `hex` starting at byte index `byteOff`.
+// Returns the 32-byte digest as 96 hex chars (xHH × 32).
+
+// Round constants K[0..63]
+func sha256_K(i) {
+    if i == 0  { emit 0x428a2f98 }
+    if i == 1  { emit 0x71374491 }
+    if i == 2  { emit 0xb5c0fbcf }
+    if i == 3  { emit 0xe9b5dba5 }
+    if i == 4  { emit 0x3956c25b }
+    if i == 5  { emit 0x59f111f1 }
+    if i == 6  { emit 0x923f82a4 }
+    if i == 7  { emit 0xab1c5ed5 }
+    if i == 8  { emit 0xd807aa98 }
+    if i == 9  { emit 0x12835b01 }
+    if i == 10 { emit 0x243185be }
+    if i == 11 { emit 0x550c7dc3 }
+    if i == 12 { emit 0x72be5d74 }
+    if i == 13 { emit 0x80deb1fe }
+    if i == 14 { emit 0x9bdc06a7 }
+    if i == 15 { emit 0xc19bf174 }
+    if i == 16 { emit 0xe49b69c1 }
+    if i == 17 { emit 0xefbe4786 }
+    if i == 18 { emit 0x0fc19dc6 }
+    if i == 19 { emit 0x240ca1cc }
+    if i == 20 { emit 0x2de92c6f }
+    if i == 21 { emit 0x4a7484aa }
+    if i == 22 { emit 0x5cb0a9dc }
+    if i == 23 { emit 0x76f988da }
+    if i == 24 { emit 0x983e5152 }
+    if i == 25 { emit 0xa831c66d }
+    if i == 26 { emit 0xb00327c8 }
+    if i == 27 { emit 0xbf597fc7 }
+    if i == 28 { emit 0xc6e00bf3 }
+    if i == 29 { emit 0xd5a79147 }
+    if i == 30 { emit 0x06ca6351 }
+    if i == 31 { emit 0x14292967 }
+    if i == 32 { emit 0x27b70a85 }
+    if i == 33 { emit 0x2e1b2138 }
+    if i == 34 { emit 0x4d2c6dfc }
+    if i == 35 { emit 0x53380d13 }
+    if i == 36 { emit 0x650a7354 }
+    if i == 37 { emit 0x766a0abb }
+    if i == 38 { emit 0x81c2c92e }
+    if i == 39 { emit 0x92722c85 }
+    if i == 40 { emit 0xa2bfe8a1 }
+    if i == 41 { emit 0xa81a664b }
+    if i == 42 { emit 0xc24b8b70 }
+    if i == 43 { emit 0xc76c51a3 }
+    if i == 44 { emit 0xd192e819 }
+    if i == 45 { emit 0xd6990624 }
+    if i == 46 { emit 0xf40e3585 }
+    if i == 47 { emit 0x106aa070 }
+    if i == 48 { emit 0x19a4c116 }
+    if i == 49 { emit 0x1e376c08 }
+    if i == 50 { emit 0x2748774c }
+    if i == 51 { emit 0x34b0bcb5 }
+    if i == 52 { emit 0x391c0cb3 }
+    if i == 53 { emit 0x4ed8aa4a }
+    if i == 54 { emit 0x5b9cca4f }
+    if i == 55 { emit 0x682e6ff3 }
+    if i == 56 { emit 0x748f82ee }
+    if i == 57 { emit 0x78a5636f }
+    if i == 58 { emit 0x84c87814 }
+    if i == 59 { emit 0x8cc70208 }
+    if i == 60 { emit 0x90befffa }
+    if i == 61 { emit 0xa4506ceb }
+    if i == 62 { emit 0xbef9a3f7 }
+    if i == 63 { emit 0xc67178f2 }
+    emit 0
+}
+
+// Build a 16-line "h0\nh1\n...h7" string holding the running hash state.
+// Initial values (FIPS 180-4 §5.3.3):
+func sha256_initState() {
+    let s = ""
+    s = s + "1779033703\n"      // 0x6a09e667
+    s = s + "-1150833019\n"     // 0xbb67ae85 (signed)
+    s = s + "1013904242\n"      // 0x3c6ef372
+    s = s + "-1521486534\n"     // 0xa54ff53a
+    s = s + "1359893119\n"      // 0x510e527f
+    s = s + "-1694144372\n"     // 0x9b05688c
+    s = s + "528734635\n"       // 0x1f83d9ab
+    s = s + "1541459225"        // 0x5be0cd19
+    emit s
+}
+
+// Process one 512-bit (64-byte) chunk. `chunkHex` is 192 hex chars (64 × 3).
+// `state` is the 8-word state (newline-separated as decimals).
+// Returns the updated state in the same format.
+func sha256_processChunk(state, chunkHex) {
+    // Load 16 words from chunk (BE) and extend to 64 words.
+    // We store W[i] in local vars W0..W63 conceptually, but Krypton has no
+    // arrays of integers — use a newline-separated string of decimals.
+    let W = ""
+    let i = 0
+    while i < 16 {
+        let w = u32BeAtHex(chunkHex, i * 4)
+        if i > 0 { W = W + "\n" }
+        W = W + ("" + w)
+        i += 1
+    }
+    while i < 64 {
+        let w15 = toInt(getLine(W, i - 15))
+        let w2  = toInt(getLine(W, i - 2))
+        let w16 = toInt(getLine(W, i - 16))
+        let w7  = toInt(getLine(W, i - 7))
+        // sigma0(x) = ROTR(x,7) XOR ROTR(x,18) XOR SHR(x,3)
+        let s0 = bitXor(bitXor(u32_rotr(w15, 7), u32_rotr(w15, 18)), bitShr(w15, 3))
+        // sigma1(x) = ROTR(x,17) XOR ROTR(x,19) XOR SHR(x,10)
+        let s1 = bitXor(bitXor(u32_rotr(w2, 17), u32_rotr(w2, 19)), bitShr(w2, 10))
+        let wi = w16 + s0 + w7 + s1
+        W = W + "\n" + ("" + wi)
+        i += 1
+    }
+    // Init working vars
+    let a = toInt(getLine(state, 0))
+    let b = toInt(getLine(state, 1))
+    let c = toInt(getLine(state, 2))
+    let d = toInt(getLine(state, 3))
+    let e = toInt(getLine(state, 4))
+    let f = toInt(getLine(state, 5))
+    let g = toInt(getLine(state, 6))
+    let h = toInt(getLine(state, 7))
+    // 64 rounds
+    let r = 0
+    while r < 64 {
+        let S1 = bitXor(bitXor(u32_rotr(e, 6), u32_rotr(e, 11)), u32_rotr(e, 25))
+        let ch = bitXor(bitAnd(e, f), bitAnd(bitNot(e), g))
+        let wr = toInt(getLine(W, r))
+        let T1 = h + S1 + ch + sha256_K(r) + wr
+        let S0 = bitXor(bitXor(u32_rotr(a, 2), u32_rotr(a, 13)), u32_rotr(a, 22))
+        let mj = bitXor(bitXor(bitAnd(a, b), bitAnd(a, c)), bitAnd(b, c))
+        let T2 = S0 + mj
+        h = g
+        g = f
+        f = e
+        e = d + T1
+        d = c
+        c = b
+        b = a
+        a = T1 + T2
+        r += 1
+    }
+    // Update state
+    let h0 = toInt(getLine(state, 0)) + a
+    let h1 = toInt(getLine(state, 1)) + b
+    let h2 = toInt(getLine(state, 2)) + c
+    let h3 = toInt(getLine(state, 3)) + d
+    let h4 = toInt(getLine(state, 4)) + e
+    let h5 = toInt(getLine(state, 5)) + f
+    let h6 = toInt(getLine(state, 6)) + g
+    let h7 = toInt(getLine(state, 7)) + h
+    emit ("" + h0) + "\n" + ("" + h1) + "\n" + ("" + h2) + "\n" + ("" + h3) + "\n" + ("" + h4) + "\n" + ("" + h5) + "\n" + ("" + h6) + "\n" + ("" + h7)
+}
+
+// Hash byteCount bytes of `data` (a hex-encoded byte string) starting at byteOff.
+// Returns 32-byte SHA-256 digest as 96 hex chars.
+func sha256_hex(data, byteOff, byteCount) {
+    // We need to feed 64-byte chunks. The padding rule (FIPS 180-4 §5.1.1):
+    //   append 1 bit, then k zero bits where (l + 1 + k) ≡ 448 mod 512,
+    //   then 64-bit BE message length in bits.
+    // For our use, byteCount is up to 16384 (= one OS page) so all messages
+    // fit: total padded length = byteCount + 1 + zero_pad + 8 ≡ 0 (mod 64).
+    // Build the padded message into a hex-encoded string.
+    let msg = ""
+    let i = 0
+    while i < byteCount {
+        msg = msg + hexByte(byteAtHex(data, byteOff + i))
+        i += 1
+    }
+    // Append 0x80 sentinel
+    msg = msg + hexByte(0x80)
+    // Append zero bytes until length ≡ 56 (mod 64)
+    let padLen = byteCount + 1
+    while (padLen % 64) != 56 {
+        msg = msg + hexByte(0)
+        padLen += 1
+    }
+    // Append 64-bit BE length in bits
+    let bits = byteCount * 8
+    msg = msg + hexByte(0) + hexByte(0) + hexByte(0) + hexByte(0)
+    msg = msg + hexDwordBe(bits)
+    // Process each 64-byte chunk
+    let state = sha256_initState()
+    let totalBytes = hexBytesLen(msg)
+    let off = 0
+    while off < totalBytes {
+        // Extract 64-byte chunk as a hex string of length 192
+        let chunkHex = ""
+        let cb = 0
+        while cb < 64 {
+            chunkHex = chunkHex + hexByte(byteAtHex(msg, off + cb))
+            cb += 1
+        }
+        state = sha256_processChunk(state, chunkHex)
+        off += 64
+    }
+    // Output state as 32 BE bytes
+    let out = ""
+    let si = 0
+    while si < 8 {
+        out = out + hexDwordBe(toInt(getLine(state, si)))
+        si += 1
+    }
+    emit out
+}
+
 // ── arm64 instruction encodings (32-bit little-endian) ──────────────────────
 // Each emit returns 4 hex bytes via hexDword.
 
@@ -628,11 +897,44 @@ func emitHeader(ncmds, sizeofcmds) {
 
 // ── driver ──────────────────────────────────────────────────────────────────
 
+// Encode an ASCII string as a hex-encoded byte sequence.
+func asciiToHex(s) {
+    let out = ""
+    let i = 0
+    while i < len(s) {
+        out = out + hexByte(charCode(s[i]))
+        i += 1
+    }
+    emit out
+}
+
 just run {
     let outFile = arg("0")
     if len(outFile) == 0 {
         printErr("usage: kcc kompiler/macho_arm64_self.k <output_path>")
+        printErr("       kcc kompiler/macho_arm64_self.k --sha256-test")
         exit("1")
+    }
+
+    if outFile == "--sha256-test" {
+        // Verify SHA-256 against canonical test vectors before trusting the
+        // impl in the signing path.
+        let empty = ""
+        let h0 = sha256_hex(empty, 0, 0)
+        printErr("SHA-256(\"\")    = " + h0)
+        printErr("expected         = xE3xB0xC4x42x98xFCx1Cx14x9AxFBxF4xC8x99x6FxB9x24x27xAEx41xE4x64x9Bx93x4CxA4x95x99x1Bx78x52xB8x55")
+
+        let abc = asciiToHex("abc")
+        let h1 = sha256_hex(abc, 0, 3)
+        printErr("SHA-256(\"abc\") = " + h1)
+        printErr("expected         = xBAx78x16xBFx8Fx01xCFxEAx41x41x40xDEx5DxAEx22x23xB0x03x61xA3x96x17x7Ax9CxB4x10xFFx61xF2x00x15xAD")
+
+        // 56-byte boundary case (one chunk, all in one block w/ short pad)
+        let s56 = asciiToHex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")
+        let h2 = sha256_hex(s56, 0, 56)
+        printErr("SHA-256(56-byte) = " + h2)
+        printErr("expected         = x24x8Dx6Ax61xD2x06x38xB8xE5xC0x26x93x0Cx3Ex60x39xA3x3CxE4x59x64xFFx21x67xF6xECxEDxD4x19xDBx06xC1")
+        exit("0")
     }
 
     // Build all 12 load commands
