@@ -132,6 +132,25 @@ EXIT4=0
 echo "      fib(10) exit code: $EXIT4 (expected 55)"
 [[ "$EXIT4" -eq 55 ]] || { echo "FAIL (IR mode control flow)"; exit 1; }
 
+cat > /tmp/_macho_self_test5.k <<'KEOF'
+func fact(n) {
+    if n <= 1 { emit 1 }
+    emit n * fact(n - 1)
+}
+func add3(a, b, c) { emit a + b + c }
+just run {
+    exit(add3(fact(5), 0, 5))         // 120 + 5 = 125
+}
+KEOF
+./kcc --ir /tmp/_macho_self_test5.k > /tmp/_macho_self_test5.kir
+"$HOST" --ir /tmp/_macho_self_test5.kir /tmp/_macho_self_ir5.macho
+chmod +x /tmp/_macho_self_ir5.macho
+codesign -v /tmp/_macho_self_ir5.macho
+EXIT5=0
+/tmp/_macho_self_ir5.macho || EXIT5=$?
+echo "      fact(5) + 5 exit code: $EXIT5 (expected 125)"
+[[ "$EXIT5" -eq 125 ]] || { echo "FAIL (IR mode function calls)"; exit 1; }
+
 rm -f /tmp/_macho_self_test*.k /tmp/_macho_self_test*.kir /tmp/_macho_self_ir*.macho
 
 echo ""
