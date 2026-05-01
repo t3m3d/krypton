@@ -148,6 +148,7 @@ let g_TEXT_SIZE       = 32          // bytes of __text (computed from IR)
 let g_CSTRING_SIZE    = 3           // total bytes of __cstring (computed)
 let g_CODESIG_SIZE    = 212         // computed: 20 + 88 + 8 + nCodeSlots*32
 let g_FILE_TOTAL_SIZE = 33172       // computed: CODESIG_OFF + CODESIG_SIZE
+let g_ENTRY_OFF       = 0x460       // file offset of `_main`'s first instruction
 
 func TEXT_OFF()           { emit 0x460 }        // fixed: just past header+LCs
 func TEXT_SIZE()          { emit g_TEXT_SIZE }
@@ -1505,7 +1506,7 @@ func emitSymtab() {
     s = s + hexByte(0x0f)
     s = s + hexByte(1)
     s = s + hexWord(0)
-    s = s + hexQword2(TEXT_VADDR() + TEXT_OFF(), 1)  // 0x100000460
+    s = s + hexQword2(TEXT_VADDR() + g_ENTRY_OFF, 1) // _main vaddr (entry point)
     // sym 2: _puts (undef, imported)
     s = s + hexDword(STRX_PUTS())
     s = s + hexByte(0x01)                       // n_type = N_EXT (UNDF)
@@ -1821,7 +1822,7 @@ func emitLcBuildVersion() {
 func emitLcMain() {
     let s = ""
     s = s + hexDword(LC_MAIN()) + hexDword(24)
-    s = s + hexQword(TEXT_OFF())                    // entryoff
+    s = s + hexQword(g_ENTRY_OFF)                   // entryoff (vaddr of _main)
     s = s + hexQword(0)                             // stacksize
     emit s
 }
@@ -1914,6 +1915,15 @@ just run {
         irStrOffsets = computeStringOffsets(irOps)
         g_TEXT_SIZE = computeTextSize(irOps)
         g_CSTRING_SIZE = computeCStringSize(irOps)
+        // Locate __main__ in the function table so LC_MAIN entryoff and the
+        // _main symtab entry point at the right function (not blindly TEXT_OFF).
+        let fTable = buildFunctionTable(irOps)
+        let mainInstr = findLabel(fTable, "__main__")
+        if mainInstr < 0 {
+            printErr("macho_arm64_self: no __main__ function found in IR")
+            exit("1")
+        }
+        g_ENTRY_OFF = TEXT_OFF() + mainInstr * 4
         useIr = "1"
     }
 
