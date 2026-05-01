@@ -161,8 +161,11 @@ func STRTAB_OFF()         { emit 0x8098 }
 func STRTAB_SIZE()        { emit 40 }           // padded to 8
 
 func CODESIG_OFF()        { emit 0x80c0 }       // aligned to 16
-func CODESIG_SIZE()       { emit 256 }          // placeholder; codesign will fill
-func FILE_TOTAL_SIZE()    { emit 0x81c0 }       // CODESIG_OFF + CODESIG_SIZE
+// CodeSig size: SuperBlob(20 B) + CodeDirectory(88 B header + 8 B "krypton\0"
+// + 0 special slots + 3 × 32 B code slots = 192 B) = 212 B. Hardcoded for
+// hello-world with codeLimit = CODESIG_OFF and 16 KB pages → 3 code slots.
+func CODESIG_SIZE()       { emit 212 }
+func FILE_TOTAL_SIZE()    { emit 0x80c0 + 212 } // CODESIG_OFF + CODESIG_SIZE = 33172
 
 // strtab byte offsets for our 3 symbols (computed from layout below)
 func STRX_MH()    { emit 2 }   // "__mh_execute_header"
@@ -636,23 +639,90 @@ func emitStrtab() {
     emit s
 }
 
-// ── code signature placeholder ──────────────────────────────────────────────
-// codesign rejects all-zero placeholders. Emit a minimal but valid empty
-// SuperBlob (12 B) so codesign recognizes the slot and will overwrite it.
-// All Apple code-signing fields are BIG-ENDIAN (unlike the rest of Mach-O).
-//   magic  = 0xfade0cc0 (CSMAGIC_EMBEDDED_SIGNATURE)
-//   length = 12 (just the header)
-//   count  = 0 (no blob indices)
-// External `codesign -s - --force` then fills the rest of the 256 B slot.
-func emitCodeSigPlaceholder() {
+// ── ad-hoc code signature builder ───────────────────────────────────────────
+// All code-signing fields are BIG-endian.
+//
+// SuperBlob structure (20 B header + 1 BlobIndex):
+//   magic   = 0xfade0cc0
+//   length  = 20 + len(CodeDirectory)
+//   count   = 1
+//   index[0]: type = 0 (CSSLOT_CODEDIRECTORY), offset = 20
+//   then CodeDirectory blob.
+//
+// CodeDirectory (version 0x20400 = SUPPORTSEXECSEG, ad-hoc flag):
+//   88 B header — see field-by-field comments below.
+//   identifier — UTF-8 string + NUL (we use "krypton\0" = 8 B).
+//   special slots — none for our minimal binary.
+//   code slots — SHA-256 of each pageSize-byte page of the file from offset 0
+//                up to codeLimit. Last page may be partial.
+
+// 64-bit BE qword: just two BE dwords (we use only low 32 bits in our fields).
+func hexQwordBe(hi, lo) { emit hexDwordBe(hi) + hexDwordBe(lo) }
+
+// Build the CodeDirectory blob. fileBytes is the hex-encoded file content
+// from offset 0 to codeLimit (the bytes the kernel verifies against).
+func buildCodeDirectory(fileBytes, codeLimit, identifier) {
+    let pageSize = 0x4000          // 16 KB
+    let pageLog2 = 14
+    let hashSize = 32              // SHA-256
+    let hashType = 2
+    let nSpecialSlots = 0
+    let nCodeSlots = (codeLimit + pageSize - 1) / pageSize
+    let identLen = len(identifier) + 1   // include trailing NUL
+    let identOffset = 88
+    let hashOffset = identOffset + identLen + nSpecialSlots * hashSize
+    let cdLength = hashOffset + nCodeSlots * hashSize
+
+    let cd = ""
+    cd = cd + hexDwordBe(0xfade0c02)         // magic CSMAGIC_CODEDIRECTORY
+    cd = cd + hexDwordBe(cdLength)
+    cd = cd + hexDwordBe(0x00020400)         // version (SUPPORTSEXECSEG)
+    cd = cd + hexDwordBe(0x00000002)         // flags = adhoc
+    cd = cd + hexDwordBe(hashOffset)
+    cd = cd + hexDwordBe(identOffset)
+    cd = cd + hexDwordBe(nSpecialSlots)
+    cd = cd + hexDwordBe(nCodeSlots)
+    cd = cd + hexDwordBe(codeLimit)
+    cd = cd + hexByte(hashSize) + hexByte(hashType)
+    cd = cd + hexByte(0) + hexByte(pageLog2) // platform=0, log2(pageSize)
+    cd = cd + hexDwordBe(0)                  // spare2
+    cd = cd + hexDwordBe(0)                  // scatterOffset
+    cd = cd + hexDwordBe(0)                  // teamOffset
+    cd = cd + hexDwordBe(0)                  // spare3
+    cd = cd + hexQwordBe(0, 0)               // codeLimit64 = 0 (using 32-bit)
+    cd = cd + hexQwordBe(0, 0)               // execSegBase = 0 (file off of __TEXT)
+    cd = cd + hexQwordBe(0, 0x4000)          // execSegLimit = __TEXT vmsize
+    cd = cd + hexQwordBe(0, 1)               // execSegFlags = MAIN_BINARY
+
+    // Identifier string with trailing NUL
+    cd = cd + asciiToHex(identifier) + hexByte(0)
+
+    // Code slot hashes — SHA-256 of each page
+    let p = 0
+    while p < nCodeSlots {
+        let pageOff = p * pageSize
+        let pageLen = pageSize
+        if pageOff + pageLen > codeLimit {
+            pageLen = codeLimit - pageOff
+        }
+        cd = cd + sha256_hex(fileBytes, pageOff, pageLen)
+        p += 1
+    }
+    emit cd
+}
+
+// Wrap the CodeDirectory in a SuperBlob with a single CSSLOT_CODEDIRECTORY
+// blob index. Returns the full signature bytes (hex-encoded).
+func buildSuperBlob(cdHex) {
+    let cdLen = hexBytesLen(cdHex)
+    let totalLen = 12 + 8 + cdLen          // SuperBlob header + 1 index + CD
     let s = ""
-    // magic 0xfade0cc0 in BE
-    s = s + hexByte(0xfa) + hexByte(0xde) + hexByte(0x0c) + hexByte(0xc0)
-    // length 12 in BE
-    s = s + hexByte(0x00) + hexByte(0x00) + hexByte(0x00) + hexByte(0x0c)
-    // count 0 in BE
-    s = s + hexByte(0x00) + hexByte(0x00) + hexByte(0x00) + hexByte(0x00)
-    s = s + hexPad(CODESIG_SIZE() - 12)
+    s = s + hexDwordBe(0xfade0cc0)         // magic CSMAGIC_EMBEDDED_SIGNATURE
+    s = s + hexDwordBe(totalLen)
+    s = s + hexDwordBe(1)                  // count = 1
+    s = s + hexDwordBe(0)                  // type = CSSLOT_CODEDIRECTORY
+    s = s + hexDwordBe(20)                 // offset to CD = 20
+    s = s + cdHex
     emit s
 }
 
@@ -972,7 +1042,7 @@ just run {
     let gotData = emitGotSlot()
     let postGotPad = LINKEDIT_FILE_OFF() - DATA_FILE_OFF() - GOT_SIZE()
 
-    // __LINKEDIT: chained fixups, symtab, indirect symtab, strtab, codesig
+    // __LINKEDIT: chained fixups, symtab, indirect symtab, strtab
     let leChained = emitChainedFixups()
     let leSymtab = emitSymtab()
     let leIndirect = emitIndirectSymtab()
@@ -980,15 +1050,30 @@ just run {
     // Pad strtab end to CODESIG_OFF (16-byte align)
     let strtabEnd = STRTAB_OFF() + STRTAB_SIZE()
     let preCodesigPad = CODESIG_OFF() - strtabEnd
-    let leCodesig = emitCodeSigPlaceholder()
 
-    let machoBytes = prefix + hexPad(preTextPad)
-    machoBytes = machoBytes + textCode + stubCode + cstrData + hexPad(postCstringPad)
-    machoBytes = machoBytes + gotData + hexPad(postGotPad)
-    machoBytes = machoBytes + leChained + leSymtab + leIndirect + leStrtab
-    machoBytes = machoBytes + hexPad(preCodesigPad) + leCodesig
+    // Build the file body up to (but NOT including) the code signature.
+    // This is exactly `codeLimit` bytes — what the kernel hashes.
+    let body = prefix + hexPad(preTextPad)
+    body = body + textCode + stubCode + cstrData + hexPad(postCstringPad)
+    body = body + gotData + hexPad(postGotPad)
+    body = body + leChained + leSymtab + leIndirect + leStrtab + hexPad(preCodesigPad)
 
+    let codeLimit = hexBytesLen(body)
+    if codeLimit != CODESIG_OFF() {
+        printErr("macho_arm64_self: BUG: body size " + codeLimit + " != CODESIG_OFF " + CODESIG_OFF())
+        exit("1")
+    }
+
+    // Compute ad-hoc code signature in Krypton — no external `codesign`.
+    let cd = buildCodeDirectory(body, codeLimit, "krypton")
+    let sig = buildSuperBlob(cd)
+    let sigLen = hexBytesLen(sig)
+    if sigLen != CODESIG_SIZE() {
+        printErr("macho_arm64_self: BUG: sig size " + sigLen + " != CODESIG_SIZE " + CODESIG_SIZE())
+        exit("1")
+    }
+
+    let machoBytes = body + sig
     writeBytes(outFile, machoBytes)
-    printErr("macho_arm64_self: wrote " + outFile + " (" + (hexBytesLen(machoBytes)) + " bytes)")
-    printErr("  next: codesign -s - --force " + outFile)
+    printErr("macho_arm64_self: wrote " + outFile + " (" + (hexBytesLen(machoBytes)) + " bytes, ad-hoc signed)")
 }
