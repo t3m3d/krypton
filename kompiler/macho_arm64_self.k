@@ -722,9 +722,21 @@ func parseSimpleIR(ir) {
                     if nOps > 0 { opSb = sbAppend(opSb, "\n") }
                     opSb = sbAppend(opSb, "MOD")
                     nOps += 1
-                } else if op == "LT" || op == "GT" || op == "LE" || op == "GE" || op == "EQ" || op == "NE" {
+                } else if op == "LT" || op == "GT" || op == "EQ" {
                     if nOps > 0 { opSb = sbAppend(opSb, "\n") }
                     opSb = sbAppend(opSb, op)
+                    nOps += 1
+                } else if op == "LTE" {
+                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
+                    opSb = sbAppend(opSb, "LE")    // normalize to AArch64 cond family
+                    nOps += 1
+                } else if op == "GTE" {
+                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
+                    opSb = sbAppend(opSb, "GE")
+                    nOps += 1
+                } else if op == "NEQ" {
+                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
+                    opSb = sbAppend(opSb, "NE")
                     nOps += 1
                 } else if op == "LABEL" {
                     if nOps > 0 { opSb = sbAppend(opSb, "\n") }
