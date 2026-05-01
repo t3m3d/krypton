@@ -140,12 +140,21 @@ func TEXT_FILE_OFF()      { emit 0 }
 func DATA_FILE_OFF()      { emit 0x4000 }
 func LINKEDIT_FILE_OFF()  { emit 0x8000 }
 
-func TEXT_OFF()           { emit 0x460 }        // file offset of __text
-func TEXT_SIZE()          { emit 32 }           // 8 arm64 instructions
-func STUBS_OFF()          { emit 0x480 }
-func STUBS_SIZE()         { emit 12 }           // 1 stub × 12 bytes
-func CSTRING_OFF()        { emit 0x48c }
-func CSTRING_SIZE()       { emit 3 }            // "Hi\0"
+// Offsets/sizes are computed by the driver based on input IR (or the
+// hello-world default) and stashed in module-level lets so the LC emitters
+// can read them. All "fixed-by-page-layout" values stay constant.
+
+let g_TEXT_SIZE       = 32          // bytes of __text (computed from IR)
+let g_CSTRING_SIZE    = 3           // total bytes of __cstring (computed)
+let g_CODESIG_SIZE    = 212         // computed: 20 + 88 + 8 + nCodeSlots*32
+let g_FILE_TOTAL_SIZE = 33172       // computed: CODESIG_OFF + CODESIG_SIZE
+
+func TEXT_OFF()           { emit 0x460 }        // fixed: just past header+LCs
+func TEXT_SIZE()          { emit g_TEXT_SIZE }
+func STUBS_OFF()          { emit 0x460 + g_TEXT_SIZE }
+func STUBS_SIZE()         { emit 12 }           // 1 stub for _puts × 12 bytes
+func CSTRING_OFF()        { emit 0x460 + g_TEXT_SIZE + 12 }
+func CSTRING_SIZE()       { emit g_CSTRING_SIZE }
 func GOT_OFF()            { emit 0x4000 }
 func GOT_SIZE()           { emit 8 }
 
@@ -153,21 +162,18 @@ func CHAINED_FIXUPS_OFF() { emit 0x8000 }
 func CHAINED_FIXUPS_SIZE() { emit 96 }
 func SYMTAB_OFF()         { emit 0x8060 }
 func NSYMS()              { emit 3 }
-func SYMTAB_SIZE()        { emit 48 }           // 3 × 16
+func SYMTAB_SIZE()        { emit 48 }           // 3 × nlist_64 (16 bytes each)
 func INDIRECT_SYMTAB_OFF() { emit 0x8090 }
 func NINDIRECTSYMS()      { emit 2 }
 func INDIRECT_SYMTAB_SIZE() { emit 8 }
 func STRTAB_OFF()         { emit 0x8098 }
 func STRTAB_SIZE()        { emit 40 }           // padded to 8
 
-func CODESIG_OFF()        { emit 0x80c0 }       // aligned to 16
-// CodeSig size: SuperBlob(20 B) + CodeDirectory(88 B header + 8 B "krypton\0"
-// + 0 special slots + 3 × 32 B code slots = 192 B) = 212 B. Hardcoded for
-// hello-world with codeLimit = CODESIG_OFF and 16 KB pages → 3 code slots.
-func CODESIG_SIZE()       { emit 212 }
-func FILE_TOTAL_SIZE()    { emit 0x80c0 + 212 } // CODESIG_OFF + CODESIG_SIZE = 33172
+func CODESIG_OFF()        { emit 0x80c0 }       // 16-byte aligned past LINKEDIT metadata
+func CODESIG_SIZE()       { emit g_CODESIG_SIZE }
+func FILE_TOTAL_SIZE()    { emit g_FILE_TOTAL_SIZE }
 
-// strtab byte offsets for our 3 symbols (computed from layout below)
+// strtab byte offsets for our 3 fixed symbols
 func STRX_MH()    { emit 2 }   // "__mh_execute_header"
 func STRX_MAIN()  { emit 22 }  // "_main"
 func STRX_PUTS()  { emit 28 }  // "_puts"
@@ -491,6 +497,211 @@ func arm64_ldr_imm(rt, rn, imm12_scaled) {
 }
 // br Xn  →  0xd61f0000 | (Xn << 5)
 func arm64_br(rn) { emit hexDword(0xd61f0000 + rn * 0x20) }
+
+// ── simple-subset IR parser (slice 3a) ──────────────────────────────────────
+// Supports just: FUNC __main__ 0 / PUSH "literal" / BUILTIN kp 1 / POP / END.
+// Returns a layout string in this exact format:
+//   line 0:                 nKpCalls (int)
+//   line 1:                 nStrings (int)
+//   lines 2..2+nStrings-1:  each unique string (one per line)
+//   lines 2+nStrings..:     normalized ops, one per line:
+//                             "PUSH_STR <idx>" | "BUILTIN_KP" | "POP" | "END"
+func parseSimpleIR(ir) {
+    let strings = ""
+    let nStrings = 0
+    let opSb = sbNew()
+    let nOps = 0
+    let nKp = 0
+    let nl = lineCount(ir)
+    let i = 0
+    while i < nl {
+        let line = trim(getLine(ir, i))
+        if len(line) > 0 {
+            if line[0] != ";" {
+                let j = 0
+                while j < len(line) && line[j] != " " { j += 1 }
+                let op = substring(line, 0, j)
+                let rest = ""
+                if j < len(line) { rest = trim(substring(line, j + 1, len(line))) }
+
+                if op == "PUSH" {
+                    if len(rest) > 0 {
+                        if rest[0] == "\"" {
+                            // Extract content between first/last quote (no escape handling for slice 3a)
+                            let content = ""
+                            let k = 1
+                            while k < len(rest) && rest[k] != "\"" {
+                                content = content + rest[k]
+                                k += 1
+                            }
+                            // intern: search for existing
+                            let idx = 0 - 1
+                            let si = 0
+                            while si < nStrings {
+                                if getLine(strings, si) == content {
+                                    if idx < 0 { idx = si }
+                                }
+                                si += 1
+                            }
+                            if idx < 0 {
+                                if nStrings > 0 { strings = strings + "\n" }
+                                strings = strings + content
+                                idx = nStrings
+                                nStrings += 1
+                            }
+                            if nOps > 0 { opSb = sbAppend(opSb, "\n") }
+                            opSb = sbAppend(opSb, "PUSH_STR " + idx)
+                            nOps += 1
+                        }
+                    }
+                } else if op == "BUILTIN" {
+                    let bj = 0
+                    while bj < len(rest) && rest[bj] != " " { bj += 1 }
+                    let bname = substring(rest, 0, bj)
+                    if bname == "kp" {
+                        if nOps > 0 { opSb = sbAppend(opSb, "\n") }
+                        opSb = sbAppend(opSb, "BUILTIN_KP")
+                        nOps += 1
+                        nKp += 1
+                    }
+                } else if op == "POP" {
+                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
+                    opSb = sbAppend(opSb, "POP")
+                    nOps += 1
+                } else if op == "END" {
+                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
+                    opSb = sbAppend(opSb, "END")
+                    nOps += 1
+                }
+                // Other IR ops silently ignored at this slice
+            }
+        }
+        i += 1
+    }
+    let r = "" + nKp + "\n" + nStrings + "\n"
+    if nStrings > 0 { r = r + strings + "\n" }
+    r = r + sbToString(opSb)
+    emit r
+}
+
+// Compute byte offset within __cstring for each interned string.
+// Returns a newline-separated list of integer offsets (in declaration order).
+func computeStringOffsets(parsed) {
+    let nStrings = toInt(getLine(parsed, 1))
+    let r = ""
+    let off = 0
+    let si = 0
+    while si < nStrings {
+        if si > 0 { r = r + "\n" }
+        r = r + ("" + off)
+        let s = getLine(parsed, 2 + si)
+        off = off + len(s) + 1     // +1 for NUL
+        si += 1
+    }
+    emit r
+}
+
+// Total bytes of __cstring (sum of len+1 for each string).
+func computeCStringSize(parsed) {
+    let nStrings = toInt(getLine(parsed, 1))
+    let off = 0
+    let si = 0
+    while si < nStrings {
+        let s = getLine(parsed, 2 + si)
+        off = off + len(s) + 1
+        si += 1
+    }
+    emit off
+}
+
+// Emit the __cstring section bytes from the parsed IR.
+func emitCStringFromIR(parsed) {
+    let nStrings = toInt(getLine(parsed, 1))
+    let s = ""
+    let si = 0
+    while si < nStrings {
+        let str = getLine(parsed, 2 + si)
+        s = s + asciiToHex(str) + hexByte(0)
+        si += 1
+    }
+    emit s
+}
+
+// Emit the __text section bytes from parsed IR. Uses the 1-deep eval-stack
+// model where x0 holds the "top of stack". PUSH_STR loads the string addr into
+// x0, BUILTIN_KP calls _puts (already takes the string in x0), POP is a no-op,
+// END emits the epilogue.
+//
+// Layout assumption (slice 3a): all of __text + __stubs + __cstring fit on the
+// first 4 KB ADRP page (offset < 0x1000 from TEXT_VADDR), so adrp imm21 is 0.
+// strOffsets is the per-string-offset list from computeStringOffsets.
+func emitTextFromIR(parsed, strOffsets) {
+    let nStrings = toInt(getLine(parsed, 1))
+    let opStart = 2 + nStrings
+    let nOps = lineCount(parsed) - opStart
+
+    let s = ""
+    // prologue
+    s = s + arm64_stp_fp_lr_pre16()
+    s = s + arm64_mov_fp_sp()
+    let instrIdx = 2
+
+    // Pre-computed addresses
+    let textVaddr = 0x100000000
+    let textOff = 0x460
+    let stubsOff = textOff + g_TEXT_SIZE
+    let cstringOff = stubsOff + 12
+    let stubVaddr = textVaddr + stubsOff
+
+    let oi = 0
+    while oi < nOps {
+        let opLine = getLine(parsed, opStart + oi)
+        let spIdx = 0
+        while spIdx < len(opLine) && opLine[spIdx] != " " { spIdx += 1 }
+        let opTok = substring(opLine, 0, spIdx)
+        let restTok = ""
+        if spIdx < len(opLine) { restTok = trim(substring(opLine, spIdx + 1, len(opLine))) }
+
+        if opTok == "PUSH_STR" {
+            let strIdx = toInt(restTok)
+            let strOff = toInt(getLine(strOffsets, strIdx))
+            let strVaddr = textVaddr + cstringOff + strOff
+            let adrpPc = textVaddr + textOff + instrIdx * 4
+            // 4 KB ADRP page math
+            let pcPage = adrpPc / 4096 * 4096
+            let strPage = strVaddr / 4096 * 4096
+            let imm21 = (strPage - pcPage) / 4096
+            s = s + arm64_adrp(0, imm21)
+            instrIdx += 1
+            let addImm12 = strVaddr % 4096
+            s = s + arm64_add_imm(0, 0, addImm12)
+            instrIdx += 1
+        } else if opTok == "BUILTIN_KP" {
+            let blPc = textVaddr + textOff + instrIdx * 4
+            let delta = stubVaddr - blPc
+            let rel26 = delta / 4
+            s = s + arm64_bl(rel26)
+            instrIdx += 1
+        } else if opTok == "POP" {
+            // 1-deep eval stack via x0; nothing to do (puts return is discarded)
+        } else if opTok == "END" {
+            s = s + arm64_movz_w0_zero()
+            s = s + arm64_ldp_fp_lr_post16()
+            s = s + arm64_ret()
+            instrIdx += 3
+        }
+        oi += 1
+    }
+    emit s
+}
+
+// Compute the size (in bytes) of __text given the parsed IR.
+// 5 fixed instructions (2 prologue + 3 epilogue) + 3 per kp call (adrp + add + bl).
+// Returns bytes (= instructions × 4).
+func computeTextSize(parsed) {
+    let nKp = toInt(getLine(parsed, 0))
+    emit (5 + 3 * nKp) * 4
+}
 
 // ── _main code (8 instructions, 32 bytes) ───────────────────────────────────
 // _main vaddr = 0x100000460. "Hi" vaddr = 0x10000048C. Stub vaddr = 0x100000480.
@@ -979,14 +1190,42 @@ func asciiToHex(s) {
 }
 
 just run {
-    let outFile = arg("0")
-    if len(outFile) == 0 {
+    let arg0 = arg("0")
+    if len(arg0) == 0 {
         printErr("usage: kcc kompiler/macho_arm64_self.k <output_path>")
+        printErr("       kcc kompiler/macho_arm64_self.k --ir <input.kir> <output_path>")
         printErr("       kcc kompiler/macho_arm64_self.k --sha256-test")
         exit("1")
     }
 
-    if outFile == "--sha256-test" {
+    let outFile = arg0
+
+    // --ir <input.kir> <output_path>: compile the simple-subset IR to a
+    // signed arm64 Mach-O. Sets globals from IR-derived layout, then falls
+    // through to the same emission path as the hello-world default.
+    let irOps = ""
+    let irStrOffsets = ""
+    let useIr = "0"
+    if arg0 == "--ir" {
+        let inFile = arg("1")
+        outFile = arg("2")
+        if len(inFile) == 0 || len(outFile) == 0 {
+            printErr("usage: --ir <input.kir> <output_path>")
+            exit("1")
+        }
+        let ir = readFile(inFile)
+        if len(ir) == 0 {
+            printErr("macho_arm64_self: cannot read " + inFile)
+            exit("1")
+        }
+        irOps = parseSimpleIR(ir)
+        irStrOffsets = computeStringOffsets(irOps)
+        g_TEXT_SIZE = computeTextSize(irOps)
+        g_CSTRING_SIZE = computeCStringSize(irOps)
+        useIr = "1"
+    }
+
+    if arg0 == "--sha256-test" {
         // Verify SHA-256 against canonical test vectors before trusting the
         // impl in the signing path.
         let empty = ""
@@ -1030,9 +1269,16 @@ just run {
     let prefixSize = hexBytesLen(prefix)
     let preTextPad = TEXT_OFF() - prefixSize
 
-    let textCode = emitMainCode()
+    let textCode = ""
+    let cstrData = ""
+    if useIr == "1" {
+        textCode = emitTextFromIR(irOps, irStrOffsets)
+        cstrData = emitCStringFromIR(irOps)
+    } else {
+        textCode = emitMainCode()
+        cstrData = emitCString()
+    }
     let stubCode = emitStubCode()
-    let cstrData = emitCString()
 
     // Pad after __cstring up to __DATA_CONST page boundary (file 0x4000)
     let textSegEnd = CSTRING_OFF() + CSTRING_SIZE()
