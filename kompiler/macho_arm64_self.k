@@ -626,18 +626,24 @@ func arm64_cbz(rt, rel) {
     emit hexDword(0xb4000000 + (r * 0x20) + rt)
 }
 
-// ── simple-subset IR parser (slice 3a/3b) ───────────────────────────────────
-// Supports: FUNC __main__ 0 / LOCAL <name> / PUSH "literal" / STORE <name> /
-//           LOAD <name> / BUILTIN kp 1 / POP / END.
-// Layout-string format:
-//   line 0: nKpCalls
-//   line 1: nStrings
-//   line 2: nLocals
-//   lines 3..3+nStrings-1:  each unique string content
-//   lines 3+nStrings..3+nStrings+nLocals-1: each unique local name
-//   remaining lines: normalized ops, one per line:
-//     PUSH_STR <idx> | LOAD_LOCAL <idx> | STORE_LOCAL <idx> |
-//     BUILTIN_KP | POP | END
+// ── full IR parser (slice 3e: multi-function) ──────────────────────────────
+// Supports: FUNC <name> <argc> / PARAM <name> / LOCAL <name> / PUSH "literal"
+// or PUSH <int> / STORE <name> / LOAD <name> / arithmetic / comparisons /
+// LABEL / JUMP / JUMPIFNOT / BUILTIN kp/exit / CALL <name> <argc> / RETURN /
+// POP / END.
+//
+// Output format:
+//   line 0:  nFunctions
+//   line 1:  nStrings
+//   lines 2..1+nStrings:  each unique global string
+//   then for each function (in declaration order), one block:
+//     header line:  <name>\t<nParams>\t<nLocals>\t<nOps>
+//     nParams lines:  param names
+//     nLocals lines:  non-param local names (params excluded)
+//     nOps lines:     normalized ops, one per line
+//
+// LOAD/STORE are normalized to LOAD_SLOT <i> / STORE_SLOT <i> where
+// slot 0..nParams-1 = params, slot nParams..nParams+nLocals-1 = locals.
 
 // Helper: find or add a name to a newline-separated list. Returns 0-based idx
 // (the result is the modified list with the new entry appended if not found,
@@ -656,14 +662,52 @@ func internIntoList(list, count, name) {
     emit newList + "|" + count
 }
 
-func parseSimpleIR(ir) {
+// Find name in newline-separated list of `count` entries. Returns idx or -1.
+func findInList(list, count, name) {
+    let i = 0
+    while i < count {
+        if getLine(list, i) == name { emit i }
+        i += 1
+    }
+    emit 0 - 1
+}
+
+// Append a function block (header + params + locals + ops) to a sb.
+func appendFunc(sb, name, params, nParams, locals, nLocals, opsStr, nOps) {
+    sb = sbAppend(sb, name + "\t" + nParams + "\t" + nLocals + "\t" + nOps + "\n")
+    let pi = 0
+    while pi < nParams {
+        sb = sbAppend(sb, getLine(params, pi) + "\n")
+        pi += 1
+    }
+    let li = 0
+    while li < nLocals {
+        sb = sbAppend(sb, getLine(locals, li) + "\n")
+        li += 1
+    }
+    sb = sbAppend(sb, opsStr)
+    if len(opsStr) > 0 {
+        if opsStr[len(opsStr) - 1] != "\n" { sb = sbAppend(sb, "\n") }
+    }
+    emit sb
+}
+
+func parseFullIR(ir) {
     let strings = ""
     let nStrings = 0
-    let locals = ""
+    let funcsSb = sbNew()
+    let nFunctions = 0
+
+    // Per-function state (resets at each FUNC line)
+    let inFunc = "0"
+    let curName = ""
+    let curParams = ""
+    let nParams = 0
+    let curLocals = ""
     let nLocals = 0
-    let opSb = sbNew()
+    let curOps = sbNew()
     let nOps = 0
-    let nKp = 0
+
     let nl = lineCount(ir)
     let i = 0
     while i < nl {
@@ -676,7 +720,71 @@ func parseSimpleIR(ir) {
                 let rest = ""
                 if j < len(line) { rest = trim(substring(line, j + 1, len(line))) }
 
-                if op == "PUSH" {
+                if op == "FUNC" {
+                    // Finalize previous function (if any)
+                    if inFunc == "1" {
+                        funcsSb = appendFunc(funcsSb, curName, curParams, nParams, curLocals, nLocals, sbToString(curOps), nOps)
+                        nFunctions += 1
+                    }
+                    // Start new function: parse "FUNC <name> <argc>"
+                    let sp = 0
+                    while sp < len(rest) && rest[sp] != " " { sp += 1 }
+                    curName = substring(rest, 0, sp)
+                    nParams = 0
+                    curParams = ""
+                    nLocals = 0
+                    curLocals = ""
+                    curOps = sbNew()
+                    nOps = 0
+                    inFunc = "1"
+                } else if op == "PARAM" {
+                    if nParams > 0 { curParams = curParams + "\n" }
+                    curParams = curParams + rest
+                    nParams += 1
+                } else if op == "LOAD" {
+                    let pIdx = findInList(curParams, nParams, rest)
+                    let lIdx = findInList(curLocals, nLocals, rest)
+                    let slot = 0 - 1
+                    if pIdx >= 0 {
+                        slot = pIdx
+                    } else if lIdx >= 0 {
+                        slot = nParams + lIdx
+                    } else {
+                        if nLocals > 0 { curLocals = curLocals + "\n" }
+                        curLocals = curLocals + rest
+                        slot = nParams + nLocals
+                        nLocals += 1
+                    }
+                    curOps = sbAppend(curOps, "LOAD_SLOT " + slot + "\n")
+                    nOps += 1
+                } else if op == "STORE" {
+                    let pIdx = findInList(curParams, nParams, rest)
+                    let lIdx = findInList(curLocals, nLocals, rest)
+                    let slot = 0 - 1
+                    if pIdx >= 0 {
+                        slot = pIdx
+                    } else if lIdx >= 0 {
+                        slot = nParams + lIdx
+                    } else {
+                        if nLocals > 0 { curLocals = curLocals + "\n" }
+                        curLocals = curLocals + rest
+                        slot = nParams + nLocals
+                        nLocals += 1
+                    }
+                    curOps = sbAppend(curOps, "STORE_SLOT " + slot + "\n")
+                    nOps += 1
+                } else if op == "CALL" {
+                    let sp = 0
+                    while sp < len(rest) && rest[sp] != " " { sp += 1 }
+                    let cname = substring(rest, 0, sp)
+                    let cargc = "0"
+                    if sp < len(rest) { cargc = trim(substring(rest, sp + 1, len(rest))) }
+                    curOps = sbAppend(curOps, "CALL_FUNC " + cname + " " + cargc + "\n")
+                    nOps += 1
+                } else if op == "RETURN" {
+                    curOps = sbAppend(curOps, "RETURN\n")
+                    nOps += 1
+                } else if op == "PUSH" {
                     if len(rest) > 0 {
                         if rest[0] == "\"" {
                             let content = ""
@@ -686,148 +794,94 @@ func parseSimpleIR(ir) {
                                 k += 1
                             }
                             let res = internIntoList(strings, nStrings, content)
-                            // res is "list|idx" — split on the last "|"
                             let bar = len(res) - 1
                             while bar >= 0 && res[bar] != "|" { bar -= 1 }
                             strings = substring(res, 0, bar)
                             let idx = toInt(substring(res, bar + 1, len(res)))
                             if idx == nStrings { nStrings += 1 }
-                            if nOps > 0 { opSb = sbAppend(opSb, "\n") }
-                            opSb = sbAppend(opSb, "PUSH_STR " + idx)
+                            curOps = sbAppend(curOps, "PUSH_STR " + idx + "\n")
                             nOps += 1
                         } else {
-                            // Integer literal: keep as-is (might be negative)
-                            if nOps > 0 { opSb = sbAppend(opSb, "\n") }
-                            opSb = sbAppend(opSb, "PUSH_INT " + rest)
+                            curOps = sbAppend(curOps, "PUSH_INT " + rest + "\n")
                             nOps += 1
                         }
                     }
-                } else if op == "ADD" {
-                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
-                    opSb = sbAppend(opSb, "ADD")
-                    nOps += 1
-                } else if op == "SUB" {
-                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
-                    opSb = sbAppend(opSb, "SUB")
-                    nOps += 1
-                } else if op == "MUL" {
-                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
-                    opSb = sbAppend(opSb, "MUL")
-                    nOps += 1
-                } else if op == "DIV" {
-                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
-                    opSb = sbAppend(opSb, "DIV")
-                    nOps += 1
-                } else if op == "MOD" {
-                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
-                    opSb = sbAppend(opSb, "MOD")
-                    nOps += 1
-                } else if op == "LT" || op == "GT" || op == "EQ" {
-                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
-                    opSb = sbAppend(opSb, op)
+                } else if op == "ADD" || op == "SUB" || op == "MUL" || op == "DIV" || op == "MOD" || op == "LT" || op == "GT" || op == "EQ" {
+                    curOps = sbAppend(curOps, op + "\n")
                     nOps += 1
                 } else if op == "LTE" {
-                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
-                    opSb = sbAppend(opSb, "LE")    // normalize to AArch64 cond family
+                    curOps = sbAppend(curOps, "LE\n")
                     nOps += 1
                 } else if op == "GTE" {
-                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
-                    opSb = sbAppend(opSb, "GE")
+                    curOps = sbAppend(curOps, "GE\n")
                     nOps += 1
                 } else if op == "NEQ" {
-                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
-                    opSb = sbAppend(opSb, "NE")
+                    curOps = sbAppend(curOps, "NE\n")
                     nOps += 1
                 } else if op == "LABEL" {
-                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
-                    opSb = sbAppend(opSb, "LABEL " + rest)
+                    curOps = sbAppend(curOps, "LABEL " + rest + "\n")
                     nOps += 1
                 } else if op == "JUMP" {
-                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
-                    opSb = sbAppend(opSb, "JUMP " + rest)
+                    curOps = sbAppend(curOps, "JUMP " + rest + "\n")
                     nOps += 1
                 } else if op == "JUMPIFNOT" {
-                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
-                    opSb = sbAppend(opSb, "JUMPIFNOT " + rest)
+                    curOps = sbAppend(curOps, "JUMPIFNOT " + rest + "\n")
                     nOps += 1
                 } else if op == "LOCAL" {
-                    let res = internIntoList(locals, nLocals, rest)
-                    let bar = len(res) - 1
-                    while bar >= 0 && res[bar] != "|" { bar -= 1 }
-                    locals = substring(res, 0, bar)
-                    let idx = toInt(substring(res, bar + 1, len(res)))
-                    if idx == nLocals { nLocals += 1 }
-                    // LOCAL emits no op — just declares the slot
-                } else if op == "LOAD" {
-                    // Auto-add if not declared (defensive)
-                    let res = internIntoList(locals, nLocals, rest)
-                    let bar = len(res) - 1
-                    while bar >= 0 && res[bar] != "|" { bar -= 1 }
-                    locals = substring(res, 0, bar)
-                    let idx = toInt(substring(res, bar + 1, len(res)))
-                    if idx == nLocals { nLocals += 1 }
-                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
-                    opSb = sbAppend(opSb, "LOAD_LOCAL " + idx)
-                    nOps += 1
-                } else if op == "STORE" {
-                    let res = internIntoList(locals, nLocals, rest)
-                    let bar = len(res) - 1
-                    while bar >= 0 && res[bar] != "|" { bar -= 1 }
-                    locals = substring(res, 0, bar)
-                    let idx = toInt(substring(res, bar + 1, len(res)))
-                    if idx == nLocals { nLocals += 1 }
-                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
-                    opSb = sbAppend(opSb, "STORE_LOCAL " + idx)
-                    nOps += 1
+                    // Skip if already a param; otherwise add to locals list (no op emitted)
+                    let pIdx = findInList(curParams, nParams, rest)
+                    if pIdx < 0 {
+                        let lIdx = findInList(curLocals, nLocals, rest)
+                        if lIdx < 0 {
+                            if nLocals > 0 { curLocals = curLocals + "\n" }
+                            curLocals = curLocals + rest
+                            nLocals += 1
+                        }
+                    }
                 } else if op == "BUILTIN" {
                     let bj = 0
                     while bj < len(rest) && rest[bj] != " " { bj += 1 }
                     let bname = substring(rest, 0, bj)
                     if bname == "kp" {
-                        if nOps > 0 { opSb = sbAppend(opSb, "\n") }
-                        opSb = sbAppend(opSb, "BUILTIN_KP")
+                        curOps = sbAppend(curOps, "BUILTIN_KP\n")
                         nOps += 1
-                        nKp += 1
                     } else if bname == "exit" {
-                        if nOps > 0 { opSb = sbAppend(opSb, "\n") }
-                        opSb = sbAppend(opSb, "BUILTIN_EXIT")
+                        curOps = sbAppend(curOps, "BUILTIN_EXIT\n")
                         nOps += 1
                     }
                 } else if op == "POP" {
-                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
-                    opSb = sbAppend(opSb, "POP")
+                    curOps = sbAppend(curOps, "POP\n")
                     nOps += 1
                 } else if op == "END" {
-                    if nOps > 0 { opSb = sbAppend(opSb, "\n") }
-                    opSb = sbAppend(opSb, "END")
+                    curOps = sbAppend(curOps, "END\n")
                     nOps += 1
                 }
             }
         }
         i += 1
     }
-    let r = "" + nKp + "\n" + nStrings + "\n" + nLocals + "\n"
+    // Finalize last function
+    if inFunc == "1" {
+        funcsSb = appendFunc(funcsSb, curName, curParams, nParams, curLocals, nLocals, sbToString(curOps), nOps)
+        nFunctions += 1
+    }
+    // Build final output: nFunctions, nStrings, strings, then function blocks
+    let r = ("" + nFunctions) + "\n" + ("" + nStrings) + "\n"
     if nStrings > 0 { r = r + strings + "\n" }
-    if nLocals > 0  { r = r + locals + "\n" }
-    r = r + sbToString(opSb)
+    r = r + sbToString(funcsSb)
     emit r
 }
 
-// Lines 0..2 of the parsed format are nKp / nStrings / nLocals.
-// String entries start at line 3, locals after that, ops after locals.
-func irStringStart() { emit 3 }
-func irLocalStart(parsed) {
-    let nStrings = toInt(getLine(parsed, 1))
-    emit 3 + nStrings
-}
-func irOpStart(parsed) {
-    let nStrings = toInt(getLine(parsed, 1))
-    let nLocals = toInt(getLine(parsed, 2))
-    emit 3 + nStrings + nLocals
-}
+// New parsed format (slice 3e):
+//   line 0: nFunctions
+//   line 1: nStrings
+//   lines 2..1+nStrings: each unique string (global)
+//   then per-function blocks: header line + nParams param names + nLocals
+//   local names + nOps op lines.
+
+func irStringStart() { emit 2 }
 
 // Compute byte offset within __cstring for each interned string.
-// Returns a newline-separated list of integer offsets (in declaration order).
 func computeStringOffsets(parsed) {
     let nStrings = toInt(getLine(parsed, 1))
     let r = ""
@@ -837,13 +891,12 @@ func computeStringOffsets(parsed) {
         if si > 0 { r = r + "\n" }
         r = r + ("" + off)
         let s = getLine(parsed, irStringStart() + si)
-        off = off + len(s) + 1     // +1 for NUL
+        off = off + len(s) + 1
         si += 1
     }
     emit r
 }
 
-// Total bytes of __cstring (sum of len+1 for each string).
 func computeCStringSize(parsed) {
     let nStrings = toInt(getLine(parsed, 1))
     let off = 0
@@ -856,7 +909,6 @@ func computeCStringSize(parsed) {
     emit off
 }
 
-// Emit the __cstring section bytes from the parsed IR.
 func emitCStringFromIR(parsed) {
     let nStrings = toInt(getLine(parsed, 1))
     let s = ""
@@ -869,15 +921,68 @@ func emitCStringFromIR(parsed) {
     emit s
 }
 
-// Frame size for locals: 8 bytes per local, rounded up to 16.
-//   nLocals = 0 → 0
-//   nLocals = 1 → 16
-//   nLocals = 2 → 16
-//   nLocals = 3 → 32
-func computeFrameSize(parsed) {
-    let nLocals = toInt(getLine(parsed, 2))
-    if nLocals == 0 { emit 0 }
-    emit ((nLocals + 1) / 2) * 16
+// ── per-function accessors ─────────────────────────────────────────────────
+
+// Convert a function header "name\tnP\tnL\tnO" into a 4-line sub-string.
+func parseFuncHeader(h) {
+    let out = ""
+    let i = 0
+    while i < len(h) {
+        if h[i] == "\t" { out = out + "\n" } else { out = out + h[i] }
+        i += 1
+    }
+    emit out
+}
+
+func funcCount(parsed) { emit toInt(getLine(parsed, 0)) }
+
+// Return the line number in `parsed` of the header for function fIdx.
+func funcStartLine(parsed, fIdx) {
+    let nStrings = toInt(getLine(parsed, 1))
+    let pos = 2 + nStrings
+    let i = 0
+    while i < fIdx {
+        let h = getLine(parsed, pos)
+        let parts = parseFuncHeader(h)
+        let nP = toInt(getLine(parts, 1))
+        let nL = toInt(getLine(parts, 2))
+        let nO = toInt(getLine(parts, 3))
+        pos = pos + 1 + nP + nL + nO
+        i += 1
+    }
+    emit pos
+}
+
+func funcName(parsed, fIdx) {
+    let h = getLine(parsed, funcStartLine(parsed, fIdx))
+    let i = 0
+    while i < len(h) && h[i] != "\t" { i += 1 }
+    emit substring(h, 0, i)
+}
+func funcNParams(parsed, fIdx) {
+    let parts = parseFuncHeader(getLine(parsed, funcStartLine(parsed, fIdx)))
+    emit toInt(getLine(parts, 1))
+}
+func funcNLocals(parsed, fIdx) {
+    let parts = parseFuncHeader(getLine(parsed, funcStartLine(parsed, fIdx)))
+    emit toInt(getLine(parts, 2))
+}
+func funcNOps(parsed, fIdx) {
+    let parts = parseFuncHeader(getLine(parsed, funcStartLine(parsed, fIdx)))
+    emit toInt(getLine(parts, 3))
+}
+func funcOp(parsed, fIdx, oIdx) {
+    let s = funcStartLine(parsed, fIdx)
+    let nP = funcNParams(parsed, fIdx)
+    let nL = funcNLocals(parsed, fIdx)
+    emit getLine(parsed, s + 1 + nP + nL + oIdx)
+}
+
+// Per-function frame size (8 B per param+local, rounded up to 16).
+func computeFrameSizeF(parsed, fIdx) {
+    let total = funcNParams(parsed, fIdx) + funcNLocals(parsed, fIdx)
+    if total == 0 { emit 0 }
+    emit ((total + 1) / 2) * 16
 }
 
 // Per-op instruction count under the slice 3b/3c eval-stack model.
@@ -892,60 +997,36 @@ func computeFrameSize(parsed) {
 //   POP          : 1  (ldr discard)
 //   END          : 3  + 1 if frame (movz w0 0 + ldp + ret + maybe add sp first)
 //   prologue     : 2  + 1 if frame (stp + mov fp sp + maybe sub sp)
+// Per-op instruction count (frame-independent ops only — RETURN/END/CALL_FUNC
+// are handled at the caller because they depend on frame size or argc).
 func opInstrCount(opTok) {
     if opTok == "PUSH_STR"     { emit 3 }
     if opTok == "PUSH_INT"     { emit 2 }
-    if opTok == "LOAD_LOCAL"   { emit 2 }
-    if opTok == "STORE_LOCAL"  { emit 2 }
+    if opTok == "LOAD_SLOT"    { emit 2 }
+    if opTok == "STORE_SLOT"   { emit 2 }
     if opTok == "ADD"          { emit 4 }
     if opTok == "SUB"          { emit 4 }
     if opTok == "MUL"          { emit 4 }
     if opTok == "DIV"          { emit 4 }
     if opTok == "MOD"          { emit 5 }
-    if opTok == "LT"           { emit 5 }   // pop b, pop a, cmp, cset, push
+    if opTok == "LT"           { emit 5 }
     if opTok == "GT"           { emit 5 }
     if opTok == "LE"           { emit 5 }
     if opTok == "GE"           { emit 5 }
     if opTok == "EQ"           { emit 5 }
     if opTok == "NE"           { emit 5 }
     if opTok == "JUMP"         { emit 1 }
-    if opTok == "JUMPIFNOT"    { emit 2 }   // pop x0, cbz x0, target
+    if opTok == "JUMPIFNOT"    { emit 2 }
     if opTok == "LABEL"        { emit 0 }
     if opTok == "BUILTIN_KP"   { emit 4 }
     if opTok == "BUILTIN_EXIT" { emit 5 }
     if opTok == "POP"          { emit 1 }
-    if opTok == "END"          { emit 3 }
     emit 0
 }
 
-// Build a label table: for each LABEL op, record its instruction index
-// (0-based, relative to the start of __text including prologue). Returns a
-// newline-separated list of "name=instr_idx" entries.
-func buildLabelTable(parsed) {
-    let opStart = irOpStart(parsed)
-    let nOps = lineCount(parsed) - opStart
-    let frameSize = computeFrameSize(parsed)
-    let table = ""
-    let n = 2
-    if frameSize > 0 { n = 3 }
-    let i = 0
-    while i < nOps {
-        let opLine = getLine(parsed, opStart + i)
-        let sp = 0
-        while sp < len(opLine) && opLine[sp] != " " { sp += 1 }
-        let tok = substring(opLine, 0, sp)
-        if tok == "LABEL" {
-            let name = trim(substring(opLine, sp + 1, len(opLine)))
-            if len(table) > 0 { table = table + "\n" }
-            table = table + name + "=" + ("" + n)
-        }
-        n = n + opInstrCount(tok)
-        i += 1
-    }
-    emit table
-}
-
-// Look up a label in the label table. Returns instruction index or -1 if not found.
+// Look up a "name=value" entry in a newline-separated table. Returns value
+// (parsed as int) or -1 if not found. Used for both label tables and the
+// function table.
 func findLabel(table, name) {
     let nl = lineCount(table)
     let i = 0
@@ -961,6 +1042,127 @@ func findLabel(table, name) {
     emit 0 - 1
 }
 
+// Compute the total instruction count of one function (frame-aware).
+func computeFunctionInstrs(parsed, fIdx) {
+    let frame = computeFrameSizeF(parsed, fIdx)
+    let nP = funcNParams(parsed, fIdx)
+    let nO = funcNOps(parsed, fIdx)
+    let n = 2                      // prologue: stp + mov fp sp
+    if frame > 0 { n = n + 1 }     // sub sp
+    n = n + nP                     // save each param
+    let oi = 0
+    while oi < nO {
+        let opLine = funcOp(parsed, fIdx, oi)
+        let sp = 0
+        while sp < len(opLine) && opLine[sp] != " " { sp += 1 }
+        let tok = substring(opLine, 0, sp)
+        if tok == "CALL_FUNC" {
+            let s2 = sp + 1
+            while s2 < len(opLine) && opLine[s2] != " " { s2 += 1 }
+            let argc = 0
+            if s2 < len(opLine) { argc = toInt(trim(substring(opLine, s2 + 1, len(opLine)))) }
+            n = n + argc + 2
+        } else if tok == "RETURN" {
+            n = n + 3
+            if frame > 0 { n = n + 1 }
+        } else if tok == "END" {
+            n = n + 3
+            if frame > 0 { n = n + 1 }
+        } else {
+            n = n + opInstrCount(tok)
+        }
+        oi += 1
+    }
+    emit n
+}
+
+// Build per-function label table. instrIdx is "absolute" within __text (so
+// callers can compute jump deltas without separate per-function bias).
+func buildFunctionLabelTable(parsed, fIdx, funcStartInstr) {
+    let frame = computeFrameSizeF(parsed, fIdx)
+    let nP = funcNParams(parsed, fIdx)
+    let nO = funcNOps(parsed, fIdx)
+    let table = ""
+    let n = funcStartInstr + 2
+    if frame > 0 { n = n + 1 }
+    n = n + nP
+    let oi = 0
+    while oi < nO {
+        let opLine = funcOp(parsed, fIdx, oi)
+        let sp = 0
+        while sp < len(opLine) && opLine[sp] != " " { sp += 1 }
+        let tok = substring(opLine, 0, sp)
+        if tok == "LABEL" {
+            let name = trim(substring(opLine, sp + 1, len(opLine)))
+            if len(table) > 0 { table = table + "\n" }
+            table = table + name + "=" + ("" + n)
+        } else if tok == "CALL_FUNC" {
+            let s2 = sp + 1
+            while s2 < len(opLine) && opLine[s2] != " " { s2 += 1 }
+            let argc = 0
+            if s2 < len(opLine) { argc = toInt(trim(substring(opLine, s2 + 1, len(opLine)))) }
+            n = n + argc + 2
+        } else if tok == "RETURN" {
+            n = n + 3
+            if frame > 0 { n = n + 1 }
+        } else if tok == "END" {
+            n = n + 3
+            if frame > 0 { n = n + 1 }
+        } else {
+            n = n + opInstrCount(tok)
+        }
+        oi += 1
+    }
+    emit table
+}
+
+// Find the function index of __main__ (or -1 if absent).
+func mainFuncIndex(parsed) {
+    let nF = funcCount(parsed)
+    let i = 0
+    while i < nF {
+        if funcName(parsed, i) == "__main__" { emit i }
+        i += 1
+    }
+    emit 0 - 1
+}
+
+// Emission order: __main__ first (so its code is at TEXT_OFF, matching
+// LC_MAIN's entryoff), then other functions in declaration order.
+func emitOrder(parsed) {
+    let nF = funcCount(parsed)
+    let mainIdx = mainFuncIndex(parsed)
+    let r = ""
+    if mainIdx >= 0 { r = "" + mainIdx }
+    let i = 0
+    while i < nF {
+        if i != mainIdx {
+            if len(r) > 0 { r = r + "\n" }
+            r = r + ("" + i)
+        }
+        i += 1
+    }
+    emit r
+}
+
+// Function table: name → starting instruction index in __text. Uses emitOrder
+// (__main__ first), so the entry point at TEXT_OFF is always __main__.
+func buildFunctionTable(parsed) {
+    let order = emitOrder(parsed)
+    let nF = funcCount(parsed)
+    let r = ""
+    let cur = 0
+    let oi = 0
+    while oi < nF {
+        let fIdx = toInt(getLine(order, oi))
+        if oi > 0 { r = r + "\n" }
+        r = r + funcName(parsed, fIdx) + "=" + ("" + cur)
+        cur = cur + computeFunctionInstrs(parsed, fIdx)
+        oi += 1
+    }
+    emit r
+}
+
 // Map IR comparison op token → AArch64 cond code.
 func irCmpToCond(opTok) {
     if opTok == "EQ" { emit 0x0 }
@@ -972,47 +1174,25 @@ func irCmpToCond(opTok) {
     emit 0
 }
 
-// Total __text size in bytes, given parsed IR. Walks ops + adds prologue/frame.
+// Total __text size in bytes — sum of all functions' instruction counts.
 func computeTextSize(parsed) {
-    let opStart = irOpStart(parsed)
-    let nOps = lineCount(parsed) - opStart
-    let frameSize = computeFrameSize(parsed)
-    let frameInstrs = 0
-    if frameSize > 0 { frameInstrs = 2 }     // sub sp + add sp (one each in prologue/epilogue)
-    let n = 2 + frameInstrs                  // prologue: stp + mov fp sp [+ sub sp]
+    let nF = funcCount(parsed)
+    let total = 0
     let i = 0
-    while i < nOps {
-        let opLine = getLine(parsed, opStart + i)
-        let sp = 0
-        while sp < len(opLine) && opLine[sp] != " " { sp += 1 }
-        let tok = substring(opLine, 0, sp)
-        n = n + opInstrCount(tok)
+    while i < nF {
+        total = total + computeFunctionInstrs(parsed, i)
         i += 1
     }
-    emit n * 4
+    emit total * 4
 }
 
-// Emit __text bytes for the parsed IR. Eval stack lives at SP, growing toward
-// lower addresses; locals live at FP-negative offsets (8 bytes each).
-//
-// Layout assumption (slice 3a/3b): __text + __stubs + __cstring fits on the
-// first 4 KB ADRP page (offset < 0x1000 from TEXT_VADDR). For larger programs
-// we'll need real per-instruction page math.
-func emitTextFromIR(parsed, strOffsets) {
-    let opStart = irOpStart(parsed)
-    let nOps = lineCount(parsed) - opStart
-    let frameSize = computeFrameSize(parsed)
-    let labels = buildLabelTable(parsed)
-
-    let s = ""
-    // prologue: stp x29, x30, [sp, #-16]!; mov x29, sp; [sub sp, sp, #frame]
-    s = s + arm64_stp_fp_lr_pre16()
-    s = s + arm64_mov_fp_sp()
-    let instrIdx = 2
-    if frameSize > 0 {
-        s = s + arm64_sub_sp(frameSize)
-        instrIdx += 1
-    }
+// Emit one function: prologue (with param save) + ops + epilogue. instrIdx is
+// absolute within __text (so jumps can use absolute deltas).
+func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
+    let frame = computeFrameSizeF(parsed, fIdx)
+    let nP = funcNParams(parsed, fIdx)
+    let nO = funcNOps(parsed, fIdx)
+    let labels = buildFunctionLabelTable(parsed, fIdx, funcStartInstr)
 
     let textVaddr = 0x100000000
     let textOff = 0x460
@@ -1020,9 +1200,28 @@ func emitTextFromIR(parsed, strOffsets) {
     let cstringOff = stubsOff + 12
     let stubVaddr = textVaddr + stubsOff
 
+    let s = ""
+    let instrIdx = funcStartInstr
+
+    s = s + arm64_stp_fp_lr_pre16()
+    s = s + arm64_mov_fp_sp()
+    instrIdx = instrIdx + 2
+    if frame > 0 {
+        s = s + arm64_sub_sp(frame)
+        instrIdx = instrIdx + 1
+    }
+    // Save params x0..x(nP-1) into local slots
+    let pi = 0
+    while pi < nP {
+        let off = 0 - (8 + pi * 8)
+        s = s + arm64_stur(pi, 29, off)
+        instrIdx = instrIdx + 1
+        pi += 1
+    }
+
     let oi = 0
-    while oi < nOps {
-        let opLine = getLine(parsed, opStart + oi)
+    while oi < nO {
+        let opLine = funcOp(parsed, fIdx, oi)
         let spIdx = 0
         while spIdx < len(opLine) && opLine[spIdx] != " " { spIdx += 1 }
         let opTok = substring(opLine, 0, spIdx)
@@ -1038,119 +1237,159 @@ func emitTextFromIR(parsed, strOffsets) {
             let strPage = strVaddr / 4096 * 4096
             let imm21 = (strPage - pcPage) / 4096
             s = s + arm64_adrp(0, imm21)
-            instrIdx += 1
             s = s + arm64_add_imm(0, 0, strVaddr % 4096)
-            instrIdx += 1
             s = s + arm64_push_x0()
-            instrIdx += 1
+            instrIdx = instrIdx + 3
         } else if opTok == "PUSH_INT" {
             let n = toInt(restTok)
             if n >= 0 {
-                s = s + arm64_movz_x_imm(0, n % 65536)   // movz x0, #imm16 (zero-ext)
+                s = s + arm64_movz_x_imm(0, n % 65536)
             } else {
-                s = s + arm64_movn_x_imm(0, (0 - n - 1) % 65536) // movn x0, #(~n & 0xffff)
+                s = s + arm64_movn_x_imm(0, (0 - n - 1) % 65536)
             }
-            instrIdx += 1
             s = s + arm64_push_x0()
-            instrIdx += 1
+            instrIdx = instrIdx + 2
         } else if opTok == "ADD" {
-            s = s + arm64_pop(0)                    // x0 = b
-            s = s + arm64_pop(1)                    // x1 = a
-            s = s + arm64_add_xxx(0, 1, 0)          // x0 = a + b
+            s = s + arm64_pop(0)
+            s = s + arm64_pop(1)
+            s = s + arm64_add_xxx(0, 1, 0)
             s = s + arm64_push(0)
-            instrIdx += 4
+            instrIdx = instrIdx + 4
         } else if opTok == "SUB" {
             s = s + arm64_pop(0)
             s = s + arm64_pop(1)
-            s = s + arm64_sub_xxx(0, 1, 0)          // x0 = a - b
+            s = s + arm64_sub_xxx(0, 1, 0)
             s = s + arm64_push(0)
-            instrIdx += 4
+            instrIdx = instrIdx + 4
         } else if opTok == "MUL" {
             s = s + arm64_pop(0)
             s = s + arm64_pop(1)
             s = s + arm64_mul_xxx(0, 1, 0)
             s = s + arm64_push(0)
-            instrIdx += 4
+            instrIdx = instrIdx + 4
         } else if opTok == "DIV" {
             s = s + arm64_pop(0)
             s = s + arm64_pop(1)
-            s = s + arm64_sdiv_xxx(0, 1, 0)         // signed divide
+            s = s + arm64_sdiv_xxx(0, 1, 0)
             s = s + arm64_push(0)
-            instrIdx += 4
+            instrIdx = instrIdx + 4
         } else if opTok == "MOD" {
-            s = s + arm64_pop(0)                    // x0 = b
-            s = s + arm64_pop(1)                    // x1 = a
-            s = s + arm64_sdiv_xxx(2, 1, 0)         // x2 = a / b
-            s = s + arm64_msub_xxxx(0, 2, 0, 1)     // x0 = a - x2 * b = a mod b
+            s = s + arm64_pop(0)
+            s = s + arm64_pop(1)
+            s = s + arm64_sdiv_xxx(2, 1, 0)
+            s = s + arm64_msub_xxxx(0, 2, 0, 1)
             s = s + arm64_push(0)
-            instrIdx += 5
+            instrIdx = instrIdx + 5
         } else if opTok == "BUILTIN_EXIT" {
-            s = s + arm64_pop_x0()                  // x0 = exit code
-            s = s + arm64_movz_x_imm(16, 1)         // x16 = SYS_exit
-            s = s + arm64_svc(0x80)                 // trap (no return)
-            // Dead code — keep for IR-level eval-stack/POP balance:
+            s = s + arm64_pop_x0()
+            s = s + arm64_movz_x_imm(16, 1)
+            s = s + arm64_svc(0x80)
             s = s + arm64_movz_w_imm(0, 0)
             s = s + arm64_push_x0()
-            instrIdx += 5
+            instrIdx = instrIdx + 5
         } else if opTok == "LT" || opTok == "GT" || opTok == "LE" || opTok == "GE" || opTok == "EQ" || opTok == "NE" {
-            s = s + arm64_pop(0)                    // x0 = b
-            s = s + arm64_pop(1)                    // x1 = a
-            s = s + arm64_cmp_xx(1, 0)              // cmp a, b → flags
+            s = s + arm64_pop(0)
+            s = s + arm64_pop(1)
+            s = s + arm64_cmp_xx(1, 0)
             s = s + arm64_cset(0, irCmpToCond(opTok))
             s = s + arm64_push(0)
-            instrIdx += 5
+            instrIdx = instrIdx + 5
         } else if opTok == "LABEL" {
-            // No instructions emitted; labels just record positions (handled in pre-pass)
+            // No instructions
         } else if opTok == "JUMP" {
             let target = findLabel(labels, restTok)
             let delta = target - instrIdx
             s = s + arm64_b(delta)
-            instrIdx += 1
+            instrIdx = instrIdx + 1
         } else if opTok == "JUMPIFNOT" {
             s = s + arm64_pop_x0()
-            instrIdx += 1
+            instrIdx = instrIdx + 1
             let target = findLabel(labels, restTok)
             let delta = target - instrIdx
             s = s + arm64_cbz(0, delta)
-            instrIdx += 1
-        } else if opTok == "LOAD_LOCAL" {
-            let lIdx = toInt(restTok)
-            let off = 0 - (8 + lIdx * 8)
-            s = s + arm64_ldur(0, 29, off)         // ldur x0, [x29, #-(8+i*8)]
-            instrIdx += 1
+            instrIdx = instrIdx + 1
+        } else if opTok == "LOAD_SLOT" {
+            let slot = toInt(restTok)
+            let off = 0 - (8 + slot * 8)
+            s = s + arm64_ldur(0, 29, off)
             s = s + arm64_push_x0()
-            instrIdx += 1
-        } else if opTok == "STORE_LOCAL" {
-            let lIdx = toInt(restTok)
-            let off = 0 - (8 + lIdx * 8)
+            instrIdx = instrIdx + 2
+        } else if opTok == "STORE_SLOT" {
+            let slot = toInt(restTok)
+            let off = 0 - (8 + slot * 8)
             s = s + arm64_pop_x0()
-            instrIdx += 1
-            s = s + arm64_stur(0, 29, off)         // stur x0, [x29, #-(8+i*8)]
-            instrIdx += 1
+            s = s + arm64_stur(0, 29, off)
+            instrIdx = instrIdx + 2
         } else if opTok == "BUILTIN_KP" {
             s = s + arm64_pop_x0()
-            instrIdx += 1
+            instrIdx = instrIdx + 1
             let blPc = textVaddr + textOff + instrIdx * 4
             let rel26 = (stubVaddr - blPc) / 4
             s = s + arm64_bl(rel26)
-            instrIdx += 1
-            s = s + arm64_movz_w_imm(0, 0)         // movz w0, #0 (return value)
-            instrIdx += 1
+            s = s + arm64_movz_w_imm(0, 0)
             s = s + arm64_push_x0()
-            instrIdx += 1
+            instrIdx = instrIdx + 3
+        } else if opTok == "CALL_FUNC" {
+            // restTok = "<name> <argc>"
+            let s2 = 0
+            while s2 < len(restTok) && restTok[s2] != " " { s2 += 1 }
+            let cname = substring(restTok, 0, s2)
+            let argc = 0
+            if s2 < len(restTok) { argc = toInt(trim(substring(restTok, s2 + 1, len(restTok)))) }
+            // Pop args in reverse: x(argc-1) first (TOS), down to x0 (deepest)
+            let ai = argc - 1
+            while ai >= 0 {
+                s = s + arm64_pop(ai)
+                instrIdx = instrIdx + 1
+                ai = ai - 1
+            }
+            // bl <target>
+            let targetInstr = findLabel(funcTable, cname)
+            let delta = targetInstr - instrIdx
+            s = s + arm64_bl(delta)
+            instrIdx = instrIdx + 1
+            s = s + arm64_push(0)
+            instrIdx = instrIdx + 1
+        } else if opTok == "RETURN" {
+            s = s + arm64_pop_x0()
+            instrIdx = instrIdx + 1
+            if frame > 0 {
+                s = s + arm64_add_sp(frame)
+                instrIdx = instrIdx + 1
+            }
+            s = s + arm64_ldp_fp_lr_post16()
+            s = s + arm64_ret()
+            instrIdx = instrIdx + 2
         } else if opTok == "POP" {
             s = s + arm64_pop_x0()
-            instrIdx += 1
+            instrIdx = instrIdx + 1
         } else if opTok == "END" {
-            if frameSize > 0 {
-                s = s + arm64_add_sp(frameSize)
-                instrIdx += 1
+            if frame > 0 {
+                s = s + arm64_add_sp(frame)
+                instrIdx = instrIdx + 1
             }
             s = s + arm64_movz_w0_zero()
             s = s + arm64_ldp_fp_lr_post16()
             s = s + arm64_ret()
-            instrIdx += 3
+            instrIdx = instrIdx + 3
         }
+        oi += 1
+    }
+    emit s
+}
+
+// Top-level emitter: walk all functions in emission order (__main__ first)
+// and concatenate.
+func emitTextFromIR(parsed, strOffsets) {
+    let order = emitOrder(parsed)
+    let nF = funcCount(parsed)
+    let funcTable = buildFunctionTable(parsed)
+    let s = ""
+    let oi = 0
+    while oi < nF {
+        let fIdx = toInt(getLine(order, oi))
+        let funcStartInstr = findLabel(funcTable, funcName(parsed, fIdx))
+        s = s + emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets)
         oi += 1
     }
     emit s
@@ -1671,7 +1910,7 @@ just run {
             printErr("macho_arm64_self: cannot read " + inFile)
             exit("1")
         }
-        irOps = parseSimpleIR(ir)
+        irOps = parseFullIR(ir)
         irStrOffsets = computeStringOffsets(irOps)
         g_TEXT_SIZE = computeTextSize(irOps)
         g_CSTRING_SIZE = computeCStringSize(irOps)
