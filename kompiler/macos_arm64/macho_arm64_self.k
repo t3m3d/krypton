@@ -1405,7 +1405,7 @@ func opInstrCount(opTok) {
     if opTok == "NEG"              { emit 3 }   // pop, neg, push
     if opTok == "NOT"              { emit 4 }   // pop, cmp, cset, push
     if opTok == "INDEX"            { emit 13 }  // pop i, pop s, alloc(7), ldrb, strb char, strb NUL, push
-    if opTok == "BUILTIN_KP"       { emit 4 }
+    if opTok == "BUILTIN_KP"       { emit 21 }  // direct write() + write("\n") via syscall, survives explicit exit()
     if opTok == "BUILTIN_EXIT"     { emit 5 }
     if opTok == "BUILTIN_LEN"      { emit 7 }   // pop, mov, ldrb-post, cbnz, sub-reg, sub-imm, push
     if opTok == "BUILTIN_CHARCODE" { emit 3 }   // pop, ldrb, push
@@ -2269,14 +2269,31 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_stur(0, 29, off)
             instrIdx = instrIdx + 2
         } else if opTok == "BUILTIN_KP" {
-            s = s + arm64_pop_x0()
-            instrIdx = instrIdx + 1
-            let blPc = textVaddr + textOff + instrIdx * 4
-            let rel26 = (stubVaddr - blPc) / 4
-            s = s + arm64_bl(rel26)
-            s = s + arm64_movz_w_imm(0, 0)
+            // kp(s): write(1,s,strlen(s)) + write(1,"\n",1) via raw syscalls.
+            // Direct write() bypasses libc stdio buffering — kp output survives
+            // explicit exit() (which svc's _exit and skips libc fini handlers).
+            s = s + arm64_pop(3)                      // x3 = str
+            s = s + arm64_mov_xx(1, 3)                // x1 = scan ptr
+            s = s + arm64_ldrb_post(4, 1, 1)          // ldrb w4, [x1], #1
+            s = s + arm64_cbnz(4, 0 - 1)              // loop until NUL
+            s = s + arm64_sub_xxx(2, 1, 3)            // x2 = len incl NUL
+            s = s + arm64_sub_imm(2, 2, 1)            // x2 = real len
+            s = s + arm64_movz_x_imm(0, 1)            // x0 = stdout
+            s = s + arm64_mov_xx(1, 3)                // x1 = str ptr
+            s = s + arm64_movz_x_imm(16, 4)           // x16 = SYS_write
+            s = s + arm64_svc(0x80)                   // write(1, str, len)
+            s = s + arm64_movz_w_imm(4, 0x0A)         // w4 = '\n'
+            s = s + arm64_sub_imm(31, 31, 16)         // sub sp, sp, #16
+            s = s + arm64_strb_imm(4, 31, 0)          // strb w4, [sp]
+            s = s + arm64_add_imm(1, 31, 0)           // x1 = sp (mov from SP must use ADD form)
+            s = s + arm64_movz_x_imm(2, 1)            // x2 = 1 byte
+            s = s + arm64_movz_x_imm(0, 1)            // x0 = stdout
+            s = s + arm64_movz_x_imm(16, 4)           // x16 = SYS_write
+            s = s + arm64_svc(0x80)                   // write(1, "\n", 1)
+            s = s + arm64_add_imm(31, 31, 16)         // restore sp
+            s = s + arm64_movz_w_imm(0, 0)            // kp returns 0
             s = s + arm64_push_x0()
-            instrIdx = instrIdx + 3
+            instrIdx = instrIdx + 21
         } else if opTok == "CALL_FUNC" {
             // restTok = "<name> <argc>"
             let s2 = 0
