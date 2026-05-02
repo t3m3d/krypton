@@ -3164,11 +3164,20 @@ func irOr(tokens, pos, ntoks, lc) {
     let nlc = lc
     while tokAt(tokens, p) == "OR" {
         let shortLabel = irLabel("_or", p)
+        let endLabel = irLabel("_orend", p)
         nlc = nlc + 1
         let rp = irAnd(tokens, p + 1, ntoks, nlc)
         let rcode = pairVal(rp)
         p = pairPos(rp)
-        code = code + "JUMPIF " + shortLabel + "\n" + rcode + "LABEL " + shortLabel + "\n"
+        // Stack-balanced short-circuit OR. JUMPIF pops left and jumps if
+        // truthy. Truthy branch pushes 1 and skips right; falsy branch
+        // evaluates right and uses its result. Both end with one value
+        // on stack — required for native stack-machine backends (elf.k).
+        code = code + "JUMPIF " + shortLabel + "\n"
+                    + rcode + "JUMP " + endLabel + "\n"
+                    + "LABEL " + shortLabel + "\n"
+                    + "PUSH 1\n"
+                    + "LABEL " + endLabel + "\n"
     }
     emit code + "," + p
 }
@@ -3180,11 +3189,17 @@ func irAnd(tokens, pos, ntoks, lc) {
     let nlc = lc
     while tokAt(tokens, p) == "AND" {
         let shortLabel = irLabel("_and", p)
+        let endLabel = irLabel("_andend", p)
         nlc = nlc + 1
         let rp = irEquality(tokens, p + 1, ntoks, nlc)
         let rcode = pairVal(rp)
         p = pairPos(rp)
-        code = code + "JUMPIFNOT " + shortLabel + "\n" + rcode + "LABEL " + shortLabel + "\n"
+        // Stack-balanced short-circuit AND. Mirror of irOr.
+        code = code + "JUMPIFNOT " + shortLabel + "\n"
+                    + rcode + "JUMP " + endLabel + "\n"
+                    + "LABEL " + shortLabel + "\n"
+                    + "PUSH 0\n"
+                    + "LABEL " + endLabel + "\n"
     }
     emit code + "," + p
 }
@@ -3314,9 +3329,14 @@ func irPrimary(tokens, pos, ntoks, lc) {
 
     // String literal
     if tt == "STR" {
-        // escape newlines in the IR for safe storage
-        let escaped = replace(replace(tv, "\\n", "\\\\n"), "\\t", "\\\\t")
-        emit "PUSH \"" + escaped + "\"\n," + (pos + 1)
+        // tv carries escape sequences as literal 2-char pairs (e.g. "\n" =
+        // 2 chars: backslash + n) — Krypton's tokenizer doesn't decode
+        // them. parseQuoted in elf.k IS a proper decoder, so emit tv as-is
+        // and let the backend's parseQuoted convert "\n" → newline byte
+        // (matching what gcc would do for the C-emit path).
+        // Don't double-escape — that produced "\\n" 3-char IR which
+        // parseQuoted decoded as literal "\n" 2-char (broken on native).
+        emit "PUSH \"" + tv + "\"\n," + (pos + 1)
     }
 
     // Backtick interpolation - emit as PUSH + CAT chain
