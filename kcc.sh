@@ -104,49 +104,47 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
     TMPIR="/tmp/_kcc_native_$$.kir"
 
     if [[ "$PLATFORM" == "macos" ]]; then
-        # macOS Mach-O backend via kompiler/macho.k → .s → clang
-        MACHO_BIN="$SCRIPT_DIR/kompiler/macho_host"
+        # macOS arm64: kompiler/macos_arm64/macho_arm64_self.k writes a
+        # signed Mach-O directly (load commands, __TEXT/__DATA/__LINKEDIT,
+        # chained fixups, ad-hoc SHA-256 code signature — all in Krypton).
+        # NO clang, no `as`, no `ld`, no external codesign.
+        MACHO_DIR="$SCRIPT_DIR/kompiler/macos_arm64"
+        MACHO_BIN="$MACHO_DIR/macho_host"
+        MACHO_SRC="$MACHO_DIR/macho_arm64_self.k"
 
-        case "$(uname -m 2>/dev/null)" in
-            x86_64|amd64) _MARCH=x86_64 ;;
-            arm64|aarch64) _MARCH=arm64 ;;
-            *) _MARCH=$(uname -m) ;;
-        esac
-
-        # Build macho host if missing or stale (uses host C compiler — clang
-        # ships with Xcode CLT). No prebuilt seed since this is brand-new.
-        if [[ ! -f "$MACHO_BIN" || "$SCRIPT_DIR/kompiler/macho.k" -nt "$MACHO_BIN" ]]; then
+        # Build macho host if missing or stale (one-time bootstrap; uses kcc
+        # itself + the host C compiler that built kcc). Subsequent runs reuse
+        # the binary directly.
+        if [[ ! -f "$MACHO_BIN" || "$MACHO_SRC" -nt "$MACHO_BIN" ]]; then
             CC_HOST="${CC:-clang}"
             command -v "$CC_HOST" >/dev/null || {
-                echo "kcc --native: $CC_HOST not found (install Xcode Command Line Tools: xcode-select --install)" >&2
+                echo "kcc --native: $CC_HOST not found (need a C compiler once to build the macho host)" >&2
                 exit 1
             }
             echo "kcc: building macho host..." >&2
-            "$KCC_EXE" "$SCRIPT_DIR/kompiler/macho.k" > /tmp/_kcc_macho_build.c && \
+            "$KCC_EXE" "$MACHO_SRC" > /tmp/_kcc_macho_build.c && \
             "$CC_HOST" /tmp/_kcc_macho_build.c -o "$MACHO_BIN" $LIBS && rm -f /tmp/_kcc_macho_build.c
             if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build macho host" >&2; exit 1; fi
         fi
 
-        TMPS="/tmp/_kcc_native_$$.s"
         "$KCC_EXE" --ir $HEADERS_FLAG "$SRCFILE" > "$TMPIR"
         if [[ $? -ne 0 ]]; then echo "kcc --native: IR emission failed" >&2; rm -f "$TMPIR"; exit 1; fi
 
-        "$MACHO_BIN" --arch "$_MARCH" "$TMPIR" "$TMPS"
-        if [[ $? -ne 0 ]]; then echo "kcc --native: macho codegen failed" >&2; rm -f "$TMPIR" "$TMPS"; exit 1; fi
-
-        # clang assembles + links + signs in one step.
-        clang -arch "$_MARCH" "$TMPS" -o "$OUTFILE"
-        CLANG_RET=$?
-        rm -f "$TMPIR" "$TMPS"
-        if [[ $CLANG_RET -ne 0 ]]; then echo "kcc --native: clang link failed" >&2; exit 1; fi
+        "$MACHO_BIN" --ir "$TMPIR" "$OUTFILE"
+        MACHO_RET=$?
+        rm -f "$TMPIR"
+        if [[ $MACHO_RET -ne 0 ]]; then echo "kcc --native: macho codegen failed" >&2; exit 1; fi
         chmod +x "$OUTFILE"
         exit 0
     fi
 
     if [[ "$PLATFORM" == "linux" ]]; then
         # Linux: .k → kir → optimize.k → kir' → elf.k → ELF
-        ELF_BIN="$SCRIPT_DIR/kompiler/elf_host"
-        OPT_BIN="$SCRIPT_DIR/kompiler/optimize_host"
+        LINUX_DIR="$SCRIPT_DIR/kompiler/linux_x86"
+        ELF_BIN="$LINUX_DIR/elf_host"
+        OPT_BIN="$LINUX_DIR/optimize_host"
+        ELF_SRC="$LINUX_DIR/elf.k"
+        OPT_SRC="$SCRIPT_DIR/kompiler/optimize.k"   # shared source
 
         # Detect arch for prebuilt seed lookup
         case "$(uname -m 2>/dev/null)" in
@@ -158,8 +156,8 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
         OPT_SEED="$SCRIPT_DIR/bootstrap/optimize_host_${PLATFORM}_${_ARCH}"
 
         # Build / restore elf_host
-        if [[ ! -f "$ELF_BIN" || "$SCRIPT_DIR/kompiler/elf.k" -nt "$ELF_BIN" ]]; then
-            if [[ -f "$ELF_SEED" && "$ELF_SEED" -nt "$SCRIPT_DIR/kompiler/elf.k" ]]; then
+        if [[ ! -f "$ELF_BIN" || "$ELF_SRC" -nt "$ELF_BIN" ]]; then
+            if [[ -f "$ELF_SEED" && "$ELF_SEED" -nt "$ELF_SRC" ]]; then
                 cp "$ELF_SEED" "$ELF_BIN"
                 chmod +x "$ELF_BIN"
             else
@@ -168,7 +166,7 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
                     exit 1
                 fi
                 echo "kcc: building elf host..." >&2
-                "$KCC_EXE" "$SCRIPT_DIR/kompiler/elf.k" > /tmp/_kcc_elf_build.c && \
+                "$KCC_EXE" "$ELF_SRC" > /tmp/_kcc_elf_build.c && \
                 "$GCC_EXE" /tmp/_kcc_elf_build.c -o "$ELF_BIN" $LIBS && rm -f /tmp/_kcc_elf_build.c
                 if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build elf codegen" >&2; exit 1; fi
             fi
@@ -176,13 +174,13 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
 
         # Build / restore optimize_host (best-effort — if it fails to build we
         # fall through to skip-optimize mode rather than blocking the build)
-        if [[ ! -f "$OPT_BIN" || "$SCRIPT_DIR/kompiler/optimize.k" -nt "$OPT_BIN" ]]; then
-            if [[ -f "$OPT_SEED" && "$OPT_SEED" -nt "$SCRIPT_DIR/kompiler/optimize.k" ]]; then
+        if [[ ! -f "$OPT_BIN" || "$OPT_SRC" -nt "$OPT_BIN" ]]; then
+            if [[ -f "$OPT_SEED" && "$OPT_SEED" -nt "$OPT_SRC" ]]; then
                 cp "$OPT_SEED" "$OPT_BIN"
                 chmod +x "$OPT_BIN"
             elif command -v "$GCC_EXE" >/dev/null 2>&1; then
                 echo "kcc: building optimize host..." >&2
-                "$KCC_EXE" "$SCRIPT_DIR/kompiler/optimize.k" > /tmp/_kcc_opt_build.c && \
+                "$KCC_EXE" "$OPT_SRC" > /tmp/_kcc_opt_build.c && \
                 "$GCC_EXE" /tmp/_kcc_opt_build.c -o "$OPT_BIN" $LIBS && rm -f /tmp/_kcc_opt_build.c
             fi
         fi
@@ -212,28 +210,31 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
 
     # Windows: PE/COFF backend
     TMPOPT="/tmp/_kcc_native_opt_$$.kir"
-    OPT_BIN="$SCRIPT_DIR/kompiler/optimize_host.exe"
-    X64_BIN="$SCRIPT_DIR/kompiler/x64_host.exe"
+    WIN_DIR="$SCRIPT_DIR/kompiler/windows_x86"
+    OPT_BIN="$WIN_DIR/optimize_host.exe"
+    X64_BIN="$WIN_DIR/x64_host.exe"
+    X64_SRC="$WIN_DIR/x64.k"
+    OPT_SRC="$SCRIPT_DIR/kompiler/optimize.k"   # shared source
     OPT_SEED="$SCRIPT_DIR/bootstrap/optimize_host_windows_x86_64.exe"
     X64_SEED="$SCRIPT_DIR/bootstrap/x64_host_windows_x86_64.exe"
 
-    if [[ ! -f "$OPT_BIN" || "$SCRIPT_DIR/kompiler/optimize.k" -nt "$OPT_BIN" ]]; then
+    if [[ ! -f "$OPT_BIN" || "$OPT_SRC" -nt "$OPT_BIN" ]]; then
         # Prefer prebuilt seed (no gcc needed). Fall back to gcc-build.
-        if [[ -f "$OPT_SEED" && "$OPT_SEED" -nt "$SCRIPT_DIR/kompiler/optimize.k" ]]; then
+        if [[ -f "$OPT_SEED" && "$OPT_SEED" -nt "$OPT_SRC" ]]; then
             cp "$OPT_SEED" "$OPT_BIN"
         else
             echo "kcc: building optimize host..." >&2
-            "$KCC_EXE" "$SCRIPT_DIR/kompiler/optimize.k" > /tmp/_kcc_opt_build.c && \
+            "$KCC_EXE" "$OPT_SRC" > /tmp/_kcc_opt_build.c && \
             "$GCC_EXE" /tmp/_kcc_opt_build.c -o "$OPT_BIN" $LIBS && rm -f /tmp/_kcc_opt_build.c
             if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build optimizer" >&2; exit 1; fi
         fi
     fi
-    if [[ ! -f "$X64_BIN" || "$SCRIPT_DIR/kompiler/x64.k" -nt "$X64_BIN" ]]; then
-        if [[ -f "$X64_SEED" && "$X64_SEED" -nt "$SCRIPT_DIR/kompiler/x64.k" ]]; then
+    if [[ ! -f "$X64_BIN" || "$X64_SRC" -nt "$X64_BIN" ]]; then
+        if [[ -f "$X64_SEED" && "$X64_SEED" -nt "$X64_SRC" ]]; then
             cp "$X64_SEED" "$X64_BIN"
         else
             echo "kcc: building x64 host..." >&2
-            "$KCC_EXE" "$SCRIPT_DIR/kompiler/x64.k" > /tmp/_kcc_x64_build.c && \
+            "$KCC_EXE" "$X64_SRC" > /tmp/_kcc_x64_build.c && \
             "$GCC_EXE" /tmp/_kcc_x64_build.c -o "$X64_BIN" $LIBS && rm -f /tmp/_kcc_x64_build.c
             if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build x64 codegen" >&2; exit 1; fi
         fi
