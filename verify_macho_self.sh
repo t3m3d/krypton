@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # verify_macho_self.sh — smoke test for the self-hosted arm64 Mach-O emitter.
 #
-# Builds kompiler/macho_arm64_self.k → host → /tmp/hello_self.macho directly.
+# Builds kompiler/macos_arm64/macho_arm64_self.k → host → /tmp/hello_self.macho directly.
 # Krypton emits every byte including the ad-hoc SHA-256 code signature — no
 # clang, ld, or codesign in the user-program build path.
 #
@@ -30,7 +30,7 @@ OUT=/tmp/hello_self.macho
 HOST=/tmp/_macho_self_host
 
 echo "[1/4] Building macho_arm64_self host..."
-./kcc kompiler/macho_arm64_self.k > /tmp/_macho_self.c
+./kcc kompiler/macos_arm64/macho_arm64_self.k > /tmp/_macho_self.c
 "$CC" /tmp/_macho_self.c -o "$HOST" -lm -w
 rm -f /tmp/_macho_self.c
 
@@ -150,6 +150,64 @@ EXIT5=0
 /tmp/_macho_self_ir5.macho || EXIT5=$?
 echo "      fact(5) + 5 exit code: $EXIT5 (expected 125)"
 [[ "$EXIT5" -eq 125 ]] || { echo "FAIL (IR mode function calls)"; exit 1; }
+
+cat > /tmp/_macho_self_test6.k <<'KEOF'
+just run {
+    let s = "ABCDE"
+    exit(charCode(s[0]) + charCode(s[2]) + charCode(s[4]))
+    // 'A' + 'C' + 'E' = 65 + 67 + 69 = 201
+}
+KEOF
+./kcc --ir /tmp/_macho_self_test6.k > /tmp/_macho_self_test6.kir
+"$HOST" --ir /tmp/_macho_self_test6.kir /tmp/_macho_self_ir6.macho
+chmod +x /tmp/_macho_self_ir6.macho
+codesign -v /tmp/_macho_self_ir6.macho
+EXIT6=0
+/tmp/_macho_self_ir6.macho || EXIT6=$?
+echo "      INDEX + charCode (3 allocs) exit code: $EXIT6 (expected 201)"
+[[ "$EXIT6" -eq 201 ]] || { echo "FAIL (IR mode INDEX/heap)"; exit 1; }
+
+cat > /tmp/_macho_self_test7.k <<'KEOF'
+just run {
+    let s = "Hello world 42 done"
+    let pos = indexOf(s, "42")
+    let snippet = substring(s, pos, pos + 2)
+    exit(toInt(snippet))   // should parse "42"
+}
+KEOF
+./kcc --ir /tmp/_macho_self_test7.k > /tmp/_macho_self_test7.kir
+"$HOST" --ir /tmp/_macho_self_test7.kir /tmp/_macho_self_ir7.macho
+chmod +x /tmp/_macho_self_ir7.macho
+codesign -v /tmp/_macho_self_ir7.macho
+EXIT7=0
+/tmp/_macho_self_ir7.macho || EXIT7=$?
+echo "      indexOf + substring + toInt exit code: $EXIT7 (expected 42)"
+[[ "$EXIT7" -eq 42 ]] || { echo "FAIL (IR mode string builtins)"; exit 1; }
+
+cat > /tmp/_macho_self_test8.k <<'KEOF'
+just run {
+    let sb = sbNew()
+    sb = sbAppend(sb, "Hello")
+    sb = sbAppend(sb, ", ")
+    sb = sbAppend(sb, "world")
+    sb = sbAppend(sb, "!\n")
+    print(sbToString(sb))
+    let i = 0
+    while i < 3 {
+        if i == 1 { i = i + 1; break }
+        i = i + 1
+    }
+    exit(i)   // should be 2 (broke at i=1, then incremented)
+}
+KEOF
+./kcc --ir /tmp/_macho_self_test8.k > /tmp/_macho_self_test8.kir
+"$HOST" --ir /tmp/_macho_self_test8.kir /tmp/_macho_self_ir8.macho
+chmod +x /tmp/_macho_self_ir8.macho
+codesign -v /tmp/_macho_self_ir8.macho
+EXIT8=0
+ACTUAL8=$(/tmp/_macho_self_ir8.macho) || EXIT8=$?
+echo "      sb + print + break output: $ACTUAL8 (exit $EXIT8, expected 'Hello, world!' / exit 2)"
+[[ "$ACTUAL8" == "Hello, world!" && "$EXIT8" -eq 2 ]] || { echo "FAIL (IR mode sb/print/break)"; exit 1; }
 
 rm -f /tmp/_macho_self_test*.k /tmp/_macho_self_test*.kir /tmp/_macho_self_ir*.macho
 
