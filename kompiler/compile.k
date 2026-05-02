@@ -3685,6 +3685,11 @@ func irWhileIR(tokens, pos, ntoks, lc, inFunc) {
     let bp = irBlockIR(tokens, p, ntoks, nlc, inFunc)
     let bodyCode = pairVal(bp)
     p = pairPos(bp)
+    // Resolve loose BREAKs in this loop's body to a JUMP to its end label.
+    // Bottom-up processing: any nested loop will have already replaced its
+    // own BREAKs with its own JUMP-to-its-end-label, so only this loop's
+    // direct breaks remain as bare "BREAK\n" lines.
+    bodyCode = replace(bodyCode, "BREAK\n", "JUMP " + endLabel + "\n")
     emit "LABEL " + loopLabel + "\n" + condCode + "JUMPIFNOT " + endLabel + "\n" + bodyCode + "JUMP " + loopLabel + "\n" + "LABEL " + endLabel + "\n," + p
 }
 
@@ -3703,6 +3708,8 @@ func irForIR(tokens, pos, ntoks, lc, inFunc) {
     let bp = irBlockIR(tokens, p, ntoks, nlc, inFunc)
     let bodyCode = pairVal(bp)
     p = pairPos(bp)
+    // Same break-resolution as irWhileIR — see comment there.
+    bodyCode = replace(bodyCode, "BREAK\n", "JUMP " + endLabel + "\n")
     let code = collCode + "LOCAL " + colVar + "\n" + "STORE " + colVar + "\n"
     code = code + "LOCAL " + idxVar + "\n" + "PUSH 0\n" + "STORE " + idxVar + "\n"
     code = code + "LOCAL " + cntVar + "\n" + "LOAD " + colVar + "\n" + "BUILTIN length 1\n" + "STORE " + cntVar + "\n"
