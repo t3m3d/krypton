@@ -23,7 +23,9 @@ cd "$SCRIPT_DIR"
 # ── Config ──────────────────────────────────────────────────────────────────
 SEED_C="bootstrap/kcc_seed.c"
 COMPILE_K="kompiler/compile.k"
-KCC="./kcc"
+# KCC is the platform-specific binary (./kcc-arm64, ./kcc-x64, ...).
+# ./kcc itself is a thin dispatcher script that picks the right one at runtime.
+# Set after platform detection below.
 # Default C compiler: $CC env var, then gcc, then clang (macOS default).
 if [[ -n "${CC:-}" ]]; then
     : # honour user override
@@ -48,6 +50,13 @@ case "$(uname -m 2>/dev/null)" in
     *) ARCH=$(uname -m) ;;
 esac
 SEED_BIN="bootstrap/kcc_seed_${OSNAME}_${ARCH}"
+
+# Platform-specific binary name (kcc itself is a dispatcher).
+case "$ARCH" in
+    aarch64) KCC="./kcc-arm64" ;;
+    x86_64)  KCC="./kcc-x64" ;;
+    *)       KCC="./kcc-${ARCH}" ;;
+esac
 
 MODE="${1:-build}"
 
