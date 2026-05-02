@@ -67,11 +67,42 @@ esac
 
 MODE="${1:-build}"
 
+# ── Native-pipeline availability ────────────────────────────────────────────
+# Linux/Windows x86_64 ship native codegen hosts (elf_host / x64_host) so
+# `kcc.sh --native` produces a binary directly — no gcc, no clang. macOS uses
+# macho_arm64_self.k (Krypton-only) on arm64. We treat the native pipeline as
+# available whenever the dispatcher will pick a Krypton-only backend.
+native_pipeline_available() {
+    case "$OSNAME/$ARCH" in
+        linux/x86_64)   return 0 ;;
+        windows/x86_64) return 0 ;;
+        macos/aarch64)  return 0 ;;
+        *)              return 1 ;;
+    esac
+}
+
+# Compile + run a .k file via the native pipeline. Echoes program output on
+# stdout. Returns the program's exit code.
+native_compile_and_run() {
+    local src="$1"
+    local out="/tmp/_kr_native_$$"
+    "$SCRIPT_DIR/kcc.sh" --native "$src" -o "$out" >/dev/null 2>&1 || { rm -f "$out"; return 1; }
+    "$out"; local rc=$?
+    rm -f "$out"
+    return $rc
+}
+
 # ── run FILE.k ──────────────────────────────────────────────────────────────
 if [[ "$MODE" == "run" ]]; then
     FILE="${2:-}"
     [[ -n "$FILE" && -f "$FILE" ]] || fail "Usage: ./build.sh run <file.k>"
     [[ -x "$KCC" ]] || fail "kcc not built — run ./build.sh first"
+    if native_pipeline_available; then
+        native_compile_and_run "$FILE"
+        exit $?
+    fi
+    # Fallback: C path (needs gcc/clang)
+    command -v "$CC" >/dev/null || fail "no native pipeline for $OSNAME/$ARCH and $CC not in PATH"
     "$KCC" "$FILE" > /tmp/_kr_out.c
     "$CC" /tmp/_kr_out.c -o /tmp/_kr_run $CFLAGS
     /tmp/_kr_run
@@ -84,21 +115,38 @@ if [[ "$MODE" == "test" ]]; then
     [[ -x "$KCC" ]] || fail "kcc not built — run ./build.sh first"
     PASSED=0; FAILED=0
     echo ""
-    echo "Running tests..."
+    if native_pipeline_available; then
+        echo "Running tests (native pipeline, no $CC)..."
+    else
+        echo "Running tests (C path via $CC)..."
+    fi
     echo "────────────────────────────────────────"
     for TEST in tests/test_*.k; do
         NAME=$(basename "$TEST")
-        if "$KCC" "$TEST" > /tmp/_kr_test.c 2>/dev/null \
-           && "$CC" /tmp/_kr_test.c -o /tmp/_kr_test_bin $CFLAGS 2>/dev/null \
-           && /tmp/_kr_test_bin > /dev/null 2>&1; then
-            ok "$NAME"
-            PASSED=$((PASSED + 1))
+        if native_pipeline_available; then
+            OUT="/tmp/_kr_test_bin_$$"
+            if "$SCRIPT_DIR/kcc.sh" --native "$TEST" -o "$OUT" >/dev/null 2>&1 \
+               && "$OUT" > /dev/null 2>&1; then
+                ok "$NAME"
+                PASSED=$((PASSED + 1))
+            else
+                echo -e "${RED}FAIL${RESET}  $NAME"
+                FAILED=$((FAILED + 1))
+            fi
+            rm -f "$OUT"
         else
-            echo -e "${RED}FAIL${RESET}  $NAME"
-            FAILED=$((FAILED + 1))
+            if "$KCC" "$TEST" > /tmp/_kr_test.c 2>/dev/null \
+               && "$CC" /tmp/_kr_test.c -o /tmp/_kr_test_bin $CFLAGS 2>/dev/null \
+               && /tmp/_kr_test_bin > /dev/null 2>&1; then
+                ok "$NAME"
+                PASSED=$((PASSED + 1))
+            else
+                echo -e "${RED}FAIL${RESET}  $NAME"
+                FAILED=$((FAILED + 1))
+            fi
+            rm -f /tmp/_kr_test.c /tmp/_kr_test_bin
         fi
     done
-    rm -f /tmp/_kr_test.c /tmp/_kr_test_bin
     echo "────────────────────────────────────────"
     echo "  Passed: $PASSED  Failed: $FAILED"
     [[ $FAILED -eq 0 ]] || exit 1
@@ -126,7 +174,11 @@ if [[ -f "$SEED_BIN" ]]; then
 
     echo ""
     echo "[2/2] Smoke test: examples/fibonacci.k..."
-    if command -v "$CC" >/dev/null; then
+    if native_pipeline_available; then
+        OUTPUT=$(native_compile_and_run examples/fibonacci.k 2>&1) || fail "native build of fibonacci failed: $OUTPUT"
+        echo "$OUTPUT" | grep -q "fib(19) = 4181" || fail "fibonacci output wrong: $OUTPUT"
+        ok "fibonacci → 4181 (via native pipeline, no $CC)"
+    elif command -v "$CC" >/dev/null; then
         "$KCC" examples/fibonacci.k > /tmp/_fib.c || fail "kcc failed on fibonacci.k"
         "$CC" /tmp/_fib.c -o /tmp/_fib $CFLAGS || fail "gcc failed on fibonacci"
         OUTPUT=$(/tmp/_fib)
@@ -134,8 +186,7 @@ if [[ -f "$SEED_BIN" ]]; then
         rm -f /tmp/_fib.c /tmp/_fib
         ok "fibonacci → 4181 (via gcc-built user program)"
     else
-        info "gcc not present — skipping C-link smoke test"
-        info "kcc itself works without gcc; user programs need gcc OR use 'kcc.sh --native'"
+        info "no native pipeline for $OSNAME/$ARCH and gcc not present — skipping smoke test"
     fi
     VERSION=$("$KCC" --version 2>&1 | head -1)
     echo ""
@@ -144,13 +195,20 @@ if [[ -f "$SEED_BIN" ]]; then
     echo "════════════════════════════════════════════════════"
     echo ""
     echo "  Usage:"
-    echo "    ./build.sh run hello.k        compile + run a .k file (needs $CC)"
+    if native_pipeline_available; then
+        echo "    ./build.sh run hello.k        compile + run a .k file (native, no $CC)"
+        echo "    ./build.sh test               run the test suite (native, no $CC)"
+    else
+        echo "    ./build.sh run hello.k        compile + run a .k file (needs $CC)"
+        echo "    ./build.sh test               run the test suite (needs $CC)"
+    fi
     if [[ "$OSNAME" == "linux" ]]; then
         echo "    ./kcc.sh --native hello.k -o hello   gcc-free native ELF"
     elif [[ "$OSNAME" == "macos" ]]; then
-        echo "    ./kcc.sh hello.k -o hello            via $CC (Mach-O backend not yet implemented)"
+        echo "    ./kcc.sh --native hello.k -o hello   gcc-free native Mach-O (arm64)"
+    elif [[ "$OSNAME" == "windows" ]]; then
+        echo "    ./kcc.sh --native hello.k -o hello   gcc-free native PE/COFF"
     fi
-    echo "    ./build.sh test               run the test suite"
     echo ""
     exit 0
 fi
@@ -192,11 +250,18 @@ echo "  Build complete: $VERSION"
 echo "════════════════════════════════════════════════════"
 echo ""
 echo "  Usage:"
-echo "    ./build.sh run hello.k        compile + run a .k file"
-echo "    ./build.sh test               run the test suite"
+if native_pipeline_available; then
+    echo "    ./build.sh run hello.k        compile + run a .k file (native, no $CC)"
+    echo "    ./build.sh test               run the test suite (native, no $CC)"
+else
+    echo "    ./build.sh run hello.k        compile + run a .k file (needs $CC)"
+    echo "    ./build.sh test               run the test suite (needs $CC)"
+fi
 if [[ "$OSNAME" == "linux" ]]; then
     echo "    ./kcc.sh --native hello.k -o hello   gcc-free native ELF"
 elif [[ "$OSNAME" == "macos" ]]; then
-    echo "    ./kcc.sh hello.k -o hello            via $CC (Mach-O backend not yet implemented)"
+    echo "    ./kcc.sh --native hello.k -o hello   gcc-free native Mach-O (arm64)"
+elif [[ "$OSNAME" == "windows" ]]; then
+    echo "    ./kcc.sh --native hello.k -o hello   gcc-free native PE/COFF"
 fi
 echo ""
