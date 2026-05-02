@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# kcc — platform dispatcher for the Krypton compiler binary.
+# build.sh installs/builds the platform-specific binary (kcc-x64,
+# kcc-arm64, kcc-x64.exe). This script picks the right one at run time
+# so callers can keep invoking ./kcc uniformly.
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+case "$(uname -s)/$(uname -m)" in
+    Darwin/arm64|Darwin/aarch64)             BIN="kcc-arm64" ;;
+    Linux/x86_64|Linux/amd64)                BIN="kcc-x64" ;;
+    Linux/aarch64|Linux/arm64)               BIN="kcc-linux-arm64" ;;
+    MINGW*/x86_64|MSYS*/x86_64|CYGWIN*/x86_64) BIN="kcc-x64.exe" ;;
+    *) echo "kcc: no binary mapping for $(uname -s)/$(uname -m). Run ./build.sh." >&2; exit 1 ;;
+esac
+[[ -x "$DIR/$BIN" ]] || { echo "kcc: $DIR/$BIN missing or not executable — run ./build.sh." >&2; exit 1; }
+exec "$DIR/$BIN" "$@"
