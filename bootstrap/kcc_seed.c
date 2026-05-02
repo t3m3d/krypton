@@ -878,7 +878,7 @@ static char* kr_istruthy(const char* s) {
 }
 
 typedef struct { int cap; int len; } SBHdr;
-#define MAX_SBS 4096
+#define MAX_SBS 1048576
 static SBHdr* _sb_table[MAX_SBS];
 static int _sb_count = 0;
 
