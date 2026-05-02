@@ -14,11 +14,11 @@
 // External requirement: Xcode Command Line Tools (`xcode-select --install`).
 //
 // Usage:
-//   kcc kompiler/macho.k [--arch x86_64|arm64] <input.kir> <output.s>
+//   kcc kompiler/macos_arm64/macho.k [--arch x86_64|arm64] <input.kir> <output.s>
 //   clang -arch <arch> <output.s> -o <output>
 //
 // Or, for the hardcoded hello-world demo:
-//   kcc kompiler/macho.k --hello-test [--arch x86_64|arm64] <output.s>
+//   kcc kompiler/macos_arm64/macho.k --hello-test [--arch x86_64|arm64] <output.s>
 //
 // IR ops supported in this version (matches elf.k v1):
 //   FUNC __main__ N       - only __main__ recognized; treated as _main entry

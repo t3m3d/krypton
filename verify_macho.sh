@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # verify_macho.sh — verify the Mach-O backend on real macOS, both arches.
 #
-# kompiler/macho.k emits assembly source (.s); clang assembles+links+signs.
+# kompiler/macos_arm64/macho.k emits assembly source (.s); clang assembles+links+signs.
 # This script proves: macho.k → .s → clang → working Mach-O on macOS.
 #
 # Run on a Mac after `./build.sh`:
@@ -48,7 +48,7 @@ command -v "$CC" >/dev/null || {
 
 # Build the macho host (compiles macho.k → C → clang → executable)
 echo "[setup] Building macho host..."
-./kcc kompiler/macho.k > /tmp/_macho.c
+./kcc kompiler/macos_arm64/macho.k > /tmp/_macho.c
 "$CC" /tmp/_macho.c -o /tmp/_macho_host -lm -w
 rm -f /tmp/_macho.c
 echo "        OK  /tmp/_macho_host"
