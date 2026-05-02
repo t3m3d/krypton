@@ -40,9 +40,10 @@ CFLAGS="-O2 -lm -w"
 
 # Detect platform → look for matching prebuilt seed binary.
 case "$(uname -s 2>/dev/null)" in
-    Linux*)  OSNAME=linux ;;
-    Darwin*) OSNAME=macos ;;
-    *)       OSNAME=other ;;
+    Linux*)               OSNAME=linux ;;
+    Darwin*)              OSNAME=macos ;;
+    MINGW*|MSYS*|CYGWIN*) OSNAME=windows ;;
+    *)                    OSNAME=other ;;
 esac
 case "$(uname -m 2>/dev/null)" in
     x86_64|amd64) ARCH=x86_64 ;;
@@ -50,12 +51,18 @@ case "$(uname -m 2>/dev/null)" in
     *) ARCH=$(uname -m) ;;
 esac
 SEED_BIN="bootstrap/kcc_seed_${OSNAME}_${ARCH}"
+[[ "$OSNAME" == "windows" ]] && SEED_BIN="${SEED_BIN}.exe"
 
 # Platform-specific binary name (kcc itself is a dispatcher).
-case "$ARCH" in
-    aarch64) KCC="./kcc-arm64" ;;
-    x86_64)  KCC="./kcc-x64" ;;
-    *)       KCC="./kcc-${ARCH}" ;;
+# Disambiguate macOS arm64 (kcc-arm64) from Linux arm64 (kcc-linux-arm64),
+# matching the dispatcher's case in ./kcc.
+case "$OSNAME/$ARCH" in
+    macos/aarch64)    KCC="./kcc-arm64" ;;
+    linux/aarch64)    KCC="./kcc-linux-arm64" ;;
+    linux/x86_64)     KCC="./kcc-x64" ;;
+    macos/x86_64)     KCC="./kcc-x64" ;;       # Intel Mac fallback (legacy macho.k path)
+    windows/x86_64)   KCC="./kcc-x64.exe" ;;
+    *)                KCC="./kcc-${ARCH}" ;;
 esac
 
 MODE="${1:-build}"
