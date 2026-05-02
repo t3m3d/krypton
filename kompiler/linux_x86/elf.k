@@ -2278,8 +2278,157 @@ func emitKrEndswithCode(thisVAddr, strlenVAddr) {
 }
 func krEndswithSize() { emit 87 }
 
-// kr_replace will go here — separate work item. Wiring contains/indexOf/
-// endsWith first to bisect what unblocks compile.k self-build.
+// kr_replace: replace all occurrences of `find` with `rep` in `s`.
+// Returns a freshly allocated string. Empty `find` returns `s` unchanged
+// (avoids infinite loop). Allocates ls*(lr+1)+1 upper bound for output.
+//
+//   In:  RDI = s, RSI = find, RDX = rep
+//   Out: RAX = freshly allocated NUL-terminated string
+//
+// Layout (142 bytes):
+//   [0]    53                 PUSH RBX
+//   [1-2]  41 54              PUSH R12
+//   [3-4]  41 55              PUSH R13
+//   [5-6]  41 56              PUSH R14
+//   [7-8]  41 57              PUSH R15
+//   [9-11] 48 89 FB           MOV RBX, RDI         ; rbx = s
+//   [12-14] 49 89 F4          MOV R12, RSI         ; r12 = find
+//   [15-17] 49 89 D5          MOV R13, RDX         ; r13 = rep
+//   [18-20] 4C 89 E7          MOV RDI, R12
+//   [21-25] E8 dStrlen        CALL kr_strlen       ; rax = lf
+//   [26-28] 49 89 C6          MOV R14, RAX         ; r14 = lf
+//   [29-31] 4D 85 F6          TEST R14, R14
+//   [32-33] 75 05             JNE +5 → .has_find at 39
+//   [34-36] 48 89 D8          MOV RAX, RBX         ; lf=0 → return s
+//   [37-38] EB 5D             JMP +93 → .epilogue at 132
+//   .has_find at [39]:
+//   [39-41] 4C 89 EF          MOV RDI, R13
+//   [42-46] E8 dStrlen        CALL kr_strlen       ; rax = lr
+//   [47-49] 49 89 C7          MOV R15, RAX         ; r15 = lr
+//   [50-52] 48 89 DF          MOV RDI, RBX
+//   [53-57] E8 dStrlen        CALL kr_strlen       ; rax = ls
+//   [58-60] 4C 89 F9          MOV RCX, R15         ; rcx = lr
+//   [61-63] 48 FF C1          INC RCX              ; lr+1
+//   [64-66] 48 F7 E1          MUL RCX              ; rax = ls*(lr+1)
+//   [67-69] 48 FF C0          INC RAX              ; +1 for NUL
+//   [70-72] 48 89 C7          MOV RDI, RAX
+//   [73-77] E8 dAlloc         CALL kr_alloc        ; rax = buf
+//   [78]   50                 PUSH RAX             ; save buf
+//   [79-81] 48 89 C7          MOV RDI, RAX         ; rdi = dst
+//   [82-84] 48 89 DE          MOV RSI, RBX         ; rsi = src
+//   .scan at [85]:
+//   [85-86] 8A 06             MOV AL, [RSI]
+//   [87-88] 84 C0             TEST AL, AL
+//   [89-90] 74 25             JZ +37 → .done at 128
+//   [91]   56                 PUSH RSI
+//   [92]   57                 PUSH RDI
+//   [93-95] 4C 89 F1          MOV RCX, R14         ; rcx = lf
+//   [96-98] 4C 89 E7          MOV RDI, R12         ; rdi = find ptr
+//   [99-100] F3 A6            REPE CMPSB           ; cmp [rsi] vs [rdi]
+//   [101]  5F                 POP RDI              ; restore dst
+//   [102]  5E                 POP RSI              ; restore src
+//   [103-104] 75 14           JNE +20 → .copy1 at 125
+//   ; matched: copy rep to dst, advance src by lf
+//   [105]  56                 PUSH RSI
+//   [106]  57                 PUSH RDI
+//   [107-109] 4C 89 EE        MOV RSI, R13         ; rsi = rep
+//   [110-112] 4C 89 F9        MOV RCX, R15         ; rcx = lr
+//   [113-114] F3 A4           REP MOVSB
+//   [115]  5F                 POP RDI
+//   [116]  5E                 POP RSI
+//   [117-119] 4C 01 FF        ADD RDI, R15         ; dst += lr
+//   [120-122] 4C 01 F6        ADD RSI, R14         ; src += lf
+//   [123-124] EB D8           JMP -40 → .scan at 85
+//   .copy1 at [125]:
+//   [125]  A4                 MOVSB                ; *dst++ = *src++
+//   [126-127] EB D5           JMP -43 → .scan at 85
+//   .done at [128]:
+//   [128-130] C6 07 00        MOV byte [RDI], 0    ; NUL terminator
+//   [131]  58                 POP RAX              ; rax = buf
+//   .epilogue at [132]:
+//   [132-133] 41 5F           POP R15
+//   [134-135] 41 5E           POP R14
+//   [136-137] 41 5D           POP R13
+//   [138-139] 41 5C           POP R12
+//   [140]  5B                 POP RBX
+//   [141]  C3                 RET
+func emitKrReplaceCode(thisVAddr, strlenVAddr, allocVAddr) {
+    // NOTE: kr_alloc clobbers R15 — it IS the heap_next pointer, advanced
+    // by every alloc. So we can't use R15 to hold local state across an
+    // alloc call. (Tried PUSH/POP R15 around alloc — fixed nothing because
+    // restoring R15 undoes the alloc itself, breaking subsequent allocs
+    // anywhere in the program.) Use R10 instead: caller-save, but none of
+    // the callees here (kr_strlen, kr_alloc) touch R10. R10 encoding is
+    // the same length as R15 encoding (both need REX.B/REX.R), so byte
+    // count stays at 142 and all jump distances are unchanged.
+    let dStrlen1 = strlenVAddr - (thisVAddr + 26)
+    let dStrlen2 = strlenVAddr - (thisVAddr + 47)
+    let dStrlen3 = strlenVAddr - (thisVAddr + 58)
+    let dAlloc   = allocVAddr  - (thisVAddr + 78)
+    let c = ""
+    c = c + hexByte(0x53)
+    c = c + hexByte(0x41) + hexByte(0x54)
+    c = c + hexByte(0x41) + hexByte(0x55)
+    c = c + hexByte(0x41) + hexByte(0x56)
+    c = c + hexByte(0x41) + hexByte(0x57)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xFB)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xF4)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xD5)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE7)
+    c = c + hexByte(0xE8) + hexDword(dStrlen1)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC6)
+    c = c + hexByte(0x4D) + hexByte(0x85) + hexByte(0xF6)
+    c = c + hexByte(0x75) + hexByte(0x05)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xD8)
+    c = c + hexByte(0xEB) + hexByte(0x5D)         // JMP +93 → .epilogue at 132
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xEF)
+    c = c + hexByte(0xE8) + hexDword(dStrlen2)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC2)   // MOV R10, RAX (was R15) — lr in R10 now
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDF)
+    c = c + hexByte(0xE8) + hexDword(dStrlen3)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xD1)   // MOV RCX, R10 (was R15)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC1)
+    c = c + hexByte(0x48) + hexByte(0xF7) + hexByte(0xE1)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC0)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)
+    c = c + hexByte(0xE8) + hexDword(dAlloc)
+    c = c + hexByte(0x50)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDE)
+    c = c + hexByte(0x8A) + hexByte(0x06)
+    c = c + hexByte(0x84) + hexByte(0xC0)
+    c = c + hexByte(0x74) + hexByte(0x25)
+    c = c + hexByte(0x56)
+    c = c + hexByte(0x57)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xF1)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE7)
+    c = c + hexByte(0xF3) + hexByte(0xA6)
+    c = c + hexByte(0x5F)
+    c = c + hexByte(0x5E)
+    c = c + hexByte(0x75) + hexByte(0x14)
+    c = c + hexByte(0x56)
+    c = c + hexByte(0x57)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xEE)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xD1)   // MOV RCX, R10 (was R15) — lr
+    c = c + hexByte(0xF3) + hexByte(0xA4)
+    c = c + hexByte(0x5F)
+    c = c + hexByte(0x5E)
+    c = c + hexByte(0x4C) + hexByte(0x01) + hexByte(0xD7)   // ADD RDI, R10 (was R15) — dst += lr
+    c = c + hexByte(0x4C) + hexByte(0x01) + hexByte(0xF6)
+    c = c + hexByte(0xEB) + hexByte(256 - 40)
+    c = c + hexByte(0xA4)
+    c = c + hexByte(0xEB) + hexByte(256 - 43)
+    c = c + hexByte(0xC6) + hexByte(0x07) + hexByte(0x00)
+    c = c + hexByte(0x58)
+    c = c + hexByte(0x41) + hexByte(0x5F)
+    c = c + hexByte(0x41) + hexByte(0x5E)
+    c = c + hexByte(0x41) + hexByte(0x5D)
+    c = c + hexByte(0x41) + hexByte(0x5C)
+    c = c + hexByte(0x5B)
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krReplaceSize() { emit 142 }
 
 // kr_startswith: returns 1 if s starts with prefix, 0 otherwise.
 //   In:  RDI = s, RSI = prefix  (both NUL-terminated)
@@ -2623,10 +2772,12 @@ func opByteSize(op) {
     if op == "BUILTIN_CONTAINS"  { emit 8 }  // POP RSI + POP RDI + CALL + PUSH RAX
     if op == "BUILTIN_INDEXOF"   { emit 8 }
     if op == "BUILTIN_ENDSWITH"  { emit 8 }
+    if op == "BUILTIN_REPLACE"   { emit 9 }  // POP RDX + POP RSI + POP RDI + CALL + PUSH RAX
     if op == "POP"        { emit 1 }
     if op == "LABEL"      { emit 0 }
     if op == "JUMP"       { emit 5 }    // E9 + d32
     if op == "JUMPIFNOT"  { emit 10 }   // POP RAX (1) + TEST RAX,RAX (3) + JZ d32 (6)
+    if op == "JUMPIF"     { emit 10 }   // POP RAX (1) + TEST RAX,RAX (3) + JNZ d32 (6)
     if op == "END_FUNC"   { emit 8 }    // XOR RAX,RAX (3) + MOV RSP,RBP (3) + POP RBP (1) + RET (1)
     emit 0
 }
@@ -2907,6 +3058,8 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_INDEXOF")
                 } else if bname == "endsWith" {
                     opSb = sbAppend(opSb, "BUILTIN_ENDSWITH")
+                } else if bname == "replace" {
+                    opSb = sbAppend(opSb, "BUILTIN_REPLACE")
                 } else {
                     // Unknown builtin: emit a marker and leave the stack
                     // alone. Programs that hit this are already incorrect;
@@ -2922,7 +3075,7 @@ func parseIR(ir) {
                 if opCount > 0 { opSb = sbAppend(opSb, "\n") }
                 opSb = sbAppend(opSb, op)
                 opCount += 1
-            } else if op == "LABEL" || op == "JUMP" || op == "JUMPIFNOT" {
+            } else if op == "LABEL" || op == "JUMP" || op == "JUMPIFNOT" || op == "JUMPIF" {
                 if opCount > 0 { opSb = sbAppend(opSb, "\n") }
                 opSb = sbAppend(opSb, op + " " + rest)
                 opCount += 1
@@ -2984,7 +3137,7 @@ func computeLayout(opList, localCount) {
 // funcStartVAddr: virtual address of THIS function's first byte (for CALL disp calc)
 // krPrintVAddr/krStrIntVAddr: vaddrs of runtime helpers, used by BUILTIN_KP/BUILTIN_TOSTR
 
-func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr) {
+func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr) {
     let c = ""
     c = c + hexByte(0x55)                                             // [+0] PUSH RBP
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xE5)             // [+1] MOV RBP, RSP
@@ -3329,6 +3482,15 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)     // TEST RAX, RAX
             let disp = target - (off + 10)
             c = c + hexByte(0x0F) + hexByte(0x84) + hexDword(disp)    // JZ d32
+        } else if op == "JUMPIF" {
+            // Mirror of JUMPIFNOT but JNZ instead of JZ. compile.k uses
+            // this for short-circuit OR (jump if true).
+            let targetStr = labelOffset(labels, rest)
+            let target = toInt(targetStr)
+            c = c + hexByte(0x58)                                     // POP RAX
+            c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)     // TEST RAX, RAX
+            let disp = target - (off + 10)
+            c = c + hexByte(0x0F) + hexByte(0x85) + hexDword(disp)    // JNZ d32
         } else if op == "RETURN" {
             c = c + hexByte(0x58)
             c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xEC)
@@ -3575,6 +3737,15 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             c = c + hexByte(0x5F)
             let ewDisp = krEndswithVAddr - (funcStartVAddr + off + 7)
             c = c + hexByte(0xE8) + hexDword(ewDisp)
+            c = c + hexByte(0x50)
+        } else if op == "BUILTIN_REPLACE" {
+            // POP RDX (rep, top) ; POP RSI (find) ; POP RDI (s) ;
+            // CALL kr_replace ; PUSH RAX. (9 bytes)
+            c = c + hexByte(0x5A)         // POP RDX
+            c = c + hexByte(0x5E)         // POP RSI
+            c = c + hexByte(0x5F)         // POP RDI
+            let rpDisp = krReplaceVAddr - (funcStartVAddr + off + 8)
+            c = c + hexByte(0xE8) + hexDword(rpDisp)
             c = c + hexByte(0x50)
         } else if op == "CALL_FUNC" {
             // Parse "name argcount"
@@ -3824,6 +3995,7 @@ just run {
     let krCnSz = krContainsSize()
     let krIoSz = krIndexofSize()
     let krEwSz = krEndswithSize()
+    let krRpSz2 = krReplaceSize()
 
     let fIdx = 0
     while fIdx < funcCount {
@@ -3940,9 +4112,10 @@ just run {
     let krContainsVAddr   = krStrstrVAddr + krSsSz
     let krIndexofVAddr    = krContainsVAddr + krCnSz
     let krEndswithVAddr   = krIndexofVAddr + krIoSz
+    let krReplaceVAddr    = krEndswithVAddr + krEwSz
 
     // String virtual addresses (after all runtime helpers)
-    let stringsBase = krEndswithVAddr + krEwSz
+    let stringsBase = krReplaceVAddr + krRpSz2
     let strVAddrs = ""
     let strData = ""
     let curOff = 0
@@ -3985,7 +4158,7 @@ just run {
         let nm2 = substring(hh, ss1 + 1, ss2)
         let funcStartV2 = toInt(funcVAddr(funcVAddrs, nm2))
 
-        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr)
+        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr)
         allFuncCode = allFuncCode + codeI
         oIdx2 += 1
     }
@@ -4043,8 +4216,9 @@ just run {
     let krContainsCode   = emitKrContainsCode(krContainsVAddr, krStrstrVAddr)
     let krIndexofCode    = emitKrIndexofCode(krIndexofVAddr, krStrstrVAddr)
     let krEndswithCode   = emitKrEndswithCode(krEndswithVAddr, krStrlenVAddr)
+    let krReplaceCode2   = emitKrReplaceCode(krReplaceVAddr, krStrlenVAddr, krAllocVAddr)
 
-    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + krSubstringCode + krReadfileCode + krWritefileCode + krPrinterrCode + krCharcodeCode + krFromcharcodeCode + krExitCode + krIsdigitCode + krIsalphaCode + krAbsCode + krStartswithCode + krIstruthyCode + krLinecountCode + krGetlineCode + krTrimCode + krToupperCode + krTolowerCode + krPowCode + krRepeatCode + krIsnumCode + krPlusCode + krAtoi2Code + krSubiCode + krMuliCode + krDiviCode + krModiCode + krStrcmpCode + krCmpiCode + krStrstrCode + krContainsCode + krIndexofCode + krEndswithCode + strData
+    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + krSubstringCode + krReadfileCode + krWritefileCode + krPrinterrCode + krCharcodeCode + krFromcharcodeCode + krExitCode + krIsdigitCode + krIsalphaCode + krAbsCode + krStartswithCode + krIstruthyCode + krLinecountCode + krGetlineCode + krTrimCode + krToupperCode + krTolowerCode + krPowCode + krRepeatCode + krIsnumCode + krPlusCode + krAtoi2Code + krSubiCode + krMuliCode + krDiviCode + krModiCode + krStrcmpCode + krCmpiCode + krStrstrCode + krContainsCode + krIndexofCode + krEndswithCode + krReplaceCode2 + strData
     let segSize = hexBytesLen(segment)
     let fileSize = HDR_SIZE + segSize
 
