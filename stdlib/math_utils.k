@@ -1,16 +1,12 @@
-// Math utility functions for Krypton
-// Provides common mathematical operations
+// Math utility functions for Krypton.
+// Builtins to use directly (don't reimplement; the dispatcher routes calls
+// of these names to native machine code regardless of any user definition):
+//   abs(n)   pow(base, exp)
+// This module ships the rest: min, max, factorial, gcd, lcm, isPrime,
+// fibonacci, digitSum, digitCount, clamp, isqrt, sign, sumTo.
 
 module math_utils
 
-
-// Absolute value
-func abs(n) {
-    if n < 0 {
-        emit 0 - n
-    }
-    emit n
-}
 
 // Maximum of two values
 func max(a, b) {
