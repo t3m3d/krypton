@@ -1,16 +1,24 @@
 #!/usr/bin/env bash
 # kcc - Krypton compiler driver
 #
-# Usage: kcc source.k [-o output] [--native | --gcc | --llvm | --c | --ir]
+# Usage: kcc source.k [-o output] [--native | --llvm | --c | --ir]
 #
 # DEFAULT (no flag, no -o):  produce a native binary at ./<basename>
 # DEFAULT (no flag, with -o): produce a native binary at <output>
-# --native:  explicit native pipeline (elf.k on Linux, x64.k on Windows;
-#            macOS falls back to C+clang internally until Mach-O lands)
-# --gcc:     force C+gcc/clang internally (still produces a native binary)
-# --c:       emit C source — to stdout if no -o, to <output> if -o (legacy)
+#   The native pipeline is elf.k → ELF on Linux, x64.k → PE/COFF on Windows,
+#   macho_arm64_self.k → Mach-O on macOS arm64. NO C compiler involved at
+#   user-invocation time on any of those platforms.
+#
+# --native:  explicit native pipeline (same as default)
+# --c:       emit C source — to stdout if no -o, to <output> if -o (debug aid)
 # --llvm:    emit LLVM IR — to stdout if no -o, to <output> if -o
 # --ir:      emit Krypton IR (.kir) to stdout
+#
+# DEPRECATED:
+# --gcc:     C+gcc/clang fallback. Krypton's stated goal is no C-language
+#            tools in operations. This flag will be removed once every
+#            platform's native pipeline is verified stable. Don't use it
+#            for new work; if native fails, file a bug.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -156,6 +164,11 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
         OPT_SEED="$SCRIPT_DIR/bootstrap/optimize_host_${PLATFORM}_${_ARCH}"
 
         # Build / restore elf_host
+        # Native rebuild path (preferred): use existing elf_host (or seed) to
+        # compile the new elf.k via the .k → .kir → ELF pipeline. Currently
+        # blocked by elf.k-self-host bug at >66 funcs (see REBUILD_SEED.md);
+        # until that's fixed, the gcc rebuild stays as a one-time bootstrap
+        # for users who edit elf.k. End users with prebuilt seeds never hit it.
         if [[ ! -f "$ELF_BIN" || "$ELF_SRC" -nt "$ELF_BIN" ]]; then
             if [[ -f "$ELF_SEED" && "$ELF_SEED" -nt "$ELF_SRC" ]]; then
                 cp "$ELF_SEED" "$ELF_BIN"
@@ -163,9 +176,10 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
             else
                 if [[ -z "$GCC_EXE" || ! -x "$(command -v "$GCC_EXE" 2>/dev/null)$GCC_EXE" ]] && ! command -v "$GCC_EXE" >/dev/null 2>&1; then
                     echo "kcc --native: no prebuilt elf_host seed for ${PLATFORM}_${_ARCH} and no gcc found" >&2
+                    echo "kcc --native: stale elf.k requires rebuild — run on a Linux box with gcc once, see bootstrap/REBUILD_SEED.md" >&2
                     exit 1
                 fi
-                echo "kcc: building elf host..." >&2
+                echo "kcc: rebuilding elf host (one-time gcc bootstrap; goal is to drop this once self-host bug is fixed)..." >&2
                 "$KCC_EXE" "$ELF_SRC" > /tmp/_kcc_elf_build.c && \
                 "$GCC_EXE" /tmp/_kcc_elf_build.c -o "$ELF_BIN" $LIBS && rm -f /tmp/_kcc_elf_build.c
                 if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build elf codegen" >&2; exit 1; fi
@@ -173,13 +187,14 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
         fi
 
         # Build / restore optimize_host (best-effort — if it fails to build we
-        # fall through to skip-optimize mode rather than blocking the build)
+        # fall through to skip-optimize mode rather than blocking the build).
+        # Same one-time-gcc situation as elf_host above.
         if [[ ! -f "$OPT_BIN" || "$OPT_SRC" -nt "$OPT_BIN" ]]; then
             if [[ -f "$OPT_SEED" && "$OPT_SEED" -nt "$OPT_SRC" ]]; then
                 cp "$OPT_SEED" "$OPT_BIN"
                 chmod +x "$OPT_BIN"
             elif command -v "$GCC_EXE" >/dev/null 2>&1; then
-                echo "kcc: building optimize host..." >&2
+                echo "kcc: rebuilding optimize host (one-time gcc bootstrap)..." >&2
                 "$KCC_EXE" "$OPT_SRC" > /tmp/_kcc_opt_build.c && \
                 "$GCC_EXE" /tmp/_kcc_opt_build.c -o "$OPT_BIN" $LIBS && rm -f /tmp/_kcc_opt_build.c
             fi
@@ -218,12 +233,15 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
     OPT_SEED="$SCRIPT_DIR/bootstrap/optimize_host_windows_x86_64.exe"
     X64_SEED="$SCRIPT_DIR/bootstrap/x64_host_windows_x86_64.exe"
 
+    # One-time gcc bootstrap (Windows side). Same situation as Linux: end
+    # users with prebuilt seeds don't hit this; only triggered if you edit
+    # x64.k or optimize.k. Goal is to drop these by routing rebuild through
+    # the native pipeline once x64.k self-host parity is verified.
     if [[ ! -f "$OPT_BIN" || "$OPT_SRC" -nt "$OPT_BIN" ]]; then
-        # Prefer prebuilt seed (no gcc needed). Fall back to gcc-build.
         if [[ -f "$OPT_SEED" && "$OPT_SEED" -nt "$OPT_SRC" ]]; then
             cp "$OPT_SEED" "$OPT_BIN"
         else
-            echo "kcc: building optimize host..." >&2
+            echo "kcc: rebuilding optimize host (one-time gcc bootstrap)..." >&2
             "$KCC_EXE" "$OPT_SRC" > /tmp/_kcc_opt_build.c && \
             "$GCC_EXE" /tmp/_kcc_opt_build.c -o "$OPT_BIN" $LIBS && rm -f /tmp/_kcc_opt_build.c
             if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build optimizer" >&2; exit 1; fi
@@ -233,7 +251,7 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
         if [[ -f "$X64_SEED" && "$X64_SEED" -nt "$X64_SRC" ]]; then
             cp "$X64_SEED" "$X64_BIN"
         else
-            echo "kcc: building x64 host..." >&2
+            echo "kcc: rebuilding x64 host (one-time gcc bootstrap)..." >&2
             "$KCC_EXE" "$X64_SRC" > /tmp/_kcc_x64_build.c && \
             "$GCC_EXE" /tmp/_kcc_x64_build.c -o "$X64_BIN" $LIBS && rm -f /tmp/_kcc_x64_build.c
             if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build x64 codegen" >&2; exit 1; fi
@@ -315,7 +333,19 @@ if [[ "$GCC_MODE" -ne 1 ]]; then
     exec "$0" --native -o "$OUTFILE" "$SRCFILE"
 fi
 
-# C+gcc path — opt-in via --gcc on any platform.
+# ──────────────────────────────────────────────────────────────────────────
+# DEPRECATED: --gcc path. Krypton's stated goal is no C-language tools in
+# operations. Native is the default. This branch only runs when the user
+# explicitly opts in with --gcc and is kept temporarily for emergency
+# fallback while we close out the remaining native-pipeline gaps:
+#   - Linux:   elf.k self-host bug at >66 funcs (bug #3 in REBUILD_SEED.md)
+#   - Windows: x64.k self-host parity not yet verified
+#   - macOS:   macho_arm64_self.k handles all builtins arm64 supports
+# Once each platform's native rebuild path replaces gcc in kcc.sh's lazy
+# host-rebuild block, --gcc gets removed entirely.
+# ──────────────────────────────────────────────────────────────────────────
+echo "kcc: warning: --gcc is deprecated; native is the default and goal." >&2
+echo "kcc: see bootstrap/REBUILD_SEED.md for the path to gcc-free." >&2
 TMPFILE="${OUTFILE}__kcc_tmp.c"
 "$KCC_EXE" $HEADERS_FLAG "$SRCFILE" > "$TMPFILE"
 if [[ $? -ne 0 ]]; then

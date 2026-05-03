@@ -57,8 +57,33 @@ func hexDword(n) {
     emit hexByte(b0) + hexByte(b1) + hexByte(b2) + hexByte(b3)
 }
 
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  ⚠  DO NOT "SIMPLIFY" hexQword — read this before touching it. ⚠         ║
+// ║                                                                          ║
+// ║  The sign-extension below is LOAD-BEARING. The "obvious" one-line form   ║
+// ║                                                                          ║
+// ║      func hexQword(n) { emit hexDword(n) + hexDword(0) }                 ║
+// ║                                                                          ║
+// ║  works for every positive integer and silently corrupts every negative   ║
+// ║  one. Symptom: any program that PUSH_INTs a negative literal (e.g.       ║
+// ║  the optimizer folds `0 - 3` into `PUSH -3`) emits the bytes             ║
+// ║      48 BF FD FF FF FF 00 00 00 00 57    ; MOV RDI, 0x00000000FFFFFFFD   ║
+// ║  instead of                                                              ║
+// ║      48 BF FD FF FF FF FF FF FF FF 57    ; MOV RDI, 0xFFFFFFFFFFFFFFFD   ║
+// ║  At runtime the smart-int dispatch's signed CMP sees a fake-positive     ║
+// ║  value bigger than 0x40000000, classifies it as a string pointer, and    ║
+// ║  the kr_print loop tries to dereference address 0xFFFFFFFD → SEGV.       ║
+// ║                                                                          ║
+// ║  This bug ate ~half a day of bisecting and pinned the gcc-removal work   ║
+// ║  for the entire Linux x86_64 path. Cost of the fix: 2 lines. Cost of    ║
+// ║  the regression: full self-host bootstrap broken on every signed sub.   ║
+// ║  If you find yourself "cleaning this up", STOP — write a regression     ║
+// ║  test (see tests/test_arithmetic.k "sub negative result") first.        ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
 func hexQword(n) {
-    emit hexDword(n) + hexDword(0)
+    let high = 0
+    if n < 0 { high = 0 - 1 }
+    emit hexDword(n) + hexDword(high)
 }
 
 func hexPad(n) {
