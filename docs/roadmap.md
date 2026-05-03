@@ -1,104 +1,89 @@
-# Krypton Roadmap — Toward 1.0.0
+# Krypton Roadmap
 
-The goal of v1.0.0 is a Krypton compiler that compiles Krypton source directly
-to native machine code without requiring an external C compiler.
+Current released version: **1.4.0** (2026-04-27).
 
----
+The v1.0.0 goal — native compilation without an external C compiler — shipped in 1.0.0
+(2026-03-23). Subsequent 1.x releases extended the native pipeline (Linux ELF, Windows
+PE/COFF, macOS arm64 Mach-O) and the language itself.
 
-## Completed
-
-### v0.1.0 — v0.7.7
-See CHANGELOG.md for full history.
-
-Current state (v0.7.7):
-- Self-hosting compiler: compile.k compiles itself
-- 134 built-in functions
-- Structs with dot access, try/catch/throw, string interpolation
-- run.k interpreter: handles all language features including structs, for-in, match, try/catch
-- List literals [1, 2, 3]
-- Stdlib: 32 modules including result.k, option.k, json.k, struct_utils.k
+For per-release detail, see `CHANGELOG.md` at the repo root.
 
 ---
 
-## v0.8.0 — Module System
+## Shipped (1.0 — 1.4)
 
-The module system is the last major piece before the stdlib is usable in compiled programs.
+- **Native pipeline.** Krypton source → IR → optimizer → target backend → executable.
+  No external C compiler required at user-invocation time on Linux x86_64, Windows
+  x86_64, or macOS arm64.
+- **Three backends, all written in Krypton:**
+  `compiler/linux_x86/elf.k` — hand-emitted ELF64 with direct syscalls, no libc.
+  `compiler/windows_x86/x64.k` — PE/COFF + thin `krypton_rt.dll`.
+  `compiler/macos_arm64/macho_arm64_self.k` — Mach-O + ad-hoc SHA-256 codesign,
+  no clang/ld/codesign needed.
+- **Self-hosting.** `kcc-x64` (compiled from `compile.k`) compiles itself byte-for-byte
+  on Linux. Bootstrap seeds shipped in `bootstrap/` for clone-and-run on every
+  supported platform.
+- **Language features delivered.** for-in, match, try/catch/throw, do-while, structs
+  with dot access, struct literals (`Vec { x: 10, y: 20 }`), backtick interpolation
+  (`` `Hello {name}` ``), list literals, compound assignment, post-/pre-inc,
+  module system (`module`, `import`, `export`), `jxt` blocks for header inclusion,
+  callbacks (raw C function pointers), DLL exports.
+- **Stdlib.** ~30 modules under `stdlib/`: result, option, json, struct_utils,
+  math_utils, string_utils, list_utils, map, etc.
+- **Native runtime builtins** (Linux ELF, currently leading the platforms):
+  `kp`, `printErr`, `print`, `len`, `length` (a.k.a. `count`), `substring`,
+  `toInt`, `toStr`, `parseInt`, `split`, `range`, `startsWith`, `endsWith`,
+  `contains`, `indexOf`, `replace`, `trim`, `toUpper`, `toLower`, `reverse`,
+  `repeat`, `pow`, `abs`, `charCode`, `fromCharCode`, `isDigit`, `isAlpha`,
+  `isTruthy`, `getLine`, `lineCount`, `readFile`, `writeFile`, `arg`,
+  `argCount`, `exit`, `sbNew`/`sbAppend`/`sbToString`, `envNew`/`envSet`/`envGet`,
+  `structNew`/`setField`/`getField`/`hasField`/`structFields`, plus `s[i]` indexing.
 
-- `import "stdlib/math_utils.k"` — load and inline compile another file
-- `export func name` — mark a function as exported
-- `module name` — declare a module namespace
-- Circular import detection
-- Import caching (don't compile same file twice)
-- stdlib files converted to use `just run` or made importable
-
----
-
-## v0.8.5 — Type Annotations (Optional)
-
-- `let x: int = 42` — optional type hints
-- `func add(a: int, b: int) -> int` — typed function signatures
-- No enforcement at first — purely for documentation and future tooling
-- Compiler emits typed C declarations when annotations present
-
----
-
-## v0.9.0 — Krypton IR
-
-Design and implement an intermediate representation written in Krypton.
-
-The IR is a simplified instruction set:
-- `LOAD name` / `STORE name` — variable access
-- `CONST value` — push constant
-- `ADD`, `SUB`, `MUL`, `DIV` — arithmetic
-- `CALL name argc` — function call
-- `JUMP label` / `JUMPIF label` — control flow
-- `LABEL name` — branch target
-- `RETURN` — return from function
-
-The compiler gains a new mode: `kcc --ir file.k > file.kir`
-
----
-
-## v0.9.5 — IR Optimizer
-
-- Constant folding
-- Dead code elimination
-- Common subexpression elimination
-- Inline small functions
-
-All passes written in Krypton, operating on the IR text format.
+Test status: 37/37 native tests pass on Linux x86_64; ~79/84 examples pass.
+The remaining example failures are largely `import_demo` (native module import
+isn't yet wired), `runtokcount` / `test_tokenize` (would need `tokenize` as a
+runtime helper, not a compiler internal), `run_committed` (a giant
+single-file bootstrap compiler), and `struct_utils` (a library with no `main` —
+expected).
 
 ---
 
-## v0.9.8 — x86-64 Code Emitter
+## Near-term: 1.5
 
-A Krypton program that reads `.kir` and emits x86-64 assembly:
+Goal: cross-platform parity and stdlib reachable from native programs.
 
-- Map Krypton string values to memory regions
-- Implement the string runtime in assembly
-- Emit ELF (Linux) or PE (Windows) object files
-- Link with system libraries for I/O
+- **Native module imports.** `import "stdlib/result.k"` should work via the native
+  pipeline, not just the C path. Currently the IR walk inlines top-level `func`
+  declarations from the file, but path resolution and de-duplication for nested
+  imports needs work.
+- **Cross-platform parity for new ELF builtins.** `reverse`, struct/env runtime,
+  and the trim/toUpper/toLower group landed on Linux first; bring them to
+  `x64.k` (Windows) and `macho_arm64_self.k` (macOS arm64).
+- **`tokenize` as a runtime function.** Currently a compile.k internal; would let
+  user programs do tokenization without depending on a compiler binary.
+- **Smart-int boundary documentation + tooling.** Values ≥ `0x40000000` (1 GiB) are
+  treated as string pointers; ints near that boundary collide. Add a runtime
+  check, a clearer error, and document the limit prominently.
+- **Drop the gcc bootstrap fallback.** `kcc.sh` still falls back to gcc for
+  `elf_host` rebuild when `elf.k` self-host fails past ~67 funcs — fix that
+  self-host bug, then remove the gcc path entirely.
 
 ---
 
-## v1.0.0 — Native Compilation
+## 2.0 candidates
 
-`kcc file.k` produces a native executable with no external tools required.
+Larger items that probably merit a major version bump.
 
-- Krypton source → Krypton IR → x86-64 assembly → native binary
-- Windows and Linux targets
-- Full standard library importable
-- Self-hosting: kcc_v100 can compile itself to produce an identical kcc_v100
-- Performance within 2x of equivalent C code
-
----
-
-## Post-1.0.0
-
-- ARM64 target
-- Lambdas and first-class functions
-- Garbage collection (replace arena allocator)
-- Concurrency primitives
-- Package manager
-- Language server protocol (LSP) for editor support
-- Quantum computing backend (the original vision)
+- **ARM64 native backend for Linux.** Today only macOS arm64 has a native backend.
+- **Lambdas as first-class values** in the native pipeline. The C path supports
+  them via lifted helpers; native pipeline does not.
+- **Garbage collection.** Replace the bump-only arena with a real GC. Today the
+  arena grows monotonically until process exit; for long-running programs
+  (servers, agents) this isn't viable.
+- **Concurrency primitives.** Goroutine-style `go` blocks (the keyword is already
+  reserved), with channels.
+- **Package manager.** `kpm install foo` or similar — fetch and pin Krypton
+  modules from a registry.
+- **LSP server.** Editor support for diagnostics, jump-to-definition, autocomplete.
+- **Quantum backend.** The original vision; reserved keywords (`quantum`, `qpute`,
+  `process`, `measure`, `prepare`) are already in the tokenizer for it.
