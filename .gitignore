@@ -82,6 +82,8 @@ mono_crash.*
 build*.bat
 !build_v*.bat
 test*
+!tests/
+!tests/**
 *.ir
 *.dll
 !runtime/krypton_rt.dll
