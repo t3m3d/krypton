@@ -14,7 +14,9 @@ just run {
     //   0 -- 1 -- 2
     //   |         |
     //   3 -- 4 -- 5
-    let g = ""
+    // Empty env, not "" — the native runtime treats "" as a non-NULL string ptr
+    // and would dereference it as the linked-list head, crashing on first envGet.
+    let g = envNew()
     g = addEdge(g, "0", "1")
     g = addEdge(g, "0", "3")
     g = addEdge(g, "1", "0")
@@ -29,7 +31,7 @@ just run {
     g = addEdge(g, "5", "4")
 
     // BFS from node 0
-    let visited = ""
+    let visited = envNew()
     let queue = "0"
     visited = envSet(visited, "0", "1")
     let order = "0"
