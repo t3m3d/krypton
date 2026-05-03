@@ -1,18 +1,12 @@
-// Character classification utilities for Krypton
-// Functions to test character types
+// Character classification utilities for Krypton.
+// Builtins to use directly (don't reimplement; the dispatcher routes calls
+// of these names to native machine code regardless of any user definition):
+//   isDigit(ch)   isAlpha(ch)
+// This module ships the rest: case checks, alpha-num, whitespace, punct,
+// operator, hex-digit, plus whole-string variants.
 
 module char_utils
 
-
-// Check if character is a digit (0-9)
-func isDigit(ch) {
-    if ch >= "0" {
-        if ch <= "9" {
-            emit 1
-        }
-    }
-    emit 0
-}
 
 // Check if character is a lowercase letter
 func isLower(ch) {
@@ -30,17 +24,6 @@ func isUpper(ch) {
         if ch <= "Z" {
             emit 1
         }
-    }
-    emit 0
-}
-
-// Check if character is a letter (a-z or A-Z)
-func isAlpha(ch) {
-    if isLower(ch) {
-        emit 1
-    }
-    if isUpper(ch) {
-        emit 1
     }
     emit 0
 }
