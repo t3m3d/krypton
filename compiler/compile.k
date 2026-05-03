@@ -3563,6 +3563,42 @@ func irStmt(tokens, pos, ntoks, lc, inFunc) {
         emit irTryIR(tokens, pos + 1, ntoks, lc, inFunc)
     }
 
+    // Nested func declaration inside a block (e.g. `func helper(...) {...}`
+    // sitting inside a `just run` body). Krypton has no closures, so a nested
+    // func is semantically identical to a top-level FUNC. The file-scope
+    // walk hoists nested funcs as siblings; here we simply skip past the
+    // tokens so no IR is emitted at the nested call site.
+    //
+    // Detect a true declaration (KW:func ID LPAREN ...) — KW:func LPAREN is
+    // a lambda expression and falls through to irExpr below.
+    if (tok == "KW:func" || tok == "KW:fn") && tokType(tokAt(tokens, pos + 1)) == "ID" {
+        let p = pos + 2  // past KW:func and name
+        // skip params: LPAREN ... RPAREN
+        if tokAt(tokens, p) == "LPAREN" {
+            let pdepth = 1
+            p += 1
+            while p < ntoks && pdepth > 0 {
+                let tt2 = tokAt(tokens, p)
+                if tt2 == "LPAREN" { pdepth += 1 }
+                if tt2 == "RPAREN" { pdepth -= 1 }
+                p += 1
+            }
+        }
+        // skip body: LBRACE ... RBRACE
+        while p < ntoks && tokAt(tokens, p) != "LBRACE" { p += 1 }
+        if tokAt(tokens, p) == "LBRACE" {
+            let bdepth = 1
+            p += 1
+            while p < ntoks && bdepth > 0 {
+                let tt3 = tokAt(tokens, p)
+                if tt3 == "LBRACE" { bdepth += 1 }
+                if tt3 == "RBRACE" { bdepth -= 1 }
+                p += 1
+            }
+        }
+        emit "," + p
+    }
+
     // field assignment: ID DOT ID ASSIGN
     if tt == "ID" {
         if tokAt(tokens, pos + 1) == "DOT" {
@@ -4851,19 +4887,28 @@ just run {
                 // Skip the entry block — it's handled separately via findEntry below.
                 // Without this skip, our top-level walk would treat `let` tokens
                 // inside `just run { ... }` as globals.
-                let entryP = iri + 2
-                while entryP < ntoks && tokAt(tokens, entryP) != "LBRACE" { entryP += 1 }
-                let depth = 0
-                while entryP < ntoks {
-                    let bt = tokAt(tokens, entryP)
-                    if bt == "LBRACE" { depth += 1 }
-                    if bt == "RBRACE" {
-                        depth -= 1
-                        if depth == 0 { entryP += 1; break }
+                //
+                // BUT first: walk the body looking for nested `func` declarations
+                // and hoist each as a top-level FUNC. Krypton has no closures,
+                // so a nested func is semantically a sibling. Without this, the
+                // nested-func tokens fall through to irExpr and emit garbage.
+                let bodyOpen = iri + 2
+                while bodyOpen < ntoks && tokAt(tokens, bodyOpen) != "LBRACE" { bodyOpen += 1 }
+                let scanP = bodyOpen + 1
+                let scanDepth = 1
+                while scanP < ntoks && scanDepth > 0 {
+                    let st = tokAt(tokens, scanP)
+                    if st == "LBRACE" { scanDepth += 1; scanP += 1 }
+                    else if st == "RBRACE" { scanDepth -= 1; scanP += 1 }
+                    else if (st == "KW:func" || st == "KW:fn") && tokType(tokAt(tokens, scanP + 1)) == "ID" {
+                        let nfp = irFuncIR(tokens, scanP, ntoks)
+                        sbIR = sbAppend(sbIR, pairVal(nfp))
+                        scanP = pairPos(nfp)
+                    } else {
+                        scanP += 1
                     }
-                    entryP += 1
                 }
-                iri = entryP
+                iri = scanP
             } else if irtok == "KW:struct" || irtok == "KW:class" || irtok == "KW:type" {
                 // Skip struct/class/type body — `let`s inside are field decls,
                 // not file-scope globals. Without this skip, we'd hoist them

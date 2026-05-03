@@ -74,11 +74,11 @@ just run {
         kp("  Compressed:   " + compressed)
         kp("  Decompressed: " + decompressed)
         kp("  Ratio:        " + ratio + "% of original")
-        let match = "OK"
+        let matched = "OK"
         if original != decompressed {
-            match = "MISMATCH"
+            matched = "MISMATCH"
         }
-        kp("  Verify:       " + match)
+        kp("  Verify:       " + matched)
         kp("")
         i += 1
     }

@@ -108,7 +108,10 @@ just run {
     kp("")
 
     kp("Byte formatting:")
-    let sizes = "512,1024,4096,1048576,1073741824"
+    // Cap at < 0x40000000 (1 GiB): the native smart-int convention
+    // reserves >= 0x40000000 for string pointers, so toInt of a value
+    // there collides with the heap range.
+    let sizes = "512,1024,4096,1048576,16777216"
     total = count(sizes)
     i = 0
     while i < total {
