@@ -112,11 +112,11 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
     TMPIR="/tmp/_kcc_native_$$.kir"
 
     if [[ "$PLATFORM" == "macos" ]]; then
-        # macOS arm64: kompiler/macos_arm64/macho_arm64_self.k writes a
+        # macOS arm64: compiler/macos_arm64/macho_arm64_self.k writes a
         # signed Mach-O directly (load commands, __TEXT/__DATA/__LINKEDIT,
         # chained fixups, ad-hoc SHA-256 code signature — all in Krypton).
         # NO clang, no `as`, no `ld`, no external codesign.
-        MACHO_DIR="$SCRIPT_DIR/kompiler/macos_arm64"
+        MACHO_DIR="$SCRIPT_DIR/compiler/macos_arm64"
         MACHO_BIN="$MACHO_DIR/macho_host"
         MACHO_SRC="$MACHO_DIR/macho_arm64_self.k"
 
@@ -148,11 +148,11 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
 
     if [[ "$PLATFORM" == "linux" ]]; then
         # Linux: .k → kir → optimize.k → kir' → elf.k → ELF
-        LINUX_DIR="$SCRIPT_DIR/kompiler/linux_x86"
+        LINUX_DIR="$SCRIPT_DIR/compiler/linux_x86"
         ELF_BIN="$LINUX_DIR/elf_host"
         OPT_BIN="$LINUX_DIR/optimize_host"
         ELF_SRC="$LINUX_DIR/elf.k"
-        OPT_SRC="$SCRIPT_DIR/kompiler/optimize.k"   # shared source
+        OPT_SRC="$SCRIPT_DIR/compiler/optimize.k"   # shared source
 
         # Detect arch for prebuilt seed lookup
         case "$(uname -m 2>/dev/null)" in
@@ -225,11 +225,11 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
 
     # Windows: PE/COFF backend
     TMPOPT="/tmp/_kcc_native_opt_$$.kir"
-    WIN_DIR="$SCRIPT_DIR/kompiler/windows_x86"
+    WIN_DIR="$SCRIPT_DIR/compiler/windows_x86"
     OPT_BIN="$WIN_DIR/optimize_host.exe"
     X64_BIN="$WIN_DIR/x64_host.exe"
     X64_SRC="$WIN_DIR/x64.k"
-    OPT_SRC="$SCRIPT_DIR/kompiler/optimize.k"   # shared source
+    OPT_SRC="$SCRIPT_DIR/compiler/optimize.k"   # shared source
     OPT_SEED="$SCRIPT_DIR/bootstrap/optimize_host_windows_x86_64.exe"
     X64_SEED="$SCRIPT_DIR/bootstrap/x64_host_windows_x86_64.exe"
 
@@ -286,14 +286,14 @@ if [[ $LLVM_MODE -eq 1 ]]; then
     "$KCC_EXE" --ir $HEADERS_FLAG "$SRCFILE" > "$TMPIR"
     if [[ $? -ne 0 ]]; then echo "kcc --llvm: IR emission failed" >&2; rm -f "$TMPIR"; exit 1; fi
 
-    "$KCC_EXE" "$SCRIPT_DIR/kompiler/optimize.k" "$TMPIR" > "$TMPOPT"
+    "$KCC_EXE" "$SCRIPT_DIR/compiler/optimize.k" "$TMPIR" > "$TMPOPT"
     if [[ $? -ne 0 ]]; then echo "kcc --llvm: optimizer failed" >&2; rm -f "$TMPIR" "$TMPOPT"; exit 1; fi
 
     # Emit LLVM IR
     if [[ -n "$OUTFILE" ]]; then
-        "$KCC_EXE" "$SCRIPT_DIR/kompiler/llvm.k" "$TMPOPT" > "$OUTFILE"
+        "$KCC_EXE" "$SCRIPT_DIR/compiler/llvm.k" "$TMPOPT" > "$OUTFILE"
     else
-        "$KCC_EXE" "$SCRIPT_DIR/kompiler/llvm.k" "$TMPOPT"
+        "$KCC_EXE" "$SCRIPT_DIR/compiler/llvm.k" "$TMPOPT"
     fi
     RET=$?
     rm -f "$TMPIR" "$TMPOPT"

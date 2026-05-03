@@ -1,6 +1,6 @@
 // x64.k — Krypton IR to Windows PE64 native binary emitter
-// Usage: kcc kompiler/windows_x86/x64.k <file.kir> -o <output.exe>
-//   or:  kcc kompiler/windows_x86/x64.k <file.kir> > output_hex.txt
+// Usage: kcc compiler/windows_x86/x64.k <file.kir> -o <output.exe>
+//   or:  kcc compiler/windows_x86/x64.k <file.kir> > output_hex.txt
 //
 // Reads Krypton IR (.kir), emits a Windows x64 PE executable.
 // The executable imports from krypton_rt.dll (ship alongside .exe).
@@ -4936,7 +4936,7 @@ just run {
     }
 
     if len(file) == 0 {
-        printErr("x64: usage: kcc kompiler/windows_x86/x64.k <file.kir> [output.exe|output.dll]")
+        printErr("x64: usage: kcc compiler/windows_x86/x64.k <file.kir> [output.exe|output.dll]")
         emit 1
     }
 

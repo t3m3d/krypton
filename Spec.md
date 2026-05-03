@@ -426,7 +426,7 @@ source.k → kcc ──┤
                    └─ macOS arm64:    .k → .kir → macho_arm64_self.k  → Mach-O (signed)
 ```
 
-Each platform has a dedicated emitter under `kompiler/<platform>/`. The Krypton-side emitter writes the binary file directly — load commands, sections, code, data, relocations, and (on macOS) the SHA-256 ad-hoc code signature, all without invoking gcc, clang, ld, or codesign at user-call time.
+Each platform has a dedicated emitter under `compiler/<platform>/`. The Krypton-side emitter writes the binary file directly — load commands, sections, code, data, relocations, and (on macOS) the SHA-256 ad-hoc code signature, all without invoking gcc, clang, ld, or codesign at user-call time.
 
 ### 6.2 Optional Pipelines
 
@@ -460,7 +460,7 @@ When emitting C, the compiler produces a self-contained `.c` file with:
 
 ### 6.5 Self-Hosting
 
-The compiler (`kompiler/compile.k`) compiles itself. Each platform's seed binary in `bootstrap/` was produced by gcc once during initial bootstrap; subsequent rebuilds use the previous-generation seed via the native pipeline. The original bootstrap chain (v0.1 series through v0.7) is preserved in `versions/`.
+The compiler (`compiler/compile.k`) compiles itself. Each platform's seed binary in `bootstrap/` was produced by gcc once during initial bootstrap; subsequent rebuilds use the previous-generation seed via the native pipeline. The original bootstrap chain (v0.1 series through v0.7) is preserved in `versions/`.
 
 ---
 

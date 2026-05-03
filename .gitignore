@@ -1,6 +1,6 @@
-kompiler/linux_x86/elf_host
-kompiler/linux_x86/optimize_host
-kompiler/macos_arm64/macho_host
+compiler/linux_x86/elf_host
+compiler/linux_x86/optimize_host
+compiler/macos_arm64/macho_host
 compile_out.c
 krypton.res
 *.bak
