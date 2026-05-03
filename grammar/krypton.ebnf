@@ -1,32 +1,67 @@
-(* Krypton Language Grammar v3 *)
-(* Version 0.7.1 — March 2026                  *)
-(* Matches kompiler/compile.k implementation.  *)
+(* Krypton Language Grammar *)
+(* Version 1.4.0 — May 2026                       *)
+(* Matches compiler/compile.k implementation.     *)
+(* Human-readable companion: docs/spec/grammar.md *)
+(* Function reference:        docs/spec/functions.md *)
 
 (* ═══════════════════════════════════════════════════════════════ *)
 (*  Program Structure                                              *)
 (* ═══════════════════════════════════════════════════════════════ *)
 
-Program       ::= TopLevel* EntryPoint ;
+Program       ::= ModuleDecl? TopLevel* EntryPoint? ;
+
+ModuleDecl    ::= "module" Identifier ;
 
 TopLevel      ::= FuncDecl
-                | StructDecl ;
+                | CallbackDecl
+                | StructDecl
+                | ImportStmt
+                | ExportDecl
+                | JxtBlock
+                | GlobalLet ;
 
-(* Entry point — exactly one required per program *)
+ImportStmt    ::= "import" StringLiteral ;
+ExportDecl    ::= "export" ( FuncDecl | StructDecl | Identifier ) ;
+GlobalLet     ::= ( "let" | "const" ) Identifier ( ":" Type )? "=" Expr ";"? ;
+
+(* Entry point — at most one per program. Library modules omit it. *)
 EntryPoint    ::= ( "just" | "go" ) "run" Block ;
+
+(* ═══════════════════════════════════════════════════════════════ *)
+(*  jxt — header / module include block                            *)
+(* ═══════════════════════════════════════════════════════════════ *)
+
+(* Two equivalent forms. The bracketless form (1.4.0+) treats every    *)
+(* `inc "..."` line as a member; the include type is inferred from the *)
+(* file extension (.k → Krypton module, .h / .krh → C header). The     *)
+(* block ends at the first non-`inc` token.                            *)
+JxtBlock      ::= "jxt" "{" JxtItem* "}"
+                | "jxt" JxtIncLine+ ;
+JxtItem       ::= ( "k" | "c" | "t" ) StringLiteral ;
+JxtIncLine    ::= "inc" StringLiteral ;
 
 (* ═══════════════════════════════════════════════════════════════ *)
 (*  Declarations                                                   *)
 (* ═══════════════════════════════════════════════════════════════ *)
 
-FuncDecl      ::= ( "func" | "fn" ) Identifier "(" Params? ")" Block ;
-Params        ::= Identifier ( "," Identifier )* ;
+FuncDecl      ::= ( "func" | "fn" ) Identifier "(" Params? ")"
+                  ( "->" Type )? Block ;
 
-(* Struct names must start with an uppercase letter *)
+(* `callback` marks a function as exposed to C code as a raw function  *)
+(* pointer (used by funcptr() and DLL callback ABIs).                  *)
+CallbackDecl  ::= "callback" FuncDecl ;
+
+Params        ::= Param ( "," Param )* ;
+Param         ::= Identifier ( ":" Type )? ;
+
+Type          ::= Identifier ( "[" Type "]" )? ;
+
+(* Struct names must start with an uppercase letter.                   *)
 StructDecl    ::= ( "struct" | "class" | "type" ) UpperIdentifier "{"
                       StructField*
                   "}" ;
 
-StructField   ::= "let" Identifier ( "=" Expr )? ;
+StructField   ::= "let" Identifier ( ":" Type )? ( "=" Expr )? ;
 
 (* ═══════════════════════════════════════════════════════════════ *)
 (*  Blocks & Statements                                            *)
@@ -36,9 +71,12 @@ Block         ::= "{" Stmt* "}" ;
 
 Stmt          ::= LetStmt
                 | ConstStmt
+                | NestedFuncDecl
                 | FieldAssignStmt
+                | IndexAssignStmt
                 | AssignStmt
                 | CompoundAssignStmt
+                | IncDecStmt
                 | EmitStmt
                 | IfStmt
                 | WhileStmt
@@ -51,12 +89,21 @@ Stmt          ::= LetStmt
                 | ContinueStmt
                 | ExprStmt ;
 
-LetStmt            ::= "let" Identifier "=" Expr ";"? ;
-ConstStmt          ::= "const" Identifier "=" Expr ";"? ;
+LetStmt            ::= "let"   Identifier ( ":" Type )? "=" Expr ";"? ;
+ConstStmt          ::= "const" Identifier ( ":" Type )? "=" Expr ";"? ;
+
+(* Nested funcs are hoisted to file-scope FUNCs by the IR walk.        *)
+(* Krypton has no closures, so a nested func is semantically a sibling.*)
+NestedFuncDecl     ::= FuncDecl ;
+
 AssignStmt         ::= Identifier "=" Expr ";"? ;
 FieldAssignStmt    ::= Identifier "." Identifier "=" Expr ";"? ;
+IndexAssignStmt    ::= Identifier "[" Expr "]" "=" Expr ";"? ;
 CompoundAssignStmt ::= Identifier ( "+=" | "-=" | "*=" | "/=" | "%=" ) Expr ";"? ;
-EmitStmt           ::= ( "emit" | "return" ) Expr ";"? ;
+IncDecStmt         ::= Identifier ( "++" | "--" ) ";"?
+                     | ( "++" | "--" ) Identifier ";"? ;
+
+EmitStmt           ::= ( "emit" | "return" ) Expr? ";"? ;
 BreakStmt          ::= "break" ";"? ;
 ContinueStmt       ::= "continue" ";"? ;
 ThrowStmt          ::= "throw" Expr ";"? ;
@@ -66,9 +113,7 @@ IfStmt        ::= "if" Expr Block
                   ( "else" Block )? ;
 
 WhileStmt     ::= "while" Expr Block ;
-
 DoWhileStmt   ::= "do" Block "while" Expr ";"? ;
-
 ForInStmt     ::= "for" Identifier "in" Expr Block ;
 
 MatchStmt     ::= "match" Expr "{" MatchArm* "}" ;
@@ -86,28 +131,41 @@ Expr          ::= TernaryExpr ;
 
 TernaryExpr   ::= OrExpr ( "?" Expr ":" Expr )? ;
 
-OrExpr        ::= AndExpr ( "||" AndExpr )* ;
+OrExpr        ::= AndExpr      ( "||" AndExpr )* ;
 AndExpr       ::= EqualityExpr ( "&&" EqualityExpr )* ;
-EqualityExpr  ::= RelExpr ( ( "==" | "!=" ) RelExpr )* ;
-RelExpr       ::= AddExpr ( ( "<" | ">" | "<=" | ">=" ) AddExpr )* ;
-AddExpr       ::= MulExpr ( ( "+" | "-" ) MulExpr )* ;
-MulExpr       ::= UnaryExpr ( ( "*" | "/" | "%" ) UnaryExpr )* ;
+EqualityExpr  ::= RelExpr      ( ( "==" | "!=" ) RelExpr )* ;
+RelExpr       ::= AddExpr      ( ( "<" | ">" | "<=" | ">=" ) AddExpr )* ;
+AddExpr       ::= MulExpr      ( ( "+" | "-" ) MulExpr )* ;
+MulExpr       ::= UnaryExpr    ( ( "*" | "/" | "%" ) UnaryExpr )* ;
 
 UnaryExpr     ::= ( "-" | "!" ) UnaryExpr
                 | PostfixExpr ;
 
-(* Postfix: string index and struct field access, chainable *)
-PostfixExpr   ::= PrimaryExpr ( "[" Expr "]" | "." Identifier )* ;
+(* Postfix: index, field access, and function-call chaining.           *)
+PostfixExpr   ::= PrimaryExpr ( "[" Expr "]"
+                              | "." Identifier
+                              | "(" Args? ")"
+                              )* ;
 
 PrimaryExpr   ::= IntLiteral
                 | StringLiteral
+                | InterpString
                 | "true"
                 | "false"
+                | "null"
+                | ListLiteral
+                | Lambda
                 | UpperIdentifier "(" Args? ")"        (* struct constructor *)
                 | UpperIdentifier "{" FieldInits? "}"  (* struct literal     *)
                 | Identifier "(" Args? ")"             (* function call      *)
                 | Identifier                           (* variable           *)
                 | "(" Expr ")" ;                       (* grouped expression *)
+
+ListLiteral   ::= "[" ( Expr ( "," Expr )* )? "]" ;
+
+(* Lambdas use the same FuncDecl shape but anonymous.                  *)
+Lambda        ::= ( "func" | "fn" ) "(" Params? ")"
+                  ( "->" Type )? Block ;
 
 FieldInits    ::= FieldInit ( "," FieldInit )* ;
 FieldInit     ::= Identifier ":" Expr ;
@@ -124,26 +182,61 @@ Comment       ::= "//" { any except newline }
 Identifier      ::= Letter ( Letter | Digit | "_" )* ;
 UpperIdentifier ::= "A".."Z" ( Letter | Digit | "_" )* ;
 
-IntLiteral    ::= Digit+ ;
+IntLiteral    ::= Digit+
+                | "0x" HexDigit+
+                | "0X" HexDigit+ ;
 
 StringLiteral ::= '"' StringChar* '"' ;
 StringChar    ::= EscapeSeq | { any except '"' and '\' } ;
-EscapeSeq     ::= '\n' | '\t' | '\r' | '\\' | '\"' ;
+EscapeSeq     ::= '\n' | '\t' | '\r' | '\\' | '\"' | "\'" ;
+
+(* Backtick interpolation strings: `hello {name}!`                     *)
+(* Embedded {Expr} substitutions are evaluated and stringified.        *)
+InterpString  ::= '`' InterpChar* '`' ;
+InterpChar    ::= EscapeSeq
+                | "{" Expr "}"
+                | { any except '`' and '\' and '{' } ;
 
 Letter        ::= 'a'..'z' | 'A'..'Z' | '_' ;
 Digit         ::= '0'..'9' ;
+HexDigit      ::= '0'..'9' | 'a'..'f' | 'A'..'F' ;
+
+(* ═══════════════════════════════════════════════════════════════ *)
+(*  Operator Precedence (lowest → highest)                         *)
+(* ═══════════════════════════════════════════════════════════════ *)
+(*                                                                 *)
+(*    10  Assignment    =  +=  -=  *=  /=  %=    (right-assoc)     *)
+(*     9  Ternary       ? :                       (right-assoc)     *)
+(*     8  Logical OR    ||                                          *)
+(*     7  Logical AND   &&                                          *)
+(*     6  Equality      ==  !=                                      *)
+(*     5  Relational    <  >  <=  >=                                *)
+(*     4  Additive      +  -                                        *)
+(*     3  Multiplicative *  /  %                                    *)
+(*     2  Unary         -  !                       (right-assoc)     *)
+(*     1  Postfix       [i]  .field  f()                            *)
+(*                                                                 *)
+(* ═══════════════════════════════════════════════════════════════ *)
 
 (* ═══════════════════════════════════════════════════════════════ *)
 (*  Keywords                                                       *)
 (* ═══════════════════════════════════════════════════════════════ *)
 (*                                                                 *)
-(*  just  go  func  fn  let  const  emit  return                  *)
-(*  if  else  while  do  for  in  break  continue                 *)
-(*  match  struct  class  type  try  catch  throw                  *)
-(*  module  import  export  true  false                            *)
+(*   Entry / declaration                                           *)
+(*     just   go   func   fn   let   const                         *)
+(*     module import export jxt                                    *)
+(*     struct class type   callback                                *)
 (*                                                                 *)
-(*  Reserved for future use:                                       *)
-(*  quantum  qpute  process  prepare  measure                     *)
+(*   Control flow                                                  *)
+(*     if  else  while  do  loop  until                            *)
+(*     for in match break continue                                 *)
+(*     try catch throw   emit return                               *)
+(*                                                                 *)
+(*   Constants                                                     *)
+(*     true   false   null                                         *)
+(*                                                                 *)
+(*   Reserved for future use (quantum backend)                     *)
+(*     quantum  qpute  process  prepare  measure                   *)
 (*                                                                 *)
 (* ═══════════════════════════════════════════════════════════════ *)
 
@@ -151,34 +244,38 @@ Digit         ::= '0'..'9' ;
 (*  Token Types                                                    *)
 (* ═══════════════════════════════════════════════════════════════ *)
 (*                                                                 *)
-(*  INT        integer literal        42                           *)
-(*  STR        string literal         "hello"                      *)
-(*  ID         identifier             myVar                        *)
-(*  KW:x       keyword                if, while, func, ...         *)
+(*   Atoms                                                         *)
+(*     INT:n     integer literal      42, 0xFF                     *)
+(*     STR:s     string literal       "hello"                      *)
+(*     INTERP:s  backtick interp str  `hello {name}`               *)
+(*     ID:name   identifier           myVar                        *)
+(*     KW:word   keyword              if, while, func, …           *)
+(*     CBLOCK    inline C block       cfunc { ... }                *)
 (*                                                                 *)
-(*  Arithmetic                                                     *)
-(*  PLUS    +      MINUS    -      STAR     *                      *)
-(*  SLASH   /      MOD      %                                      *)
+(*   Arithmetic                                                    *)
+(*     PLUS    +      MINUS    -      STAR     *                   *)
+(*     SLASH   /      MOD      %                                   *)
 (*                                                                 *)
-(*  Compound assignment                                            *)
-(*  PLUSEQ  +=     MINUSEQ  -=     STAREQ   *=                    *)
-(*  SLASHEQ /=     MODEQ    %=                                     *)
+(*   Compound assignment / inc-dec                                 *)
+(*     PLUSEQ  +=     MINUSEQ  -=     STAREQ   *=                  *)
+(*     SLASHEQ /=     MODEQ    %=                                  *)
+(*     PLUSPLUS  ++   MINUSMINUS --                                *)
 (*                                                                 *)
-(*  Comparison                                                     *)
-(*  EQ      ==     NEQ      !=     ASSIGN   =                      *)
-(*  LT      <      GT       >      LTE      <=     GTE   >=        *)
+(*   Comparison / assignment                                       *)
+(*     EQ      ==     NEQ      !=     ASSIGN   =                   *)
+(*     LT      <      GT       >      LTE  <=  GTE   >=            *)
 (*                                                                 *)
-(*  Logical                                                        *)
-(*  AND     &&     OR       ||     BANG     !                      *)
+(*   Logical                                                       *)
+(*     AND     &&     OR       ||     BANG     !                   *)
 (*                                                                 *)
-(*  Grouping                                                       *)
-(*  LPAREN  (      RPAREN   )                                      *)
-(*  LBRACE  {      RBRACE   }                                      *)
-(*  LBRACK  [      RBRACK   ]                                      *)
+(*   Grouping                                                      *)
+(*     LPAREN  (      RPAREN   )                                   *)
+(*     LBRACE  {      RBRACE   }                                   *)
+(*     LBRACK  [      RBRACK   ]                                   *)
 (*                                                                 *)
-(*  Other                                                          *)
-(*  COMMA   ,      COLON    :      SEMI     ;                      *)
-(*  DOT     .      QUESTION ?      ARROW    ->                     *)
+(*   Punctuation                                                   *)
+(*     COMMA   ,      COLON    :      SEMI     ;                   *)
+(*     DOT     .      QUESTION ?      ARROW    ->                  *)
 (*                                                                 *)
 (* ═══════════════════════════════════════════════════════════════ *)
 
@@ -186,85 +283,25 @@ Digit         ::= '0'..'9' ;
 (*  Type System & Truthiness                                       *)
 (* ═══════════════════════════════════════════════════════════════ *)
 (*                                                                 *)
-(*  All values are strings at runtime.                             *)
-(*    Numbers  →  "42", "-3"                                       *)
-(*    Booleans →  "1" (true), "0" (false)                          *)
-(*    Strings  →  as-is                                            *)
+(*   All values are strings at runtime.                            *)
+(*     Numbers  →  "42", "-3"                                      *)
+(*     Booleans →  "1" (true), "0" (false)                         *)
+(*     null     →  "" (empty string)                               *)
+(*     Strings  →  as-is                                           *)
 (*                                                                 *)
-(*  A value is falsy if it is "", "0", or "false".                 *)
-(*  All other values are truthy.                                   *)
+(*   A value is FALSY if it is "", "0", or "false".                *)
+(*   Everything else is truthy.                                    *)
 (*                                                                 *)
-(*  The + operator is overloaded: if both operands are numeric     *)
-(*  strings it performs addition; otherwise concatenation.         *)
+(*   The `+` operator is overloaded: if BOTH operands look numeric *)
+(*   it performs integer addition, otherwise concatenation.        *)
+(*   This means "1" + "2" → "3", not "12". Use sbAppend to force   *)
+(*   string concat of digit-only tokens.                           *)
+(*                                                                 *)
+(*   Native pipeline: values < 0x40000000 (1 GiB) are stored as    *)
+(*   small integers, ≥ 0x40000000 are heap pointers. Integers at   *)
+(*   or above 1 GiB are not safe in the native pipeline.           *)
 (*                                                                 *)
 (* ═══════════════════════════════════════════════════════════════ *)
 
-(* ═══════════════════════════════════════════════════════════════ *)
-(*  Built-in Functions (127 total)                                 *)
-(* ═══════════════════════════════════════════════════════════════ *)
-(*                                                                 *)
-(*  I/O (8)                                                        *)
-(*    print(s)  kp(s)  printErr(s)  readLine(prompt)              *)
-(*    input()  readFile(path)  writeFile(path, data)               *)
-(*    arg(n)  argCount()                                           *)
-(*                                                                 *)
-(*  Strings (19)                                                   *)
-(*    len(s)  substring(s, st, en)  charAt(s, i)                  *)
-(*    indexOf(s, sub)  contains(s, sub)                            *)
-(*    startsWith(s, pfx)  endsWith(s, sfx)                        *)
-(*    replace(s, old, new)  trim(s)  lstrip(s)  rstrip(s)         *)
-(*    center(s, width, pad)  toLower(s)  toUpper(s)               *)
-(*    repeat(s, n)  padLeft(s, w, pad)  padRight(s, w, pad)       *)
-(*    charCode(s)  fromCharCode(n)                                 *)
-(*                                                                 *)
-(*  String Formatting (3)                                          *)
-(*    splitBy(s, delim)  format(fmt, arg)  strReverse(s)          *)
-(*                                                                 *)
-(*  String Testing (3)                                             *)
-(*    isAlpha(s)  isDigit(s)  isSpace(s)                          *)
-(*                                                                 *)
-(*  Numbers (14)                                                   *)
-(*    toInt(s)  parseInt(s)  abs(n)  min(a, b)  max(a, b)         *)
-(*    pow(base, exp)  sqrt(n)  sign(n)  clamp(v, lo, hi)          *)
-(*    hex(n)  bin(n)  floor(n)  ceil(n)  round(n)                 *)
-(*                                                                 *)
-(*  Lists (28)                                                     *)
-(*    split(s, i)  length(lst)  first(lst)  last(lst)             *)
-(*    head(lst, n)  tail(lst, n)  append(lst, item)               *)
-(*    insertAt(lst, i, item)  removeAt(lst, i)  remove(lst, item) *)
-(*    replaceAt(lst, i, val)  slice(lst, st, en)                  *)
-(*    join(lst, sep)  reverse(lst)  sort(lst)  unique(lst)        *)
-(*    fill(n, val)  zip(a, b)  listIndexOf(lst, item)             *)
-(*    every(lst, val)  some(lst, val)  countOf(lst, item)         *)
-(*    sumList(lst)  maxList(lst)  minList(lst)  range(st, en)     *)
-(*    words(s)  lines(s)                                           *)
-(*                                                                 *)
-(*  Maps (3)                                                       *)
-(*    keys(map)  values(map)  hasKey(map, key)                    *)
-(*                                                                 *)
-(*  Structs (5)                                                    *)
-(*    structNew()  getField(obj, name)  setField(obj, name, val)  *)
-(*    hasField(obj, name)  structFields(obj)                       *)
-(*                                                                 *)
-(*  Lines (3)                                                      *)
-(*    getLine(s, i)  lineCount(s)  count(s)                       *)
-(*                                                                 *)
-(*  System (4)                                                     *)
-(*    random(n)  timestamp()  environ(name)  exit(code)           *)
-(*                                                                 *)
-(*  Exceptions (1)                                                 *)
-(*    throw(msg)                                                   *)
-(*                                                                 *)
-(*  Type / Conversion (4)                                          *)
-(*    type(s)  toStr(s)  isTruthy(s)  assert(cond, msg)           *)
-(*                                                                 *)
-(*  StringBuilder (3)                                              *)
-(*    sbNew()  sbAppend(sb, s)  sbToString(sb)                    *)
-(*                                                                 *)
-(*  Environment / Low-level (8)                                    *)
-(*    envNew()  envSet(env, k, v)  envGet(env, k)                 *)
-(*    makeResult(tag, val, env, pos)                               *)
-(*    getResultTag(r)  getResultVal(r)                             *)
-(*    getResultEnv(r)  getResultPos(r)                             *)
-(*                                                                 *)
-(* ═══════════════════════════════════════════════════════════════ *)
+(* See docs/spec/functions.md for the full built-in function       *)
+(* reference, with each entry tagged (native) or (C path).         *)
