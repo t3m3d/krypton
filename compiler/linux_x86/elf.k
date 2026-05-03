@@ -227,13 +227,15 @@ func emitEpilogue() {
 
 // ── Built-in stubs (hand-emitted machine code) ─────────────────────
 
-// kr_print: print a NUL-terminated string to stdout via SYS_write.
+// kr_print: print a NUL-terminated string to stdout, then a trailing newline.
 //   In:  RDI = string pointer
 //   Out: nothing useful
 //
-// strlen via inline loop, then SYS_write(1, str, len), preserve callee-saved.
+// strlen via inline loop, then SYS_write(1, str, len), then SYS_write(1, "\n", 1).
+// Trailing newline matches the C runtime's `printf("%s\n", s)` behavior so
+// programs port cleanly between the C-emit path and the native ELF path.
 //
-// Layout (37 bytes):
+// Layout (60 bytes):
 //   [0]  53                PUSH RBX                       (1)
 //   [1]  48 89 FB          MOV RBX, RDI                   (3)  ; save str
 //   [4]  31 C0             XOR EAX, EAX                   (2)  ; len = 0
@@ -248,8 +250,16 @@ func emitEpilogue() {
 //   [23] BF 01 00 00 00    MOV EDI, 1                     (5)  ; fd=stdout
 //   [28] B8 01 00 00 00    MOV EAX, 1                     (5)  ; SYS_write
 //   [33] 0F 05             SYSCALL                        (2)
-//   [35] 5B                POP RBX                        (1)
-//   [36] C3                RET                            (1)
+//   ; trailing newline: write(1, "\n", 1) using stack as the buffer
+//   [35] 6A 0A             PUSH 0x0A                      (2)  ; '\n' on stack
+//   [37] 48 89 E6          MOV RSI, RSP                   (3)  ; arg1 = &'\n'
+//   [40] BF 01 00 00 00    MOV EDI, 1                     (5)  ; fd=stdout
+//   [45] BA 01 00 00 00    MOV EDX, 1                     (5)  ; len=1
+//   [50] B8 01 00 00 00    MOV EAX, 1                     (5)  ; SYS_write
+//   [55] 0F 05             SYSCALL                        (2)
+//   [57] 58                POP RAX                        (1)  ; discard '\n'
+//   [58] 5B                POP RBX                        (1)
+//   [59] C3                RET                            (1)
 func emitKrPrintCode() {
     let c = ""
     c = c + hexByte(0x53)
@@ -264,11 +274,19 @@ func emitKrPrintCode() {
     c = c + hexByte(0xBF) + hexDword(1)
     c = c + hexByte(0xB8) + hexDword(1)
     c = c + hexByte(0x0F) + hexByte(0x05)
+    // trailing newline write — matches printf("%s\n", s) in the C runtime
+    c = c + hexByte(0x6A) + hexByte(0x0A)                       // PUSH 0x0A
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xE6)       // MOV RSI, RSP
+    c = c + hexByte(0xBF) + hexDword(1)                         // MOV EDI, 1
+    c = c + hexByte(0xBA) + hexDword(1)                         // MOV EDX, 1
+    c = c + hexByte(0xB8) + hexDword(1)                         // MOV EAX, 1
+    c = c + hexByte(0x0F) + hexByte(0x05)                       // SYSCALL
+    c = c + hexByte(0x58)                                       // POP RAX (discard)
     c = c + hexByte(0x5B)
     c = c + hexByte(0xC3)
     emit c
 }
-func krPrintSize() { emit 37 }
+func krPrintSize() { emit 60 }
 
 // kr_alloc: bump allocator using R15 (heap_next).
 //   In:  RDI = size in bytes
@@ -1144,13 +1162,11 @@ func emitKrWritefileCode(thisVAddr, strlenVAddr) {
 func krWritefileSize() { emit 66 }
 
 // kr_printerr: like kr_print, but writes to stderr (fd 2) instead of stdout.
+// Also appends a trailing newline to match printf("%s\n", s) parity.
 //   In:  RDI = string ptr (NUL-terminated)
 //   Out: nothing
 //
-// Identical to kr_print except byte at offset 24 is `02` instead of `01`.
-//
-// Layout (37 bytes):
-//   [0..]   same as kr_print but [23-27] BF 02 00 00 00  MOV EDI, 2
+// Identical to kr_print except every fd is 2 instead of 1. Layout 60 bytes.
 func emitKrPrinterrCode() {
     let c = ""
     c = c + hexByte(0x53)
@@ -1162,14 +1178,22 @@ func emitKrPrinterrCode() {
     c = c + hexByte(0xEB) + hexByte(245)
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC2)
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDE)
-    c = c + hexByte(0xBF) + hexDword(2)         // ← fd=2 (stderr)
+    c = c + hexByte(0xBF) + hexDword(2)         // fd=2 (stderr)
     c = c + hexByte(0xB8) + hexDword(1)
     c = c + hexByte(0x0F) + hexByte(0x05)
+    // trailing newline write to fd=2
+    c = c + hexByte(0x6A) + hexByte(0x0A)                       // PUSH 0x0A
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xE6)       // MOV RSI, RSP
+    c = c + hexByte(0xBF) + hexDword(2)                         // MOV EDI, 2
+    c = c + hexByte(0xBA) + hexDword(1)                         // MOV EDX, 1
+    c = c + hexByte(0xB8) + hexDword(1)                         // MOV EAX, 1
+    c = c + hexByte(0x0F) + hexByte(0x05)                       // SYSCALL
+    c = c + hexByte(0x58)                                       // POP RAX (discard)
     c = c + hexByte(0x5B)
     c = c + hexByte(0xC3)
     emit c
 }
-func krPrinterrSize() { emit 37 }
+func krPrinterrSize() { emit 60 }
 
 // kr_charcode: returns the first byte of s as an integer.
 //   In:  RDI = string ptr
