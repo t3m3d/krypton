@@ -62,29 +62,58 @@ unambiguous in normal use. Two consequences:
 
 ---
 
-## Truthiness
+## Booleans and Truthiness
+
+`true` and `false` are language keywords. Since v1.4.0 they evaluate to the
+strings `"true"` and `"false"` respectively (previously `"1"` / `"0"`).
+There's no distinct boolean runtime type — booleans are just strings, and
+the rest of the runtime treats them via the truthiness rules below.
 
 A value is **falsy** if it is:
 
 - `""` — empty string
-- `"0"` — zero
-- `"false"` — the word false
+- `"0"` — the digit zero string
+- `"false"` — the word false (matches the literal)
+- The integer `0`
 
-Everything else is **truthy**, including `"1"`, any non-zero number, any
-non-empty string.
+Everything else is **truthy**, including `"1"`, `"true"`, any non-zero
+number, any non-empty non-`"0"`/non-`"false"` string.
 
 ```
-if ""    { }   // never runs
-if "0"   { }   // never runs
-if "1"   { }   // runs
-if "hi"  { }   // runs
-if 0     { }   // never runs
-if 1     { }   // runs
+if ""        { }   // never runs
+if "0"       { }   // never runs
+if "false"   { }   // never runs
+if true      { }   // runs ("true" is truthy)
+if "hi"      { }   // runs
+if 0         { }   // never runs
+if 1         { }   // runs
+if !false    { }   // runs
 ```
 
 `isTruthy(s)` returns `"1"` or `"0"` per the same rules. `if`, `while`, and
 loops wrap their conditions in `isTruthy` automatically — without that wrap,
 the empty string `""` (a non-zero pointer) would naïvely test as truthy.
+
+### Two boolean representations
+
+Two value forms can both represent "boolean":
+
+| Form | Source | Examples |
+|------|--------|----------|
+| `"true"` / `"false"` strings | `true` / `false` literals | `let flag = true` → `"true"` |
+| `"1"` / `"0"` ints | Comparison ops, logical ops, isDigit/hasField/etc. | `let v = 5 > 3` → `"1"` |
+
+Both behave the same under `if`/`while`/`isTruthy`. They DON'T compare equal
+under `==` because they're different string values:
+
+```
+true == (5 > 3)            // "0" — different value forms!
+isTruthy(true) == isTruthy(5 > 3)  // "1" — both truthy
+```
+
+The `stdlib/booleans.k` module provides `bool(v)`, `boolToInt(v)`, and
+`boolEq(a, b)` helpers to normalize between the two forms when you need
+consistent comparisons or display.
 
 ---
 
