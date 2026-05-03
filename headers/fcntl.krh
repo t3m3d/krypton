@@ -1,0 +1,16 @@
+// fcntl.krh — Krypton header for POSIX fcntl.h (file control)
+// Usage: import "headers/fcntl.krh"
+// Linux/macOS. Common O_* flags are integer constants — pass numeric
+// values directly (O_RDONLY=0, O_WRONLY=1, O_RDWR=2, O_CREAT=64,
+// O_EXCL=128, O_TRUNC=512, O_APPEND=1024 on Linux glibc).
+
+jxt {
+    c "fcntl.h"
+
+    func open(path, flags, mode)
+    func openat(dirfd, path, flags, mode)
+    func creat(path, mode)
+    func fcntl(fd, cmd, arg)
+    func posix_fadvise(fd, offset, len, advice)
+    func posix_fallocate(fd, offset, len)
+}

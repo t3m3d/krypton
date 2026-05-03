@@ -1,0 +1,19 @@
+// signal.krh — Krypton header for C signal handling
+// Usage: import "headers/signal.krh"
+
+jxt {
+    c "signal.h"
+
+    func signal(signum, handler)
+    func raise(sig)
+
+    // POSIX extensions
+    func kill(pid, sig)
+    func sigaction(signum, act, oldact)
+    func sigprocmask(how, set, oldset)
+    func sigemptyset(set)
+    func sigfillset(set)
+    func sigaddset(set, signum)
+    func sigdelset(set, signum)
+    func sigismember(set, signum)
+}

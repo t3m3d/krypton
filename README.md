@@ -455,19 +455,62 @@ The compiler has been self-hosting since the v0.1 series. Historical bootstrap b
 
 ## Native Headers (.krh)
 
-Seven headers ship in `headers/`:
+Headers in `headers/` declare external (C library / OS API) functions so
+Krypton programs can call them via FFI through the C-emitter pipeline.
+
+### C standard library
 
 | Header | Contents |
 |--------|----------|
-| `windows.krh` | Win32 system info, registry, console |
-| `stdio.krh` | C stdio — printf, fopen, fread |
-| `math.krh` | libm — sin, cos, sqrt, pow |
-| `string.krh` | C strings — strlen, strcpy, strstr |
-| `winsock.krh` | TCP/UDP networking (Winsock2) |
-| `process.krh` | Process and thread management |
-| `fileio.krh` | Windows file I/O — CreateFile, ReadFile |
+| `stdio.krh` | C stdio — printf, fopen, fread, fwrite, fgets |
+| `stdlib.krh` | malloc, free, atoi, atof, exit, system, getenv, qsort, rand |
+| `string.krh` | strlen, strcpy, strcat, strcmp, strstr, memcpy, memset |
+| `math.krh` | libm — sin, cos, sqrt, pow, log, exp, floor, ceil |
+| `time.krh` | time, ctime, strftime, clock, clock_gettime, nanosleep |
+| `ctype.krh` | isalpha, isdigit, isspace, tolower, toupper, etc. |
+| `errno.krh` | strerror, perror |
+| `assert.krh` | __assert_fail (Krypton's `assert` builtin is preferred) |
+| `signal.krh` | signal, raise, kill, sigaction |
+| `setjmp.krh` | setjmp, longjmp (Krypton's `try`/`catch` is preferred) |
 
-Usage: `import "headers/windows.krh"` then call functions directly.
+### POSIX (Linux / macOS)
+
+| Header | Contents |
+|--------|----------|
+| `unistd.krh` | read, write, close, fork, exec*, getpid, sleep, chdir |
+| `sys_stat.krh` | stat, fstat, mkdir, chmod, umask |
+| `fcntl.krh` | open, fcntl, posix_fadvise |
+| `dirent.krh` | opendir, readdir, closedir |
+| `sys_socket.krh` | POSIX sockets — socket, bind, listen, accept, send, recv |
+| `netinet_in.krh` | sockaddr_in, in6_addr, htons/htonl/ntohs/ntohl |
+| `arpa_inet.krh` | inet_pton, inet_ntop, inet_addr |
+| `netdb.krh` | getaddrinfo, gethostbyname, gai_strerror |
+| `sys_mman.krh` | mmap, munmap, mprotect, msync, shm_open |
+| `dlfcn.krh` | dlopen, dlsym, dlclose (link with `-ldl` on Linux) |
+| `pthread.krh` | pthread_create/join, mutex, cond, rwlock, once |
+
+### Windows
+
+| Header | Contents |
+|--------|----------|
+| `windows.krh` | Win32 system info, registry, console, PDH, toolhelp |
+| `fileio.krh` | Windows file I/O — CreateFile, ReadFile, FindFirstFile |
+| `process.krh` | CreateProcess, WaitForSingleObject, CreateThread, Sleep |
+| `winsock.krh` | TCP/UDP networking (Winsock2) — link with `-lws2_32` |
+| `iphlpapi.krh` | Windows IP Helper API — GetAdaptersInfo, GetIfTable |
+| `conio.krh` | _kbhit, _getch (Windows console) |
+
+### Third-party / project-specific
+
+| Header | Contents |
+|--------|----------|
+| `pcap.krh` | libpcap packet capture (Linux: `-lpcap`, Win: `-lwpcap`) |
+| `fetcher.krh` | Internal — kryofetch C backend (`kfetch_api.h`) |
+
+Usage: `import "headers/stdio.krh"` then call `printf("hello\n")` directly.
+The C-emitter pipeline picks up the corresponding `#include` and emits a
+matching FFI call. The native pipeline doesn't yet wire FFI — these headers
+are C-path-only today.
 
 ---
 

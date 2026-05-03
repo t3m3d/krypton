@@ -1,0 +1,16 @@
+// errno.krh — Krypton header for C errno + perror/strerror
+// Usage: import "headers/errno.krh"
+//
+// Note: `errno` itself is a thread-local int variable, not a function. To read
+// or write it via Krypton, use the helpers (or the C macro chain — depends on
+// platform; some implementations expose `__errno_location()` or `_errno()`).
+
+jxt {
+    c "errno.h"
+    c "string.h"
+    c "stdio.h"
+
+    // Diagnostic helpers
+    func strerror(errnum)
+    func perror(s)
+}

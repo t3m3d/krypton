@@ -1,0 +1,13 @@
+// assert.krh — Krypton header for C assert
+// Usage: import "headers/assert.krh"
+//
+// Note: in C, assert is a macro that may be compiled out with NDEBUG.
+// Calling it via Krypton's FFI gives the runtime version (always active).
+// Krypton also has its own assert(cond, msg) builtin which is generally
+// what user code wants — this header is for FFI interop only.
+
+jxt {
+    c "assert.h"
+
+    func __assert_fail(expr, file, line, func)
+}
