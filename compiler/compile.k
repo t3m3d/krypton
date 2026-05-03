@@ -3676,7 +3676,12 @@ func irBlockIR(tokens, pos, ntoks, lc, inFunc) {
 
 func irIfIR(tokens, pos, ntoks, lc, inFunc) {
     let pair = irExpr(tokens, pos, ntoks, lc)
-    let condCode = pairVal(pair)
+    // Wrap the condition in BUILTIN isTruthy so JUMPIFNOT sees a 0/1
+    // instead of testing raw pointer non-zero. Empty string ("") is a
+    // valid string pointer (non-zero) but should be FALSY per Krypton's
+    // truthiness rules — without this wrap, `if ""` takes the truthy
+    // branch on native (matches what the C-emit path does via kr_truthy()).
+    let condCode = pairVal(pair) + "BUILTIN isTruthy 1\n"
     let p = pairPos(pair)
     let elseLabel = irLabel("_else", pos)
     let endLabel = irLabel("_endif", pos)
@@ -3706,7 +3711,8 @@ func irWhileIR(tokens, pos, ntoks, lc, inFunc) {
     let endLabel = irLabel("_wend", pos)
     let nlc = lc + 1
     let pair = irExpr(tokens, pos, ntoks, nlc)
-    let condCode = pairVal(pair)
+    // Wrap condition in BUILTIN isTruthy — see irIfIR for rationale.
+    let condCode = pairVal(pair) + "BUILTIN isTruthy 1\n"
     let p = pairPos(pair)
     let bp = irBlockIR(tokens, p, ntoks, nlc, inFunc)
     let bodyCode = pairVal(bp)
