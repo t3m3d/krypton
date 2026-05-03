@@ -1,5 +1,5 @@
 // compile.k — Krypton-to-C compiler written in Krypton
-// Usage: kcc kompiler/compile.k <source.k> > output.c
+// Usage: kcc compiler/compile.k <source.k> > output.c
 //   then: gcc -o program output.c
 
 // === Pair helpers (value,pos) ===
@@ -4772,12 +4772,12 @@ just run {
             }
             let irLibText = sbToString(sbIRlib)
             if len(outFile) > 0 {
-                let kompilerDir = replace(headersDir, "headers", "bin")
+                let compilerDir = replace(headersDir, "headers", "bin")
                 let tmpIR  = "C:\\krypton\\tmp_kcc_build.ir"
                 let tmpOpt = "C:\\krypton\\tmp_kcc_build_opt.ir"
                 writeFile(tmpIR, irLibText)
-                let optCmd2  = kompilerDir + "\\optimize_host.exe " + tmpIR + " > " + tmpOpt
-                let codeCmd2 = kompilerDir + "\\x64_host_new.exe " + tmpOpt + " " + outFile
+                let optCmd2  = compilerDir + "\\optimize_host.exe " + tmpIR + " > " + tmpOpt
+                let codeCmd2 = compilerDir + "\\x64_host_new.exe " + tmpOpt + " " + outFile
                 shellRun(optCmd2)
                 shellRun(codeCmd2)
                 deleteFile(tmpIR)
@@ -4871,12 +4871,12 @@ just run {
 
         // -o mode: run full native pipeline internally
         if len(outFile) > 0 {
-            let kompilerDir = replace(headersDir, "headers", "bin")
+            let compilerDir = replace(headersDir, "headers", "bin")
             let tmpIR  = "C:\\krypton\\tmp_kcc_build.ir"
             let tmpOpt = "C:\\krypton\\tmp_kcc_build_opt.ir"
             writeFile(tmpIR, irText)
-            let optCmd  = kompilerDir + "\\optimize_host.exe " + tmpIR + " > " + tmpOpt
-            let codeCmd = kompilerDir + "\\x64_host_new.exe " + tmpOpt + " " + outFile
+            let optCmd  = compilerDir + "\\optimize_host.exe " + tmpIR + " > " + tmpOpt
+            let codeCmd = compilerDir + "\\x64_host_new.exe " + tmpOpt + " " + outFile
             shellRun(optCmd)
             shellRun(codeCmd)
             deleteFile(tmpIR)

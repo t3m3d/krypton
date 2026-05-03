@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # verify_macho_self.sh — smoke test for the self-hosted arm64 Mach-O emitter.
 #
-# Builds kompiler/macos_arm64/macho_arm64_self.k → host → /tmp/hello_self.macho directly.
+# Builds compiler/macos_arm64/macho_arm64_self.k → host → /tmp/hello_self.macho directly.
 # Krypton emits every byte including the ad-hoc SHA-256 code signature — no
 # clang, ld, or codesign in the user-program build path.
 #
@@ -30,7 +30,7 @@ OUT=/tmp/hello_self.macho
 HOST=/tmp/_macho_self_host
 
 echo "[1/4] Building macho_arm64_self host..."
-./kcc kompiler/macos_arm64/macho_arm64_self.k > /tmp/_macho_self.c
+./kcc compiler/macos_arm64/macho_arm64_self.k > /tmp/_macho_self.c
 "$CC" /tmp/_macho_self.c -o "$HOST" -lm -w
 rm -f /tmp/_macho_self.c
 

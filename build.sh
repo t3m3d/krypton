@@ -22,7 +22,7 @@ cd "$SCRIPT_DIR"
 
 # ── Config ──────────────────────────────────────────────────────────────────
 SEED_C="bootstrap/kcc_seed.c"
-COMPILE_K="kompiler/compile.k"
+COMPILE_K="compiler/compile.k"
 # KCC is the platform-specific binary (./kcc-arm64, ./kcc-x64, ...).
 # ./kcc itself is a thin dispatcher script that picks the right one at runtime.
 # Set after platform detection below.

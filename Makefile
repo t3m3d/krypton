@@ -45,13 +45,13 @@ seed:
 	    exit 1; \
 	fi
 	@if [ -x ./kcc ]; then KCC=./kcc; else KCC=./kcc.exe; fi; \
-	    $$KCC kompiler/compile.k > bootstrap/kcc_seed.c && \
+	    $$KCC compiler/compile.k > bootstrap/kcc_seed.c && \
 	    echo "regenerated bootstrap/kcc_seed.c ($$(wc -l < bootstrap/kcc_seed.c) lines)"
 
 .PHONY: clean
 clean:
 	rm -f kcc kcc.exe 2>/dev/null || true
-	rm -f kompiler/optimize_host.exe kompiler/x64_host.exe 2>/dev/null || true
+	rm -f compiler/optimize_host.exe compiler/x64_host.exe 2>/dev/null || true
 	rm -f *.kir *.ll *.o 2>/dev/null || true
 	@echo "Clean."
 
