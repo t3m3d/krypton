@@ -1,13 +1,21 @@
 # Krypton
 
-**A self-hosting programming language with a native compilation pipeline.**
+**A self-hosting programming language that emits native machine code without a C compiler in the loop.**
 
 > Version 1.4.0
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 ![Version](https://img.shields.io/badge/version-1.4.0-brightgreen)
 
-Krypton is a dynamically typed language with clean syntax, 147 built-in functions, and a compiler written in itself. It compiles to C for broad compatibility, and to native machine code via the **`--native`** backend (ELF on Linux, PE on Windows) — no external compiler in the critical path.
+Krypton is a dynamically typed language with clean syntax, 147 built-in functions, and a compiler written in itself. The **default** compilation pipeline produces a native executable on every supported platform — no gcc, no clang, no external toolchain at user-invocation time:
+
+| Platform | Backend | Output |
+|----------|---------|--------|
+| **Linux x86_64** | `kompiler/linux_x86/elf.k` | Static ELF, direct syscalls, no libc |
+| **Windows x86_64** | `kompiler/windows_x86/x64.k` | PE/COFF, kernel32-only via `runtime/krypton_rt.dll` |
+| **macOS arm64** | `kompiler/macos_arm64/macho_arm64_self.k` | Mach-O with in-Krypton SHA-256 ad-hoc code signing |
+
+C output (`--c`) and gcc-rebuild (`--gcc`, deprecated) remain as escape hatches but are not part of the normal flow.
 
 ```
 jxt
@@ -30,67 +38,39 @@ just run {
 
 ### Requirements
 
-**Nothing.** Both Linux and Windows ship prebuilt seed binaries in `bootstrap/`. `git clone` and run.
+**Nothing for end users.** All three supported platforms ship prebuilt seed binaries in `bootstrap/`. `git clone` and go.
 
-Optional:
-- **GCC** — only if you want the C backend (`./kcc x.k > x.c && gcc x.c -o x -lm`) or to rebuild from source on a platform without a prebuilt seed.
-- **clang / LLVM** — only for the `--llvm` backend.
-- **TDM-GCC / MSYS2 mingw-w64** — only if you want a Windows from-source rebuild via `build_v141.bat`.
+| Platform | Files in `bootstrap/` | Compiler at install time |
+|----------|----------------------|--------------------------|
+| Linux x86_64 | `kcc_seed_linux_x86_64`, `elf_host_linux_x86_64`, `optimize_host_linux_x86_64` | none (pure copy) |
+| Windows x86_64 | `kcc_seed_windows_x86_64.exe`, `x64_host_windows_x86_64.exe`, `optimize_host_windows_x86_64.exe` | none (pure copy) |
+| macOS arm64 | `kcc_seed_macos_aarch64` | none (pure copy) |
+
+**Optional, for development only:**
+- **gcc** — one-time bootstrap if you edit `kompiler/linux_x86/elf.k` or `kompiler/windows_x86/x64.k` and need to rebuild a seed binary. End users never need it.
+- **LLVM/clang** — only for the optional `--llvm` backend.
+- **macOS Xcode CLT** — provides `xcrun` for the macOS arm64 self-build path. (Note: the macho_arm64_self.k pipeline emits Mach-O directly with in-Krypton SHA-256 ad-hoc signing — no clang or codesign invocation.)
 
 ---
 
 ### Linux / WSL
 
-One-line install (clones, builds, symlinks `kcc` into `/usr/local/bin`):
-
 ```bash
 git clone https://github.com/t3m3d/krypton && cd krypton && ./install.sh
 ```
 
-`./build.sh` picks one of two paths:
+(or `./build.sh` for a non-installing build).
 
-- **Prebuilt seed (no gcc required)**: if `bootstrap/kcc_seed_<os>_<arch>` exists for your platform (currently `linux_x86_64` ships in the repo), it's copied directly as `./kcc`. Pure `cp` — no compiler involved.
-- **Source seed (gcc required)**: otherwise compiles `bootstrap/kcc_seed.c` (pre-generated C source of the self-hosting compiler) with gcc, then self-rebuilds via `compile.k`.
-
-After install, native ELF compilation is **fully gcc-free** via the `--native` flag:
+`./build.sh` copies `bootstrap/kcc_seed_linux_x86_64` directly as `./kcc-x64`. No compiler invoked. Smoke test runs `examples/fibonacci.k` through the native ELF pipeline:
 
 ```bash
-kcc.sh --native examples/hello.k -o hello
-./hello                                 # static Linux ELF, no libc, no gcc
+kcc.sh hello.k                          # default native pipeline (no gcc)
+./hello                                  # static ELF, direct syscalls, no libc
 ```
 
-This pipeline (`compile.k → IR → kompiler/elf.k → x86-64 ELF`) emits direct Linux syscalls, no library dependencies.
+The pipeline is `compile.k → .kir → optimize.k → kompiler/linux_x86/elf.k → ELF binary`.
 
-**Builtins supported by the ELF backend:** `kp`, `printErr`, `toStr`, `toInt`, `length`, `len`, `split`, `range`, `arg`, `argCount`, `substring`, `sbNew`, `sbAppend`, `sbToString`, `readFile`, `writeFile`, `charCode`, `fromCharCode`, `isDigit`, `isAlpha`, `abs`, `exit`, `startsWith`, plus `s[i]` indexing. Tested with 23+ programs including `examples/fibonacci.k`. More builtins ship as the runtime grows.
-
-The traditional C path still works as a fallback if you have gcc (`./kcc source.k > out.c && gcc out.c -o prog -lm`).
-
-### macOS
-
-```bash
-git clone https://github.com/t3m3d/krypton && cd krypton && ./build.sh
-```
-
-`./build.sh` falls through to the source-seed path (no prebuilt macOS binary ships yet) and compiles `bootstrap/kcc_seed.c` with whatever C compiler is installed — gcc, or clang if gcc isn't available. Either works.
-
-**Compile-and-run:**
-
-```bash
-./kcc.sh hello.k                # default: native Mach-O via macho.k → clang
-./hello
-```
-
-The default pipeline is `.k → kcc --ir → macho.k → .s → clang → Mach-O`. `clang` is invoked as the assembler+linker (not as a C compiler) — `kompiler/macho.k` emits AT&T-syntax assembly text and clang turns it into a code-signed Mach-O ready to run.
-
-**Why this differs from Linux/Windows:** macOS Tahoe (26.x)+ AMFI rejects hand-rolled static binaries even when properly code-signed. Apple effectively requires dyld-linked Mach-Os, which clang+ld64 produce automatically. Going through clang avoids reproducing all of dyld's scaffolding ourselves.
-
-**`./verify_macho.sh`** runs both a hardcoded hello-world test and an IR-driven test from a real `.k` source.
-
-**Requirements on macOS:** Xcode Command Line Tools (`xcode-select --install`) provide `clang`, `as`, `ld`, and `codesign`. That's all you need.
-
----
-
-### Windows
+### Windows x86_64
 
 ```
 git clone https://github.com/t3m3d/krypton
@@ -98,21 +78,33 @@ cd krypton
 bootstrap.bat
 ```
 
-`bootstrap.bat` copies the prebuilt binaries (`kcc.exe`, `optimize_host.exe`, `x64_host.exe`) from `bootstrap/` into place. **No C compiler required.**
+`bootstrap.bat` copies `kcc_seed_windows_x86_64.exe`, `x64_host_windows_x86_64.exe`, and `optimize_host_windows_x86_64.exe` from `bootstrap/` into place. No compiler required.
 
-For a from-source rebuild (with new icon, version bump, etc.), use `build_v141.bat` instead — that requires [TDM-GCC](https://jmeubank.github.io/tdm-gcc/) (or MSYS2 mingw-w64).
-
-Native PE compilation (no gcc):
 ```
-kcc.sh --native hello.k -o hello.exe
+kcc.sh hello.k                          # default native pipeline (no gcc)
+hello.exe                                # PE/COFF, kernel32-only
 ```
 
-LLVM IR backend (optional):
+The pipeline is `compile.k → .kir → optimize.k → kompiler/windows_x86/x64.k → PE/COFF`. Output exes import only `kernel32.dll` via the bundled `runtime/krypton_rt.dll`.
+
+For a from-source rebuild of the seed binaries, `build_v141.bat` uses [TDM-GCC](https://jmeubank.github.io/tdm-gcc/) or MSYS2 mingw-w64. End users don't need it.
+
+### macOS arm64
+
+```bash
+git clone https://github.com/t3m3d/krypton && cd krypton && ./build.sh
 ```
-winget install LLVM.LLVM
-kcc.sh --llvm hello.k -o hello.ll
-clang hello.ll -o hello.exe
+
+The macOS pipeline is `compile.k → .kir → kompiler/macos_arm64/macho_arm64_self.k → Mach-O`. The Krypton-side emitter writes the entire Mach-O — load commands, `__TEXT`/`__DATA`/`__LINKEDIT`, chained fixups — and the SHA-256 ad-hoc code signature, all in Krypton. **No clang, no `as`, no `ld`, no external `codesign` invocation.**
+
+```bash
+kcc.sh hello.k -o hello                  # default: native arm64 Mach-O
+./hello
 ```
+
+`./verify_macho_self.sh` runs the end-to-end self-emitted Mach-O smoke tests.
+
+Why this differs in implementation from Linux/Windows: macOS Tahoe+ AMFI rejects unsigned and improperly-formatted Mach-Os, so the emitter has to produce a properly chained-fixups dyld-linked binary AND embed a valid code signature. Both happen in pure Krypton.
 
 ---
 
@@ -141,11 +133,14 @@ Per-platform pipeline (chosen automatically):
 ### Other compilation modes (opt-in)
 
 ```bash
-kcc.sh --c hello.k                       # emit C source to stdout (legacy)
+kcc.sh --c hello.k                       # emit C source to stdout (debug/porting aid)
 kcc.sh --c hello.k -o hello.c            # emit C source to a file
-kcc.sh --gcc hello.k                     # produce a binary, but route through C+gcc internally
 kcc.sh --llvm hello.k -o hello.ll        # emit LLVM IR; pair with `clang hello.ll -o hello`
 kcc.sh --ir hello.k                      # emit Krypton IR (.kir) to stdout
+
+# DEPRECATED — emits a deprecation warning. Removed once each platform's
+# native rebuild fully replaces gcc in the lazy-rebuild fallback.
+kcc.sh --gcc hello.k                     # route through C+gcc internally
 ```
 
 ---
@@ -298,29 +293,33 @@ Float builtins: `fadd`, `fsub`, `fmul`, `fdiv`, `fsqrt`, `ffloor`, `fceil`, `fro
 
 ## Compilation Pipeline
 
-The default `kcc.sh source.k` invocation produces a native binary. The exact pipeline depends on the host OS:
+The default `kcc.sh source.k` invocation produces a native binary using a Krypton-only emitter. No C compiler or linker is invoked at user-call time on any of the three supported platforms:
 
 ```
 source.k
     │
-    ├─ Linux  (default):     source.k → .kir → kompiler/elf.k  → ELF static binary
-    │                        (direct syscalls, no libc, no linker)
+    ├─ Linux x86_64   (default):  source.k → .kir → optimize.k →
+    │                              kompiler/linux_x86/elf.k → ELF binary
+    │                              (direct syscalls, no libc, no linker)
     │
-    ├─ Windows (default):    source.k → .kir → kompiler/x64.k  → PE/COFF (.exe)
-    │                        (uses runtime/krypton_rt.dll, kernel32-only)
+    ├─ Windows x86_64 (default):  source.k → .kir → optimize.k →
+    │                              kompiler/windows_x86/x64.k → PE/COFF
+    │                              (kernel32-only via runtime/krypton_rt.dll)
     │
-    ├─ macOS (default):      source.k → .kir → kompiler/macho.k → .s → clang → Mach-O
-    │                        (clang invoked as assembler+linker; required because
-    │                         macOS Tahoe AMFI rejects hand-rolled static binaries)
+    ├─ macOS arm64    (default):  source.k → .kir →
+    │                              kompiler/macos_arm64/macho_arm64_self.k →
+    │                              Mach-O (in-Krypton SHA-256 ad-hoc signing)
     │
-    ├─ --c (legacy):         source.k → C source (stdout or -o file)
-    │                        Pair with `gcc out.c -o out -lm` to build manually.
+    ├─ --c:                       source.k → C source (stdout or -o file)
+    │                             Debug aid / porting only. Pair with
+    │                             `gcc out.c -o out -lm` to build manually.
     │
-    ├─ --gcc:                source.k → C source → gcc → native binary
-    │                        Same target as default but routed through C internally.
+    ├─ --llvm:                    source.k → .kir → optimize.k →
+    │                              kompiler/llvm.k → .ll
+    │                              Pair with `clang hello.ll -o hello`.
     │
-    └─ --llvm:               source.k → .kir → .kir (opt) → kompiler/llvm.k → .ll
-                             Pair with `clang hello.ll -o hello`.
+    └─ --gcc (DEPRECATED):        source.k → C source → gcc → native binary
+                                  Emits a deprecation warning. Will be removed.
 ```
 
 ### Krypton IR
@@ -380,22 +379,27 @@ STORE/LOAD elimination, empty jump removal, unused local removal.
 ```
 krypton/
 ├── kompiler/
-│   ├── compile.k          # Self-hosting compiler (4,735 lines)
-│   ├── optimize.k         # IR optimizer (335 lines)
-│   ├── x64.k              # Native PE/COFF backend, Windows (5,274 lines)
-│   ├── elf.k              # Native ELF64 backend, Linux (2,207 lines)
-│   ├── llvm.k             # LLVM IR backend (441 lines)
-│   └── run.k              # Interpreter (2,084 lines)
+│   ├── compile.k                  # Self-hosting frontend
+│   ├── optimize.k                 # IR optimizer
+│   ├── llvm.k                     # LLVM IR backend (optional)
+│   ├── run.k                      # Interpreter
+│   ├── linux_x86/elf.k            # Linux x86_64 ELF emitter
+│   ├── windows_x86/x64.k          # Windows x86_64 PE/COFF emitter
+│   └── macos_arm64/macho_arm64_self.k  # macOS arm64 Mach-O emitter (with signing)
 ├── runtime/
 │   ├── krypton_rt.k       # Krypton runtime (Phase 2 — self-hosted)
 │   └── krypton_rt.dll     # Windows bootstrap runtime (kernel32-only, hand-emitted by x64.k)
-├── bootstrap/                              # Cold-start prebuilts — no compiler needed to install
-│   ├── kcc_seed.c                          # Pre-generated C source of compile.k (fallback)
-│   ├── kcc_seed_linux_x86_64               # Prebuilt Linux kcc ELF
-│   ├── elf_host_linux_x86_64               # Prebuilt Linux ELF emitter
-│   ├── kcc_seed_windows_x86_64.exe         # Prebuilt Windows kcc PE
-│   ├── x64_host_windows_x86_64.exe         # Prebuilt Windows PE emitter
-│   └── optimize_host_windows_x86_64.exe    # Prebuilt IR optimizer
+├── bootstrap/                                # Prebuilt seeds — pure-copy install, no compiler
+│   ├── kcc_seed.c                            # Pre-generated C source of compile.k (development fallback)
+│   ├── kcc_seed_linux_x86_64                 # Linux kcc ELF
+│   ├── elf_host_linux_x86_64                 # Linux ELF emitter
+│   ├── optimize_host_linux_x86_64            # Linux IR optimizer
+│   ├── kcc_seed_windows_x86_64.exe           # Windows kcc PE
+│   ├── x64_host_windows_x86_64.exe           # Windows PE/COFF emitter
+│   ├── optimize_host_windows_x86_64.exe      # Windows IR optimizer
+│   ├── kcc_seed_macos_aarch64                # macOS arm64 kcc Mach-O
+│   ├── REBUILD_SEED.md                       # How/when to rebuild seeds
+│   └── sanitize_ir.py                        # IR pre-processor used during seed bootstrap
 ├── stdlib/                # Standard library modules
 ├── examples/              # Example programs
 ├── headers/               # .krh module headers
@@ -404,8 +408,9 @@ krypton/
 ├── versions/              # Historical bootstrap binaries
 ├── build.sh               # Linux/macOS/WSL build (uses prebuilt seed when available)
 ├── bootstrap.bat          # Windows install (copies prebuilt binaries from bootstrap/)
-├── build_v141.bat         # Windows from-source rebuild (requires TDM-GCC)
+├── build_v141.bat         # Windows from-source rebuild (requires TDM-GCC, dev only)
 ├── install.sh             # Linux install (build + symlink to /usr/local/bin)
+├── kcc.sh                 # Compiler driver (dispatches to per-platform native emitter)
 ├── Makefile               # Cross-platform make wrapper around build scripts
 ├── CHANGELOG.md           # Full version history
 ├── RELEASE_NOTES_*.md     # Per-release notes
@@ -417,13 +422,21 @@ krypton/
 
 ## Bootstrap
 
-Krypton solves the self-hosting chicken-and-egg problem by shipping prebuilt seed binaries in `bootstrap/`. A fresh clone needs **no compiler** to install on either Linux or Windows.
+Krypton solves the self-hosting chicken-and-egg problem by shipping prebuilt seed binaries in `bootstrap/` for every supported platform. A fresh clone needs **no compiler** to install.
 
-**Linux / WSL:** `build.sh` copies `bootstrap/kcc_seed_linux_x86_64` directly as `./kcc` — pure `cp`, no gcc invoked. Falls back to compiling `bootstrap/kcc_seed.c` with gcc only if the prebuilt is missing for the host platform (e.g., aarch64). After that, `kcc.sh --native` uses `bootstrap/elf_host_linux_x86_64` (the prebuilt ELF emitter), so the entire `--native` pipeline is gcc-free too.
+**End-user install (no compiler on any platform):**
 
-**Windows:** `bootstrap.bat` copies `kcc_seed_windows_x86_64.exe`, `x64_host_windows_x86_64.exe`, and `optimize_host_windows_x86_64.exe` into place. `kcc.sh --native` uses those prebuilts directly. From-source rebuild (icon updates, version bumps) lives in `build_v141.bat` and requires TDM-GCC.
+| Platform | Install command | What it does |
+|----------|-----------------|--------------|
+| Linux x86_64 | `./build.sh` | `cp bootstrap/kcc_seed_linux_x86_64 ./kcc-x64`, copies elf_host + optimize_host into place, smoke-tests fibonacci |
+| Windows x86_64 | `bootstrap.bat` | copies `kcc_seed_*.exe`, `x64_host_*.exe`, `optimize_host_*.exe` |
+| macOS arm64 | `./build.sh` | `cp bootstrap/kcc_seed_macos_aarch64 ./kcc-arm64` (M1/M2/M3) |
 
-**macOS:** falls through to source-seed mode (no prebuilt yet). Requires gcc/clang.
+Pure `cp` — no compiler invoked at install. After that, `kcc.sh source.k` runs the platform's native emitter end-to-end with no C tools.
+
+**Re-seeding (developer-only, one-time gcc bootstrap):**
+
+If you edit `kompiler/<platform>/<emitter>.k` you may need to rebuild the seed. The exact steps live in [bootstrap/REBUILD_SEED.md](bootstrap/REBUILD_SEED.md). Linux currently still needs gcc once for this; the path to dropping it entirely (a pure-Krypton self-bootstrap of `elf.k`) is documented there.
 
 The compiler has been self-hosting since the v0.1 series. Historical bootstrap binaries live in `versions/`.
 
