@@ -412,7 +412,6 @@ krypton/
 ├── extensions/            # Prebuilt VS Code extension (.vsix)
 ├── krypton-lang/          # Source for the VS Code extension; syntaxes/ is a git submodule
 │                          # pinned to https://github.com/t3m3d/krypton-tmLanguage
-├── linguist/              # Materials for the GitHub Linguist PR (samples + PR description)
 ├── assets/                # Windows icon resource (krypton_rc.o)
 ├── installer/             # Windows installer build artifacts
 ├── scripts/               # Dev helpers — sweep_examples.sh, sweep_algorithms.sh, build_vsix.sh, …

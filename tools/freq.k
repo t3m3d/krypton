@@ -7,7 +7,10 @@ just run {
     } else {
         let content = readFile(arg(0))
         let lc = lineCount(content)
-        let env = ""
+        // envNew(), not "" — the native runtime treats "" as a non-NULL
+        // string ptr and would crash on the first envGet trying to read
+        // the linked-list head.
+        let env = envNew()
         let uniqLines = ""
         let uniqCount = 0
 
