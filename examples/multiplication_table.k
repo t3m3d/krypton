@@ -1,32 +1,23 @@
 // Print a multiplication table up to N×N.
+// Builds each row as a single string concatenation.
 
-func pad(s, w) {
-    let out = "" + s
-    while len(out) < w {
-        out = " " + out
-    }
-    emit out
+func cell(n) {
+    let s = "" + n
+    if len(s) == 1 { emit "   " + s }
+    if len(s) == 2 { emit "  " + s }
+    if len(s) == 3 { emit " " + s }
+    emit s
 }
 
 just run {
     let n = 10
-
-    // header row
-    let header = "     "
-    let i = 1
-    while i <= n {
-        header = header + pad("" + i, 5)
-        i += 1
-    }
-    kp(header)
-
-    // body
     let r = 1
     while r <= n {
-        let row = pad("" + r, 4) + "|"
+        let row = "" + r + " |"
+        if r < 10 { row = " " + row }
         let c = 1
         while c <= n {
-            row = row + pad("" + (r * c), 5)
+            row = row + cell(r * c)
             c += 1
         }
         kp(row)

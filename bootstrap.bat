@@ -33,7 +33,14 @@ REM Smoke test
 kcc.exe --version 2>nul
 echo.
 echo Bootstrap complete. Try:
-echo   kcc.exe examples\hello.k                         (emit C to stdout)
-echo   bash kcc.sh --native examples\hello.k -o hello.exe   (native PE, no gcc)
+echo   kcc.exe examples\hello.k                              (emit C source to stdout)
+echo   bash kcc.sh --native examples/hello.k -o hello.exe    (native PE — use forward slashes in bash!)
+echo   hello.exe                                              (run the native binary)
+echo.
+echo Notes:
+echo   - In bash, use forward slashes (examples/hello.k). Bash treats \h as escape.
+echo   - Run kcc.sh from cmd/PowerShell-launched bash (git-bash, MSYS2). Do NOT
+echo     run it from WSL bash on Windows: WSL bash will produce a Linux ELF
+echo     instead of a Windows PE/COFF, and Windows will reject the result.
 
 endlocal
