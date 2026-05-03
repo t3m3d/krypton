@@ -1024,10 +1024,10 @@ func compilePrimary(tokens, pos, ntoks) {
 
     if tt == "KW" {
         if tv == "true" {
-            emit "kr_str(\"1\")," + (pos + 1)
+            emit "kr_str(\"true\")," + (pos + 1)
         }
         if tv == "false" {
-            emit "kr_str(\"0\")," + (pos + 1)
+            emit "kr_str(\"false\")," + (pos + 1)
         }
         if tv == "null" {
             emit "((char*)0)," + (pos + 1)
@@ -3344,12 +3344,17 @@ func irPrimary(tokens, pos, ntoks, lc) {
         emit irInterpToIR(tv, pos, lc) + "," + (pos + 1)
     }
 
-    // Boolean
+    // Boolean literals — store as the strings "true"/"false" so kp(true)
+    // prints "true" instead of "1". The truthiness rule already treats
+    // "false" as falsy and any non-empty/non-"0"/non-"false" string as
+    // truthy, so `if true` / `if false` still work as expected.
+    // Comparison ops, isTruthy, hasField, etc. continue to return "1"/"0";
+    // see stdlib/booleans.k for normalization helpers.
     if tok == "KW:true" {
-        emit "PUSH 1\n," + (pos + 1)
+        emit "PUSH \"true\"\n," + (pos + 1)
     }
     if tok == "KW:false" {
-        emit "PUSH 0\n," + (pos + 1)
+        emit "PUSH \"false\"\n," + (pos + 1)
     }
 
     // Grouped expression

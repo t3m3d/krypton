@@ -1400,42 +1400,90 @@ func krAbsSize() { emit 14 }
 
 // kr_istruthy: dispatch on smart-int, return 1 if value is "truthy" else 0.
 //
-// Krypton truthiness:
+// Krypton truthiness (per Spec.md):
 //   - small int (RDI < 0x40000000):  truthy iff RDI != 0
-//   - string ptr (RDI >= 0x40000000): truthy iff first byte != 0 (non-empty)
+//   - string ptr (RDI >= 0x40000000): truthy iff string is NOT one of:
+//                                       ""  (empty)
+//                                       "0" (the digit zero)
+//                                       "false"
 //
-// The previous version used kr_atoi for both paths, which made
-// `isTruthy("hello")` return 0 (atoi gives 0 on non-numeric strings) →
-// every non-numeric non-empty string was wrongly falsy. Test_bool_vals
-// would fail every assertion involving a non-numeric truthy value.
+// Previously this only checked the empty case, so isTruthy("0") and
+// isTruthy("false") wrongly returned 1. The boolean-literal change in
+// 1.4.0 (true → "true", false → "false") made this a load-bearing bug
+// — `if false { ... }` would run because "false" looked truthy.
 //
-// Layout (27 bytes):
-//   [0-6]   48 81 FF 00 00 00 40   CMP RDI, 0x40000000           (7)
-//   [7-8]   7C 08                  JL +8 → .int at 17            (2)
-//   .str at 9:
-//   [9-11]  80 3F 00               CMP byte [RDI], 0             (3)
-//   [12-14] 0F 95 C0               SETNE AL                       (3)
-//   [15-16] EB 06                  JMP +6 → .end at 23            (2)
-//   .int at 17:
-//   [17-19] 48 85 FF               TEST RDI, RDI                  (3)
-//   [20-22] 0F 95 C0               SETNE AL                       (3)
-//   .end at 23:
-//   [23-25] 0F B6 C0               MOVZX EAX, AL                  (3)
-//   [26]    C3                     RET                            (1)
+// Layout (79 bytes):
+//   [0-6]   CMP RDI, 0x40000000             (7)
+//   [7-8]   7D 0A   JGE .str_path → 19      (2)
+//   .int_path at 9:
+//   [9-11]  TEST RDI, RDI                   (3)
+//   [12-14] SETNE AL                        (3)
+//   [15-17] MOVZX EAX, AL                   (3)
+//   [18]    RET                             (1)
+//   .str_path at 19:
+//   [19-21] CMP byte [RDI], 0               (3)
+//   [22-23] 74 2E   JZ .falsy → 70          (2)
+//   [24-26] CMP byte [RDI], '0'             (3)
+//   [27-28] 75 06   JNE .not_zero → 35      (2)
+//   [29-32] CMP byte [RDI+1], 0             (4)
+//   [33-34] 74 23   JZ .falsy → 70          (2)
+//   .not_zero at 35:
+//   [35-37] CMP byte [RDI], 'f'             (3)
+//   [38-39] 75 21   JNE .truthy → 73        (2)
+//   [40-43] CMP byte [RDI+1], 'a'           (4)
+//   [44-45] 75 1B   JNE .truthy → 73        (2)
+//   [46-49] CMP byte [RDI+2], 'l'           (4)
+//   [50-51] 75 15   JNE .truthy → 73        (2)
+//   [52-55] CMP byte [RDI+3], 's'           (4)
+//   [56-57] 75 0F   JNE .truthy → 73        (2)
+//   [58-61] CMP byte [RDI+4], 'e'           (4)
+//   [62-63] 75 09   JNE .truthy → 73        (2)
+//   [64-67] CMP byte [RDI+5], 0             (4)
+//   [68-69] 75 03   JNE .truthy → 73        (2)
+//   .falsy at 70:
+//   [70-71] XOR EAX, EAX                    (2)
+//   [72]    RET                             (1)
+//   .truthy at 73:
+//   [73-77] MOV EAX, 1                      (5)
+//   [78]    RET                             (1)
 func emitKrIstruthyCode(thisVAddr, atoiVAddr) {
     let c = ""
-    c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDword(0x40000000)  // [0-6]   CMP RDI, 0x40000000
-    c = c + hexByte(0x7C) + hexByte(0x08)                                          // [7-8]   JL → .int at 17
-    c = c + hexByte(0x80) + hexByte(0x3F) + hexByte(0x00)                          // [9-11]  CMP byte [RDI], 0
+    c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDword(0x40000000)  // [0-6] CMP RDI, 0x40000000
+    c = c + hexByte(0x7D) + hexByte(0x0A)                                          // [7-8] JGE → .str_path at 19
+    // .int_path at 9
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xFF)                          // [9-11] TEST RDI, RDI
     c = c + hexByte(0x0F) + hexByte(0x95) + hexByte(0xC0)                          // [12-14] SETNE AL
-    c = c + hexByte(0xEB) + hexByte(0x06)                                          // [15-16] JMP → .end at 23
-    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xFF)                          // [17-19] TEST RDI, RDI
-    c = c + hexByte(0x0F) + hexByte(0x95) + hexByte(0xC0)                          // [20-22] SETNE AL
-    c = c + hexByte(0x0F) + hexByte(0xB6) + hexByte(0xC0)                          // [23-25] MOVZX EAX, AL
-    c = c + hexByte(0xC3)                                                          // [26]    RET
+    c = c + hexByte(0x0F) + hexByte(0xB6) + hexByte(0xC0)                          // [15-17] MOVZX EAX, AL
+    c = c + hexByte(0xC3)                                                          // [18] RET
+    // .str_path at 19
+    c = c + hexByte(0x80) + hexByte(0x3F) + hexByte(0x00)                          // [19-21] CMP [RDI], 0
+    c = c + hexByte(0x74) + hexByte(0x2E)                                          // [22-23] JZ → .falsy at 70
+    c = c + hexByte(0x80) + hexByte(0x3F) + hexByte(0x30)                          // [24-26] CMP [RDI], '0'
+    c = c + hexByte(0x75) + hexByte(0x06)                                          // [27-28] JNE → .not_zero at 35
+    c = c + hexByte(0x80) + hexByte(0x7F) + hexByte(0x01) + hexByte(0x00)          // [29-32] CMP [RDI+1], 0
+    c = c + hexByte(0x74) + hexByte(0x23)                                          // [33-34] JZ → .falsy at 70
+    // .not_zero at 35: check for "false\0"
+    c = c + hexByte(0x80) + hexByte(0x3F) + hexByte(0x66)                          // [35-37] CMP [RDI], 'f'
+    c = c + hexByte(0x75) + hexByte(0x21)                                          // [38-39] JNE → .truthy at 73
+    c = c + hexByte(0x80) + hexByte(0x7F) + hexByte(0x01) + hexByte(0x61)          // [40-43] CMP [RDI+1], 'a'
+    c = c + hexByte(0x75) + hexByte(0x1B)                                          // [44-45] JNE → .truthy at 73
+    c = c + hexByte(0x80) + hexByte(0x7F) + hexByte(0x02) + hexByte(0x6C)          // [46-49] CMP [RDI+2], 'l'
+    c = c + hexByte(0x75) + hexByte(0x15)                                          // [50-51] JNE → .truthy at 73
+    c = c + hexByte(0x80) + hexByte(0x7F) + hexByte(0x03) + hexByte(0x73)          // [52-55] CMP [RDI+3], 's'
+    c = c + hexByte(0x75) + hexByte(0x0F)                                          // [56-57] JNE → .truthy at 73
+    c = c + hexByte(0x80) + hexByte(0x7F) + hexByte(0x04) + hexByte(0x65)          // [58-61] CMP [RDI+4], 'e'
+    c = c + hexByte(0x75) + hexByte(0x09)                                          // [62-63] JNE → .truthy at 73
+    c = c + hexByte(0x80) + hexByte(0x7F) + hexByte(0x05) + hexByte(0x00)          // [64-67] CMP [RDI+5], 0
+    c = c + hexByte(0x75) + hexByte(0x03)                                          // [68-69] JNE → .truthy at 73
+    // .falsy at 70
+    c = c + hexByte(0x31) + hexByte(0xC0)                                          // [70-71] XOR EAX, EAX
+    c = c + hexByte(0xC3)                                                          // [72] RET
+    // .truthy at 73
+    c = c + hexByte(0xB8) + hexDword(1)                                            // [73-77] MOV EAX, 1
+    c = c + hexByte(0xC3)                                                          // [78] RET
     emit c
 }
-func krIstruthySize() { emit 27 }
+func krIstruthySize() { emit 79 }
 
 // kr_trim: strip leading and trailing space (0x20) characters from s.
 // Returns a fresh allocation. Tab/newline/CR not handled (rare in trim usage).
@@ -2862,7 +2910,7 @@ func opByteSize(op) {
     if op == "LTE"        { emit 44 }
     if op == "GTE"        { emit 44 }
     if op == "NEG"        { emit 5 }    // POP RAX + NEG RAX + PUSH RAX
-    if op == "NOT"        { emit 12 }   // POP RAX + TEST + SETE AL + MOVZX RAX,AL + PUSH RAX
+    if op == "NOT"        { emit 10 }   // POP RDI + CALL kr_istruthy + XOR EAX,1 + PUSH RAX
     if op == "RETURN"     { emit 6 }    // POP RAX (1) + MOV RSP,RBP (3) + POP RBP (1) + RET (1)
     if op == "BUILTIN_KP" { emit 25 }   // smart: POP+CMP+JAE+kr_str_int+kr_print+PUSH 0
     if op == "BUILTIN_TOSTR" { emit 7 } // POP RDI (1) + CALL d32 (5) + PUSH RAX (1)
@@ -3680,13 +3728,17 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             c = c + hexByte(0x48) + hexByte(0xF7) + hexByte(0xD8)
             c = c + hexByte(0x50)
         } else if op == "NOT" {
-            // POP RAX ; TEST RAX,RAX ; SETE AL ; MOVZX RAX,AL ; PUSH RAX (12 bytes)
-            // Returns 1 if RAX was 0 (falsy), else 0.
-            c = c + hexByte(0x58)
-            c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)
-            c = c + hexByte(0x0F) + hexByte(0x94) + hexByte(0xC0)
-            c = c + hexByte(0x48) + hexByte(0x0F) + hexByte(0xB6) + hexByte(0xC0)
-            c = c + hexByte(0x50)
+            // Use kr_istruthy then negate, so `!"false"` and `!"0"` (which
+            // are non-zero string pointers but falsy per Krypton's truthiness
+            // rules) negate to 1, not 0. Previous TEST-RAX-then-SETE form
+            // checked pointer-non-zero, missing the falsy-string cases.
+            //
+            // POP RDI ; CALL kr_istruthy ; XOR EAX, 1 ; PUSH RAX (10 bytes)
+            c = c + hexByte(0x5F)                                          // POP RDI
+            let itDispNot = krIstruthyVAddr - (funcStartVAddr + off + 6)
+            c = c + hexByte(0xE8) + hexDword(itDispNot)                    // CALL kr_istruthy
+            c = c + hexByte(0x83) + hexByte(0xF0) + hexByte(0x01)          // XOR EAX, 1 (zero-extended)
+            c = c + hexByte(0x50)                                          // PUSH RAX
         } else if op == "BUILTIN_KP" {
             // Smart kp: convert int → string before printing.
             // Layout (25 bytes):

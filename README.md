@@ -281,6 +281,32 @@ try {
 }
 ```
 
+### Booleans
+
+```
+kp(true)               // "true"
+kp(false)              // "false"
+
+let flag = true
+if flag       { kp("yes") }
+if !false     { kp("yes") }
+if "0"        { kp("never") }     // "0" is falsy
+if "false"    { kp("never") }     // "false" is falsy
+if ""         { kp("never") }     // empty is falsy
+if "anything" { kp("yes") }       // any other non-empty is truthy
+```
+
+`true` and `false` are language keywords — they evaluate to the strings
+`"true"` and `"false"`. There's no distinct boolean runtime type; the
+truthiness rule (`""` / `"0"` / `"false"` / `0` are falsy, everything else
+truthy) carries the semantics through `if`, `while`, `!`, and `isTruthy`.
+
+Comparison and logical ops (`==`, `<`, `&&`, etc.) and builtins like
+`hasField` / `isDigit` return `"1"` / `"0"` for backward compatibility. So
+`true == (5 > 3)` is *false* (`"true"` ≠ `"1"`) — both are truthy, but
+they're different value forms. Use `stdlib/booleans.k`'s
+`bool(v)` / `boolEq(a, b)` / `kpBool(v)` helpers when you want to normalize.
+
 ### Floats
 
 ```
