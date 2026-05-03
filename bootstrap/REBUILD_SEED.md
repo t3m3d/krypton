@@ -1,68 +1,116 @@
-# Rebuilding `bootstrap/elf_host_linux_x86_64`
+# Rebuilding the bootstrap seeds
 
-The seed is the gcc-built ELF binary that compiles every Linux native build.
-Today's seed predates several `compile.k` and `elf.k` fixes. To pick up those
-fixes the seed must be rebuilt.
+`bootstrap/` ships pre-built binaries so end users don't need a C compiler
+to install Krypton. Most clones just copy a seed into place — no rebuild
+required. This file is for the rare cases where you've edited
+`compiler/compile.k` or one of the per-platform emitters and need to refresh
+the corresponding seed.
 
-## Easy path: Linux box with gcc
+## What's in `bootstrap/`
+
+| File | Used by | Built from |
+|---|---|---|
+| `kcc_seed.c` | gcc fallback path on platforms without a binary seed | hand-generated from `compile.k` (committed snapshot) |
+| `kcc_seed_linux_x86_64` | `build.sh` on Linux x86_64 → `./kcc-x64` | `compile.k` via `gcc` |
+| `kcc_seed_linux_aarch64` | `build.sh` on Linux ARM64 → `./kcc-linux-arm64` (C path only — no native backend yet) | `compile.k` via `gcc` |
+| `kcc_seed_macos_aarch64` | `build.sh` on macOS arm64 → `./kcc-arm64` | `compile.k` via `clang` |
+| `kcc_seed_windows_x86_64.exe` | `bootstrap.bat` → `kcc.exe` | `compile.k` via TDM-GCC / MinGW |
+| `elf_host_linux_x86_64` | `kcc.sh --native` on Linux | `compiler/linux_x86/elf.k` via `gcc` |
+| `optimize_host_linux_x86_64` | `kcc.sh --native` on Linux | `compiler/optimize.k` via `gcc` |
+| `x64_host_windows_x86_64.exe` | `kcc.sh --native` on Windows | `compiler/windows_x86/x64.k` via TDM-GCC |
+| `optimize_host_windows_x86_64.exe` | `kcc.sh --native` on Windows | `compiler/optimize.k` via TDM-GCC |
+
+macOS arm64 doesn't ship a separate `macho_host` seed — the
+`compiler/macos_arm64/macho_arm64_self.k` emitter is built on demand on
+first `kcc.sh --native` call (see `kcc.sh` for the bootstrap step).
+
+Linux ARM64 ships a `kcc` seed but no `elf_host` seed, so `kcc.sh --native`
+falls back to the C path on that platform until an aarch64 ELF backend lands.
+
+## Rebuilding (Linux x86_64)
 
 ```bash
-./kcc-x64 compiler/linux_x86/elf.k > /tmp/elf_host.c
-gcc /tmp/elf_host.c -o bootstrap/elf_host_linux_x86_64
-chmod +x bootstrap/elf_host_linux_x86_64
+# 1. Build a fresh kcc-x64 from current compile.k
+./kcc-x64 compiler/compile.k > /tmp/_kcc.c
+gcc /tmp/_kcc.c -o /tmp/_kcc -O2 -lm -w
+mv /tmp/_kcc ./kcc-x64
+
+# 2. Stage 2 — rebuild it with itself, byte-identical output proves self-host
+./kcc-x64 compiler/compile.k > /tmp/_kcc2.c
+gcc /tmp/_kcc2.c -o /tmp/_kcc2 -O2 -lm -w
+mv /tmp/_kcc2 ./kcc-x64
+
+# 3. Refresh the seed
+cp ./kcc-x64 bootstrap/kcc_seed_linux_x86_64
+
+# 4. Rebuild elf_host
+./kcc-x64 compiler/linux_x86/elf.k > /tmp/_elf.c
+gcc /tmp/_elf.c -o /tmp/_elf -O2 -lm -w
+mv /tmp/_elf compiler/linux_x86/elf_host
+cp compiler/linux_x86/elf_host bootstrap/elf_host_linux_x86_64
+
+# 5. Rebuild optimize_host (same pattern)
+./kcc-x64 compiler/optimize.k > /tmp/_opt.c
+gcc /tmp/_opt.c -o /tmp/_opt -O2 -lm -w
+mv /tmp/_opt compiler/linux_x86/optimize_host
+cp compiler/linux_x86/optimize_host bootstrap/optimize_host_linux_x86_64
 ```
 
-Verify: `./build.sh test` should now show 38/38 instead of 26/38.
+Verify: `./build.sh test` should report 37/37 (test_dll_exports skipped on
+non-Windows).
 
-## Hard path: gcc-free, via the existing seed (PARTIAL — not working yet)
+## Rebuilding (Windows x86_64)
 
-There's a `bootstrap/sanitize_ir.py` helper that pre-processes IR to dodge two
-known seed bugs (escape decode + line-separator collision):
+Use the TDM-GCC toolchain via `bootstrap.bat` or by hand:
+
+```bat
+kcc-x64.exe compile.k > _kcc.c
+gcc _kcc.c -o _kcc.exe -O2 -lm -w
+move _kcc.exe kcc-x64.exe
+copy kcc-x64.exe bootstrap\kcc_seed_windows_x86_64.exe
+
+kcc-x64.exe compiler\windows_x86\x64.k > _x64.c
+gcc _x64.c -o _x64.exe -O2 -lm -w
+move _x64.exe compiler\windows_x86\x64_host.exe
+copy compiler\windows_x86\x64_host.exe bootstrap\x64_host_windows_x86_64.exe
+
+kcc-x64.exe compiler\optimize.k > _opt.c
+gcc _opt.c -o _opt.exe -O2 -lm -w
+move _opt.exe compiler\windows_x86\optimize_host.exe
+copy compiler\windows_x86\optimize_host.exe bootstrap\optimize_host_windows_x86_64.exe
+```
+
+Verify: `build_v141.bat` then run a few examples.
+
+## Rebuilding (macOS arm64)
 
 ```bash
-# 1. Generate IR (use Windows kcc-x64-new.exe — Linux kcc-x64-native segfaults
-#    on files this size due to a separate memory leak)
-kcc-x64-new.exe --ir compiler/linux_x86/elf.k > raw.kir
+# Stage 1: compile.k → kcc-arm64 (Mach-O, ad-hoc signed by clang)
+./kcc-arm64 compiler/compile.k > /tmp/_kcc.c
+clang /tmp/_kcc.c -o /tmp/_kcc -O2 -lm -w
+mv /tmp/_kcc ./kcc-arm64
 
-# 2. Sanitize (strip CR + rewrite escape-containing PUSH lines)
-tr -d '\r' < raw.kir | python3 bootstrap/sanitize_ir.py > safe.kir
+# Stage 2: self-rebuild for byte-identical proof
+./kcc-arm64 compiler/compile.k > /tmp/_kcc2.c
+clang /tmp/_kcc2.c -o /tmp/_kcc2 -O2 -lm -w
+mv /tmp/_kcc2 ./kcc-arm64
 
-# 3. Build via seed
-bootstrap/elf_host_linux_x86_64 safe.kir bootstrap/elf_host_linux_x86_64.new
+cp ./kcc-arm64 bootstrap/kcc_seed_macos_aarch64
 ```
 
-**Status (2026-05-02):** sanitizer correctly handles the escape/separator bug
-(verified on minimal cases). But there's a *third* unresolved seed bug: when
-elf.k IR includes more than ~67 functions, the seed produces a binary whose
-strData section is missing entries — string indices from late `PUSH "..."`
-lines collide with earlier ones, so e.g. `print("hi")` outputs `"0"` (the
-literal at index 4 in the truncated table). Bisect log:
+The `macho_host` is bootstrapped on demand from
+`compiler/macos_arm64/macho_arm64_self.k` on first `kcc.sh --native` call,
+so there's no separate seed for it.
 
-| funcs | output of `print("hi")` |
-|-------|------------------------|
-| 50    | `hi`  ✓ |
-| 66    | `hi`  ✓ |
-| 67    | `0`   ✗ (regression here — adding `krIsdigitSize` is the trigger) |
-| 100+  | `0`   ✗ |
+## Updating `kcc_seed.c`
 
-Best guess: the seed's emission has an offset/index calculation that breaks
-when the binary crosses ~170KB (n=66 = 170KB works, n=67 = 186KB broken).
-Could be a runtime helper that the seed lazily includes once a certain
-function is referenced, and that helper has its own bug. Needs deeper
-disassembly to pin down — out of scope for tonight.
+`kcc_seed.c` is the C-source fallback used when no binary seed matches the
+platform (e.g. an Intel Mac, a fresh BSD box, an exotic Linux distro). It's
+hand-generated by running:
 
-## Why the chicken-and-egg
+```bash
+./kcc-x64 compiler/compile.k > bootstrap/kcc_seed.c
+```
 
-- `compile.k` (today) emits IR with stack-balanced AND/OR + 2-char `\n`
-  escapes (no double-encoding).
-- The seed `elf_host` was built from older `compile.k`/`elf.k`. Its baked-in
-  `parseQuoted` decodes `\n` to a real newline, then stuffs the value into a
-  `\n`-separated `strTab`, truncating any string with a newline.
-- Sanitizer rewrites `PUSH "...\n..."` → `PUSH "..."; PUSH "10"; BUILTIN
-  fromCharCode 1; CAT; PUSH "..."; CAT` so no IR string contains an escape
-  the seed mishandles. This works on small inputs but the seed has a third
-  unrelated bug on full elf.k.
-
-To fully break the cycle without gcc, we'd need to either patch the seed
-binary directly, or write a strict subset of `elf.k` (`mini_elf.k`) that
-self-hosts cleanly through this seed and can then build the full `elf.k`.
+Refresh it any time `compile.k` changes meaningfully. `build.sh`'s
+"Path B" code path uses it as a last resort.

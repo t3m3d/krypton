@@ -44,7 +44,8 @@ just run {
 |----------|----------------------|--------------------------|
 | Linux x86_64 | `kcc_seed_linux_x86_64`, `elf_host_linux_x86_64`, `optimize_host_linux_x86_64` | none (pure copy) |
 | Windows x86_64 | `kcc_seed_windows_x86_64.exe`, `x64_host_windows_x86_64.exe`, `optimize_host_windows_x86_64.exe` | none (pure copy) |
-| macOS arm64 | `kcc_seed_macos_aarch64` | none (pure copy) |
+| macOS arm64 | `kcc_seed_macos_aarch64` | none (pure copy); macho_host built on first `--native` call via clang |
+| Linux ARM64 | `kcc_seed_linux_aarch64` | none (pure copy); **C path only** — no native ELF aarch64 backend yet, `kcc.sh --native` falls back to gcc/clang |
 
 **Optional, for development only:**
 - **gcc** — one-time bootstrap if you edit `compiler/linux_x86/elf.k` or `compiler/windows_x86/x64.k` and need to rebuild a seed binary. End users never need it.
@@ -390,16 +391,16 @@ krypton/
 │   ├── krypton_rt.k       # Krypton runtime (Phase 2 — self-hosted)
 │   └── krypton_rt.dll     # Windows bootstrap runtime (kernel32-only, hand-emitted by x64.k)
 ├── bootstrap/                                # Prebuilt seeds — pure-copy install, no compiler
-│   ├── kcc_seed.c                            # Pre-generated C source of compile.k (development fallback)
-│   ├── kcc_seed_linux_x86_64                 # Linux kcc ELF
-│   ├── elf_host_linux_x86_64                 # Linux ELF emitter
-│   ├── optimize_host_linux_x86_64            # Linux IR optimizer
+│   ├── kcc_seed.c                            # Pre-generated C source of compile.k (gcc fallback)
+│   ├── kcc_seed_linux_x86_64                 # Linux x86_64 kcc ELF
+│   ├── elf_host_linux_x86_64                 # Linux x86_64 ELF emitter
+│   ├── optimize_host_linux_x86_64            # Linux x86_64 IR optimizer
+│   ├── kcc_seed_linux_aarch64                # Linux ARM64 kcc ELF (C path only — no ARM64 ELF emitter yet)
 │   ├── kcc_seed_windows_x86_64.exe           # Windows kcc PE
 │   ├── x64_host_windows_x86_64.exe           # Windows PE/COFF emitter
 │   ├── optimize_host_windows_x86_64.exe      # Windows IR optimizer
 │   ├── kcc_seed_macos_aarch64                # macOS arm64 kcc Mach-O
-│   ├── REBUILD_SEED.md                       # How/when to rebuild seeds
-│   └── sanitize_ir.py                        # IR pre-processor used during seed bootstrap
+│   └── REBUILD_SEED.md                       # How/when to rebuild seeds (covers all platforms)
 ├── stdlib/                # Standard library modules (~30 files: result, option, json, math_utils, …)
 ├── examples/              # Showcase programs (84 files: hello, fibonacci, calculator, hex_dump, …)
 ├── algorithms/            # Textbook algorithm reference impls (35 files: sorts, DP, graph, KMP, …)
