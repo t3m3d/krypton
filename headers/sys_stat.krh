@@ -1,0 +1,38 @@
+// sys_stat.krh — Krypton header for POSIX sys/stat.h
+// Usage: import "headers/sys_stat.krh"
+// Linux/macOS only.
+
+jxt {
+    c "sys/stat.h"
+    c "sys/types.h"
+
+    // The stat struct layout varies by platform — declared here as opaque;
+    // use stat() to populate, then helper macros (S_ISDIR/S_ISREG/etc.)
+    // to interpret. For raw byte-level access, use bufGet*/bufSet* on the
+    // returned buffer.
+    struct stat {
+        field st_dev     ULONG
+        field st_ino     ULONG
+        field st_mode    UINT
+        field st_nlink   ULONG
+        field st_uid     UINT
+        field st_gid     UINT
+        field st_rdev    ULONG
+        field st_size    LONG
+        field st_blksize LONG
+        field st_blocks  LONG
+        field st_atime   LONG
+        field st_mtime   LONG
+        field st_ctime   LONG
+    }
+
+    func stat(path, buf)
+    func fstat(fd, buf)
+    func lstat(path, buf)
+    func mkdir(path, mode)
+    func chmod(path, mode)
+    func fchmod(fd, mode)
+    func mknod(path, mode, dev)
+    func mkfifo(path, mode)
+    func umask(mask)
+}

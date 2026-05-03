@@ -1,0 +1,24 @@
+// sys_mman.krh — Krypton header for POSIX mmap / shared memory
+// Usage: import "headers/sys_mman.krh"
+// Linux/macOS.
+//
+// Common constants (use numeric values directly):
+//   PROT_READ=1, PROT_WRITE=2, PROT_EXEC=4, PROT_NONE=0
+//   MAP_SHARED=1, MAP_PRIVATE=2, MAP_ANON / MAP_ANONYMOUS=32 (Linux)
+//   MS_ASYNC=1, MS_SYNC=4, MS_INVALIDATE=2
+
+jxt {
+    c "sys/mman.h"
+
+    func mmap(addr, length, prot, flags, fd, offset)
+    func munmap(addr, length)
+    func mprotect(addr, len, prot)
+    func msync(addr, length, flags)
+    func madvise(addr, length, advice)
+    func mlock(addr, len)
+    func munlock(addr, len)
+    func mlockall(flags)
+    func munlockall()
+    func shm_open(name, oflag, mode)
+    func shm_unlink(name)
+}
