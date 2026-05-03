@@ -147,17 +147,19 @@ func passStrength(ir) {
         let line = getLine(lines, i)
         let op = irGetOp(line)
         let skip = 0
-        if op == "PUSH" && i + 1 < count {
-            let val = irGetArg1(line)
-            let nextLine = getLine(lines, i + 1)
-            let nextOp = irGetOp(nextLine)
-            // x + 0 -> x  (PUSH 0 / ADD)
-            if val == "0" && nextOp == "ADD" { skip = 1 }
-            // x * 1 -> x  (PUSH 1 / MUL)
-            if val == "1" && nextOp == "MUL" { skip = 1 }
-            // x - 0 -> x  (PUSH 0 / SUB)
-            if val == "0" && nextOp == "SUB" { skip = 1 }
-        }
+        // ⚠ UNSAFE OPTIMIZATIONS REMOVED — see commit history.
+        //
+        // The previous "x + 0 → x", "x * 1 → x", "x - 0 → x" rules were
+        // arithmetically valid for ints but WRONG for Krypton's overloaded
+        // operators. `+` is also string concat: `"" + 0` must produce "0",
+        // not the empty string. The optimizer can't tell at IR level whether
+        // the LHS is a string or an int — that's only known at runtime via
+        // the smart-int dispatch. Removing PUSH 0; ADD here silently broke
+        // every program that did `"" + n` (toStr-via-concat idiom), giving
+        // empty strings instead of stringified numbers.
+        //
+        // If we ever add typed locals, we can re-introduce these for slots
+        // statically known to be ints. Until then: no-op.
         if skip {
             // skip both PUSH and the op
             i = i + 2
