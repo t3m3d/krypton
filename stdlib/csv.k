@@ -9,8 +9,11 @@ func parseLine(line) {
     emit line
 }
 
-// Get a field from a CSV line by index
-func getField(line, idx) {
+// Get a field from a CSV line by index.
+// Renamed from getField to fieldAt so it doesn't collide with the
+// native struct builtin getField(env, name), which the dispatcher resolves
+// first and which interprets `line` as an env head pointer (crash).
+func fieldAt(line, idx) {
     emit split(line, idx)
 }
 

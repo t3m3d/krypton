@@ -1,91 +1,43 @@
 // String utility functions for Krypton
-// Provides common string manipulation operations
+// Provides string operations that *aren't* covered by built-in functions.
+//
+// Builtins to use directly (don't reimplement; they shadow user funcs of
+// the same name in the IR dispatch and would silently win):
+//   repeat(s, n)       endsWith(s, suf)   reverse(s)
+//   contains(s, sub)   trim(s)            replace(s, old, new)
+//   toUpper(s)         toLower(s)         indexOf(s, sub)
+//   substring(s, lo, hi)                  startsWith(s, pfx)
 
 module string_utils
 
 
-// Repeat a string n times
-func repeat(s, n) {
-    let result = ""
-    let i = 0
-    while i < n {
-        result = result + s
-        i += 1
-    }
-    emit result
-}
-
-// Pad a string on the left to reach target length
+// Pad a string on the left to reach target length.
+// Native builtin equivalent: none.
 func padLeft(s, targetLen, padChar) {
     let result = s
     while len(result) < targetLen {
-        result = padChar + result
+        let sb = sbNew()
+        sb = sbAppend(sb, padChar)
+        sb = sbAppend(sb, result)
+        result = sbToString(sb)
     }
     emit result
 }
 
-// Pad a string on the right to reach target length
+// Pad a string on the right to reach target length.
 func padRight(s, targetLen, padChar) {
     let result = s
     while len(result) < targetLen {
-        result = result + padChar
+        let sb = sbNew()
+        sb = sbAppend(sb, result)
+        sb = sbAppend(sb, padChar)
+        result = sbToString(sb)
     }
     emit result
 }
 
-// Check if a string contains a substring
-func contains(haystack, needle) {
-    let hLen = len(haystack)
-    let nLen = len(needle)
-    if nLen > hLen {
-        emit 0
-    }
-    let i = 0
-    while i <= hLen - nLen {
-        if substring(haystack, i, i + nLen) == needle {
-            emit 1
-        }
-        i += 1
-    }
-    emit 0
-}
-
-// Check if a string ends with a suffix
-func endsWith(s, suffix) {
-    let sLen = len(s)
-    let sufLen = len(suffix)
-    if sufLen > sLen {
-        emit 0
-    }
-    if substring(s, sLen - sufLen, sLen) == suffix {
-        emit 1
-    }
-    emit 0
-}
-
-// Convert a string to uppercase (ASCII only)
-func toUpper(s) {
-    let sb = sbNew()
-    let i = 0
-    while i < len(s) {
-        let ch = s[i]
-        if ch >= "a" {
-            if ch <= "z" {
-                // Convert lowercase to uppercase
-                let code = toInt(ch) - 32
-                sb = sbAppend(sb, substring("ABCDEFGHIJKLMNOPQRSTUVWXYZ", code - 65, code - 64))
-            } else {
-                sb = sbAppend(sb, ch)
-            }
-        } else {
-            sb = sbAppend(sb, ch)
-        }
-        i += 1
-    }
-    emit sbToString(sb)
-}
-
-// Trim leading whitespace
+// Trim leading whitespace only.
+// Native builtin trim(s) does both ends; use this when you need just one.
 func trimLeft(s) {
     let i = 0
     while i < len(s) {
@@ -104,7 +56,7 @@ func trimLeft(s) {
     emit ""
 }
 
-// Trim trailing whitespace
+// Trim trailing whitespace only.
 func trimRight(s) {
     let i = len(s) - 1
     while i >= 0 {
@@ -123,39 +75,13 @@ func trimRight(s) {
     emit ""
 }
 
-// Trim whitespace from both ends
-func trim(s) {
-    emit trimRight(trimLeft(s))
-}
-
-// Replace all occurrences of old with new in s
-func replaceAll(s, old, new) {
-    let sb = sbNew()
-    let sLen = len(s)
-    let oldLen = len(old)
-    let i = 0
-    while i < sLen {
-        if i + oldLen <= sLen {
-            if substring(s, i, i + oldLen) == old {
-                sb = sbAppend(sb, new)
-                i = i + oldLen
-            } else {
-                sb = sbAppend(sb, s[i])
-                i += 1
-            }
-        } else {
-            sb = sbAppend(sb, s[i])
-            i += 1
-        }
-    }
-    emit sbToString(sb)
-}
-
-// Count occurrences of a substring
+// Count occurrences of a substring in a string.
+// Native builtin equivalent: none.
 func countOccurrences(s, sub) {
     let cnt = 0
     let sLen = len(s)
     let subLen = len(sub)
+    if subLen == 0 { emit 0 }
     let i = 0
     while i <= sLen - subLen {
         if substring(s, i, i + subLen) == sub {
@@ -168,26 +94,14 @@ func countOccurrences(s, sub) {
     emit cnt
 }
 
-// Reverse a string
-func reverse(s) {
-    let sb = sbNew()
-    let i = len(s) - 1
-    while i >= 0 {
-        sb = sbAppend(sb, s[i])
-        i -= 1
-    }
-    emit sbToString(sb)
-}
-
-// Join a comma-separated list with a delimiter
+// Join a comma-separated list with a delimiter.
+// Native builtin equivalent: none.
 func join(list, delim) {
     let sb = sbNew()
     let total = count(list)
     let i = 0
     while i < total {
-        if i > 0 {
-            sb = sbAppend(sb, delim)
-        }
+        if i > 0 { sb = sbAppend(sb, delim) }
         sb = sbAppend(sb, split(list, i))
         i += 1
     }
