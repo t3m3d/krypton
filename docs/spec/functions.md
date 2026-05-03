@@ -1,682 +1,401 @@
 # Krypton Built-in Functions Reference
 
-**Version 0.7.2** — Complete reference for all 127 built-in functions.
+**Version 1.4.0** — Reference for built-in functions.
 
-All values in Krypton are strings. Functions that operate on numbers parse their arguments and return numeric strings. Lists are comma-separated strings (`"a,b,c"`). Maps are interleaved key-value lists (`"name,Alice,age,30"`).
+All values in Krypton are strings. Functions that operate on numbers parse their
+arguments and return numeric strings. Lists are comma-separated strings (`"a,b,c"`).
+Maps are interleaved key-value lists (`"name,Alice,age,30"`).
+
+## Pipeline support legend
+
+Some functions exist in every pipeline; others are only available via the C-emitter
+path (`kcc.sh --c` or default on macOS). Each entry below carries a tag:
+
+- **(native)** — works in `kcc.sh --native` on Linux ELF (the leading native target)
+  *and* in the C path. The Windows PE backend (`x64.k`) and macOS arm64 Mach-O
+  backend (`macho_arm64_self.k`) carry most of these too; if a function works on
+  Linux native it generally works everywhere unless noted otherwise.
+- **(C path)** — only resolves through the C-emitter pipeline; calling it from
+  `--native` will produce an `UNSUPPORTED` marker and crash at runtime. To use
+  these today, compile with `kcc.sh --c` (emit C) and run the resulting binary
+  through `gcc` / `clang`. Most of them will migrate to the native pipeline over
+  the 1.5–2.0 line.
+
+When in doubt, run `kcc.sh --native --ir foo.k` and look for `UNSUPPORTED` lines.
 
 ---
 
 ## I/O
 
-### print(s) / kp(s)
-Prints `s` followed by a newline to stdout.
-```
-print("hello")
-kp("world")
-```
+### print(s) / kp(s) — (native)
+Prints `s` followed by a newline to stdout. `kp` is a short alias.
 
-### printErr(s)
+### printErr(s) — (native)
 Prints `s` followed by a newline to stderr.
-```
-printErr("warning: file not found")
-```
 
-### readLine(prompt)
-Displays `prompt` then reads a line from stdin. Returns the input without the trailing newline.
-```
-let name = readLine("Enter your name: ")
-```
+### readFile(path) — (native)
+Reads a file's contents. Returns `""` if the file does not exist.
 
-### input()
-Reads a line from stdin with no prompt.
-```
-let line = input()
-```
-
-### readFile(path)
-Reads the entire contents of a file. Returns `""` if the file does not exist.
-```
-let src = readFile("hello.k")
-```
-
-### writeFile(path, data)
+### writeFile(path, data) — (native)
 Writes `data` to a file. Returns `"1"` on success, `"0"` on failure.
-```
-writeFile("out.txt", "hello\n")
-```
 
-### arg(n)
-Returns command-line argument at index `n` (0-based, skipping the program name).
-```
-let filename = arg(0)
-```
+### arg(n) — (native)
+Returns command-line argument `n` (0-based, skipping the program name).
 
-### argCount()
-Returns the number of command-line arguments passed.
-```
-let n = argCount()
-```
+### argCount() — (native)
+Returns the number of command-line arguments.
+
+### exit(code) — (native)
+Exits the program with the given exit code. Does not return.
+
+### readLine(prompt) — (C path)
+Prints `prompt` then reads a line from stdin (no trailing newline).
+
+### input() — (C path)
+Reads a line from stdin with no prompt.
+
+### deleteFile(path) — (C path)
+Removes a file. Returns `"1"` on success.
+
+### shellRun(cmd) — (C path)
+Runs `cmd` via the system shell; returns the captured stdout.
+
+### environ(name) — (C path)
+Returns the value of an environment variable, or `""` if not set.
 
 ---
 
 ## Strings
 
-### len(s)
-Returns the length of string `s`.
-```
-len("hello")    // "5"
-```
+### len(s) — (native)
+Returns the byte length of `s`. Smart-int aware: `len(0)` → `"1"`.
 
-### substring(s, start, end)
-Returns the substring from index `start` to `end` (exclusive).
-```
-substring("hello", 1, 3)    // "el"
-```
+### substring(s, start, end) — (native)
+Returns the substring from `start` to `end` (exclusive).
 
-### charAt(s, i)
-Returns the character at index `i`.
-```
-charAt("hello", 0)    // "h"
-```
+### s[i] — (native)
+Indexing returns the single-byte character at position `i`.
 
-### indexOf(s, sub)
-Returns the position of `sub` in `s`, or `"-1"` if not found.
-```
-indexOf("hello world", "world")    // "6"
-```
-
-### contains(s, sub)
-Returns `"1"` if `s` contains `sub`, otherwise `"0"`.
-```
-contains("hello", "ell")    // "1"
-```
-
-### startsWith(s, prefix)
+### startsWith(s, prefix) — (native)
 Returns `"1"` if `s` starts with `prefix`.
-```
-startsWith("hello", "he")    // "1"
-```
 
-### endsWith(s, suffix)
+### endsWith(s, suffix) — (native)
 Returns `"1"` if `s` ends with `suffix`.
-```
-endsWith("hello", "lo")    // "1"
-```
 
-### replace(s, old, new)
-Replaces all occurrences of `old` with `new` in `s`.
-```
-replace("aabbcc", "bb", "XX")    // "aaXXcc"
-```
+### contains(s, sub) — (native)
+Returns `"1"` if `s` contains `sub`.
 
-### trim(s)
+### indexOf(s, sub) — (native)
+Position of `sub` in `s`, or `"-1"` if not found.
+
+### replace(s, old, new) — (native)
+Replaces every occurrence of `old` with `new`.
+
+### trim(s) — (native)
 Strips leading and trailing whitespace.
-```
-trim("  hello  ")    // "hello"
-```
 
-### lstrip(s)
-Strips leading whitespace only.
-```
-lstrip("  hello  ")    // "hello  "
-```
+### toUpper(s) / toLower(s) — (native)
+Case conversion.
 
-### rstrip(s)
-Strips trailing whitespace only.
-```
-rstrip("  hello  ")    // "  hello"
-```
+### reverse(s) — (native)
+Byte-reverses a string.
 
-### center(s, width, pad)
-Centers `s` within `width` characters, padding with `pad`.
-```
-center("hi", 8, "-")    // "---hi---"
-```
+### repeat(s, n) — (native)
+Returns `s` repeated `n` times.
 
-### toLower(s)
-Converts to lowercase.
-```
-toLower("Hello")    // "hello"
-```
+### charCode(s) — (native)
+Returns the numeric code of the first byte of `s`.
 
-### toUpper(s)
-Converts to uppercase.
-```
-toUpper("hello")    // "HELLO"
-```
+### fromCharCode(n) — (native)
+Returns a one-character string with code `n`.
 
-### repeat(s, n)
-Repeats `s` exactly `n` times.
-```
-repeat("ab", 3)    // "ababab"
-```
+### isDigit(s) — (native)
+`"1"` if the first byte is a digit (`0`..`9`).
 
-### padLeft(s, width, pad)
-Left-pads `s` to `width` using `pad` character.
-```
-padLeft("42", 6, "0")    // "000042"
-```
+### isAlpha(s) — (native)
+`"1"` if the first byte is a letter.
 
-### padRight(s, width, pad)
-Right-pads `s` to `width` using `pad` character.
-```
-padRight("hi", 6, ".")    // "hi...."
-```
+### lstrip(s) / rstrip(s) — (C path)
+Strip only leading or only trailing whitespace.
 
-### charCode(s)
-Returns the ASCII code of the first character of `s`.
-```
-charCode("A")    // "65"
-```
+### center(s, width, pad) — (C path)
+Centers `s` within `width`, padding with `pad`.
 
-### fromCharCode(n)
-Returns the character with ASCII code `n`.
-```
-fromCharCode(65)    // "A"
-```
+### padLeft(s, width, pad) / padRight(s, width, pad) — (C path)
+Left- or right-pad to `width`.
 
-### splitBy(s, delim)
-Splits `s` by the string delimiter `delim` into a comma-separated list.
-```
-splitBy("one::two::three", "::")    // "one,two,three"
-```
+### splitBy(s, delim) — (C path)
+Splits `s` on a multi-char `delim`; returns a comma-separated list.
 
-### format(fmt, arg)
-Replaces the first `{}` in `fmt` with `arg`.
-```
-format("Hello {}!", "world")    // "Hello world!"
-```
+### format(fmt, arg) — (C path)
+Replaces the first `{}` in `fmt` with `arg`. Use backtick interpolation
+(`` `Hello {name}` ``) instead — that's a language feature and works everywhere.
 
-### strReverse(s)
-Reverses a string.
-```
-strReverse("hello")    // "olleh"
-```
+### eqIgnoreCase(a, b) — (C path)
+Case-insensitive string equality.
 
-### isAlpha(s)
-Returns `"1"` if all characters in `s` are alphabetic.
-```
-isAlpha("abc")    // "1"
-isAlpha("ab1")    // "0"
-```
+### words(s) / lines(s) — (C path)
+Split on whitespace / newlines into a comma-separated list.
 
-### isDigit(s)
-Returns `"1"` if all characters in `s` are numeric digits.
-```
-isDigit("123")    // "1"
-isDigit("12x")    // "0"
-```
-
-### isSpace(s)
-Returns `"1"` if all characters in `s` are whitespace.
-```
-isSpace("   ")    // "1"
-```
+### sprintf(fmt, ...) — (C path)
+C-style formatted print to a string.
 
 ---
 
-## Numbers and Math
+## Numbers
 
-### toInt(s)
-Parses a string to its integer representation.
-```
-toInt("42")      // "42"
-toInt("  7  ")   // "7"
-```
+### toInt(s) / parseInt(s) — (native)
+Parse a string to an integer string. Smart-int aware.
 
-### parseInt(s)
-Parses a string to integer with leading whitespace tolerance.
-```
-parseInt("  42")    // "42"
-```
+### abs(n) — (native)
+Absolute value.
 
-### abs(n)
-Returns the absolute value of `n`.
-```
-abs(-5)    // "5"
-```
+### pow(base, exp) — (native)
+Integer power.
 
-### min(a, b)
-Returns the smaller of `a` and `b`.
-```
-min(3, 7)    // "3"
-```
+### range(start, end) — (native)
+Comma-separated list of integers `[start, end)`.
 
-### max(a, b)
-Returns the larger of `a` and `b`.
-```
-max(3, 7)    // "7"
-```
+### min(a, b) / max(a, b) — (C path)
+Smaller / larger of two numeric strings.
 
-### pow(base, exp)
-Returns `base` raised to the power `exp` (integer).
-```
-pow(2, 8)    // "256"
-```
+### sqrt(n) — (C path)
+Integer square root.
 
-### sqrt(n)
-Returns the integer square root of `n`.
-```
-sqrt(144)    // "12"
-```
+### sign(n) — (C path)
+Returns `"-1"`, `"0"`, or `"1"`.
 
-### sign(n)
-Returns `"-1"`, `"0"`, or `"1"` depending on the sign of `n`.
-```
-sign(-5)    // "-1"
-sign(0)     // "0"
-sign(3)     // "1"
-```
+### clamp(val, lo, hi) — (C path)
+Clamp `val` to `[lo, hi]`.
 
-### clamp(val, lo, hi)
-Clamps `val` to the range `[lo, hi]`.
-```
-clamp(15, 0, 10)    // "10"
-clamp(-3, 0, 10)    // "0"
-```
+### hex(n) / bin(n) — (C path)
+Hex / binary string representation.
 
-### hex(n)
-Returns the hexadecimal string representation of `n`.
-```
-hex(255)    // "ff"
-hex(16)     // "10"
-```
+### floor(n) / ceil(n) / round(n) — (C path)
+For Krypton's integer-only number model these are identity functions on integer
+strings; included for compatibility.
 
-### bin(n)
-Returns the binary string representation of `n`.
-```
-bin(10)     // "1010"
-bin(255)    // "11111111"
-```
+### random(n) — (C path)
+Random integer in `[0, n)`.
 
-### floor(n)
-Returns the floor of `n` (integer, same as `toInt` for integer inputs).
-```
-floor(42)    // "42"
-```
+### timestamp() — (C path)
+Current Unix timestamp as a string.
 
-### ceil(n)
-Returns the ceiling of `n`.
-```
-ceil(42)    // "42"
-```
+### Bit ops: bitAnd / bitOr / bitXor / bitNot / bitShl / bitShr — (C path)
+Bitwise operations on numeric strings.
 
-### round(n)
-Returns `n` rounded to the nearest integer.
-```
-round(42)    // "42"
-```
+### 64-bit ops: add64 / sub-via-add64 / mul64 / div64 / mod64 — (C path)
+64-bit arithmetic helpers, used by code generators that need to sidestep the
+1 GiB smart-int boundary.
+
+### Floats: toFloat, fadd, fsub, fmul, fdiv, fformat, feq, flt, fgt, ffloor, fceil, fround, fsqrt — (C path)
+Float/double helpers. Krypton's runtime model is still string-based; these
+parse, compute, and re-format.
 
 ---
 
 ## Lists
 
-Lists are comma-separated strings: `"a,b,c"`
+Lists are comma-separated strings: `"a,b,c"`.
 
-### split(s, i)
-Returns the item at index `i` from a comma-separated list.
-```
-split("a,b,c", 1)    // "b"
-```
+### split(lst, i) — (native)
+Returns the item at index `i`.
 
-### length(lst)
-Returns the number of items in a list.
-```
-length("a,b,c")    // "3"
-```
+### length(lst) / count(lst) — (native)
+Returns the number of items.
 
-### first(lst)
-Returns the first item in a list.
-```
-first("a,b,c")    // "a"
-```
+### range(start, end) — (native)
+See "Numbers".
 
-### last(lst)
-Returns the last item in a list.
-```
-last("a,b,c")    // "c"
-```
+### first(lst) / last(lst) / head(lst, n) / tail(lst, n) — (C path)
+First/last item, first-`n` items, last-`n` items.
 
-### head(lst, n)
-Returns the first `n` items as a list.
-```
-head("a,b,c,d", 2)    // "a,b"
-```
+### append(lst, item) — (C path)
+Append `item` to the end.
 
-### tail(lst, n)
-Returns the last `n` items as a list.
-```
-tail("a,b,c,d", 2)    // "c,d"
-```
+### slice(lst, start, end) — (C path)
+Items from `start` to `end` (exclusive).
 
-### append(lst, item)
-Appends `item` to the end of the list.
-```
-append("a,b", "c")    // "a,b,c"
-```
+### removeAt(lst, i) / replaceAt(lst, i, val) / remove(lst, item) — (C path)
+Index-based / value-based removal and replacement.
 
-### insertAt(lst, i, item)
-Inserts `item` at position `i`.
-```
-insertAt("a,b,d", 2, "c")    // "a,b,c,d"
-```
+### sort(lst) — (C path)
+Numeric-aware sort.
 
-### removeAt(lst, i)
-Removes the item at position `i`.
-```
-removeAt("a,b,c", 1)    // "a,c"
-```
+### unique(lst) — (C path)
+Drops duplicates, preserving first-occurrence order.
 
-### remove(lst, item)
-Removes the first occurrence of `item`.
-```
-remove("a,b,a,c", "a")    // "b,a,c"
-```
+### fill(n, val) — (C path)
+List of `n` copies of `val`.
 
-### replaceAt(lst, i, val)
-Replaces the item at position `i` with `val`.
-```
-replaceAt("a,b,c", 1, "X")    // "a,X,c"
-```
+### zip(a, b) — (C path)
+Element-by-element interleave.
 
-### slice(lst, start, end)
-Returns items from index `start` to `end` (exclusive).
-```
-slice("a,b,c,d", 1, 3)    // "b,c"
-```
+### listIndexOf(lst, item) — (C path)
+Position of `item`, or `"-1"`.
 
-### join(lst, sep)
-Joins list items with separator `sep`.
-```
-join("a,b,c", "-")    // "a-b-c"
-```
+### every(lst, val) / some(lst, val) — (C path)
+All-equal / any-equal predicates.
 
-### reverse(lst)
-Reverses the order of items.
-```
-reverse("a,b,c")    // "c,b,a"
-```
+### countOf(lst, item) — (C path)
+Number of occurrences.
 
-### sort(lst)
-Sorts items. Numeric-aware: numbers sort by value, strings lexicographically.
-```
-sort("3,1,4,1,5")    // "1,1,3,4,5"
-```
+### sumList(lst) / minList(lst) / maxList(lst) — (C path)
+Numeric reductions.
 
-### unique(lst)
-Removes duplicate items, preserving first occurrence order.
-```
-unique("a,b,a,c,b")    // "a,b,c"
-```
-
-### fill(n, val)
-Creates a list of `n` copies of `val`.
-```
-fill(4, "hi")    // "hi,hi,hi,hi"
-```
-
-### zip(a, b)
-Interleaves two lists element by element.
-```
-zip("1,2,3", "a,b,c")    // "1,a,2,b,3,c"
-```
-
-### listIndexOf(lst, item)
-Returns the index of `item` in the list, or `"-1"` if not found.
-```
-listIndexOf("a,b,c", "b")    // "1"
-```
-
-### every(lst, val)
-Returns `"1"` if every item in the list equals `val`.
-```
-every("5,5,5", "5")    // "1"
-every("5,5,3", "5")    // "0"
-```
-
-### some(lst, val)
-Returns `"1"` if any item in the list equals `val`.
-```
-some("1,2,3", "2")    // "1"
-some("1,2,3", "9")    // "0"
-```
-
-### countOf(lst, item)
-Returns the number of times `item` appears in the list.
-```
-countOf("a,b,a,c,a", "a")    // "3"
-```
-
-### sumList(lst)
-Returns the sum of all numeric items.
-```
-sumList("10,20,30")    // "60"
-```
-
-### maxList(lst)
-Returns the maximum numeric value in the list.
-```
-maxList("5,1,9,3")    // "9"
-```
-
-### minList(lst)
-Returns the minimum numeric value in the list.
-```
-minList("5,1,9,3")    // "1"
-```
-
-### range(start, end)
-Returns a comma-separated list of integers from `start` to `end` (exclusive).
-```
-range(1, 5)    // "1,2,3,4"
-```
-
-### words(s)
-Splits a string on whitespace into a comma-separated list.
-```
-words("hello world foo")    // "hello,world,foo"
-```
-
-### lines(s)
-Splits a string on newlines into a comma-separated list.
-```
-lines("a\nb\nc")    // "a,b,c"
-```
+### listMap(lst, prefix, suffix) / listFilter(lst, val) — (C path)
+Wrap each item in `prefix`/`suffix` / keep items matching `val` (or `!val`).
 
 ---
 
 ## Maps
 
-Maps are interleaved key-value comma-separated strings: `"name,Alice,age,30"`
+Maps are interleaved key-value comma-separated strings: `"name,Alice,age,30"`.
 
-### keys(map)
-Returns a list of all keys.
-```
-keys("name,Alice,age,30")    // "name,age"
-```
+### mapGet(map, key) / mapSet(map, key, val) / mapDel(map, key) — (C path)
+Map operations.
 
-### values(map)
-Returns a list of all values.
-```
-values("name,Alice,age,30")    // "Alice,30"
-```
-
-### hasKey(map, key)
-Returns `"1"` if `key` exists in the map.
-```
-hasKey("name,Alice,age,30", "name")    // "1"
-```
+### keys(map) / values(map) / hasKey(map, key) — (C path)
+Inspection.
 
 ---
 
 ## Structs
 
-### structNew()
+Static structs declared with `struct Name { let field; ... }` use a fast
+slot-array representation in the C path and a linked-list of bindings in the
+native pipeline. Both expose the same API.
+
+### structNew() — (native)
 Creates a new empty dynamic struct.
-```
-let obj = structNew()
-```
 
-### setField(obj, name, val)
-Sets field `name` to `val` on the struct. Returns the struct.
-```
-setField(obj, "x", "10")
-```
+### setField(obj, name, val) — (native)
+Sets a field. **Returns the updated struct** — assign back: `obj = setField(obj, ...)`.
+The C runtime mutates in place, but the native runtime is functional, so always
+re-assign for portability.
 
-### getField(obj, name)
-Returns the value of field `name`, or `""` if not set.
-```
-getField(obj, "x")    // "10"
-```
+### getField(obj, name) — (native)
+Returns the field value, or `""` if not set.
 
-### hasField(obj, name)
-Returns `"1"` if the struct has a field named `name`.
-```
-hasField(obj, "x")    // "1"
-```
+### hasField(obj, name) — (native)
+`"1"` if the field exists.
 
-### structFields(obj)
-Returns a comma-separated list of all field names.
-```
-structFields(obj)    // "x,y"
-```
+### structFields(obj) — (native)
+Comma-separated list of field names.
 
 ---
 
 ## Line Operations
 
-### getLine(s, i)
-Returns the line at index `i` from a newline-separated string.
-```
-getLine("a\nb\nc", 1)    // "b"
-```
+### getLine(s, i) — (native)
+Returns the `i`-th newline-separated line.
 
-### lineCount(s)
-Returns the number of lines in a newline-separated string.
-```
-lineCount("a\nb\nc")    // "3"
-```
-
-### count(s)
-Alias for `lineCount`.
+### lineCount(s) — (native)
+Number of newline-separated lines.
 
 ---
 
-## System
+## Pairs
 
-### random(n)
-Returns a random integer from `0` to `n-1`.
-```
-random(10)    // "7"  (example)
-```
+Pairs are encoded as `"value,position"` strings, used pervasively by parser
+helpers in the compiler.
 
-### timestamp()
-Returns the current Unix timestamp as a string.
-```
-timestamp()    // "1742000000"  (example)
-```
-
-### environ(name)
-Returns the value of environment variable `name`, or `""` if not set.
-```
-environ("PATH")
-```
-
-### exit(code)
-Exits the program with the given exit code.
-```
-exit(1)
-```
-
----
-
-## Exceptions
-
-### throw(msg)
-Throws an exception with message `msg`. Can also be used as a statement: `throw "msg"`.
-```
-throw("something went wrong")
-```
-
----
-
-## Type and Conversion
-
-### type(s)
-Returns `"number"` if `s` looks like a number, otherwise `"string"`.
-```
-type("42")      // "number"
-type("hello")   // "string"
-```
-
-### toStr(s)
-Returns `s` unchanged (identity function — all values are already strings).
-
-### isTruthy(s)
-Returns `"1"` if `s` is truthy, `"0"` if falsy.
-```
-isTruthy("hello")    // "1"
-isTruthy("")         // "0"
-isTruthy("0")        // "0"
-```
-
-### assert(cond, msg)
-If `cond` is falsy, prints `msg` to stderr and exits with code 1.
-```
-assert(x > 0, "x must be positive")
-```
+### pairVal(p) / pairPos(p) / pairNew(val, pos) — (stdlib)
+Defined in `stdlib/pair.k`. Until native module imports are wired, inline these
+in programs that target the native pipeline (see `tests/test_pair_ops.k`).
 
 ---
 
 ## StringBuilder
 
-StringBuilders allow efficient string assembly without repeated concatenation.
+Efficient string assembly without repeated concatenation.
 
-### sbNew()
-Creates a new StringBuilder. Returns a handle string.
-```
-let sb = sbNew()
-```
+### sbNew() — (native)
+Creates a new StringBuilder.
 
-### sbAppend(sb, s)
-Appends `s` to the StringBuilder. Returns the same handle.
-```
-sb = sbAppend(sb, "hello")
-sb = sbAppend(sb, " world")
-```
+### sbAppend(sb, s) — (native)
+Appends `s`. Auto-stringifies a small-int second argument. Returns the handle.
 
-### sbToString(sb)
-Returns the accumulated string from the StringBuilder.
-```
-let result = sbToString(sb)    // "hello world"
-```
+### sbToString(sb) — (native)
+Returns the accumulated string.
 
 ---
 
 ## Environment (Low-level)
 
-These are used internally by the interpreter and for advanced use cases.
+A linked-list of `{name, value, prev}` bindings used internally by the
+interpreter and as the storage backend for dynamic structs in the native runtime.
 
-### envNew()
-Creates a new empty environment (linked-list of bindings).
+### envNew() — (native)
+Empty environment (`null` sentinel).
 
-### envSet(env, key, val)
-Adds a binding to the environment. Returns the new environment.
+### envSet(env, key, val) — (native)
+Adds a binding; returns the new environment head.
 
-### envGet(env, key)
-Looks up `key` in the environment. Returns `""` if not found.
+### envGet(env, key) — (native)
+Looks up `key`; returns `""` if not found.
 
-### makeResult(tag, val, env, pos)
-Packs a tag, value, environment, and position into a result struct.
+---
 
-### getResultTag(r)
-Unpacks the tag from a result.
+## Result helpers
 
-### getResultVal(r)
-Unpacks the value from a result.
+Used by the IR / interpreter for parser-style return values.
 
-### getResultEnv(r)
-Unpacks the environment from a result.
+### makeResult(tag, val, env, pos) — (C path)
+### getResultTag(r) / getResultVal(r) / getResultEnv(r) / getResultPos(r) — (C path)
+Pack/unpack helpers.
 
-### getResultPos(r)
-Unpacks the position from a result.
+---
+
+## Type and Conversion
+
+### toStr(s) — (native)
+Identity. All values are already strings.
+
+### isTruthy(s) — (native)
+`"1"` if `s` is truthy by Krypton's rules (not `""`, `"0"`, or `"false"`).
+
+### type(s) — (C path)
+Returns `"number"` if `s` parses as a number, else `"string"`.
+
+### assert(cond, msg) — (C path)
+If `cond` is falsy, prints `msg` to stderr and exits with code 1.
+
+### throw(msg) — (native via `throw` keyword)
+Throws an exception. Use the keyword form `throw "message"`; the function form
+exists only in the C path.
+
+---
+
+## Compiler-internal (advanced)
+
+Used by code generators / AOT build steps. Almost all are C-path only because
+they touch raw pointers and would need explicit wiring through the native
+pipeline to be safe.
+
+- `tokenize(s)`, `tokAt(toks, i)`, `tokVal(t)`, `tokType(t)` — Krypton tokenizer.
+- `bufNew(n)`, `bufSetByte`, `bufSetDword`, `bufSetDwordAt`, `bufGetWord`,
+  `bufGetDword`, `bufGetDwordAt`, `bufGetQword`, `bufGetQwordAt`, `bufStr` —
+  byte-buffer manipulation for hand-emitting machine code.
+- `writeBytes(path, hex)` — writes a binary file from a hex-encoded string.
+- `funcptr(name)` — returns a Krypton-compiled function as a raw `char*`
+  function pointer for callbacks.
+- `callPtr(fp, ...)` — invokes a function pointer.
+- `ptrDeref(p)` / `ptrIndex(p, i)` — raw memory access.
+- `structAddr(obj)` / `toHandle(p)` / `handleInt(h)` / `handleGet(h)` /
+  `handleOut(h)` / `handleValid(h)` — handle / pointer interop helpers.
+- `sizeOf(typeName)` — C-type size lookup.
+- `exec(cmd)` — execute and return exit code.
+
+---
+
+## Notes
+
+- Numeric `+` semantics: when both operands are numeric strings, `+` performs
+  integer addition — even via the toStr-via-concat idiom (`"" + 5 + "x"` is
+  `5 + "x"` → `"5x"`, not `"5x"`). To force string concat of digit-only tokens,
+  use `sbAppend`.
+- The native runtime's smart-int convention reserves values ≥ `0x40000000`
+  (1 GiB) for string pointers; integers at or above that boundary will be
+  misinterpreted as pointers and likely crash. Use `add64` / `mul64` etc. when
+  you need more headroom.
