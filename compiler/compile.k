@@ -4864,6 +4864,31 @@ just run {
                     entryP += 1
                 }
                 iri = entryP
+            } else if irtok == "KW:struct" || irtok == "KW:class" || irtok == "KW:type" {
+                // Skip struct/class/type body — `let`s inside are field decls,
+                // not file-scope globals. Without this skip, we'd hoist them
+                // as bogus locals into __main__'s prologue (LOCAL x; LOAD y; STORE x).
+                //
+                // Also synthesise a zero-arg constructor `FUNC <Name> 0` so
+                // user code `let v = Vec()` (which compiles to CALL Vec 0)
+                // resolves to a real function. Body is just STRUCTNEW + RETURN
+                // — emits an empty struct (NULL sentinel; SETFIELD ops on it
+                // build the linked-list of fields lazily).
+                let structName = tokVal(tokAt(tokens, iri + 1))
+                sbIR = sbAppend(sbIR, "FUNC " + structName + " 0\nSTRUCTNEW\nRETURN\nEND\n\n")
+                let entryP = iri + 2
+                while entryP < ntoks && tokAt(tokens, entryP) != "LBRACE" { entryP += 1 }
+                let depth = 0
+                while entryP < ntoks {
+                    let bt = tokAt(tokens, entryP)
+                    if bt == "LBRACE" { depth += 1 }
+                    if bt == "RBRACE" {
+                        depth -= 1
+                        if depth == 0 { entryP += 1; break }
+                    }
+                    entryP += 1
+                }
+                iri = entryP
             } else if irtok == "KW:let" || irtok == "KW:const" {
                 let glp = irLetIR(tokens, iri + 1, ntoks, 0, "0")
                 sbGlobInit = sbAppend(sbGlobInit, pairVal(glp))
