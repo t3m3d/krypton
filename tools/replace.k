@@ -1,35 +1,8 @@
-// replace - Find and replace text in a file
-
-func contains(haystack, needle) {
-    let i = 0
-    while i <= len(haystack) - len(needle) {
-        if substring(haystack, i, i + len(needle)) == needle {
-            emit 1
-        }
-        i = i + 1
-    }
-    emit 0
-}
-
-func replaceAll(s, old, new) {
-    let result = ""
-    let i = 0
-    while i <= len(s) - len(old) {
-        if substring(s, i, i + len(old)) == old {
-            result = result + new
-            i = i + len(old)
-        } else {
-            result = result + s[i]
-            i = i + 1
-        }
-    }
-    // Remaining characters
-    while i < len(s) {
-        result = result + s[i]
-        i = i + 1
-    }
-    emit result
-}
+// replace - Find and replace text in a file.
+// Uses the native builtins `contains(haystack, needle)` and
+// `replace(s, old, new)` directly — the previous user-defined helpers
+// shadowed them on the C path and were dead code on native (the IR
+// dispatcher routes those names to BUILTIN regardless).
 
 just run {
     if argCount() < 3 {
@@ -44,14 +17,13 @@ just run {
         while i < lc {
             let line = getLine(content, i)
             if contains(line, find) {
-                kp(replaceAll(line, find, repl))
+                kp(replace(line, find, repl))
                 changes = changes + 1
             } else {
                 kp(line)
             }
             i = i + 1
         }
-        // Print to stderr-like output
         kp("(" + changes + " lines changed)")
     }
 }
