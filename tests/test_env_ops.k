@@ -13,7 +13,7 @@ just run {
     kp("===========================")
 
     // Create and use environment
-    let env = ""
+    let env = envNew()
     env = envSet(env, "x", "10")
     check("set and get x", "10", envGet(env, "x"))
 

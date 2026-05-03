@@ -8,22 +8,22 @@ func check(name, expected, actual) {
     }
 }
 
-func abs(n) {
+func m_abs(n) {
     if n < 0 { emit 0 - n }
     emit n
 }
 
-func max(a, b) {
+func m_max(a, b) {
     if a > b { emit a }
     emit b
 }
 
-func min(a, b) {
+func m_min(a, b) {
     if a < b { emit a }
     emit b
 }
 
-func clamp(v, lo, hi) {
+func m_clamp(v, lo, hi) {
     if v < lo { emit lo }
     if v > hi { emit hi }
     emit v
@@ -38,13 +38,13 @@ just run {
     check("nested parens", "5", "" + ((10 + 10) / (2 + 2)))
 
     // Function composition
-    check("abs positive", "5", "" + abs(5))
-    check("abs negative", "5", "" + abs(0 - 5))
-    check("max", "10", "" + max(5, 10))
-    check("min", "5", "" + min(5, 10))
-    check("clamp low", "0", "" + clamp(0 - 5, 0, 100))
-    check("clamp high", "100", "" + clamp(150, 0, 100))
-    check("clamp mid", "50", "" + clamp(50, 0, 100))
+    check("m_abs positive", "5", "" + m_abs(5))
+    check("m_abs negative", "5", "" + m_abs(0 - 5))
+    check("m_max", "10", "" + m_max(5, 10))
+    check("m_min", "5", "" + m_min(5, 10))
+    check("m_clamp low", "0", "" + m_clamp(0 - 5, 0, 100))
+    check("m_clamp high", "100", "" + m_clamp(150, 0, 100))
+    check("m_clamp mid", "50", "" + m_clamp(50, 0, 100))
 
     // Complex string building
     let sb = sbNew()

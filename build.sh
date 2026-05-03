@@ -121,19 +121,34 @@ if [[ "$MODE" == "test" ]]; then
         echo "Running tests (C path via $CC)..."
     fi
     echo "────────────────────────────────────────"
+    SKIPPED=0
     for TEST in tests/test_*.k; do
         NAME=$(basename "$TEST")
+        # Platform-specific skips
+        case "$NAME:$OSNAME" in
+            test_dll_exports.k:linux|test_dll_exports.k:macos)
+                echo -e "${CYAN}SKIP${RESET}  $NAME (Windows-only)"
+                SKIPPED=$((SKIPPED + 1))
+                continue
+                ;;
+        esac
         if native_pipeline_available; then
             OUT="/tmp/_kr_test_bin_$$"
+            OUT_LOG="/tmp/_kr_test_log_$$"
+            # A test passes only if (a) the binary exits 0 AND (b) its output
+            # contains no "[FAIL]" markers. Tests that print [PASS]/[FAIL]
+            # lines per assertion would otherwise silently green when the
+            # process happens to exit cleanly with bad results.
             if "$SCRIPT_DIR/kcc.sh" --native "$TEST" -o "$OUT" >/dev/null 2>&1 \
-               && "$OUT" > /dev/null 2>&1; then
+               && "$OUT" > "$OUT_LOG" 2>&1 \
+               && ! grep -q '\[FAIL\]' "$OUT_LOG"; then
                 ok "$NAME"
                 PASSED=$((PASSED + 1))
             else
                 echo -e "${RED}FAIL${RESET}  $NAME"
                 FAILED=$((FAILED + 1))
             fi
-            rm -f "$OUT"
+            rm -f "$OUT" "$OUT_LOG"
         else
             if "$KCC" "$TEST" > /tmp/_kr_test.c 2>/dev/null \
                && "$CC" /tmp/_kr_test.c -o /tmp/_kr_test_bin $CFLAGS 2>/dev/null \
@@ -148,7 +163,11 @@ if [[ "$MODE" == "test" ]]; then
         fi
     done
     echo "────────────────────────────────────────"
-    echo "  Passed: $PASSED  Failed: $FAILED"
+    if [[ $SKIPPED -gt 0 ]]; then
+        echo "  Passed: $PASSED  Failed: $FAILED  Skipped: $SKIPPED"
+    else
+        echo "  Passed: $PASSED  Failed: $FAILED"
+    fi
     [[ $FAILED -eq 0 ]] || exit 1
     exit 0
 fi

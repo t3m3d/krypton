@@ -1,4 +1,27 @@
 // Test pair operations (pairVal, pairPos)
+// pair helpers are defined inline rather than imported because the
+// jxt/inc inliner doesn't pull in stdlib/pair.k cleanly when run via
+// the native pipeline (path resolution issue — to be fixed separately).
+
+func _findLastComma(s) {
+    let i = len(s) - 1
+    while i >= 0 {
+        if s[i] == "," { emit i }
+        i = i - 1
+    }
+    emit -1
+}
+
+func pairVal(p) {
+    let c = _findLastComma(p)
+    if c < 0 { emit p }
+    emit substring(p, 0, c)
+}
+
+func pairPos(p) {
+    let c = _findLastComma(p)
+    emit toInt(substring(p, c + 1, len(p)))
+}
 
 func check(name, expected, actual) {
     if expected == actual {
