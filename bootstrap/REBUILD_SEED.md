@@ -7,7 +7,7 @@ fixes the seed must be rebuilt.
 ## Easy path: Linux box with gcc
 
 ```bash
-./kcc-x64 kompiler/linux_x86/elf.k > /tmp/elf_host.c
+./kcc-x64 compiler/linux_x86/elf.k > /tmp/elf_host.c
 gcc /tmp/elf_host.c -o bootstrap/elf_host_linux_x86_64
 chmod +x bootstrap/elf_host_linux_x86_64
 ```
@@ -22,7 +22,7 @@ known seed bugs (escape decode + line-separator collision):
 ```bash
 # 1. Generate IR (use Windows kcc-x64-new.exe — Linux kcc-x64-native segfaults
 #    on files this size due to a separate memory leak)
-kcc-x64-new.exe --ir kompiler/linux_x86/elf.k > raw.kir
+kcc-x64-new.exe --ir compiler/linux_x86/elf.k > raw.kir
 
 # 2. Sanitize (strip CR + rewrite escape-containing PUSH lines)
 tr -d '\r' < raw.kir | python3 bootstrap/sanitize_ir.py > safe.kir

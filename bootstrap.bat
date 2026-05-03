@@ -24,8 +24,8 @@ if not exist runtime\krypton_rt.dll ( echo FAIL: missing runtime\krypton_rt.dll 
 echo Installing prebuilt Krypton binaries (no gcc needed)...
 echo.
 copy /Y "%SEED_KCC%" kcc.exe >nul                    && echo   OK  kcc.exe
-copy /Y "%SEED_X64%" kompiler\x64_host.exe >nul      && echo   OK  kompiler\x64_host.exe
-copy /Y "%SEED_OPT%" kompiler\optimize_host.exe >nul && echo   OK  kompiler\optimize_host.exe
+copy /Y "%SEED_X64%" compiler\x64_host.exe >nul      && echo   OK  compiler\x64_host.exe
+copy /Y "%SEED_OPT%" compiler\optimize_host.exe >nul && echo   OK  compiler\optimize_host.exe
 echo   OK  runtime\krypton_rt.dll (already present)
 echo.
 

@@ -1,7 +1,7 @@
 // ============================================================
 // Krypton Bootstrap Compiler/Interpreter
 // Written in Krypton, runs on kcc (the C++ reference compiler)
-// Usage: kcc kompiler/run.k <file.k>
+// Usage: kcc compiler/run.k <file.k>
 // ============================================================
 
 // ── String Utilities ──────────────────────────────────────

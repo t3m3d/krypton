@@ -11,9 +11,9 @@ Krypton is a dynamically typed language with clean syntax, 147 built-in function
 
 | Platform | Backend | Output |
 |----------|---------|--------|
-| **Linux x86_64** | `kompiler/linux_x86/elf.k` | Static ELF, direct syscalls, no libc |
-| **Windows x86_64** | `kompiler/windows_x86/x64.k` | PE/COFF, kernel32-only via `runtime/krypton_rt.dll` |
-| **macOS arm64** | `kompiler/macos_arm64/macho_arm64_self.k` | Mach-O with in-Krypton SHA-256 ad-hoc code signing |
+| **Linux x86_64** | `compiler/linux_x86/elf.k` | Static ELF, direct syscalls, no libc |
+| **Windows x86_64** | `compiler/windows_x86/x64.k` | PE/COFF, kernel32-only via `runtime/krypton_rt.dll` |
+| **macOS arm64** | `compiler/macos_arm64/macho_arm64_self.k` | Mach-O with in-Krypton SHA-256 ad-hoc code signing |
 
 C output (`--c`) and gcc-rebuild (`--gcc`, deprecated) remain as escape hatches but are not part of the normal flow.
 
@@ -47,7 +47,7 @@ just run {
 | macOS arm64 | `kcc_seed_macos_aarch64` | none (pure copy) |
 
 **Optional, for development only:**
-- **gcc** — one-time bootstrap if you edit `kompiler/linux_x86/elf.k` or `kompiler/windows_x86/x64.k` and need to rebuild a seed binary. End users never need it.
+- **gcc** — one-time bootstrap if you edit `compiler/linux_x86/elf.k` or `compiler/windows_x86/x64.k` and need to rebuild a seed binary. End users never need it.
 - **LLVM/clang** — only for the optional `--llvm` backend.
 - **macOS Xcode CLT** — provides `xcrun` for the macOS arm64 self-build path. (Note: the macho_arm64_self.k pipeline emits Mach-O directly with in-Krypton SHA-256 ad-hoc signing — no clang or codesign invocation.)
 
@@ -68,7 +68,7 @@ kcc.sh hello.k                          # default native pipeline (no gcc)
 ./hello                                  # static ELF, direct syscalls, no libc
 ```
 
-The pipeline is `compile.k → .kir → optimize.k → kompiler/linux_x86/elf.k → ELF binary`.
+The pipeline is `compile.k → .kir → optimize.k → compiler/linux_x86/elf.k → ELF binary`.
 
 ### Windows x86_64
 
@@ -85,7 +85,7 @@ kcc.sh hello.k                          # default native pipeline (no gcc)
 hello.exe                                # PE/COFF, kernel32-only
 ```
 
-The pipeline is `compile.k → .kir → optimize.k → kompiler/windows_x86/x64.k → PE/COFF`. Output exes import only `kernel32.dll` via the bundled `runtime/krypton_rt.dll`.
+The pipeline is `compile.k → .kir → optimize.k → compiler/windows_x86/x64.k → PE/COFF`. Output exes import only `kernel32.dll` via the bundled `runtime/krypton_rt.dll`.
 
 For a from-source rebuild of the seed binaries, `build_v141.bat` uses [TDM-GCC](https://jmeubank.github.io/tdm-gcc/) or MSYS2 mingw-w64. End users don't need it.
 
@@ -95,7 +95,7 @@ For a from-source rebuild of the seed binaries, `build_v141.bat` uses [TDM-GCC](
 git clone https://github.com/t3m3d/krypton && cd krypton && ./build.sh
 ```
 
-The macOS pipeline is `compile.k → .kir → kompiler/macos_arm64/macho_arm64_self.k → Mach-O`. The Krypton-side emitter writes the entire Mach-O — load commands, `__TEXT`/`__DATA`/`__LINKEDIT`, chained fixups — and the SHA-256 ad-hoc code signature, all in Krypton. **No clang, no `as`, no `ld`, no external `codesign` invocation.**
+The macOS pipeline is `compile.k → .kir → compiler/macos_arm64/macho_arm64_self.k → Mach-O`. The Krypton-side emitter writes the entire Mach-O — load commands, `__TEXT`/`__DATA`/`__LINKEDIT`, chained fixups — and the SHA-256 ad-hoc code signature, all in Krypton. **No clang, no `as`, no `ld`, no external `codesign` invocation.**
 
 ```bash
 kcc.sh hello.k -o hello                  # default: native arm64 Mach-O
@@ -126,9 +126,9 @@ kcc.sh hello.k                # produces ./hello (Linux/macOS) or ./hello.exe (W
 
 Per-platform pipeline (chosen automatically):
 
-- **Linux** — emits ELF64 directly via [kompiler/elf.k](kompiler/elf.k). Static binary, direct syscalls, no libc, no dynamic linker.
-- **Windows** — emits PE/COFF directly via [kompiler/x64.k](kompiler/x64.k). Imports only `kernel32.dll` (via `runtime/krypton_rt.dll`).
-- **macOS** — emits assembly via [kompiler/macho.k](kompiler/macho.k); `clang` assembles + links + signs into a Mach-O. (Tahoe AMFI rejects hand-rolled static binaries — clang produces a properly dyld-linked binary the kernel will accept.)
+- **Linux** — emits ELF64 directly via [compiler/elf.k](compiler/elf.k). Static binary, direct syscalls, no libc, no dynamic linker.
+- **Windows** — emits PE/COFF directly via [compiler/x64.k](compiler/x64.k). Imports only `kernel32.dll` (via `runtime/krypton_rt.dll`).
+- **macOS** — emits assembly via [compiler/macho.k](compiler/macho.k); `clang` assembles + links + signs into a Mach-O. (Tahoe AMFI rejects hand-rolled static binaries — clang produces a properly dyld-linked binary the kernel will accept.)
 
 ### Other compilation modes (opt-in)
 
@@ -299,15 +299,15 @@ The default `kcc.sh source.k` invocation produces a native binary using a Krypto
 source.k
     │
     ├─ Linux x86_64   (default):  source.k → .kir → optimize.k →
-    │                              kompiler/linux_x86/elf.k → ELF binary
+    │                              compiler/linux_x86/elf.k → ELF binary
     │                              (direct syscalls, no libc, no linker)
     │
     ├─ Windows x86_64 (default):  source.k → .kir → optimize.k →
-    │                              kompiler/windows_x86/x64.k → PE/COFF
+    │                              compiler/windows_x86/x64.k → PE/COFF
     │                              (kernel32-only via runtime/krypton_rt.dll)
     │
     ├─ macOS arm64    (default):  source.k → .kir →
-    │                              kompiler/macos_arm64/macho_arm64_self.k →
+    │                              compiler/macos_arm64/macho_arm64_self.k →
     │                              Mach-O (in-Krypton SHA-256 ad-hoc signing)
     │
     ├─ --c:                       source.k → C source (stdout or -o file)
@@ -315,7 +315,7 @@ source.k
     │                             `gcc out.c -o out -lm` to build manually.
     │
     ├─ --llvm:                    source.k → .kir → optimize.k →
-    │                              kompiler/llvm.k → .ll
+    │                              compiler/llvm.k → .ll
     │                              Pair with `clang hello.ll -o hello`.
     │
     └─ --gcc (DEPRECATED):        source.k → C source → gcc → native binary
@@ -378,7 +378,7 @@ STORE/LOAD elimination, empty jump removal, unused local removal.
 
 ```
 krypton/
-├── kompiler/
+├── compiler/
 │   ├── compile.k                  # Self-hosting frontend
 │   ├── optimize.k                 # IR optimizer
 │   ├── llvm.k                     # LLVM IR backend (optional)
@@ -436,7 +436,7 @@ Pure `cp` — no compiler invoked at install. After that, `kcc.sh source.k` runs
 
 **Re-seeding (developer-only, one-time gcc bootstrap):**
 
-If you edit `kompiler/<platform>/<emitter>.k` you may need to rebuild the seed. The exact steps live in [bootstrap/REBUILD_SEED.md](bootstrap/REBUILD_SEED.md). Linux currently still needs gcc once for this; the path to dropping it entirely (a pure-Krypton self-bootstrap of `elf.k`) is documented there.
+If you edit `compiler/<platform>/<emitter>.k` you may need to rebuild the seed. The exact steps live in [bootstrap/REBUILD_SEED.md](bootstrap/REBUILD_SEED.md). Linux currently still needs gcc once for this; the path to dropping it entirely (a pure-Krypton self-bootstrap of `elf.k`) is documented there.
 
 The compiler has been self-hosting since the v0.1 series. Historical bootstrap binaries live in `versions/`.
 

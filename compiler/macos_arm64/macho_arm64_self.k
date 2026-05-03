@@ -25,7 +25,7 @@
 //           0x80c0 code signature placeholder (256 B, filled by external codesign)
 //   end
 //
-// Usage: kcc kompiler/macos_arm64/macho_arm64_self.k <output_path>
+// Usage: kcc compiler/macos_arm64/macho_arm64_self.k <output_path>
 // Then:  codesign -s - --force <output_path>
 // Then:  <output_path>   → prints "Hi"
 
@@ -2882,9 +2882,9 @@ func asciiToHex(s) {
 just run {
     let arg0 = arg("0")
     if len(arg0) == 0 {
-        printErr("usage: kcc kompiler/macos_arm64/macho_arm64_self.k <output_path>")
-        printErr("       kcc kompiler/macos_arm64/macho_arm64_self.k --ir <input.kir> <output_path>")
-        printErr("       kcc kompiler/macos_arm64/macho_arm64_self.k --sha256-test")
+        printErr("usage: kcc compiler/macos_arm64/macho_arm64_self.k <output_path>")
+        printErr("       kcc compiler/macos_arm64/macho_arm64_self.k --ir <input.kir> <output_path>")
+        printErr("       kcc compiler/macos_arm64/macho_arm64_self.k --sha256-test")
         exit("1")
     }
 
