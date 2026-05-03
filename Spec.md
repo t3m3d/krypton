@@ -1,6 +1,6 @@
 # Krypton Language Specification
 
-**Version 1.1.0** — March 2026
+**Version 1.4.0** — May 2026
 
 ---
 
@@ -8,7 +8,7 @@
 
 ### 1.1 Purpose
 
-Krypton is a dynamically typed programming language that compiles to C. The compiler (`kcc`) is self-hosting: it is written in Krypton and can compile itself.
+Krypton is a dynamically typed programming language that compiles directly to native machine code on Linux x86_64 (ELF), Windows x86_64 (PE/COFF), and macOS arm64 (Mach-O). The compiler (`kcc`) is self-hosting — written in Krypton, capable of compiling itself, and shipped as prebuilt seed binaries so a fresh clone needs no external toolchain to install. A C-emit backend (`--c`) is retained as an escape hatch for porting and debugging.
 
 ### 1.2 Design Philosophy
 
@@ -416,35 +416,51 @@ functionName(arg1, arg2, arg3)
 
 ## 6. Compilation Model
 
-### 6.1 Pipeline
+### 6.1 Default Pipelines (no C compiler involved)
 
 ```
-source.k → kcc → output.c → gcc → native executable
+                   ┌─ Linux x86_64:   .k → .kir → optimize → elf.k    → ELF
+source.k → kcc ──┤
+                   ├─ Windows x86_64: .k → .kir → optimize → x64.k    → PE/COFF
+                   │
+                   └─ macOS arm64:    .k → .kir → macho_arm64_self.k  → Mach-O (signed)
 ```
 
-1. Krypton source is tokenized and parsed
-2. The compiler emits C source with an embedded runtime
-3. GCC (or compatible C compiler) produces the final binary
+Each platform has a dedicated emitter under `kompiler/<platform>/`. The Krypton-side emitter writes the binary file directly — load commands, sections, code, data, relocations, and (on macOS) the SHA-256 ad-hoc code signature, all without invoking gcc, clang, ld, or codesign at user-call time.
 
-### 6.2 C Runtime
+### 6.2 Optional Pipelines
 
-The generated C includes a complete runtime:
+| Mode | Pipeline | When to use |
+|------|----------|-------------|
+| `--c` | `.k → .c` | Port to a platform without a Krypton emitter; debug codegen |
+| `--llvm` | `.k → .kir → .ll` | Pair with `clang hello.ll -o hello` for LLVM-based optimization |
+| `--ir` | `.k → .kir` | Inspect the stack-machine intermediate representation |
+| `--gcc` *(deprecated)* | `.k → .c → gcc → binary` | Emergency fallback only; emits a deprecation warning |
 
-- **Arena allocator** — 256 MB bump-allocation blocks
+### 6.3 Native Runtime
+
+Each native emitter produces a binary with a hand-written runtime:
+
+- **Linux ELF** — direct `syscall` to the kernel; no libc, no dynamic linker. Bump allocator (`R15` register holds heap pointer).
+- **Windows PE** — imports only `kernel32.dll` via `runtime/krypton_rt.dll` (a Krypton-emitted DLL). No CRT, no MSVCRT.
+- **macOS Mach-O** — imports `libSystem.B.dylib` for syscall scaffolding. Chained fixups, ad-hoc SHA-256 code signature in Krypton-generated `__LINKEDIT`.
+
+All three runtimes share Krypton's value model: every value is a NUL-terminated `char*` in arena memory; small ints fit in the bottom 30 bits and are dispatched via a smart-int branch on each operation.
+
+### 6.4 C Runtime (for `--c` mode)
+
+When emitting C, the compiler produces a self-contained `.c` file with:
+
+- **Arena allocator** — 64 MB bump-allocation blocks
 - **String constants** — `""`, `"0"`, `"1"` are pre-allocated
-- **127 built-in functions** — `kr_*` prefixed C functions
+- **147 built-in functions** — `kr_*` prefixed C functions
 - **Handle-based StringBuilder** — mutable buffers for efficient string building
-- **Linked-list environments** — for variable binding in interpreter mode
 - **Exception stack** — 256-deep `setjmp`/`longjmp` stack for try/catch/throw
 - **Dynamic struct system** — field name/value pairs stored in arena memory
 
-### 6.3 Self-Hosting
+### 6.5 Self-Hosting
 
-The compiler (`kompiler/compile.k`) compiles itself. The bootstrap chain is:
-
-```
-kcc (C++) → v010 → v020 → v030 → v040 → v050 → v060 → v070 → v071
-```
+The compiler (`kompiler/compile.k`) compiles itself. Each platform's seed binary in `bootstrap/` was produced by gcc once during initial bootstrap; subsequent rebuilds use the previous-generation seed via the native pipeline. The original bootstrap chain (v0.1 series through v0.7) is preserved in `versions/`.
 
 ---
 
