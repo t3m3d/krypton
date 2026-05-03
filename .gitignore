@@ -95,3 +95,4 @@ installer/
 assets/
 build_v140.bat
 M1_SETUP.md
+bootstrap/REBUILD_SEED.md
