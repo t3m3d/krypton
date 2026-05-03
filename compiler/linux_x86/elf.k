@@ -2904,6 +2904,10 @@ func opByteSize(op) {
     if op == "BUILTIN_ENVNEW"    { emit 2 }  // PUSH 0 (NULL env)
     if op == "BUILTIN_ENVSET"    { emit 31 } // alloc 24-byte EnvEntry, store name/val/prev, push entry
     if op == "BUILTIN_ENVGET"    { emit 61 } // walk linked list, strcmp names, return value or empty
+    if op == "SETFIELD_STR"      { emit 40 } // envSet with name from immediate (strTab vaddr)
+    if op == "GETFIELD_STR"      { emit 70 } // envGet with name from immediate (strTab vaddr)
+    if op == "BUILTIN_HASFIELD"  { emit 54 } // envGet-like: returns 1 if found, 0 if not
+    if op == "BUILTIN_STRUCTFIELDS" { emit 88 } // walk env, build comma-sep string of names
     if op == "POP"        { emit 1 }
     if op == "LABEL"      { emit 0 }
     if op == "JUMP"       { emit 5 }    // E9 + d32
@@ -3197,6 +3201,18 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_ENVSET")
                 } else if bname == "envGet" {
                     opSb = sbAppend(opSb, "BUILTIN_ENVGET")
+                } else if bname == "structNew" {
+                    // Same shape as envNew: returns NULL sentinel.
+                    opSb = sbAppend(opSb, "BUILTIN_ENVNEW")
+                } else if bname == "setField" {
+                    // Same shape as envSet (env, name, val) → new entry.
+                    opSb = sbAppend(opSb, "BUILTIN_ENVSET")
+                } else if bname == "getField" {
+                    opSb = sbAppend(opSb, "BUILTIN_ENVGET")
+                } else if bname == "hasField" {
+                    opSb = sbAppend(opSb, "BUILTIN_HASFIELD")
+                } else if bname == "structFields" {
+                    opSb = sbAppend(opSb, "BUILTIN_STRUCTFIELDS")
                 } else {
                     // Unknown builtin: emit a marker and leave the stack
                     // alone. Programs that hit this are already incorrect;
@@ -3215,6 +3231,29 @@ func parseIR(ir) {
             } else if op == "LABEL" || op == "JUMP" || op == "JUMPIFNOT" || op == "JUMPIF" {
                 if opCount > 0 { opSb = sbAppend(opSb, "\n") }
                 opSb = sbAppend(opSb, op + " " + rest)
+                opCount += 1
+            } else if op == "STRUCTNEW" {
+                // Same shape as envNew: produce an empty struct (NULL sentinel).
+                if opCount > 0 { opSb = sbAppend(opSb, "\n") }
+                opSb = sbAppend(opSb, "BUILTIN_ENVNEW")
+                opCount += 1
+            } else if op == "SETFIELD" || op == "GETFIELD" {
+                // Field name comes as op-text suffix. Intern it as a string so
+                // we can reference it by strTab index from emitFuncCode.
+                let interned = internStr(strTab, strCount, rest)
+                let lcInt = lineCount(interned)
+                let idx = toInt(getLine(interned, lcInt - 1))
+                let tabSb = sbNew()
+                let tk = 0
+                while tk < lcInt - 1 {
+                    if tk > 0 { tabSb = sbAppend(tabSb, "\n") }
+                    tabSb = sbAppend(tabSb, getLine(interned, tk))
+                    tk += 1
+                }
+                strTab = sbToString(tabSb)
+                if idx >= strCount { strCount = idx + 1 }
+                if opCount > 0 { opSb = sbAppend(opSb, "\n") }
+                opSb = sbAppend(opSb, op + "_STR " + idx)
                 opCount += 1
             } else if op == "END" {
                 if opCount > 0 { opSb = sbAppend(opSb, "\n") }
@@ -4002,6 +4041,224 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             c = c + hexByte(0xEB) + hexByte(256 - 36)            // JMP -36 → .loop at 11
             c = c + hexByte(0xBF) + hexDword(1)
             c = c + hexByte(0xE8) + hexDword(alDisp2)
+            c = c + hexByte(0x41) + hexByte(0x5C)
+            c = c + hexByte(0x5B)
+            c = c + hexByte(0x50)
+        } else if op == "SETFIELD_STR" {
+            // setField(env, val) with name immediate from strTab[idx].
+            // Stack on entry (top first): val, env.
+            //
+            // Layout (40 bytes):
+            //   [0]    5A             POP RDX           ; val
+            //   [1]    5F             POP RDI           ; env (will become prev)
+            //   [2]    57             PUSH RDI          ; save env
+            //   [3]    52             PUSH RDX          ; save val
+            //   [4-13] 48 BE imm64    MOV RSI, name_va  (10)
+            //   [14]   56             PUSH RSI          ; save name
+            //   [15-19] BF 18 00 00 00 MOV EDI, 24
+            //   [20-24] E8 dw_alloc   CALL kr_alloc     ; RAX = entry
+            //   [25]   5E             POP RSI           ; name
+            //   [26]   5A             POP RDX           ; val
+            //   [27]   5F             POP RDI           ; env (prev)
+            //   [28-30] 48 89 30      MOV [RAX], RSI    ; entry.name = name (3)
+            //   [31-34] 48 89 50 08   MOV [RAX+8], RDX  ; entry.value = val (4)
+            //   [35-38] 48 89 78 10   MOV [RAX+16], RDI ; entry.prev = env (4)
+            //   [39]   50             PUSH RAX
+            let idx = toInt(rest)
+            let nameVAddr = toInt(getLine(strVAddrs, idx))
+            let alDispS = krAllocVAddr - (funcStartVAddr + off + 25)
+            c = c + hexByte(0x5A)
+            c = c + hexByte(0x5F)
+            c = c + hexByte(0x57)
+            c = c + hexByte(0x52)
+            c = c + hexByte(0x48) + hexByte(0xBE) + hexQword(nameVAddr)
+            c = c + hexByte(0x56)
+            c = c + hexByte(0xBF) + hexDword(24)
+            c = c + hexByte(0xE8) + hexDword(alDispS)
+            c = c + hexByte(0x5E)
+            c = c + hexByte(0x5A)
+            c = c + hexByte(0x5F)
+            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x30)
+            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x50) + hexByte(0x08)
+            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x78) + hexByte(0x10)
+            c = c + hexByte(0x50)
+        } else if op == "GETFIELD_STR" {
+            // getField(env) with name immediate from strTab[idx].
+            // Stack on entry: env (top).
+            //
+            // Layout (70 bytes):
+            //   [0-9]  48 BE imm64     MOV RSI, name_va         (10)
+            //   [10]   5F              POP RDI                  ; env
+            //   [11]   53              PUSH RBX
+            //   [12-13] 41 54          PUSH R12
+            //   [14-16] 48 89 F3       MOV RBX, RSI             ; save name
+            //   [17-19] 49 89 FC       MOV R12, RDI             ; cur entry
+            //   .loop at 20:
+            //   [20-22] 4D 85 E4       TEST R12, R12
+            //   [23-24] 74 1F          JZ +31 → .notfound at 56
+            //   [25-28] 49 8B 3C 24    MOV RDI, [R12]           ; entry.name
+            //   [29-31] 48 89 DE       MOV RSI, RBX
+            //   [32-36] E8 dw_strcmp   CALL kr_strcmp
+            //   [37-39] 48 85 C0       TEST RAX, RAX
+            //   [40-41] 75 07          JNE +7 → .next at 49
+            //   [42-46] 49 8B 44 24 08 MOV RAX, [R12+8]
+            //   [47-48] EB 11          JMP +17 → .ret at 66
+            //   .next at 49:
+            //   [49-53] 4D 8B 64 24 10 MOV R12, [R12+16]
+            //   [54-55] EB DC          JMP -36 → .loop at 20
+            //   .notfound at 56:
+            //   [56-60] BF 01 00 00 00 MOV EDI, 1
+            //   [61-65] E8 dw_alloc    CALL kr_alloc
+            //   .ret at 66:
+            //   [66-67] 41 5C          POP R12
+            //   [68]   5B              POP RBX
+            //   [69]   50              PUSH RAX
+            let idxG = toInt(rest)
+            let nameVA_G = toInt(getLine(strVAddrs, idxG))
+            let scDispG = krStrcmpVAddr - (funcStartVAddr + off + 37)
+            let alDispG = krAllocVAddr - (funcStartVAddr + off + 66)
+            c = c + hexByte(0x48) + hexByte(0xBE) + hexQword(nameVA_G)
+            c = c + hexByte(0x5F)
+            c = c + hexByte(0x53)
+            c = c + hexByte(0x41) + hexByte(0x54)
+            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xF3)
+            c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xFC)
+            c = c + hexByte(0x4D) + hexByte(0x85) + hexByte(0xE4)
+            c = c + hexByte(0x74) + hexByte(0x1F)
+            c = c + hexByte(0x49) + hexByte(0x8B) + hexByte(0x3C) + hexByte(0x24)
+            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDE)
+            c = c + hexByte(0xE8) + hexDword(scDispG)
+            c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)
+            c = c + hexByte(0x75) + hexByte(0x07)
+            c = c + hexByte(0x49) + hexByte(0x8B) + hexByte(0x44) + hexByte(0x24) + hexByte(0x08)
+            c = c + hexByte(0xEB) + hexByte(0x11)
+            c = c + hexByte(0x4D) + hexByte(0x8B) + hexByte(0x64) + hexByte(0x24) + hexByte(0x10)
+            c = c + hexByte(0xEB) + hexByte(256 - 36)
+            c = c + hexByte(0xBF) + hexDword(1)
+            c = c + hexByte(0xE8) + hexDword(alDispG)
+            c = c + hexByte(0x41) + hexByte(0x5C)
+            c = c + hexByte(0x5B)
+            c = c + hexByte(0x50)
+        } else if op == "BUILTIN_HASFIELD" {
+            // hasField(env, name) — return 1 if name in env, else 0.
+            // Stack on entry: name (top), env.
+            //
+            // Layout (54 bytes):
+            //   [0]    5E              POP RSI                  ; name
+            //   [1]    5F              POP RDI                  ; env
+            //   [2]    53              PUSH RBX
+            //   [3-4]  41 54           PUSH R12
+            //   [5-7]  48 89 F3        MOV RBX, RSI
+            //   [8-10] 49 89 FC        MOV R12, RDI
+            //   .loop at 11:
+            //   [11-13] 4D 85 E4       TEST R12, R12
+            //   [14-15] 74 1F          JZ +31 → .notfound at 47
+            //   [16-19] 49 8B 3C 24    MOV RDI, [R12]
+            //   [20-22] 48 89 DE       MOV RSI, RBX
+            //   [23-27] E8 dw_strcmp   CALL kr_strcmp
+            //   [28-30] 48 85 C0       TEST RAX, RAX
+            //   [31-32] 75 07          JNE +7 → .next at 40
+            //   [33-37] B8 01 00 00 00 MOV EAX, 1
+            //   [38-39] EB 0A          JMP +10 → .ret at 50
+            //   .next at 40:
+            //   [40-44] 4D 8B 64 24 10 MOV R12, [R12+16]
+            //   [45-46] EB DC          JMP -36 → .loop at 11
+            //   .notfound at 47:
+            //   [47-49] 48 31 C0       XOR RAX, RAX
+            //   .ret at 50:
+            //   [50-51] 41 5C          POP R12
+            //   [52]   5B              POP RBX
+            //   [53]   50              PUSH RAX
+            let scDispH = krStrcmpVAddr - (funcStartVAddr + off + 28)
+            c = c + hexByte(0x5E)
+            c = c + hexByte(0x5F)
+            c = c + hexByte(0x53)
+            c = c + hexByte(0x41) + hexByte(0x54)
+            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xF3)
+            c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xFC)
+            c = c + hexByte(0x4D) + hexByte(0x85) + hexByte(0xE4)
+            c = c + hexByte(0x74) + hexByte(0x1F)
+            c = c + hexByte(0x49) + hexByte(0x8B) + hexByte(0x3C) + hexByte(0x24)
+            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDE)
+            c = c + hexByte(0xE8) + hexDword(scDispH)
+            c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)
+            c = c + hexByte(0x75) + hexByte(0x07)
+            c = c + hexByte(0xB8) + hexDword(1)
+            c = c + hexByte(0xEB) + hexByte(0x0A)
+            c = c + hexByte(0x4D) + hexByte(0x8B) + hexByte(0x64) + hexByte(0x24) + hexByte(0x10)
+            c = c + hexByte(0xEB) + hexByte(256 - 36)
+            c = c + hexByte(0x48) + hexByte(0x31) + hexByte(0xC0)
+            c = c + hexByte(0x41) + hexByte(0x5C)
+            c = c + hexByte(0x5B)
+            c = c + hexByte(0x50)
+        } else if op == "BUILTIN_STRUCTFIELDS" {
+            // structFields(env) — return comma-separated list of field names (most-recent first).
+            // Stack on entry: env (top).
+            //
+            // Layout (88 bytes):
+            //   [0]    5F              POP RDI                  ; env
+            //   [1]    53              PUSH RBX
+            //   [2-3]  41 54           PUSH R12
+            //   [4-5]  41 55           PUSH R13                 ; will hold "," string
+            //   [6-8]  49 89 FC        MOV R12, RDI             ; cur
+            //   ; alloc 2-byte buffer for "," (byte 1 stays NUL from mmap)
+            //   [9-13] BF 02 00 00 00  MOV EDI, 2
+            //   [14-18] E8 dw_alloc    CALL kr_alloc
+            //   [19-21] C6 00 2C       MOV byte [RAX], ',' (0x2C)
+            //   [22-24] 49 89 C5       MOV R13, RAX             ; comma str
+            //   ; alloc 1-byte empty result
+            //   [25-29] BF 01 00 00 00 MOV EDI, 1
+            //   [30-34] E8 dw_alloc    CALL kr_alloc
+            //   [35-37] 48 89 C3       MOV RBX, RAX             ; result
+            //   .loop at 38:
+            //   [38-40] 4D 85 E4       TEST R12, R12
+            //   [41-42] 74 24          JZ +36 → .done at 79
+            //   [43-45] 48 89 DF       MOV RDI, RBX             ; result
+            //   [46-49] 49 8B 34 24    MOV RSI, [R12]           ; name
+            //   [50-54] E8 dw_concat   CALL kr_concat
+            //   [55-57] 48 89 C3       MOV RBX, RAX
+            //   [58-60] 48 89 DF       MOV RDI, RBX
+            //   [61-63] 4C 89 EE       MOV RSI, R13             ; ","
+            //   [64-68] E8 dw_concat   CALL kr_concat
+            //   [69-71] 48 89 C3       MOV RBX, RAX
+            //   [72-76] 4D 8B 64 24 10 MOV R12, [R12+16]
+            //   [77-78] EB D7          JMP -41 → .loop at 38
+            //   .done at 79:
+            //   [79-81] 48 89 D8       MOV RAX, RBX
+            //   [82-83] 41 5D          POP R13
+            //   [84-85] 41 5C          POP R12
+            //   [86]   5B              POP RBX
+            //   [87]   50              PUSH RAX
+            let alDispSF1 = krAllocVAddr - (funcStartVAddr + off + 19)
+            let alDispSF2 = krAllocVAddr - (funcStartVAddr + off + 35)
+            let cnDispSF1 = krConcatVAddr - (funcStartVAddr + off + 55)
+            let cnDispSF2 = krConcatVAddr - (funcStartVAddr + off + 69)
+            c = c + hexByte(0x5F)
+            c = c + hexByte(0x53)
+            c = c + hexByte(0x41) + hexByte(0x54)
+            c = c + hexByte(0x41) + hexByte(0x55)
+            c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xFC)
+            c = c + hexByte(0xBF) + hexDword(2)
+            c = c + hexByte(0xE8) + hexDword(alDispSF1)
+            c = c + hexByte(0xC6) + hexByte(0x00) + hexByte(0x2C)
+            c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC5)
+            c = c + hexByte(0xBF) + hexDword(1)
+            c = c + hexByte(0xE8) + hexDword(alDispSF2)
+            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC3)
+            c = c + hexByte(0x4D) + hexByte(0x85) + hexByte(0xE4)
+            c = c + hexByte(0x74) + hexByte(0x24)
+            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDF)
+            c = c + hexByte(0x49) + hexByte(0x8B) + hexByte(0x34) + hexByte(0x24)
+            c = c + hexByte(0xE8) + hexDword(cnDispSF1)
+            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC3)
+            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDF)
+            c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xEE)
+            c = c + hexByte(0xE8) + hexDword(cnDispSF2)
+            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC3)
+            c = c + hexByte(0x4D) + hexByte(0x8B) + hexByte(0x64) + hexByte(0x24) + hexByte(0x10)
+            c = c + hexByte(0xEB) + hexByte(256 - 41)
+            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xD8)
+            c = c + hexByte(0x41) + hexByte(0x5D)
             c = c + hexByte(0x41) + hexByte(0x5C)
             c = c + hexByte(0x5B)
             c = c + hexByte(0x50)
