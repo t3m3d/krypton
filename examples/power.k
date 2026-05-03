@@ -70,11 +70,11 @@ just run {
     while exp <= 8 {
         let s = powerSimple(base, exp)
         let f = powerFast(base, exp)
-        let match = "MATCH"
+        let matched = "MATCH"
         if s != f {
-            match = "MISMATCH"
+            matched = "MISMATCH"
         }
-        kp("  " + base + "^" + exp + " = " + s + " / " + f + " [" + match + "]")
+        kp("  " + base + "^" + exp + " = " + s + " / " + f + " [" + matched + "]")
         exp = exp + 1
     }
     kp("")
