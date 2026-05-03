@@ -1,0 +1,52 @@
+// stdlib.krh — Krypton header for C stdlib
+// Usage: import "headers/stdlib.krh"
+
+jxt {
+    c "stdlib.h"
+
+    // Memory
+    func malloc(size)
+    func calloc(nmemb, size)
+    func realloc(ptr, size)
+    func free(ptr)
+
+    // String/number conversion
+    func atoi(s)
+    func atol(s)
+    func atoll(s)
+    func atof(s)
+    func strtol(s, endptr, base)
+    func strtoul(s, endptr, base)
+    func strtod(s, endptr)
+
+    // Process control
+    func exit(status)
+    func _Exit(status)
+    func abort()
+    func atexit(fn)
+    func system(cmd)
+
+    // Environment
+    func getenv(name)
+    func setenv(name, value, overwrite)
+    func unsetenv(name)
+    func putenv(s)
+
+    // Random numbers
+    func rand()
+    func srand(seed)
+
+    // Search/sort
+    func qsort(base, nmemb, size, compare)
+    func bsearch(key, base, nmemb, size, compare)
+
+    // Integer math
+    func abs(n)
+    func labs(n)
+    func llabs(n)
+    func div(num, denom)
+    func ldiv(num, denom)
+
+    // Wide-char (rarely used; included for completeness)
+    func mblen(s, n)
+}

@@ -1,0 +1,37 @@
+// netinet_in.krh — Krypton header for IPv4/IPv6 socket addresses
+// Usage: import "headers/netinet_in.krh"
+// Linux/macOS. Pair with sys_socket.krh and arpa_inet.krh.
+
+jxt {
+    c "netinet/in.h"
+    c "sys/socket.h"
+
+    struct in_addr {
+        field s_addr UINT
+    }
+
+    struct sockaddr_in {
+        field sin_family USHORT
+        field sin_port   USHORT
+        field sin_addr   UINT
+        field sin_zero   CHAR_ARRAY
+    }
+
+    struct in6_addr {
+        field s6_addr CHAR_ARRAY
+    }
+
+    struct sockaddr_in6 {
+        field sin6_family   USHORT
+        field sin6_port     USHORT
+        field sin6_flowinfo UINT
+        field sin6_addr     CHAR_ARRAY
+        field sin6_scope_id UINT
+    }
+
+    // Byte-order helpers
+    func htons(hostshort)
+    func htonl(hostlong)
+    func ntohs(netshort)
+    func ntohl(netlong)
+}

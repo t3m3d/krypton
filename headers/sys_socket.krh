@@ -1,0 +1,32 @@
+// sys_socket.krh — Krypton header for POSIX sockets
+// Usage: import "headers/sys_socket.krh"
+// Linux/macOS. Windows users want winsock.krh.
+
+jxt {
+    c "sys/socket.h"
+    c "sys/types.h"
+
+    struct sockaddr {
+        field sa_family USHORT
+        field sa_data   CHAR_ARRAY
+    }
+
+    func socket(domain, type, protocol)
+    func bind(sockfd, addr, addrlen)
+    func listen(sockfd, backlog)
+    func accept(sockfd, addr, addrlen)
+    func accept4(sockfd, addr, addrlen, flags)
+    func connect(sockfd, addr, addrlen)
+    func send(sockfd, buf, len, flags)
+    func sendto(sockfd, buf, len, flags, dest_addr, addrlen)
+    func sendmsg(sockfd, msg, flags)
+    func recv(sockfd, buf, len, flags)
+    func recvfrom(sockfd, buf, len, flags, src_addr, addrlen)
+    func recvmsg(sockfd, msg, flags)
+    func shutdown(sockfd, how)
+    func setsockopt(sockfd, level, optname, optval, optlen)
+    func getsockopt(sockfd, level, optname, optval, optlen)
+    func getsockname(sockfd, addr, addrlen)
+    func getpeername(sockfd, addr, addrlen)
+    func socketpair(domain, type, protocol, sv)
+}

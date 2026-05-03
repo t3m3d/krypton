@@ -1,0 +1,56 @@
+// pthread.krh — Krypton header for POSIX threads
+// Usage: import "headers/pthread.krh"
+// Linux/macOS. Link with: -lpthread  (Linux; macOS folds it into libSystem)
+//
+// Windows users want process.krh's CreateThread / WaitForSingleObject.
+
+jxt {
+    c "pthread.h"
+
+    // Thread management
+    func pthread_create(thread, attr, start_routine, arg)
+    func pthread_join(thread, retval)
+    func pthread_detach(thread)
+    func pthread_exit(retval)
+    func pthread_self()
+    func pthread_equal(t1, t2)
+    func pthread_cancel(thread)
+    func pthread_kill(thread, sig)
+
+    // Mutex
+    func pthread_mutex_init(mutex, attr)
+    func pthread_mutex_destroy(mutex)
+    func pthread_mutex_lock(mutex)
+    func pthread_mutex_trylock(mutex)
+    func pthread_mutex_unlock(mutex)
+
+    // Condition variable
+    func pthread_cond_init(cond, attr)
+    func pthread_cond_destroy(cond)
+    func pthread_cond_wait(cond, mutex)
+    func pthread_cond_timedwait(cond, mutex, abstime)
+    func pthread_cond_signal(cond)
+    func pthread_cond_broadcast(cond)
+
+    // Read-write lock
+    func pthread_rwlock_init(rwlock, attr)
+    func pthread_rwlock_destroy(rwlock)
+    func pthread_rwlock_rdlock(rwlock)
+    func pthread_rwlock_wrlock(rwlock)
+    func pthread_rwlock_unlock(rwlock)
+
+    // Once
+    func pthread_once(once_control, init_routine)
+
+    // Thread-specific data
+    func pthread_key_create(key, destructor)
+    func pthread_key_delete(key)
+    func pthread_setspecific(key, value)
+    func pthread_getspecific(key)
+
+    // Attributes
+    func pthread_attr_init(attr)
+    func pthread_attr_destroy(attr)
+    func pthread_attr_setdetachstate(attr, detachstate)
+    func pthread_attr_setstacksize(attr, stacksize)
+}

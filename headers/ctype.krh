@@ -1,0 +1,29 @@
+// ctype.krh — Krypton header for C character classification
+// Usage: import "headers/ctype.krh"
+//
+// Note: Krypton already provides native isDigit(s) and isAlpha(s) builtins
+// that operate on the first byte of a string. The C functions below operate
+// on int character codes — useful when interoperating with C code that
+// passes raw byte values.
+
+jxt {
+    c "ctype.h"
+
+    // Classification
+    func isalnum(c)
+    func isalpha(c)
+    func isblank(c)
+    func iscntrl(c)
+    func isdigit(c)
+    func isgraph(c)
+    func islower(c)
+    func isprint(c)
+    func ispunct(c)
+    func isspace(c)
+    func isupper(c)
+    func isxdigit(c)
+
+    // Conversion
+    func tolower(c)
+    func toupper(c)
+}

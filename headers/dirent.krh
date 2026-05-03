@@ -1,0 +1,25 @@
+// dirent.krh — Krypton header for POSIX directory iteration
+// Usage: import "headers/dirent.krh"
+// Linux/macOS. Windows users want fileio.krh's FindFirstFileA / FindNextFileA.
+
+jxt {
+    c "dirent.h"
+
+    struct dirent {
+        field d_ino    ULONG
+        field d_off    LONG
+        field d_reclen UINT
+        field d_type   BYTE
+        field d_name   CHAR_ARRAY
+    }
+
+    func opendir(path)
+    func fdopendir(fd)
+    func readdir(dirp)
+    func closedir(dirp)
+    func rewinddir(dirp)
+    func seekdir(dirp, loc)
+    func telldir(dirp)
+    func dirfd(dirp)
+    func scandir(dir, namelist, filter, compar)
+}

@@ -1,0 +1,67 @@
+// unistd.krh — Krypton header for POSIX unistd.h
+// Usage: import "headers/unistd.krh"
+// Linux/macOS only. Windows users want process.krh / fileio.krh.
+
+jxt {
+    c "unistd.h"
+
+    // File descriptor I/O
+    func read(fd, buf, count)
+    func write(fd, buf, count)
+    func close(fd)
+    func lseek(fd, offset, whence)
+    func dup(oldfd)
+    func dup2(oldfd, newfd)
+    func pipe(pipefd)
+    func fsync(fd)
+    func ftruncate(fd, length)
+    func isatty(fd)
+    func ttyname(fd)
+
+    // Filesystem
+    func access(path, mode)
+    func chdir(path)
+    func fchdir(fd)
+    func getcwd(buf, size)
+    func unlink(path)
+    func rmdir(path)
+    func symlink(target, linkpath)
+    func readlink(path, buf, bufsiz)
+    func rename(oldpath, newpath)
+    func chown(path, owner, group)
+    func chmod(path, mode)
+    func truncate(path, length)
+
+    // Process
+    func fork()
+    func vfork()
+    func execv(path, argv)
+    func execvp(file, argv)
+    func execve(path, argv, envp)
+    func _exit(status)
+    func wait(status)
+    func getpid()
+    func getppid()
+    func getpgrp()
+    func setsid()
+    func getsid(pid)
+
+    // Users / groups
+    func getuid()
+    func geteuid()
+    func setuid(uid)
+    func getgid()
+    func getegid()
+    func setgid(gid)
+
+    // Sleep
+    func sleep(seconds)
+    func usleep(microseconds)
+
+    // Misc
+    func gethostname(name, len)
+    func sethostname(name, len)
+    func alarm(seconds)
+    func pause()
+    func sysconf(name)
+}

@@ -1,0 +1,19 @@
+// dlfcn.krh — Krypton header for POSIX dynamic loading
+// Usage: import "headers/dlfcn.krh"
+// Linux/macOS. Link with: -ldl  (Linux only; macOS folds it into libSystem)
+//
+// Windows users want windows.krh's LoadLibraryA / GetProcAddress / FreeLibrary.
+//
+// Common flags (numeric):
+//   RTLD_LAZY=1, RTLD_NOW=2
+//   RTLD_GLOBAL=256, RTLD_LOCAL=0
+
+jxt {
+    c "dlfcn.h"
+
+    func dlopen(filename, flags)
+    func dlsym(handle, symbol)
+    func dlclose(handle)
+    func dlerror()
+    func dladdr(addr, info)
+}

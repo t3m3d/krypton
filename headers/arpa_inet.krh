@@ -1,0 +1,20 @@
+// arpa_inet.krh — Krypton header for IP address conversion
+// Usage: import "headers/arpa_inet.krh"
+// Linux/macOS.
+
+jxt {
+    c "arpa/inet.h"
+
+    // Address conversion
+    func inet_aton(cp, in_addr)
+    func inet_addr(cp)
+    func inet_ntoa(in_addr)
+    func inet_pton(af, src, dst)
+    func inet_ntop(af, src, dst, size)
+
+    // Byte order (also in netinet_in.krh)
+    func htons(hostshort)
+    func htonl(hostlong)
+    func ntohs(netshort)
+    func ntohl(netlong)
+}

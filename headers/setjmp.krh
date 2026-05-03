@@ -1,0 +1,17 @@
+// setjmp.krh — Krypton header for C setjmp/longjmp
+// Usage: import "headers/setjmp.krh"
+//
+// Note: Krypton has try/catch/throw at the language level — prefer those
+// over setjmp/longjmp unless you're interoperating with C code that
+// already uses them.
+
+jxt {
+    c "setjmp.h"
+
+    func setjmp(env)
+    func longjmp(env, val)
+
+    // POSIX (saves/restores signal mask too)
+    func sigsetjmp(env, savesigs)
+    func siglongjmp(env, val)
+}
