@@ -2901,6 +2901,9 @@ func opByteSize(op) {
     if op == "BUILTIN_INDEXOF"   { emit 8 }
     if op == "BUILTIN_ENDSWITH"  { emit 8 }
     if op == "BUILTIN_REPLACE"   { emit 9 }  // POP RDX + POP RSI + POP RDI + CALL + PUSH RAX
+    if op == "BUILTIN_ENVNEW"    { emit 2 }  // PUSH 0 (NULL env)
+    if op == "BUILTIN_ENVSET"    { emit 31 } // alloc 24-byte EnvEntry, store name/val/prev, push entry
+    if op == "BUILTIN_ENVGET"    { emit 61 } // walk linked list, strcmp names, return value or empty
     if op == "POP"        { emit 1 }
     if op == "LABEL"      { emit 0 }
     if op == "JUMP"       { emit 5 }    // E9 + d32
@@ -3188,6 +3191,12 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_ENDSWITH")
                 } else if bname == "replace" {
                     opSb = sbAppend(opSb, "BUILTIN_REPLACE")
+                } else if bname == "envNew" {
+                    opSb = sbAppend(opSb, "BUILTIN_ENVNEW")
+                } else if bname == "envSet" {
+                    opSb = sbAppend(opSb, "BUILTIN_ENVSET")
+                } else if bname == "envGet" {
+                    opSb = sbAppend(opSb, "BUILTIN_ENVGET")
                 } else {
                     // Unknown builtin: emit a marker and leave the stack
                     // alone. Programs that hit this are already incorrect;
@@ -3265,7 +3274,7 @@ func computeLayout(opList, localCount) {
 // funcStartVAddr: virtual address of THIS function's first byte (for CALL disp calc)
 // krPrintVAddr/krStrIntVAddr: vaddrs of runtime helpers, used by BUILTIN_KP/BUILTIN_TOSTR
 
-func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr) {
+func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr, krStrcmpVAddr) {
     let c = ""
     c = c + hexByte(0x55)                                             // [+0] PUSH RBP
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xE5)             // [+1] MOV RBP, RSP
@@ -3893,6 +3902,109 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             let rpDisp = krReplaceVAddr - (funcStartVAddr + off + 8)
             c = c + hexByte(0xE8) + hexDword(rpDisp)
             c = c + hexByte(0x50)
+        } else if op == "BUILTIN_ENVNEW" {
+            // envNew() — push 0 (NULL env sentinel). 2 bytes.
+            c = c + hexByte(0x6A) + hexByte(0x00)
+        } else if op == "BUILTIN_ENVSET" {
+            // envSet(env, name, val) — allocate 24-byte EnvEntry,
+            // store {name, value, prev=env}, push entry ptr.
+            //
+            // Stack on entry (top first): val, name, env.
+            //
+            // Layout (31 bytes):
+            //   [0]    5A             POP RDX            ; val (top)
+            //   [1]    5E             POP RSI            ; name
+            //   [2]    5F             POP RDI            ; env (will be prev)
+            //   [3]    57             PUSH RDI           ; save env
+            //   [4]    56             PUSH RSI           ; save name
+            //   [5]    52             PUSH RDX           ; save val
+            //   [6-10] BF 18 00 00 00 MOV EDI, 24
+            //   [11-15] E8 dw_alloc   CALL kr_alloc      ; RAX = entry
+            //   [16]   5A             POP RDX            ; val
+            //   [17]   5E             POP RSI            ; name
+            //   [18]   5F             POP RDI            ; env (prev)
+            //   [19-22] 48 89 30      MOV [RAX], RSI     ; entry.name = name
+            //                          (3 bytes)
+            //   [22-25] 48 89 50 08   MOV [RAX+8], RDX   ; entry.value = val (4)
+            //   [26-29] 48 89 78 10   MOV [RAX+16], RDI  ; entry.prev = env (4)
+            //   [30]   50             PUSH RAX           ; result
+            let alDisp1 = krAllocVAddr - (funcStartVAddr + off + 16)
+            c = c + hexByte(0x5A)
+            c = c + hexByte(0x5E)
+            c = c + hexByte(0x5F)
+            c = c + hexByte(0x57)
+            c = c + hexByte(0x56)
+            c = c + hexByte(0x52)
+            c = c + hexByte(0xBF) + hexDword(24)
+            c = c + hexByte(0xE8) + hexDword(alDisp1)
+            c = c + hexByte(0x5A)
+            c = c + hexByte(0x5E)
+            c = c + hexByte(0x5F)
+            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x30)            // MOV [RAX], RSI
+            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x50) + hexByte(0x08)  // MOV [RAX+8], RDX
+            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x78) + hexByte(0x10)  // MOV [RAX+16], RDI
+            c = c + hexByte(0x50)
+        } else if op == "BUILTIN_ENVGET" {
+            // envGet(env, name) — walk EnvEntry linked list, strcmp names,
+            // return entry.value if match. If not found, return ptr to a
+            // freshly-alloc'd 1-byte buffer (which is zero from mmap, so
+            // acts as empty NUL-terminated string).
+            //
+            // Stack on entry (top first): name, env.
+            // R12 holds current entry (callee-saved across CALLs); RBX holds name.
+            //
+            // Layout (61 bytes):
+            //   [0]    5E              POP RSI                  ; name (top)
+            //   [1]    5F              POP RDI                  ; env (start entry)
+            //   [2]    53              PUSH RBX
+            //   [3-4]  41 54           PUSH R12
+            //   [5-7]  48 89 F3        MOV RBX, RSI             ; save name
+            //   [8-10] 49 89 FC        MOV R12, RDI             ; cur entry
+            //   .loop at 11:
+            //   [11-13] 4D 85 E4       TEST R12, R12
+            //   [14-15] 74 1F          JZ +31 → .notfound at 47
+            //   [16-19] 49 8B 3C 24    MOV RDI, [R12]           ; entry.name
+            //   [20-22] 48 89 DE       MOV RSI, RBX             ; name
+            //   [23-27] E8 dw_strcmp   CALL kr_strcmp
+            //   [28-30] 48 85 C0       TEST RAX, RAX
+            //   [31-32] 75 07          JNE +7 → .next at 40
+            //   ; matched
+            //   [33-37] 49 8B 44 24 08 MOV RAX, [R12+8]         ; entry.value
+            //   [38-39] EB 11          JMP +17 → .ret at 57
+            //   .next at 40:
+            //   [40-44] 4D 8B 64 24 10 MOV R12, [R12+16]        ; entry.prev
+            //   [45-46] EB CC          JMP -52 → .loop at 11
+            //   .notfound at 47:
+            //   [47-51] BF 01 00 00 00 MOV EDI, 1
+            //   [52-56] E8 dw_alloc    CALL kr_alloc            ; RAX = ptr to NUL byte
+            //   .ret at 57:
+            //   [57-58] 41 5C          POP R12
+            //   [59]    5B             POP RBX
+            //   [60]    50             PUSH RAX
+            let scDisp = krStrcmpVAddr - (funcStartVAddr + off + 28)
+            let alDisp2 = krAllocVAddr - (funcStartVAddr + off + 57)
+            c = c + hexByte(0x5E)
+            c = c + hexByte(0x5F)
+            c = c + hexByte(0x53)
+            c = c + hexByte(0x41) + hexByte(0x54)
+            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xF3)
+            c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xFC)
+            c = c + hexByte(0x4D) + hexByte(0x85) + hexByte(0xE4)
+            c = c + hexByte(0x74) + hexByte(0x1F)
+            c = c + hexByte(0x49) + hexByte(0x8B) + hexByte(0x3C) + hexByte(0x24)
+            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDE)
+            c = c + hexByte(0xE8) + hexDword(scDisp)
+            c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)
+            c = c + hexByte(0x75) + hexByte(0x07)
+            c = c + hexByte(0x49) + hexByte(0x8B) + hexByte(0x44) + hexByte(0x24) + hexByte(0x08)
+            c = c + hexByte(0xEB) + hexByte(0x11)
+            c = c + hexByte(0x4D) + hexByte(0x8B) + hexByte(0x64) + hexByte(0x24) + hexByte(0x10)
+            c = c + hexByte(0xEB) + hexByte(256 - 36)            // JMP -36 → .loop at 11
+            c = c + hexByte(0xBF) + hexDword(1)
+            c = c + hexByte(0xE8) + hexDword(alDisp2)
+            c = c + hexByte(0x41) + hexByte(0x5C)
+            c = c + hexByte(0x5B)
+            c = c + hexByte(0x50)
         } else if op == "CALL_FUNC" {
             // Parse "name argcount"
             let cj = 0
@@ -4304,7 +4416,7 @@ just run {
         let nm2 = substring(hh, ss1 + 1, ss2)
         let funcStartV2 = toInt(funcVAddr(funcVAddrs, nm2))
 
-        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr)
+        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr, krStrcmpVAddr)
         allFuncCode = allFuncCode + codeI
         oIdx2 += 1
     }
