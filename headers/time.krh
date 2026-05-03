@@ -1,0 +1,44 @@
+// time.krh — Krypton header for C time
+// Usage: import "headers/time.krh"
+
+jxt {
+    c "time.h"
+
+    struct tm {
+        field tm_sec   INT
+        field tm_min   INT
+        field tm_hour  INT
+        field tm_mday  INT
+        field tm_mon   INT
+        field tm_year  INT
+        field tm_wday  INT
+        field tm_yday  INT
+        field tm_isdst INT
+    }
+
+    struct timespec {
+        field tv_sec  LONG
+        field tv_nsec LONG
+    }
+
+    // Wall-clock time
+    func time(t)
+    func difftime(end, start)
+    func mktime(tm)
+
+    // Conversion
+    func ctime(t)
+    func asctime(tm)
+    func gmtime(t)
+    func localtime(t)
+    func strftime(buf, size, fmt, tm)
+
+    // Process time
+    func clock()
+
+    // High-resolution time (POSIX)
+    func clock_gettime(clk_id, ts)
+    func clock_settime(clk_id, ts)
+    func clock_getres(clk_id, ts)
+    func nanosleep(req, rem)
+}

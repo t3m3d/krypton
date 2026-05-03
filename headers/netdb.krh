@@ -1,0 +1,38 @@
+// netdb.krh — Krypton header for DNS / host lookups
+// Usage: import "headers/netdb.krh"
+// Linux/macOS.
+
+jxt {
+    c "netdb.h"
+    c "sys/socket.h"
+
+    struct addrinfo {
+        field ai_flags     INT
+        field ai_family    INT
+        field ai_socktype  INT
+        field ai_protocol  INT
+        field ai_addrlen   UINT
+        field ai_addr      PTR
+        field ai_canonname PTR
+        field ai_next      PTR
+    }
+
+    struct hostent {
+        field h_name      PTR
+        field h_aliases   PTR
+        field h_addrtype  INT
+        field h_length    INT
+        field h_addr_list PTR
+    }
+
+    func getaddrinfo(node, service, hints, res)
+    func freeaddrinfo(res)
+    func getnameinfo(sa, salen, host, hostlen, serv, servlen, flags)
+    func gai_strerror(errcode)
+    func gethostbyname(name)
+    func gethostbyaddr(addr, len, type)
+    func herror(s)
+    func hstrerror(err)
+    func getservbyname(name, proto)
+    func getservbyport(port, proto)
+}
