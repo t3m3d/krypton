@@ -5,14 +5,20 @@ func toBinary(n) {
     if n == 0 {
         emit "0"
     }
-    let result = ""
+    // Build digits MSB-first into an sb. Per spec, `+` on two numeric
+    // strings adds — so naive "" + bit + result silently does arithmetic
+    // once result is digit-only. sbAppend / sbPrepend would be ideal;
+    // until sbPrepend exists, accumulate LSB-first into an sb and reverse.
+    let lsb = sbNew()
     let num = n
     while num > 0 {
         let bit = num % 2
-        result = "" + bit + result
+        // sbAppend (kr_concat) auto-stringifies a small-int second arg.
+        // Don't pre-stringify via "" + bit — that takes the numeric path.
+        lsb = sbAppend(lsb, bit)
         num = num / 2
     }
-    emit result
+    emit reverse(sbToString(lsb))
 }
 
 func fromBinary(s) {
@@ -29,11 +35,18 @@ func fromBinary(s) {
 }
 
 func padBinary(bin, width) {
-    let result = bin
-    while len(result) < width {
-        result = "0" + result
+    // Naive `result = "0" + result` does numeric add per spec
+    // (both args look numeric), so build via sb.
+    let need = width - len(bin)
+    if need <= 0 { emit bin }
+    let sb = sbNew()
+    let i = 0
+    while i < need {
+        sb = sbAppend(sb, "0")
+        i += 1
     }
-    emit result
+    sb = sbAppend(sb, bin)
+    emit sbToString(sb)
 }
 
 just run {

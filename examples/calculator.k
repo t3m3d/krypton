@@ -1,6 +1,28 @@
 // Simple calculator - evaluates basic arithmetic expressions
 // Supports +, -, *, / on integer operands
 
+// pairVal/pairPos defined inline (stdlib auto-import not yet wired
+// for the native pipeline — see test_pair_ops.k for the same dodge).
+func _findLastComma(s) {
+    let i = len(s) - 1
+    while i >= 0 {
+        if s[i] == "," { emit i }
+        i = i - 1
+    }
+    emit -1
+}
+
+func pairVal(p) {
+    let c = _findLastComma(p)
+    if c < 0 { emit p }
+    emit substring(p, 0, c)
+}
+
+func pairPos(p) {
+    let c = _findLastComma(p)
+    emit toInt(substring(p, c + 1, len(p)))
+}
+
 func isDigit(ch) {
     if ch >= "0" {
         if ch <= "9" {

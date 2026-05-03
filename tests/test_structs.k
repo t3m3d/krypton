@@ -11,8 +11,6 @@ struct Box {
     let value
 }
 
-func boxVal(b) { emit b.value }
-
 just run {
     // Constructor
     let v = Vec()
@@ -32,7 +30,8 @@ just run {
     v2.x = "99"
     if v2.x == "99" { kp("PASS field update") } else { kp("FAIL field update") }
 
-    // Struct in function
+    // Struct in function (nested func decl, hoisted by compile.k)
+    func boxVal(b) { emit b.value }
     let b = Box { label: "score", value: "42" }
     if boxVal(b) == "42" { kp("PASS struct in func") } else { kp("FAIL struct in func") }
 
