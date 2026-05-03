@@ -379,12 +379,12 @@ STORE/LOAD elimination, empty jump removal, unused local removal.
 ```
 krypton/
 ├── compiler/
-│   ├── compile.k                  # Self-hosting frontend
-│   ├── optimize.k                 # IR optimizer
-│   ├── llvm.k                     # LLVM IR backend (optional)
-│   ├── run.k                      # Interpreter
-│   ├── linux_x86/elf.k            # Linux x86_64 ELF emitter
-│   ├── windows_x86/x64.k          # Windows x86_64 PE/COFF emitter
+│   ├── compile.k                       # Self-hosting frontend
+│   ├── optimize.k                      # IR optimizer
+│   ├── llvm.k                          # LLVM IR backend (optional)
+│   ├── run.k                           # Interpreter
+│   ├── linux_x86/elf.k                 # Linux x86_64 ELF emitter
+│   ├── windows_x86/x64.k               # Windows x86_64 PE/COFF emitter
 │   └── macos_arm64/macho_arm64_self.k  # macOS arm64 Mach-O emitter (with signing)
 ├── runtime/
 │   ├── krypton_rt.k       # Krypton runtime (Phase 2 — self-hosted)
@@ -400,11 +400,22 @@ krypton/
 │   ├── kcc_seed_macos_aarch64                # macOS arm64 kcc Mach-O
 │   ├── REBUILD_SEED.md                       # How/when to rebuild seeds
 │   └── sanitize_ir.py                        # IR pre-processor used during seed bootstrap
-├── stdlib/                # Standard library modules
-├── examples/              # Example programs
-├── headers/               # .krh module headers
-├── tests/                 # Test suite
+├── stdlib/                # Standard library modules (~30 files: result, option, json, math_utils, …)
+├── examples/              # Showcase programs (84 files: hello, fibonacci, calculator, hex_dump, …)
+├── algorithms/            # Textbook algorithm reference impls (35 files: sorts, DP, graph, KMP, …)
+├── tutorial/              # Step-by-step language intro (25 numbered lessons)
+├── tools/                 # Single-file CLI utilities written in Krypton (cat, grep, head, fmt, …)
+├── headers/               # .krh module headers (Win32, libc bindings)
+├── tests/                 # Test suite (37 tests, run via ./build.sh test)
+├── docs/                  # Roadmap + EBNF/types/functions specs
+├── grammar/               # Single-source EBNF (krypton.ebnf)
+├── extensions/            # Prebuilt VS Code extension (.vsix)
+├── krypton-lang/          # Source for the VS Code extension; syntaxes/ is a git submodule
+│                          # pinned to https://github.com/t3m3d/krypton-tmLanguage
+├── linguist/              # Materials for the GitHub Linguist PR (samples + PR description)
 ├── assets/                # Windows icon resource (krypton_rc.o)
+├── installer/             # Windows installer build artifacts
+├── scripts/               # Dev helpers — sweep_examples.sh, sweep_algorithms.sh, build_vsix.sh, …
 ├── versions/              # Historical bootstrap binaries
 ├── build.sh               # Linux/macOS/WSL build (uses prebuilt seed when available)
 ├── bootstrap.bat          # Windows install (copies prebuilt binaries from bootstrap/)
