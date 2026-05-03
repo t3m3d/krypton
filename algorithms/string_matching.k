@@ -7,16 +7,16 @@ func findPattern(text, pattern) {
     let tLen = len(text)
     let pLen = len(pattern)
     while i <= tLen - pLen {
-        let match = 1
+        let matched = 1
         let j = 0
         while j < pLen {
             if text[i + j] != pattern[j] {
-                match = 0
+                matched = 0
                 break
             }
             j += 1
         }
-        if match {
+        if matched {
             if count > 0 {
                 results = results + ","
             }
