@@ -23,7 +23,7 @@
 //
 // Calling convention: SysV (RDI/RSI/RDX/RCX/R8/R9). No shadow space.
 //
-// Usage:  kcc kompiler/linux_x86/elf.k input.kir output.elf
+// Usage:  kcc compiler/linux_x86/elf.k input.kir output.elf
 
 func hexByte(n) {
     let HEX = "0123456789ABCDEF"
@@ -3809,7 +3809,7 @@ just run {
     let inFile = arg("0")
     let outFile = arg("1")
     if len(inFile) == 0 || len(outFile) == 0 {
-        printErr("usage: kcc kompiler/linux_x86/elf.k input.kir output.elf")
+        printErr("usage: kcc compiler/linux_x86/elf.k input.kir output.elf")
         exit("1")
     }
 

@@ -32,7 +32,7 @@ Other escapes (\\\\, \\", \\0) are storage-safe (no separator clash) and pass
 through unchanged.
 
 Usage:
-    kcc-x64-native --ir kompiler/linux_x86/elf.k > /tmp/raw.kir
+    kcc-x64-native --ir compiler/linux_x86/elf.k > /tmp/raw.kir
     python3 bootstrap/sanitize_ir.py /tmp/raw.kir > /tmp/safe.kir
     bootstrap/elf_host_linux_x86_64 /tmp/safe.kir bootstrap/elf_host_linux_x86_64.new
 """
