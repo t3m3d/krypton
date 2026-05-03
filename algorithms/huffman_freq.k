@@ -1,7 +1,9 @@
 // Character Frequency Analysis (for Huffman-like compression)
 
 func charFrequency(text) {
-    let freq = ""
+    // envNew(), not "" — the native runtime treats "" as a non-NULL string ptr
+    // and would dereference it as the linked-list head, crashing on first envGet.
+    let freq = envNew()
     let chars = ""
     let numChars = 0
     let i = 0
