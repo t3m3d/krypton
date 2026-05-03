@@ -16,7 +16,12 @@ just run {
     // Concatenation
     check("concat basic", "hello world", "hello" + " " + "world")
     check("concat empty", "abc", "" + "abc")
-    check("concat numbers", "12", "" + 1 + 2)
+    // Per spec: `+` adds when both args are numeric (even if from toStr).
+    // To force string concat of digit-only tokens, use sbAppend.
+    let _sb = sbNew()
+    _sb = sbAppend(_sb, "1")
+    _sb = sbAppend(_sb, "2")
+    check("concat numbers", "12", sbToString(_sb))
 
     // Length
     check("len empty", "0", "" + len(""))

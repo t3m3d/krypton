@@ -146,8 +146,15 @@ func skipWs(s, i) {
     emit i + ""
 }
 
-// Parse a quoted string literal starting at index i (must point at the opening ")
+// Parse a quoted string literal starting at index i (must point at the opening ").
 // Returns: "value\noff_after_close_quote"
+//
+// IMPORTANT: escape sequences are PRESERVED as 2-char text, not decoded.
+// Decoding to actual control bytes happens at strData write time via
+// decodeStr(). Reason: the return convention "value\npos" splits on actual
+// newlines; if parseQuoted decoded \n here, any string containing one would
+// get truncated by the caller's getLine. The strTab line-separated layout
+// has the same constraint — strings in there must not contain real newlines.
 //
 // Use sbAppend rather than `v + s[i]` to avoid Krypton's numeric-+ coercion trap
 // (e.g. "1" + "2" → 3 instead of "12" for digit-only chars).
@@ -156,14 +163,10 @@ func parseQuoted(s, i) {
     i += 1  // skip opening "
     while i < len(s) && s[i] != "\"" {
         if s[i] == "\\" && i + 1 < len(s) {
-            let c = s[i + 1]
-            if c == "n" { vSb = sbAppend(vSb, "\n") }
-            else if c == "t" { vSb = sbAppend(vSb, "\t") }
-            else if c == "r" { vSb = sbAppend(vSb, "\r") }
-            else if c == "\\" { vSb = sbAppend(vSb, "\\") }
-            else if c == "\"" { vSb = sbAppend(vSb, "\"") }
-            else if c == "0" { }  // skip null escape
-            else { vSb = sbAppend(vSb, c) }
+            // Preserve escape as 2-char text. Recognising it here is what
+            // prevents a literal \" from terminating the string early.
+            vSb = sbAppend(vSb, "\\")
+            vSb = sbAppend(vSb, s[i + 1])
             i += 2
         } else {
             vSb = sbAppend(vSb, s[i])
@@ -173,6 +176,38 @@ func parseQuoted(s, i) {
     if i < len(s) { i += 1 }  // skip closing "
     let v = sbToString(vSb)
     emit v + "\n" + i
+}
+
+// Decode escape-encoded string back to raw bytes. Called only at strData write
+// time (where we're emitting actual file bytes, not text that needs to round-trip
+// through line-based parsing). Synthesises control bytes via fromCharCode so the
+// elf.k source itself doesn't contain bare 1-byte escape literals — the seed
+// can compile elf.k cleanly.
+func decodeStr(s) {
+    let nl = fromCharCode("10")
+    let tab = fromCharCode("9")
+    let cr = fromCharCode("13")
+    let bs = fromCharCode("92")
+    let dq = fromCharCode("34")
+    let out = sbNew()
+    let i = 0
+    while i < len(s) {
+        if s[i] == "\\" && i + 1 < len(s) {
+            let c = s[i + 1]
+            if c == "n" { out = sbAppend(out, nl) }
+            else if c == "t" { out = sbAppend(out, tab) }
+            else if c == "r" { out = sbAppend(out, cr) }
+            else if c == "\\" { out = sbAppend(out, bs) }
+            else if c == "\"" { out = sbAppend(out, dq) }
+            else if c == "0" { }  // skip null escape (would terminate string)
+            else { out = sbAppend(out, c) }
+            i += 2
+        } else {
+            out = sbAppend(out, s[i])
+            i += 1
+        }
+    }
+    emit sbToString(out)
 }
 
 // ── Code emitters (x86-64 instructions) ────────────────────────────
@@ -529,26 +564,53 @@ func emitKrLengthCode() {
 func krLengthSize() { emit 28 }
 
 // kr_linecount: count newline-separated lines in a NUL-terminated string.
-// Identical to kr_length except separator is 0x0A ('\n') instead of 0x2C (',').
-// 28 bytes — same shape, single byte differs.
+// Returns 1 + (number of internal \n), with a trailing \n NOT counted as a
+// new line — matches the C runtime's `if (*(p-1) == '\n') count--;` rule.
+// Empty string → 0.
+//
+// Layout (36 bytes):
+//   [0-1]   31 C0            XOR EAX, EAX                  (2)
+//   [2-4]   80 3F 00         CMP byte [RDI], 0             (3)
+//   [5-6]   74 1C            JZ +28 → .ret at 35           (2)  ; empty → 0
+//   [7-8]   FF C0            INC EAX                       (2)  ; non-empty → at least 1
+//   .loop at 9:
+//   [9-10]  8A 0F            MOV CL, [RDI]                 (2)
+//   [11-12] 84 C9            TEST CL, CL                   (2)
+//   [13-14] 74 0C            JZ +12 → .check at 27         (2)  ; reached NUL
+//   [15-17] 80 F9 0A         CMP CL, '\n'                  (3)
+//   [18-19] 75 02            JNE +2 → .skip                (2)
+//   [20-21] FF C0            INC EAX                       (2)
+//   .skip at 22:
+//   [22-24] 48 FF C7         INC RDI                       (3)
+//   [25-26] EB EE            JMP -18 → .loop at 9          (2)
+//   .check at 27:
+//   ; non-empty: subtract 1 if the last byte was '\n' (trailing-NL convention)
+//   [27-30] 80 7F FF 0A      CMP byte [RDI-1], '\n'        (4)
+//   [31-32] 75 01            JNE +1 → .ret                 (2)
+//   [33-34] FF C8            DEC EAX                       (2)
+//   .ret at 35:
+//   [35]    C3               RET                           (1)
 func emitKrLinecountCode() {
     let c = ""
-    c = c + hexByte(0x31) + hexByte(0xC0)
-    c = c + hexByte(0x80) + hexByte(0x3F) + hexByte(0x00)
-    c = c + hexByte(0x74) + hexByte(0x14)
-    c = c + hexByte(0xFF) + hexByte(0xC0)
-    c = c + hexByte(0x8A) + hexByte(0x0F)
-    c = c + hexByte(0x84) + hexByte(0xC9)
-    c = c + hexByte(0x74) + hexByte(0x0C)
-    c = c + hexByte(0x80) + hexByte(0xF9) + hexByte(0x0A)    // CMP CL, '\n' (was 0x2C)
-    c = c + hexByte(0x75) + hexByte(0x02)
-    c = c + hexByte(0xFF) + hexByte(0xC0)
-    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC7)
-    c = c + hexByte(0xEB) + hexByte(256 - 18)
-    c = c + hexByte(0xC3)
+    c = c + hexByte(0x31) + hexByte(0xC0)                                       // [0-1]   XOR EAX, EAX
+    c = c + hexByte(0x80) + hexByte(0x3F) + hexByte(0x00)                       // [2-4]   CMP [RDI], 0
+    c = c + hexByte(0x74) + hexByte(0x1C)                                       // [5-6]   JZ → .ret at 35
+    c = c + hexByte(0xFF) + hexByte(0xC0)                                       // [7-8]   INC EAX
+    c = c + hexByte(0x8A) + hexByte(0x0F)                                       // [9-10]  MOV CL, [RDI]
+    c = c + hexByte(0x84) + hexByte(0xC9)                                       // [11-12] TEST CL, CL
+    c = c + hexByte(0x74) + hexByte(0x0C)                                       // [13-14] JZ → .check at 27
+    c = c + hexByte(0x80) + hexByte(0xF9) + hexByte(0x0A)                       // [15-17] CMP CL, '\n'
+    c = c + hexByte(0x75) + hexByte(0x02)                                       // [18-19] JNE +2 → .skip
+    c = c + hexByte(0xFF) + hexByte(0xC0)                                       // [20-21] INC EAX
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC7)                       // [22-24] INC RDI
+    c = c + hexByte(0xEB) + hexByte(256 - 18)                                   // [25-26] JMP → .loop at 9
+    c = c + hexByte(0x80) + hexByte(0x7F) + hexByte(0xFF) + hexByte(0x0A)       // [27-30] CMP byte [RDI-1], '\n'
+    c = c + hexByte(0x75) + hexByte(0x01)                                       // [31-32] JNE +1 → .ret
+    c = c + hexByte(0xFF) + hexByte(0xC8)                                       // [33-34] DEC EAX
+    c = c + hexByte(0xC3)                                                       // [35]    RET
     emit c
 }
-func krLinecountSize() { emit 28 }
+func krLinecountSize() { emit 36 }
 
 // kr_split: extract idx-th comma-separated element from a list string.
 //   In:  RDI = list string ptr, RSI = idx (string or already-int)
@@ -1336,27 +1398,44 @@ func emitKrAbsCode(thisVAddr, atoiVAddr) {
 }
 func krAbsSize() { emit 14 }
 
-// kr_istruthy: atoi the arg; return 1 if non-zero else 0.
-// Krypton convention: empty string "" or "0" or numeric 0 → false, else true.
-// kr_atoi handles both string and small-int via the smart-int passthrough.
+// kr_istruthy: dispatch on smart-int, return 1 if value is "truthy" else 0.
 //
-// Layout (15 bytes):
-//   [0-4]   E8 dw             CALL kr_atoi                     (5)
-//   [5-7]   48 85 C0          TEST RAX, RAX                    (3)
-//   [8-10]  0F 95 C0          SETNE AL                          (3)
-//   [11-13] 0F B6 C0          MOVZX EAX, AL                     (3)
-//   [14]    C3                RET                               (1)
+// Krypton truthiness:
+//   - small int (RDI < 0x40000000):  truthy iff RDI != 0
+//   - string ptr (RDI >= 0x40000000): truthy iff first byte != 0 (non-empty)
+//
+// The previous version used kr_atoi for both paths, which made
+// `isTruthy("hello")` return 0 (atoi gives 0 on non-numeric strings) →
+// every non-numeric non-empty string was wrongly falsy. Test_bool_vals
+// would fail every assertion involving a non-numeric truthy value.
+//
+// Layout (27 bytes):
+//   [0-6]   48 81 FF 00 00 00 40   CMP RDI, 0x40000000           (7)
+//   [7-8]   7C 08                  JL +8 → .int at 17            (2)
+//   .str at 9:
+//   [9-11]  80 3F 00               CMP byte [RDI], 0             (3)
+//   [12-14] 0F 95 C0               SETNE AL                       (3)
+//   [15-16] EB 06                  JMP +6 → .end at 23            (2)
+//   .int at 17:
+//   [17-19] 48 85 FF               TEST RDI, RDI                  (3)
+//   [20-22] 0F 95 C0               SETNE AL                       (3)
+//   .end at 23:
+//   [23-25] 0F B6 C0               MOVZX EAX, AL                  (3)
+//   [26]    C3                     RET                            (1)
 func emitKrIstruthyCode(thisVAddr, atoiVAddr) {
-    let dAtoi = atoiVAddr - (thisVAddr + 5)
     let c = ""
-    c = c + hexByte(0xE8) + hexDword(dAtoi)
-    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)
-    c = c + hexByte(0x0F) + hexByte(0x95) + hexByte(0xC0)
-    c = c + hexByte(0x0F) + hexByte(0xB6) + hexByte(0xC0)
-    c = c + hexByte(0xC3)
+    c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDword(0x40000000)  // [0-6]   CMP RDI, 0x40000000
+    c = c + hexByte(0x7C) + hexByte(0x08)                                          // [7-8]   JL → .int at 17
+    c = c + hexByte(0x80) + hexByte(0x3F) + hexByte(0x00)                          // [9-11]  CMP byte [RDI], 0
+    c = c + hexByte(0x0F) + hexByte(0x95) + hexByte(0xC0)                          // [12-14] SETNE AL
+    c = c + hexByte(0xEB) + hexByte(0x06)                                          // [15-16] JMP → .end at 23
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xFF)                          // [17-19] TEST RDI, RDI
+    c = c + hexByte(0x0F) + hexByte(0x95) + hexByte(0xC0)                          // [20-22] SETNE AL
+    c = c + hexByte(0x0F) + hexByte(0xB6) + hexByte(0xC0)                          // [23-25] MOVZX EAX, AL
+    c = c + hexByte(0xC3)                                                          // [26]    RET
     emit c
 }
-func krIstruthySize() { emit 15 }
+func krIstruthySize() { emit 27 }
 
 // kr_trim: strip leading and trailing space (0x20) characters from s.
 // Returns a fresh allocation. Tab/newline/CR not handled (rare in trim usage).
@@ -2789,7 +2868,7 @@ func opByteSize(op) {
     if op == "BUILTIN_TOSTR" { emit 7 } // POP RDI (1) + CALL d32 (5) + PUSH RAX (1)
     if op == "BUILTIN_TOINT" { emit 7 } // POP RDI + CALL kr_atoi + PUSH RAX
     if op == "BUILTIN_LENGTH"{ emit 7 } // POP RDI + CALL kr_length + PUSH RAX
-    if op == "BUILTIN_LEN"   { emit 7 } // POP RDI + CALL kr_strlen + PUSH RAX (string length)
+    if op == "BUILTIN_LEN"   { emit 24 } // smart: POP+CMP+JGE+CALL kr_str_int+MOV+CALL kr_strlen+PUSH
     if op == "BUILTIN_SPLIT" { emit 8 } // POP RSI(1) + POP RDI(1) + CALL kr_split(5) + PUSH RAX(1)
     if op == "BUILTIN_RANGE" { emit 8 } // POP RSI + POP RDI + CALL kr_range + PUSH RAX
     if op == "INDEX"         { emit 8 } // POP RSI + POP RDI + CALL kr_index + PUSH RAX
@@ -3596,9 +3675,27 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             c = c + hexByte(0xE8) + hexDword(lnDisp)
             c = c + hexByte(0x50)
         } else if op == "BUILTIN_LEN" {
-            // POP RDI ; CALL kr_strlen ; PUSH RAX (string length)
+            // Smart-int len: convert int → string before strlen, so len(0)
+            // returns "1" (the length of "0") rather than dereferencing
+            // address 0 as a string pointer. Matches the C runtime where
+            // every value is already char* and len = strlen(v).
+            //
+            // Layout (24 bytes):
+            //   [0]   5F                       POP RDI
+            //   [1-7] 48 81 FF 00 00 00 40     CMP RDI, 0x40000000
+            //   [8-9] 7D 08                    JGE +8 → 18 (.is_str)
+            //   [10-14] E8 dw                  CALL kr_str_int
+            //   [15-17] 48 89 C7               MOV RDI, RAX
+            //   .is_str at 18:
+            //   [18-22] E8 dw                  CALL kr_strlen
+            //   [23]    50                     PUSH RAX
+            let siDisp = krStrIntVAddr - (funcStartVAddr + off + 15)
+            let slDisp = krStrlenVAddr - (funcStartVAddr + off + 23)
             c = c + hexByte(0x5F)
-            let slDisp = krStrlenVAddr - (funcStartVAddr + off + 6)
+            c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDword(0x40000000)
+            c = c + hexByte(0x7D) + hexByte(0x08)
+            c = c + hexByte(0xE8) + hexDword(siDisp)
+            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)
             c = c + hexByte(0xE8) + hexDword(slDisp)
             c = c + hexByte(0x50)
         } else if op == "BUILTIN_SPLIT" {
@@ -4170,7 +4267,7 @@ just run {
     let curOff = 0
     let si = 0
     while si < strCount {
-        let sv = getLine(strTab, si)
+        let sv = decodeStr(getLine(strTab, si))
         if si > 0 { strVAddrs = strVAddrs + "\n" }
         strVAddrs = strVAddrs + (stringsBase + curOff)
         strData = strData + hexStr(sv) + hexByte(0)

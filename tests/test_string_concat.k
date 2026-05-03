@@ -20,7 +20,13 @@ just run {
     // Number to string
     check("num concat", "x42", "x" + 42)
     check("num concat 2", "42x", "" + 42 + "x")
-    check("two nums str", "123", "" + 1 + 2 + 3)
+    // Per spec: numeric strings always add via `+`, even toStr-converted ones.
+    // To force string concat of numeric tokens, build via sbAppend.
+    let _sb = sbNew()
+    _sb = sbAppend(_sb, "1")
+    _sb = sbAppend(_sb, "2")
+    _sb = sbAppend(_sb, "3")
+    check("two nums str", "123", sbToString(_sb))
 
     // Empty string concat
     check("empty left", "hello", "" + "hello")
