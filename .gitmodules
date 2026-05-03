@@ -1,0 +1,3 @@
+[submodule "krypton-lang/syntaxes"]
+	path = krypton-lang/syntaxes
+	url = https://github.com/t3m3d/krypton-tmLanguage
