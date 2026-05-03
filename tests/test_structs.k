@@ -11,6 +11,8 @@ struct Box {
     let value
 }
 
+func boxVal(b) { emit b.value }
+
 just run {
     // Constructor
     let v = Vec()
@@ -31,14 +33,16 @@ just run {
     if v2.x == "99" { kp("PASS field update") } else { kp("FAIL field update") }
 
     // Struct in function
-    func boxVal(b) { emit b.value }
     let b = Box { label: "score", value: "42" }
     if boxVal(b) == "42" { kp("PASS struct in func") } else { kp("FAIL struct in func") }
 
     // Dynamic struct
+    // Per spec, setField returns the updated env; assign back so the
+    // pure-functional native runtime sees the additions. (The C runtime
+    // also mutates in place, so reassignment is harmless there.)
     let obj = structNew()
-    setField(obj, "a", "hello")
-    setField(obj, "b", "world")
+    obj = setField(obj, "a", "hello")
+    obj = setField(obj, "b", "world")
     if getField(obj, "a") == "hello" { kp("PASS dynamic get") } else { kp("FAIL dynamic get") }
     if hasField(obj, "b") == "1" { kp("PASS hasField") } else { kp("FAIL hasField") }
     if hasField(obj, "z") == "0" { kp("PASS hasField missing") } else { kp("FAIL hasField missing") }
