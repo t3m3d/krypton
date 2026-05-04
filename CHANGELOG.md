@@ -81,6 +81,21 @@ typed-struct accessors. All 31 headers (29 existing + 2 new) parse OK.
 
 Link line for GUI apps: `gcc … -luser32 -lgdi32 -lkernel32`.
 
+### `examples/` — first Krypton GUI programs
+
+- **`examples/win_messagebox.k`** — pops a Windows dialog from Krypton.
+  6 lines of Krypton, single `MessageBoxA` call. Builds to a 421 KB
+  standalone PE (`gcc … -luser32 -lm -w`). Smallest possible Krypton GUI.
+- **`examples/win_hello.k`** — first real-window Krypton program. Opens
+  a window, paints "Hello from Krypton!" via `TextOutA`, runs a pure-
+  Krypton message pump (`GetMessageA` / `TranslateMessage` /
+  `DispatchMessageA` from `user32.krh`), exits cleanly when the user
+  closes the window. The WindowProc and class registration live in a
+  `cfunc { }` block (because callbacks-from-Windows need a C entry stub
+  the native pipeline can't yet emit — that's Tier 3 work). 449 KB
+  standalone PE. As Tier 3 lands, the `cfunc` block shrinks and more
+  moves to Krypton proper.
+
 ### Docs
 
 - Roadmap, README, grammar, EBNF, type/function specs all bumped to 1.5.1.
