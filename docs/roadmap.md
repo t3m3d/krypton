@@ -1,6 +1,6 @@
 # Krypton Roadmap
 
-Current released version: **1.5.0** (2026-05-03).
+Current released version: **1.5.1** (2026-05-04).
 
 The v1.0.0 goal — native compilation without an external C compiler — shipped in 1.0.0
 (2026-03-23). Subsequent 1.x releases extended the native pipeline (Linux ELF, Windows
