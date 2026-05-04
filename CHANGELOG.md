@@ -95,6 +95,20 @@ Link line for GUI apps: `gcc … -luser32 -lgdi32 -lkernel32`.
   the native pipeline can't yet emit — that's Tier 3 work). 449 KB
   standalone PE. As Tier 3 lands, the `cfunc` block shrinks and more
   moves to Krypton proper.
+- **`examples/win_counter.k`** — first interactive Krypton GUI app.
+  A `STATIC` label + two `BUTTON` child controls ("+" / "−") that
+  increment/decrement a counter on click. Demonstrates `WM_COMMAND`
+  dispatch by control ID and live-updating the UI with `SetWindowTextA`.
+  No extra header needed — `STATIC` and `BUTTON` are window classes
+  user32 ships with. 448 KB.
+
+### Docs
+
+- **`docs/gui.md`** — new file. Walks through the C-path GUI pattern:
+  the five-part Win32 skeleton, which headers to import, the typed-
+  struct API for jxt-declared structs, where callbacks go today vs.
+  after Tier 3, link-line guidance, and a status table for what's in
+  vs. what's still on the roadmap.
 
 ### Docs
 
