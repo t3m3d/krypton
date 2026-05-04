@@ -101,6 +101,34 @@ Link line for GUI apps: `gcc … -luser32 -lgdi32 -lkernel32`.
   dispatch by control ID and live-updating the UI with `SetWindowTextA`.
   No extra header needed — `STATIC` and `BUTTON` are window classes
   user32 ships with. 448 KB.
+- **`examples/win_textinput.k`** — `EDIT` control + three buttons
+  (Reverse / Upper / Clear) that read the input text via
+  `GetWindowTextA`, transform it, and write the result to a label.
+  Shows the canonical text-entry pattern. 449 KB.
+- **`examples/win_paint.k`** — drag-to-draw paint canvas. Captures
+  `WM_LBUTTONDOWN` / `WM_MOUSEMOVE` / `WM_LBUTTONUP`, uses
+  `SetCapture` / `ReleaseCapture` for off-window dragging, persists
+  strokes to an off-screen `CreateCompatibleBitmap` so window resizes
+  don't wipe the canvas. Top toolbar of colour-switching buttons,
+  right-click to clear. 455 KB.
+- **`examples/win_filedialog.k`** — standard Windows file picker
+  (`GetOpenFileNameA` from `comdlg32.krh`) wired to a multi-line
+  read-only `EDIT` preview pane. Demonstrates the recommended pattern
+  for big-struct dialogs: wrap the call in a `cfunc { }` helper that
+  builds `OPENFILENAMEA` in C and returns a clean string-typed result.
+  452 KB.
+
+### `headers/` — new comdlg32.krh
+
+- **`headers/comdlg32.krh`** — bindings for the Win32 common dialogs:
+  `GetOpenFileNameA`, `GetSaveFileNameA`, `ChooseColorA`,
+  `ChooseFontA`, `FindTextA`, `ReplaceTextA`, `PrintDlgA`,
+  `PageSetupDlgA`, `CommDlgExtendedError`. The associated structs
+  (`OPENFILENAMEA`, `CHOOSECOLORA`, `CHOOSEFONTA`) aren't declared as
+  Krypton-typed structs — call sites typically wrap the whole flow in
+  `cfunc { }` and return a clean string result, as shown in
+  `win_filedialog.k`.
+- All 32 headers (29 original + user32 + gdi32 + comdlg32) parse OK.
 
 ### Docs
 
