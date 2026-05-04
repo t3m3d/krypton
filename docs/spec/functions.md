@@ -1,6 +1,6 @@
 # Krypton Built-in Functions Reference
 
-**Version 1.5.0** — Reference for built-in functions.
+**Version 1.5.1** — Reference for built-in functions.
 
 All values in Krypton are strings. Functions that operate on numbers parse their
 arguments and return numeric strings. Lists are comma-separated strings (`"a,b,c"`).

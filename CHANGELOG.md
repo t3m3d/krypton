@@ -2,6 +2,50 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [1.5.1] - 2026-05-04
+
+Cleanup release. No new language features — the headline is two compiler fixes
+that unlock the all-`.k` source-tree pattern for programs that need C primitives
+(libpcap, winsock, etc.). First user of the pattern: kmon, the network monitor
+that ships separately at https://github.com/t3m3d/kmon.
+
+### Compiler
+
+- **Top-level `cfunc { }` blocks in imported modules now propagate.** Previously
+  `compile.k`'s import walker scanned for `KW:jxt` / `KW:func` declarations
+  only — any `CBLOCK` token sitting at file scope of an imported `.k` was
+  silently dropped, so the C body was never emitted into the final translation
+  unit. Imports with inline C bodies linked-error with "undefined reference to
+  ...". Now the walker appends the raw C from `CBLOCK` tokens to the
+  import-decls block alongside the `jxt`-derived prototypes. This is what lets
+  a Krypton module declare a foreign function via `jxt` *and* define it via
+  `cfunc` in the same file, instead of needing a separate `.h` bridge.
+- **Import walker no longer skips the token immediately after a `jxt { }`
+  block.** The KW:jxt branch was setting `ij = skipBlock(...)` (which already
+  returns the position one past the closing `RBRACE`) and then the loop's
+  trailing `ij += 1` double-advanced, so a `cfunc { }` (or any sibling token)
+  sitting right after the `jxt` block was silently skipped. Fix: subtract 1
+  from the `skipBlock` return so the trailing increment lands at the next
+  sibling.
+
+These two fixes are coupled — neither alone would have made the pattern work.
+
+### Tooling
+
+- **kmon** — the new "first program using the cfunc-in-imports pattern" reference,
+  shipped as a separate repo. Source tree is 9 `.k` files plus one static
+  `kmon_ui.html`, no `.h` or `.krh` bridge files. Captures live packets via
+  Npcap, parses Ethernet/IPv4/TCP/UDP/ICMP in pure Krypton, streams events to
+  a browser dashboard over Server-Sent Events on `127.0.0.1:8080` and to the
+  PySide6 desktop frontend over a TCP JSON-line feed on `127.0.0.1:9090`.
+  See https://github.com/t3m3d/kmon and the Programs page on krypton-lang.org.
+
+### Docs
+
+- Roadmap, README, grammar, EBNF, type/function specs all bumped to 1.5.1.
+- Inno Setup installer (`installer/krypton-installer.iss`) bumped to 1.5.1.
+  Same `AppId` GUID — installs over an existing 1.4.0/1.5.0 in place.
+
 ## [1.5.0] - 2026-05-03
 
 ### Native runtime — env, struct, and reverse builtins
