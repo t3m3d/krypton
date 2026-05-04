@@ -4301,7 +4301,10 @@ just run {
                                     ijxtPos += 2
                                 }
                             }
-                            ij = skipBlock(iToks, ij + 1)
+                            // skipBlock returns the position one past RBRACE;
+                            // subtract 1 so the trailing `ij += 1` lands at the
+                            // next sibling token (otherwise we'd skip it).
+                            ij = skipBlock(iToks, ij + 1) - 1
                         } else if itk == "KW:func" || itk == "KW:fn" {
                             let iname = tokVal(tokAt(iToks, ij + 1))
                             if len(iname) > 0 {
@@ -4319,6 +4322,13 @@ just run {
                                 idecl = idecl + ");\n"
                                 iDecls = iDecls + idecl
                             }
+                        } else if tokType(itk) == "CBLOCK" {
+                            // Top-level cfunc { } in imported module: emit the raw
+                            // C body verbatim into the import-decls block so any
+                            // statics/globals/helpers it defines are reachable from
+                            // jxt-declared functions in the same imported file.
+                            let icraw = replace(tokVal(itk), "\x01", "\n")
+                            iDecls = iDecls + icraw + "\n"
                         }
                         ij += 1
                     }
