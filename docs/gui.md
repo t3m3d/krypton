@@ -124,6 +124,22 @@ The full `OPENFILENAMEA` struct stays in `cfunc` (24 fields are
 easier to fill in C); Krypton just calls a tiny helper that returns
 the chosen path as a string. 452 KB.
 
+### `win_listview.k` — data grid + status bar
+
+`SysListView32` in report mode with three columns, full-row select,
+click-to-sort column headers, grid lines, two-pane
+`msctls_statusbar32` at the bottom. Demonstrates `InitCommonControlsEx`,
+`LVM_*` / `SB_*` messages via `SendMessageA`, and `WM_NOTIFY`
+dispatch for `LVN_ITEMCHANGED` / `LVN_COLUMNCLICK`. 457 KB.
+
+### `win_notepad.k` — menu bar + multi-line editor
+
+Real menu bar (File / Edit / Help) with the standard items every
+Windows app ships. File>Open and File>Save As go through
+`comdlg32`'s `GetOpenFileNameA` / `GetSaveFileNameA`. Edit-menu
+items route to `WM_CUT` / `WM_COPY` / `WM_PASTE` / `EM_SETSEL` via
+`SendMessageA`. Fixed-width Consolas font via `CreateFontA`. 462 KB.
+
 ## Idioms
 
 ### Typed structs vs. env structs
@@ -182,6 +198,7 @@ them directly to other Win32 calls without any conversion.
 | Multi-line text view | ✓ shipped 1.5.1 (use `EDIT` with `ES_MULTILINE`) |
 | Common controls (list view, status bar, toolbar) | ✓ shipped 1.5.1 via `comctl32.krh` |
 | Tree view, tab control, progress bar, slider | ✓ binding shipped — patterns documented but no example yet |
+| Menu bars + popup menus | ✓ shipped 1.5.1 (see `win_notepad.k`) |
 | Native pipeline (gcc-free) GUI | not yet — Tier 1 + Tier 3 + native typed-struct expansion |
 | WindowProc in pure Krypton | not yet — Tier 3 native callbacks |
 | Higher-level wrappers (`stdlib/ui/`) | future, after Tier 3 |
