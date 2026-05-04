@@ -1,6 +1,6 @@
 # Krypton Type System
 
-**Version 1.5.1**
+**Version 1.6.0**
 
 Krypton uses a **dynamic, string-based value model**. All values are strings at
 runtime. There are no separate integer, boolean, or float types — numeric and

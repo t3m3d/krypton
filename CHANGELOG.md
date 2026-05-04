@@ -2,6 +2,64 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [1.6.0] - 2026-05-04
+
+The headline is a **one-line fix that restores the Windows native pipeline**.
+Pre-1.6.0, every `if` statement and `while` loop on Windows native segfaulted
+the resulting binary — a regression that shipped silently in 1.5.0 and 1.5.1
+because `examples/fibonacci.k` (the smoke-test) appeared to "exit cleanly"
+when in fact it was crashing right after the first line of output. Bisecting
+revealed a missing entry in x64.k's `resolveBuiltin` table.
+
+### Compiler — native pipeline restored
+
+- **`isTruthy` was missing from `resolveBuiltin`** in
+  `compiler/windows_x86/x64.k`. 1.5.0's boolean-truthiness fix added a
+  `BUILTIN isTruthy 1` instruction before every `JUMPIFNOT` (so `if ""`
+  and `if "0"` would correctly take the false branch). compile.k started
+  emitting that instruction, but x64.k's resolver had no `isTruthy →
+  kr_truthy` mapping. Without the mapping, `iatEntryRvaFor` returned -1
+  and the dispatcher fell into the "user-defined function" branch,
+  emitting a CALL with displacement computed against
+  `funcOffsetLookup(allFuncOffsets, "isTruthy")` (which doesn't exist) →
+  CALL to address roughly `.text - 1`. Every conditional in user code
+  segfaulted. Fix: one new line, `if name == "isTruthy" { emit "kr_truthy" }`.
+- **Native test pass rate went from 0/38 → 9/11 spot-checked** (full sweep
+  pending). The remaining 2 failures (`test_structs.k` segfault,
+  `test_booleans.k` C-path divergence) are separate pre-existing issues
+  tracked for future work.
+
+### kernel32 IAT — added Sleep, GetTickCount, SetConsoleTitleA, GetConsoleTitleA
+
+`KR32_FUNCS` in x64.k grew from 35 to 39 entries. Caveat: Win32 functions
+that take integer args (like `Sleep(DWORD ms)`) don't auto-convert
+Krypton string values, so `Sleep("100")` passes the string-pointer (a
+high heap address ≥ 0x40000000) as the milliseconds count and "sleeps"
+for what's effectively forever. The C-emit path's per-function
+`_krw_Sleep(char* a)` wrapper does `Sleep(atoi(a))`; the native path
+needs an equivalent thunk mechanism. Tracked as a 1.7 / 2.0 candidate.
+For now: Win32 functions taking ints work correctly only via the C path.
+
+### Tooling
+
+- `kcc.exe` rebuilt — `kcc --version` reports 1.6.0
+- `assets/krypton_rc.o` rebuilt via windres so file properties show 1.6.0
+- `installer/Output/krypton-1.6.0-setup.exe` — same `AppId` GUID as
+  1.4.0/1.5.0/1.5.1, upgrades any existing install in place
+- `versions/kcc_v160.exe` snapshot
+
+### What this unlocks
+
+Every Krypton program with conditionals or loops can now build via the
+native pipeline (no gcc) on Windows. Specifically:
+- `examples/fibonacci.k` — full output, exit 0 (was: first line + crash)
+- 9/11 spot-checked tests pass (modulo, arithmetic, for-in, recursion,
+  string ops, try/catch, while-break, nested if, nested while)
+- Programs that build dynamic strings via `sbAppend` in tight loops
+  now work (the earlier "sbAppend segfaults in loops" report was a
+  downstream symptom of this same isTruthy bug, not an sbAppend bug)
+- `kryofetch` should be testable native again (untested in this cycle)
+
 ## [1.5.1] - 2026-05-04
 
 Cleanup release. No new language features — the headline is two compiler fixes
@@ -160,6 +218,20 @@ Link line for GUI apps: `gcc … -luser32 -lgdi32 -lkernel32`.
   / Alt-Tab icon shows a stock app glyph. Status bar at the bottom
   tracks the most-recently fired action; Cut / Copy / Paste actually
   operate on the multi-line `EDIT` body. 462 KB.
+- **`examples/dashboard.k`** — first polished console dashboard. Live
+  system monitor with boxed panels (double-line border characters),
+  colour-graded progress bars (green / yellow / red as load rises),
+  256-colour palette via ANSI 8-bit codes, tight typography. Reads
+  memory totals via `GlobalMemoryStatusEx` + `MEMORYSTATUSEX`, disk
+  usage via `GetDiskFreeSpaceExA` + `ULARGE_INTEGER`, CPU count via
+  `GetNativeSystemInfo` + `SYSTEM_INFO` — all 64-bit byte counts
+  pre-divided through the `div64` builtin to avoid 32-bit `toInt()`
+  truncation. Refreshes once per second via `Sleep(1000)`.
+  Documented as C-path-only today: the Windows native pipeline has
+  three known gaps that block the gcc-free build (sbAppend in tight
+  loops segfaults, `repeat` builtin is Linux-ELF only, `GetTickCount64`
+  exceeds the smart-int boundary). All three are 1.6 / Tier 1 items.
+  ~452 KB via gcc.
 
 ### `headers/user32.krh` — menu bindings added
 
