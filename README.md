@@ -519,7 +519,9 @@ Krypton programs can call them via FFI through the C-emitter pipeline.
 
 | Header | Contents |
 |--------|----------|
-| `windows.krh` | Win32 system info, registry, console, PDH, toolhelp |
+| `windows.krh` | Win32 system info, registry, console, PDH, toolhelp + GUI structs (RECT, POINT, MSG, WNDCLASSEXA, PAINTSTRUCT) |
+| `user32.krh` | Window classes, message pump, paint, dialogs, input — link with `-luser32` |
+| `gdi32.krh` | Text drawing, pens / brushes / fonts, shapes, bitmaps — link with `-lgdi32` |
 | `fileio.krh` | Windows file I/O — CreateFile, ReadFile, FindFirstFile |
 | `process.krh` | CreateProcess, WaitForSingleObject, CreateThread, Sleep |
 | `winsock.krh` | TCP/UDP networking (Winsock2) — link with `-lws2_32` |
