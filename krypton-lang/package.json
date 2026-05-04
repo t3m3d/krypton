@@ -2,7 +2,7 @@
   "name": "krypton-lang",
   "displayName": "Krypton",
   "description": "Syntax highlighting for the Krypton programming language (.k files)",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "publisher": "krypton-lang",
   "license": "MIT",
   "repository": {
