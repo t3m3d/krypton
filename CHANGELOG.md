@@ -128,6 +128,26 @@ Link line for GUI apps: `gcc … -luser32 -lgdi32 -lkernel32`.
   `LVM_INSERTITEMA` / `LVM_INSERTCOLUMNA` / `LVM_SORTITEMS` via
   `SendMessageA`, `WM_NOTIFY` dispatch for `LVN_ITEMCHANGED` /
   `LVN_COLUMNCLICK`, and `WM_SIZE` resize handling. 457 KB.
+- **`examples/win_notepad.k`** — first Krypton GUI with a real
+  menu bar. Multi-line text editor with File (New / Open / Save As /
+  Exit), Edit (Cut / Copy / Paste / Select All / Clear), and Help
+  (About) menus. Open / Save As use `GetOpenFileNameA` /
+  `GetSaveFileNameA` from `comdlg32.krh`. Edit operations route
+  through standard `WM_CUT` / `WM_COPY` / `WM_PASTE` / `EM_SETSEL`
+  messages. Fixed-width Consolas font via `CreateFontA` +
+  `WM_SETFONT`. Window title tracks the loaded file name.
+  Demonstrates the new `CreateMenu` / `CreatePopupMenu` /
+  `AppendMenuA` / `SetMenu` bindings added to `user32.krh`. 462 KB.
+
+### `headers/user32.krh` — menu bindings added
+
+- New: `CreateMenu`, `CreatePopupMenu`, `DestroyMenu`, `AppendMenuA`,
+  `InsertMenuA`, `ModifyMenuA`, `RemoveMenu`, `DeleteMenu`,
+  `SetMenu`, `GetMenu`, `DrawMenuBar`, `TrackPopupMenu`,
+  `GetSubMenu`, `GetMenuItemCount`, `GetMenuItemID`,
+  `CheckMenuItem`, `EnableMenuItem`, `SetMenuItemInfoA`,
+  `GetMenuItemInfoA`. Brings menu-bar and pop-up menu support to
+  the C-path GUI surface.
 
 ### `headers/` — new comdlg32.krh + comctl32.krh
 
