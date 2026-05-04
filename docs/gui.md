@@ -42,6 +42,7 @@ Every Win32 GUI program has the same five-part skeleton:
 | `headers/windows.krh` | kernel32 + others | GUI structs (`POINT`, `RECT`, `MSG`, `WNDCLASSEXA`, `PAINTSTRUCT`, `CREATESTRUCTA`) |
 | `headers/user32.krh` | user32.dll | Window classes, message pump, paint, dialogs, input, timers |
 | `headers/gdi32.krh` | gdi32.dll | Text drawing, pens / brushes / fonts, shapes, bitmaps |
+| `headers/comdlg32.krh` | comdlg32.dll | File open / save, colour picker, font picker, print, find / replace |
 
 Link line:
 
@@ -98,6 +99,30 @@ decrements it, a `+` button increments it. Demonstrates:
 
 Same Krypton-side message pump as `win_hello`. 448 KB.
 
+### `win_textinput.k` — text entry
+
+`EDIT` control + three transform buttons (Reverse / Upper / Clear).
+Shows how to read text from an input field with `GetWindowTextA`
+and write a result back to a label. 449 KB.
+
+### `win_paint.k` — mouse-driven canvas
+
+Drag-to-draw paint program. Captures `WM_LBUTTONDOWN` /
+`WM_MOUSEMOVE` / `WM_LBUTTONUP`, uses `SetCapture` / `ReleaseCapture`
+for off-window dragging, persists strokes to an off-screen
+`CreateCompatibleBitmap` so window resizes preserve the drawing.
+Toolbar of colour-switching buttons; right-click clears the canvas.
+455 KB.
+
+### `win_filedialog.k` — standard Windows file picker
+
+`GetOpenFileNameA` from `comdlg32.krh` opens the system file
+dialog. The selected path appears in a read-only `EDIT` field; the
+first 512 bytes of the file load into a multi-line preview pane.
+The full `OPENFILENAMEA` struct stays in `cfunc` (24 fields are
+easier to fill in C); Krypton just calls a tiny helper that returns
+the chosen path as a string. 452 KB.
+
 ## Idioms
 
 ### Typed structs vs. env structs
@@ -149,9 +174,11 @@ them directly to other Win32 calls without any conversion.
 | Capability | Status |
 |------------|--------|
 | Open a window | ✓ shipped 1.5.1 |
-| Buttons, text labels, lists | ✓ shipped 1.5.1 (use built-in classes) |
-| Modal dialogs | ✓ shipped 1.5.1 |
-| Common dialogs (file open/save, color, font) | not yet — needs `comdlg32.krh` |
+| Buttons, text labels, single-line text input | ✓ shipped 1.5.1 (use built-in classes) |
+| Modal dialogs (`MessageBoxA`) | ✓ shipped 1.5.1 |
+| Mouse capture + custom drawing | ✓ shipped 1.5.1 (see `win_paint.k`) |
+| Common dialogs (file open/save, color, font) | ✓ shipped 1.5.1 via `comdlg32.krh` |
+| Multi-line text view | ✓ shipped 1.5.1 (use `EDIT` with `ES_MULTILINE`) |
 | Common controls (list view, tree view, tabs) | not yet — needs `comctl32.krh` |
 | Native pipeline (gcc-free) GUI | not yet — Tier 1 + Tier 3 + native typed-struct expansion |
 | WindowProc in pure Krypton | not yet — Tier 3 native callbacks |
