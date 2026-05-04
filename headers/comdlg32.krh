@@ -1,0 +1,37 @@
+// comdlg32.krh — Krypton bindings for the Win32 common dialog API
+// Usage: import "comdlg32.krh"
+// Link line:  -lcomdlg32 (gcc) — ships in every MinGW install
+//
+// These dialogs all take big multi-field structs (OPENFILENAMEA,
+// CHOOSECOLORA, CHOOSEFONTA, FINDREPLACEA, PRINTDLGA). For now those
+// structs aren't declared as Krypton-typed structs — call sites
+// typically wrap the whole flow in a `cfunc { }` helper that builds
+// the struct in C and returns a clean string-typed result. See
+// examples/win_filedialog.k for the canonical pattern.
+
+jxt {
+    c "windows.h"
+    c "commdlg.h"
+
+    // ── File open / save ──────────────────────────────────────────
+    func GetOpenFileNameA(ofn) -> BOOL
+    func GetSaveFileNameA(ofn) -> BOOL
+    func GetFileTitleA(file, buf, size) -> SHORT
+
+    // ── Colour picker ─────────────────────────────────────────────
+    func ChooseColorA(cc) -> BOOL
+
+    // ── Font picker ───────────────────────────────────────────────
+    func ChooseFontA(cf) -> BOOL
+
+    // ── Find / replace dialog (modeless) ──────────────────────────
+    func FindTextA(fr)
+    func ReplaceTextA(fr)
+
+    // ── Print dialog ──────────────────────────────────────────────
+    func PrintDlgA(pd) -> BOOL
+    func PageSetupDlgA(psd) -> BOOL
+
+    // ── Last error ────────────────────────────────────────────────
+    func CommDlgExtendedError() -> DWORD
+}
