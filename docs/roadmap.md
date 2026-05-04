@@ -1,6 +1,6 @@
 # Krypton Roadmap
 
-Current released version: **1.4.0** (2026-04-27).
+Current released version: **1.5.0** (2026-05-03).
 
 The v1.0.0 goal — native compilation without an external C compiler — shipped in 1.0.0
 (2026-03-23). Subsequent 1.x releases extended the native pipeline (Linux ELF, Windows
@@ -48,19 +48,33 @@ expected).
 
 ---
 
-## Near-term: 1.5
+## Near-term: 1.6
 
-Goal: cross-platform parity and stdlib reachable from native programs.
+Goal: close the remaining native-runtime gaps and make the standard library
+reachable from native programs.
 
 - **Native module imports.** `import "stdlib/result.k"` should work via the native
   pipeline, not just the C path. Currently the IR walk inlines top-level `func`
   declarations from the file, but path resolution and de-duplication for nested
-  imports needs work.
+  imports needs work. Would unblock `examples/import_demo.k` and remove the
+  inline-pair-helpers workaround scattered through tests/examples.
+- **Windows typed-struct expansion.** The Windows PE backend's V2 struct table
+  supports five C structs today (`SYSTEM_INFO`, `MEMORYSTATUSEX`,
+  `ULARGE_INTEGER`, `CONSOLE_SCREEN_BUFFER_INFO`, `SYSTEM_POWER_STATUS`).
+  Add `PROCESSENTRY32` (parent-process walks) and `WIN32_FIND_DATAA` (directory
+  enumeration) so programs like kryofetch can detect their parent shell and
+  count installed packages without falling back to env vars or gcc.
 - **Cross-platform parity for new ELF builtins.** `reverse`, struct/env runtime,
-  and the trim/toUpper/toLower group landed on Linux first; bring them to
-  `x64.k` (Windows) and `macho_arm64_self.k` (macOS arm64).
+  and the trim/toUpper/toLower group landed on Linux first in 1.5;
+  bring them to `compiler/macos_arm64/macho_arm64_self.k`.
 - **`tokenize` as a runtime function.** Currently a compile.k internal; would let
-  user programs do tokenization without depending on a compiler binary.
+  user programs do tokenization without depending on a compiler binary. Would
+  unblock `examples/runtokcount.k` and `examples/test_tokenize.k`.
+- **Auto-compute Windows runtime offsets.** `compiler/windows_x86/x64.k` has
+  six hardcoded byte-offset values that all shift together when any builtin
+  changes size. Refactor to compute them automatically (the Linux ELF backend
+  already does this via `funcVAddrs`). Would make adding Win32 builtins ~10x
+  cheaper.
 - **Smart-int boundary documentation + tooling.** Values ≥ `0x40000000` (1 GiB) are
   treated as string pointers; ints near that boundary collide. Add a runtime
   check, a clearer error, and document the limit prominently.
