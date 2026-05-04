@@ -2,6 +2,111 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [1.5.0] - 2026-05-03
+
+### Native runtime — env, struct, and reverse builtins
+
+- **`envNew` / `envSet` / `envGet`** wired into the Linux ELF backend as inline machine code (2 / 31 / 61 bytes respectively). 24-byte `EnvEntry {name, value, prev}` linked-list nodes; `envGet` walks the list with `kr_strcmp`.
+- **`structNew` / `setField` / `getField` / `hasField` / `structFields`** built on the env runtime. `setField` is functional (returns new env head); programs targeting the native pipeline must reassign — `obj = setField(obj, k, v)`. The C runtime mutates in place and accepts the same form.
+- **`reverse(s)`** wired through `kr_reverse` (was defined as machine code but never linked into the segment, so calls segfaulted). Now part of `emitFuncCode` dispatch + segment layout.
+- Field-name immediates (`SETFIELD_STR` / `GETFIELD_STR`) interned at compile time and loaded via `MOV RSI, imm64`, sidestepping the need to pair-encode strings with non-string env pointers.
+
+### Native runtime — Windows kr_print / kr_environ fixes
+
+- **`kr_print` / `kr_printerr`** in `compiler/windows_x86/x64.k` now emit a trailing `'\n'` via a second `WriteFile` call, matching the spec (`kp(s)` should print `s` followed by a newline) and the Linux ELF + C-emit behaviour. Previously emitted only the string bytes, so any program using multiple `kp()` calls produced one wrapped line. Each function grew from 77 → 114 bytes.
+- **`kr_environ`** in `x64.k` — was a 5-byte stub that always returned `""`. Now a real 53-byte implementation that allocates a 1024-byte buffer and calls `GetEnvironmentVariableA` from the kernel32 IAT (slot 25). Fixes any Krypton program that inspects environment variables via `environ(name)`.
+- The bootstrap helper block grew by 122 bytes (74 + 48). All downstream offset tables (`bootstrapExportOffsets`, the V2 export RVA list, `bsHelperBlockSize`, the substring-trim length, the `actual_emp_pos` constant, and `stub_impl_base`) updated to match.
+
+### Native runtime — boolean literals
+
+- `true` / `false` literals now compile to the strings `"true"` / `"false"` instead of `"1"` / `"0"`. So `kp(true)` prints `true` instead of `1`. Comparison ops, `isTruthy`, `hasField`, and the rest of the runtime continue to return `"1"` / `"0"` for backward compatibility — see `stdlib/booleans.k` for normalisation helpers.
+- **`kr_istruthy`** in the Linux ELF backend rewritten (27 → 79 bytes) to recognise `"0"` and `"false"` strings as falsy. The previous implementation only checked for the empty string, so `isTruthy("0")` and `isTruthy("false")` wrongly returned `1`. The literal change made this a load-bearing bug — `if false { ... }` would have run.
+- **`!` op** routed through `kr_istruthy` instead of pointer-non-zero, so `!"false"` and `!"0"` correctly return `1`.
+
+### Native runtime — nested `func` declarations inside `just run`
+
+`compile.k` now hoists `func name(...) { ... }` declarations sitting inside a `just run` body to file-scope `FUNC` siblings. Krypton has no closures, so a nested `func` is semantically identical to a top-level one. Without the hoist, the nested-func tokens fell through to `irExpr` and emitted garbage that crashed at runtime. `irStmt` now skips past `KW:func ID …` declarations (no IR emitted at the nested call site), and the file-scope IR walk descends into `KW:just`/`KW:go` bodies looking for nested decls.
+
+### `stdlib/` — new and cleaned
+
+- **New: `stdlib/booleans.k`** — `bool(v)`, `kpBool(v)`, `boolToInt(v)`, `boolEq(a, b)` (truthy-equality), `boolNot/And/Or/Xor`. Bridges the `"true"`/`"false"` literal form and the `"1"`/`"0"` comparison-result form when callers want consistent output or comparisons.
+- **`stdlib/string_utils.k`** — removed 7 functions (`repeat`, `contains`, `endsWith`, `toUpper`, `trim`, `reverse`, `replaceAll`) that silently shadowed native builtins of the same name. The IR dispatcher routes those names to `BUILTIN` regardless of any user definition, so the user implementations were dead code on the native pipeline. (`toUpper` was also genuinely buggy.) Kept genuine value-adds with no native equivalent: `padLeft`, `padRight`, `trimLeft`, `trimRight`, `countOccurrences`, `join`.
+- **`stdlib/char_utils.k`** — removed `isDigit` / `isAlpha` for the same shadowing reason; kept `isLower`/`isUpper`/`isAlphaNum`/`isWhitespace`/`isPunct`/`isHexDigit`/`isOperator`/`isNumeric`/`isAlphabetic`.
+- **`stdlib/math_utils.k`** — removed `abs` (now a native builtin). Kept `min`, `max`, `power`, `factorial`, `gcd`, `lcm`, `isPrime`, `fibonacci`, `digitSum`, `digitCount`, `clamp`, `isqrt`, `sign`, `sumTo`.
+- **`stdlib/csv.k`** — renamed `getField(line, idx)` → `fieldAt(line, idx)`. The new native struct builtin `getField(env, name)` was shadowing it; calls after the native dispatch crashed because the comma-list string was being interpreted as an env head pointer.
+- **`stdlib/task_manager.k`** — moved to `examples/task_manager.k`. It had a `just run` block — it's an example program, not a library.
+
+### `algorithms/` — 11 new reference implementations
+
+- **Sorts:** `quicksort.k`, `merge_sort.k`, `heap_sort.k`
+- **DP:** `knapsack_01.k`, `lis.k`
+- **Graph:** `topological_sort.k`, `dijkstra.k`, `union_find.k`
+- **Selection:** `quickselect.k`
+- **Strings:** `kmp.k` (faster alternative to the existing naïve `string_matching.k`)
+- **Data structure:** `linked_list.k` — env-backed singly-linked list (push/pop/reverse) that stress-tests the new env builtins under iteration.
+
+Existing algorithms also fixed: `bfs.k` / `dfs.k` / `huffman_freq.k` (`""` → `envNew()`), `fibonacci_dp.k` (capped under the 1 GiB smart-int boundary), `string_matching.k` (renamed `match` local to dodge the keyword), `permutations.k` (`prefix + ch` and `substring + substring` switched to `sbAppend` so digit-only token concat doesn't get hijacked by numeric `+`).
+
+### `examples/` — six real-world failures fixed
+
+- `power.k`, `string_compress.k` — `let match = ...` → `let matched = ...` (keyword shadow).
+- `debug_pair.k`, `calculator.k` — inlined `pairVal`/`pairPos` until native module imports land.
+- `binary_convert.k` — sb-based `toBinary` and `padBinary` (the naïve `result = "0" + result` form goes numeric once `result` is digit-only).
+- `number_format.k` — capped sample sizes under the 1 GiB smart-int boundary.
+
+### `tools/` — fixes
+
+- `tools/freq.k` — `let env = ""` → `let env = envNew()` (native runtime treats `""` as a non-NULL string ptr and crashes on first envGet).
+- `tools/replace.k` — removed user-defined `contains` and `replaceAll` that shadowed builtins; now calls the builtins directly.
+
+### `headers/` — C stdlib + POSIX bindings
+
+- **Removed**: `headers/memory.krh` — bare `func` declarations outside a `jxt` block silently failed to parse; nothing imported it; the runtime primitives it documented (`rawAlloc`, `rawReadByte`, etc.) work without any header.
+- **Added 18 new `.krh` headers**:
+  - **C stdlib**: `stdlib.krh`, `time.krh`, `ctype.krh`, `errno.krh`, `assert.krh`, `signal.krh`, `setjmp.krh`
+  - **POSIX core** (Linux/macOS): `unistd.krh`, `sys_stat.krh`, `fcntl.krh`, `dirent.krh`
+  - **POSIX networking**: `sys_socket.krh`, `netinet_in.krh`, `arpa_inet.krh`, `netdb.krh`
+  - **POSIX advanced**: `sys_mman.krh`, `dlfcn.krh`, `pthread.krh`
+- All 29 headers parse cleanly. Headers are C-emitter-pipeline only today — the native pipeline doesn't yet wire FFI through them.
+
+### Tooling
+
+- **VS Code extension:** rebuilt as `extensions/krypton-language-1.5.0.vsix` from a fresh manifest in `krypton-lang/`. Stale `1.1.0.vsix` (March 27) deleted. New `scripts/build_vsix.sh` builds the package as a portable Python-only ZIP — no `vsce` / Node toolchain needed.
+- **Submodule:** `krypton-lang/syntaxes/` is now a git submodule pointing at https://github.com/t3m3d/krypton-tmLanguage. Single source of truth for the TextMate grammar.
+- **TextMate grammar updated** in the standalone repo: added every modern keyword (for, in, do, loop, until, continue, match, try, catch, throw, const, import, export, struct, class, type, callback, jxt, null), backtick string interpolation with embedded expressions, hex literals, compound assignment / inc-dec / member access operators, and the full current builtins list.
+- **New helpers**: `scripts/sweep_examples.sh`, `scripts/sweep_algorithms.sh`, `scripts/sweep_stdlib.sh`, `scripts/sweep_tools.sh`, `scripts/check_headers.sh`, `scripts/diag_failures.sh`, `scripts/build_vsix.sh`.
+
+### Bootstrap
+
+- **Removed**: `bootstrap/sanitize_ir.py` — workaround for an old self-host bug; its own docs admitted "PARTIAL — not working yet" and the easy-path (gcc rebuild) doesn't need it.
+- **`bootstrap/REBUILD_SEED.md`** rewritten to cover all four supported platforms accurately (Linux x86_64, Linux ARM64 C-path-only, macOS arm64, Windows x86_64) instead of just Linux.
+
+### Docs
+
+- **`docs/roadmap.md`** rewritten — was claiming v0.7.7 with 1.0.0 still ahead; all those milestones shipped over 1.0–1.4. Now reflects current state and queues 1.6/2.0 work (native module imports, cross-platform parity for new builtins, ARM64 native backend, GC, lambdas in native, LSP, quantum).
+- **`docs/spec/functions.md`** rebuilt against the actual builtins with each entry tagged `(native)` or `(C path)`. Removed fictional entries.
+- **`docs/spec/grammar.md`** updated to include `module`/`import`/`export`/`jxt`/`callback`/`loop`/`until`/global lets/hex literals/index-assign/inc-dec/lambdas/list literals.
+- **`docs/spec/types.md`** adds the smart-int boundary, the numeric-`+` footgun, struct-backing differences, pair encoding, and a Booleans section covering the new literal form.
+- **`grammar/krypton.ebnf`** refreshed — top-level `ModuleDecl`/`ImportStmt`/`ExportDecl`/`JxtBlock`/`CallbackDecl`, nested funcs, index-assign, inc-dec, lambdas, list literals, hex literals, `null`. Removed the embedded 80-line builtin reference (now lives in `docs/spec/functions.md` alone).
+- **`README.md`** — project structure refreshed; "Native Headers" section rewritten with three categorised tables; "Booleans" subsection added under Language; bootstrap table now includes Linux ARM64 (C-path-only).
+
+### Other
+
+- **`.gitignore`** fix — `test*` rule was too broad and silently swallowed every new file in `tests/`. Added `!tests/` and `!tests/**` exceptions. Surfaced `tests/test_dll_exports.k` which had been used by `build.sh` forever but never committed.
+
+### Coverage
+
+- `tests/` — **38 / 38 native** (test_booleans.k added; test_dll_exports.k skipped on non-Windows).
+- `examples/` — 79 / 84 native. Remaining 5: `import_demo` (needs native module imports), `run_committed` (giant single-file bootstrap), `runtokcount` / `test_tokenize` (need `tokenize` as a runtime helper), `struct_utils` (header-only library, no `main`).
+- `algorithms/` — **35 / 35 native**.
+- `stdlib/` — **35 / 35** IR-parses.
+- `tools/` — **20 / 20 native**.
+- Headers — **29 / 29** parse.
+
+### Known gaps in the Windows native runtime (1.5/2.0 candidates)
+
+The Windows PE backend's typed-struct system supports five C structs today (`SYSTEM_INFO`, `MEMORYSTATUSEX`, `ULARGE_INTEGER`, `CONSOLE_SCREEN_BUFFER_INFO`, `SYSTEM_POWER_STATUS`). Programs that need `PROCESSENTRY32` (parent-process walks) or `WIN32_FIND_DATAA` (directory enumeration) get a wrong-size buffer back from `structNew` and the corresponding Win32 APIs fail. Tracked separately as a typed-struct expansion task.
+
 ## [1.4.0] - 2026-04-27
 
 ### macOS support — first-class baseline via the C path
@@ -65,49 +170,6 @@ The `k` branch of compile.k's jxt-block parser ([kompiler/compile.k:4184](kompil
 ### Verification
 
 All 23 ELF regression programs still pass. New test groups: 4 jxt syntax tests, 4 batch-1 builtin tests (printErr, charCode, fromCharCode, exit), 4 batch-2 builtin tests (isDigit, isAlpha, abs, startsWith). macOS C-path verified end-to-end via simulated `uname -s = Darwin` in WSL. Self-host clean: byte-identical C output between old and new kcc.
-
-### Native runtime — env, struct, and string builtins (post-1.4.0 work, accumulating under this entry until release)
-
-- **`envNew` / `envSet` / `envGet`** wired into the Linux ELF backend as inline machine code (2 / 31 / 61 bytes respectively). 24-byte `EnvEntry {name, value, prev}` linked-list nodes; `envGet` walks the list with `kr_strcmp`.
-- **`structNew` / `setField` / `getField` / `hasField` / `structFields`** built on the env runtime. `setField` is functional (returns new env head); programs targeting the native pipeline must reassign — `obj = setField(obj, k, v)`. The C runtime mutates in place and accepts the same form.
-- **`reverse(s)`** wired through `kr_reverse` (was defined as machine code but never linked into the segment, so calls segfaulted). Now part of `emitFuncCode` dispatch + segment layout.
-- Field-name immediates (`SETFIELD_STR` / `GETFIELD_STR`) interned at compile time and loaded via `MOV RSI, imm64`, sidestepping the need to pair-encode strings with non-string env pointers.
-
-### Native runtime — nested `func` declarations inside `just run`
-
-`compile.k` now hoists `func name(...) { ... }` declarations sitting inside a `just run` body to file-scope `FUNC` siblings. Krypton has no closures, so a nested `func` is semantically identical to a top-level one. Without the hoist, the nested-func tokens fell through to `irExpr` and emitted garbage that crashed at runtime. `irStmt` now skips past `KW:func ID …` declarations (no IR emitted at the nested call site), and the file-scope IR walk descends into `KW:just`/`KW:go` bodies looking for nested decls.
-
-### `algorithms/` — 11 new reference implementations
-
-- **Sorts:** `quicksort.k`, `merge_sort.k`, `heap_sort.k`
-- **DP:** `knapsack_01.k`, `lis.k`
-- **Graph:** `topological_sort.k`, `dijkstra.k`, `union_find.k`
-- **Selection:** `quickselect.k`
-- **Strings:** `kmp.k` (faster alternative to the existing naïve `string_matching.k`)
-- **Data structure:** `linked_list.k` — env-backed singly-linked list (push/pop/reverse) that stress-tests the new env builtins under iteration.
-
-Existing algorithms also fixed: `bfs.k` / `dfs.k` / `huffman_freq.k` (`""` → `envNew()`), `fibonacci_dp.k` (capped under the 1 GiB smart-int boundary), `string_matching.k` (renamed `match` local to dodge the keyword), `permutations.k` (`prefix + ch` and `substring + substring` switched to `sbAppend` so digit-only token concat doesn't get hijacked by numeric `+`).
-
-### `examples/` — five real-world failures fixed
-
-- `power.k`, `string_compress.k` — `let match = ...` → `let matched = ...` (keyword shadow).
-- `debug_pair.k`, `calculator.k` — inlined `pairVal`/`pairPos` until native module imports land.
-- `binary_convert.k` — sb-based `toBinary` and `padBinary` (the naïve `result = "0" + result` form goes numeric once `result` is digit-only).
-- `number_format.k` — capped sample sizes under the 1 GiB smart-int boundary.
-
-### Tooling and docs
-
-- **VS Code extension:** rebuilt as `extensions/krypton-language-1.4.0.vsix` from a fresh manifest in `krypton-lang/`. Stale `1.1.0.vsix` (March 27) deleted. New `scripts/build_vsix.sh` builds the package as a portable Python-only ZIP — no `vsce` / Node toolchain needed.
-- **Submodule:** `krypton-lang/syntaxes/` is now a git submodule pointing at https://github.com/t3m3d/krypton-tmLanguage. Single source of truth for the TextMate grammar.
-- **TextMate grammar updated** in the standalone repo: added every modern keyword (for, in, do, loop, until, continue, match, try, catch, throw, const, import, export, struct, class, type, callback, jxt, null), backtick string interpolation with embedded expressions, hex literals, compound assignment / inc-dec / member access operators, and the full current builtins list.
-- **`docs/` overhauled:** roadmap rewritten (was claiming v0.7.7 with 1.0.0 still ahead — all those milestones shipped); `spec/functions.md` rebuilt against the actual builtins with each entry tagged `(native)` or `(C path)`; `spec/grammar.md` updated to include `module`/`import`/`export`/`jxt`/`callback`/`loop`/`until`/global lets/hex literals/index-assign/inc-dec/lambdas/list literals; `spec/types.md` adds the smart-int boundary, the numeric-`+` footgun, struct-backing differences, and pair encoding.
-- **README:** project structure refreshed to include `algorithms/`, `tutorial/`, `tools/`, `docs/`, `extensions/`, `krypton-lang/`, `linguist/`, `installer/`, `scripts/`.
-
-### Coverage
-
-- `tests/` — 37 / 37 native (test_dll_exports skipped on non-Windows).
-- `examples/` — 79 / 84 native. Remaining 5: `import_demo` (needs native module imports), `run_committed` (giant single-file bootstrap), `runtokcount` / `test_tokenize` (need `tokenize` as a runtime helper), `struct_utils` (header-only library, no `main`).
-- `algorithms/` — **35 / 35 native**.
 
 ## [1.3.9] - 2026-04-26
 
