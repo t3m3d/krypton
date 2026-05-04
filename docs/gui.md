@@ -140,6 +140,26 @@ Windows app ships. File>Open and File>Save As go through
 items route to `WM_CUT` / `WM_COPY` / `WM_PASTE` / `EM_SETSEL` via
 `SendMessageA`. Fixed-width Consolas font via `CreateFontA`. 462 KB.
 
+### `win_tabs.k` — tab control + slider + progress bar + tree view
+
+Three-page tab control showing the rest of the comctl32 surface in
+one program. Tab 1: trackbar slider feeding a label and progress-bar
+mirror. Tab 2: timer-animated progress with Start / Pause / Reset
+buttons. Tab 3: tree view of the Krypton repo structure. Demonstrates
+`WC_TABCONTROL`, `TCM_INSERTITEMA`, `TCN_SELCHANGE`, the show/hide
+pattern for tab-page content, and `WM_TIMER` for animation. 462 KB.
+
+### `win_toolbar.k` — toolbar with standard icons + window icon
+
+`ToolbarWindow32` with a New / Open / Save / Cut / Copy / Paste / Help
+icon strip pulled straight from comctl32's built-in
+`IDB_STD_SMALL_COLOR` bitmap — no `.ico` files in the source tree.
+Demonstrates `TB_BUTTONSTRUCTSIZE`, `TB_ADDBITMAP` with
+`HINST_COMMCTRL`, `TB_ADDBUTTONS` with separators, `TBSTYLE_FLAT |
+TBSTYLE_TOOLTIPS`, and `TBN_HOTITEMCHANGE` for hover feedback. Also
+shows the canonical `wc.hIcon = LoadIconA(NULL, IDI_APPLICATION)`
+pattern for setting the title-bar / Alt-Tab icon. 462 KB.
+
 ## Idioms
 
 ### Typed structs vs. env structs
@@ -196,9 +216,12 @@ them directly to other Win32 calls without any conversion.
 | Mouse capture + custom drawing | ✓ shipped 1.5.1 (see `win_paint.k`) |
 | Common dialogs (file open/save, color, font) | ✓ shipped 1.5.1 via `comdlg32.krh` |
 | Multi-line text view | ✓ shipped 1.5.1 (use `EDIT` with `ES_MULTILINE`) |
-| Common controls (list view, status bar, toolbar) | ✓ shipped 1.5.1 via `comctl32.krh` |
-| Tree view, tab control, progress bar, slider | ✓ binding shipped — patterns documented but no example yet |
+| Common controls (list view, status bar) | ✓ shipped 1.5.1 (see `win_listview.k`) |
+| Toolbar with standard Windows icons | ✓ shipped 1.5.1 (see `win_toolbar.k`) |
+| Tree view, tab control, progress bar, slider | ✓ shipped 1.5.1 (see `win_tabs.k`) |
 | Menu bars + popup menus | ✓ shipped 1.5.1 (see `win_notepad.k`) |
+| Timer-driven animation | ✓ shipped 1.5.1 (see `win_tabs.k` — `SetTimer` + `WM_TIMER`) |
+| Title-bar / Alt-Tab window icon | ✓ shipped 1.5.1 (`wc.hIcon = LoadIconA(NULL, IDI_APPLICATION)`) |
 | Native pipeline (gcc-free) GUI | not yet — Tier 1 + Tier 3 + native typed-struct expansion |
 | WindowProc in pure Krypton | not yet — Tier 3 native callbacks |
 | Higher-level wrappers (`stdlib/ui/`) | future, after Tier 3 |

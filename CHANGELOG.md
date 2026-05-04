@@ -138,6 +138,28 @@ Link line for GUI apps: `gcc … -luser32 -lgdi32 -lkernel32`.
   `WM_SETFONT`. Window title tracks the loaded file name.
   Demonstrates the new `CreateMenu` / `CreatePopupMenu` /
   `AppendMenuA` / `SetMenu` bindings added to `user32.krh`. 462 KB.
+- **`examples/win_tabs.k`** — tab control with three pages, each
+  showing a different common control. Tab 1 has a `msctls_trackbar32`
+  slider feeding a live label and a `msctls_progress32` mirror
+  (`WM_HSCROLL` → `TBM_GETPOS` → `PBM_SETPOS`). Tab 2 has a
+  timer-animated progress bar with Start / Pause and Reset buttons
+  (uses `SetTimer` + `WM_TIMER`). Tab 3 is a `SysTreeView32` with a
+  pre-populated structure of the Krypton repo (compiler, runtime,
+  backends, headers, examples) using `TVM_INSERTITEMA`. Demonstrates
+  `WC_TABCONTROL`, `TCM_INSERTITEMA`, `TCM_GETCURSEL`, and
+  `TCN_SELCHANGE` notify dispatch — plus the show/hide pattern for
+  tab-page content. 462 KB.
+- **`examples/win_toolbar.k`** — `ToolbarWindow32` with the canonical
+  New / Open / Save / Cut / Copy / Paste / Help icons loaded straight
+  from comctl32's built-in `IDB_STD_SMALL_COLOR` bitmap (no .ico files
+  in the source tree). Demonstrates `TB_BUTTONSTRUCTSIZE`,
+  `TB_ADDBITMAP` with `HINST_COMMCTRL`, `TB_ADDBUTTONS` with
+  `BTNS_SEP` separators, `TBSTYLE_FLAT | TBSTYLE_TOOLTIPS`, and
+  `TBN_HOTITEMCHANGE` notify routing for hover-status feedback.
+  Also wires `IDI_APPLICATION` into the window class so the title-bar
+  / Alt-Tab icon shows a stock app glyph. Status bar at the bottom
+  tracks the most-recently fired action; Cut / Copy / Paste actually
+  operate on the multi-line `EDIT` body. 462 KB.
 
 ### `headers/user32.krh` — menu bindings added
 
