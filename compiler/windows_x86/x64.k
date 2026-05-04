@@ -1813,7 +1813,7 @@ func emitSectionHeader(name, virtSize, virtAddr, rawSize, rawOffset, characteris
 //   OFF_ARGP=3407   OFF_ARGC=3607  OFF_ARG=3657
 //   TOTAL=3737
 
-func bsHelperBlockSize() { emit 5681 }
+func bsHelperBlockSize() { emit 5755 }   // was 5681; +74 bytes for kr_print/kr_printerr trailing-'\n' WriteFile calls
 
 // Export offset lookup for bootstrap mode: returns "kr_name:offset\n..." table
 func bootstrapExportOffsets() {
@@ -1847,17 +1847,17 @@ func bootstrapExportOffsets() {
     t = t + "kr_count:2392\n"
     t = t + "kr_length:2392\n"
     t = t + "kr_print:1201\n"
-    t = t + "kr_printerr:1278\n"
-    t = t + "kr_printl:1355\n"
-    t = t + "kr_exit:1360\n"
-    t = t + "kr_range:2442\n"
-    t = t + "kr_sbnew:2827\n"
-    t = t + "kr_sbappend:2887\n"
-    t = t + "kr_sbtostring:3047\n"
-    t = t + "kr_readfile:3097\n"
-    t = t + "kr_writefile:3277\n"
-    t = t + "kr_argcount:3607\n"
-    t = t + "kr_arg:3657\n"
+    t = t + "kr_printerr:1315\n"
+    t = t + "kr_printl:1429\n"
+    t = t + "kr_exit:1434\n"
+    t = t + "kr_range:2516\n"
+    t = t + "kr_sbnew:2901\n"
+    t = t + "kr_sbappend:2961\n"
+    t = t + "kr_sbtostring:3121\n"
+    t = t + "kr_readfile:3171\n"
+    t = t + "kr_writefile:3351\n"
+    t = t + "kr_argcount:3681\n"
+    t = t + "kr_arg:3731\n"
     emit t
 }
 
@@ -1866,7 +1866,7 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     let sb = sbNew()
     let pos = 0  // absolute offset within the bootstrap block
     // pre-populated with offsets of already-emitted functions:
-    let offsets = "kr_plus:487\nkr_sub:570\nkr_mul:613\nkr_div:657\nkr_mod:708\nkr_neg:759\nkr_eq:784\nkr_neq:823\nkr_lt:865\nkr_gt:1002\nkr_lte:1010\nkr_gte:1035\nkr_not:1057\nkr_truthy:1099\nkr_len:1137\nkr_toint:1159\nkr_str:1181\nkr_print:1195\nkr_printerr:1272\nkr_printl:1349\nkr_exit:1354\nkr_substring:1376\nkr_startswith:1481\n"
+    let offsets = "kr_plus:487\nkr_sub:570\nkr_mul:613\nkr_div:657\nkr_mod:708\nkr_neg:759\nkr_eq:784\nkr_neq:823\nkr_lt:865\nkr_gt:1002\nkr_lte:1010\nkr_gte:1035\nkr_not:1057\nkr_truthy:1099\nkr_len:1137\nkr_toint:1159\nkr_str:1181\nkr_print:1195\nkr_printerr:1309\nkr_printl:1423\nkr_exit:1428\nkr_substring:1450\nkr_startswith:1555\n"
 
     // Convenience: IAT entry RVA for kernel32 function at index i
     // IAT call disp from absolute pos P: iatK32Rva + i*8 - (textRva + P + 6)
@@ -2474,57 +2474,76 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     pos = 1195
 
     // ── kr_print(RCX=s) → RAX=str("") ────────────────────────────
-    // 77 bytes. push RBX,RSI + sub rsp,56 (0x38 for 16-byte alignment)
-    let pr_sl  = 0  - (pos + 9 + 5)
-    let pr_gsh_d = iatK32Rva + 1 * 8 - (textRva + pos + 22 + 6)  // GetStdHandle
-    let pr_wf_d  = iatK32Rva + 30 * 8 - (textRva + pos + 51 + 6) // WriteFile
-    let pr_al  = 18 - (pos + 62 + 5)
-    sb = sbAppend(sb, hexByte(0x53))
-    sb = sbAppend(sb, hexByte(0x56))
-    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x38))
-    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xCE))                // MOV RSI,RCX
-    sb = sbAppend(sb, hexByte(0xE8)+hexDword(pr_sl))                             // CALL strlen
-    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))                // MOV RBX,RAX (len)
-    // GetStdHandle(-11)
-    sb = sbAppend(sb, hexByte(0xB9)+hexDword(0xFFFFFFF5))                        // MOV ECX,-11
-    sb = sbAppend(sb, hexByte(0xFF)+hexByte(0x15)+hexDword(pr_gsh_d))           // CALL GetStdHandle
-    // WriteFile(handle, buf, len, pwritten, NULL)
-    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                // MOV RCX,RAX (handle)
-    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xF2))                // MOV RDX,RSI (buf)
-    sb = sbAppend(sb, hexByte(0x41)+hexByte(0x89)+hexByte(0xD8))                // MOV R8D,EBX (len) REX.B=dest R8
-    sb = sbAppend(sb, hexByte(0x4C)+hexByte(0x8D)+hexByte(0x4C)+hexByte(0x24)+hexByte(0x18)) // LEA R9,[RSP+24] (bytes_written scratch)
-    sb = sbAppend(sb, hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x20)+hexDword(0)) // MOV QWORD[RSP+32],0 (overlapped=NULL)
-    sb = sbAppend(sb, hexByte(0xFF)+hexByte(0x15)+hexDword(pr_wf_d))            // CALL WriteFile
+    // 114 bytes. push RBX,RSI + sub rsp,56 (0x38 for 16-byte alignment).
+    // Now writes a trailing '\n' via a second WriteFile so kp() matches
+    // the spec (and the C-emit + Linux ELF backends which always added
+    // newlines). Cache stdout handle on the stack between the two writes.
+    let pr_sl    = 0 - (pos + 9 + 5)                                                  // CALL strlen (offset 9, ret 14)
+    let pr_gsh_d = iatK32Rva + 1 * 8 - (textRva + pos + 22 + 6)                       // CALL [GetStdHandle] (offset 22, ret 28)
+    let pr_wf1_d = iatK32Rva + 30 * 8 - (textRva + pos + 56 + 6)                      // CALL [WriteFile]#1 (offset 56, ret 62)
+    let pr_wf2_d = iatK32Rva + 30 * 8 - (textRva + pos + 88 + 6)                      // CALL [WriteFile]#2 (offset 88, ret 94)
+    let pr_al    = 18 - (pos + 99 + 5)                                                // CALL kr_alloc (offset 99, ret 104)
+    sb = sbAppend(sb, hexByte(0x53))                                                  // [0]      PUSH RBX
+    sb = sbAppend(sb, hexByte(0x56))                                                  // [1]      PUSH RSI
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x38))        // [2-5]    SUB RSP, 0x38
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xCE))                      // [6-8]    MOV RSI, RCX
+    sb = sbAppend(sb, hexByte(0xE8)+hexDword(pr_sl))                                  // [9-13]   CALL kr_strlen
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))                      // [14-16]  MOV RBX, RAX (len)
+    sb = sbAppend(sb, hexByte(0xB9)+hexDword(0xFFFFFFF5))                              // [17-21]  MOV ECX, -11 (STD_OUTPUT)
+    sb = sbAppend(sb, hexByte(0xFF)+hexByte(0x15)+hexDword(pr_gsh_d))                 // [22-27]  CALL [GetStdHandle]
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0x44)+hexByte(0x24)+hexByte(0x28))  // [28-32]  MOV [RSP+0x28], RAX (cache handle)
+    // First WriteFile: the string itself
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                      // [33-35]  MOV RCX, RAX (handle)
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xF2))                      // [36-38]  MOV RDX, RSI (buf)
+    sb = sbAppend(sb, hexByte(0x41)+hexByte(0x89)+hexByte(0xD8))                      // [39-41]  MOV R8D, EBX (len)
+    sb = sbAppend(sb, hexByte(0x4C)+hexByte(0x8D)+hexByte(0x4C)+hexByte(0x24)+hexByte(0x18))  // [42-46]  LEA R9, [RSP+0x18]
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x20)+hexDword(0))  // [47-55]  MOV [RSP+0x20], 0
+    sb = sbAppend(sb, hexByte(0xFF)+hexByte(0x15)+hexDword(pr_wf1_d))                 // [56-61]  CALL [WriteFile]
+    // Second WriteFile: the '\n' from a stack scratch byte
+    sb = sbAppend(sb, hexByte(0xC6)+hexByte(0x44)+hexByte(0x24)+hexByte(0x30)+hexByte(0x0A))  // [62-66]  MOV BYTE [RSP+0x30], 10
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x8B)+hexByte(0x4C)+hexByte(0x24)+hexByte(0x28))  // [67-71]  MOV RCX, [RSP+0x28] (cached handle)
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x8D)+hexByte(0x54)+hexByte(0x24)+hexByte(0x30))  // [72-76]  LEA RDX, [RSP+0x30] (\n buf)
+    sb = sbAppend(sb, hexByte(0x41)+hexByte(0xB8)+hexDword(1))                        // [77-82]  MOV R8D, 1
+    sb = sbAppend(sb, hexByte(0x4C)+hexByte(0x8D)+hexByte(0x4C)+hexByte(0x24)+hexByte(0x18))  // [83-87]  LEA R9, [RSP+0x18]
+    sb = sbAppend(sb, hexByte(0xFF)+hexByte(0x15)+hexDword(pr_wf2_d))                 // [88-93]  CALL [WriteFile] (overlapped already 0)
     // Return empty string
-    sb = sbAppend(sb, hexByte(0xB9)+hexDword(1))
-    sb = sbAppend(sb, hexByte(0xE8)+hexDword(pr_al))
-    sb = sbAppend(sb, hexByte(0xC6)+hexByte(0x00)+hexByte(0x00))                // MOV BYTE[RAX],0
-    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x38))
-    sb = sbAppend(sb, hexByte(0x5E))
-    sb = sbAppend(sb, hexByte(0x5B))
-    sb = sbAppend(sb, hexByte(0xC3))
-    pos = 1272
+    sb = sbAppend(sb, hexByte(0xB9)+hexDword(1))                                      // [94-98]  MOV ECX, 1
+    sb = sbAppend(sb, hexByte(0xE8)+hexDword(pr_al))                                  // [99-103] CALL kr_alloc
+    sb = sbAppend(sb, hexByte(0xC6)+hexByte(0x00)+hexByte(0x00))                      // [104-106] MOV BYTE [RAX], 0
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x38))        // [107-110] ADD RSP, 0x38
+    sb = sbAppend(sb, hexByte(0x5E))                                                  // [111]    POP RSI
+    sb = sbAppend(sb, hexByte(0x5B))                                                  // [112]    POP RBX
+    sb = sbAppend(sb, hexByte(0xC3))                                                  // [113]    RET
+    pos = 1309
 
     // ── kr_printerr(RCX=s) → RAX=str("") ────────────────────────
-    // 77 bytes (same as print but GetStdHandle(-12))
-    let pe_sl  = 0  - (pos + 9 + 5)
+    // 114 bytes — same shape as kr_print but GetStdHandle(-12) for stderr.
+    let pe_sl    = 0 - (pos + 9 + 5)
     let pe_gsh_d = iatK32Rva + 1 * 8 - (textRva + pos + 22 + 6)
-    let pe_wf_d  = iatK32Rva + 30 * 8 - (textRva + pos + 51 + 6)
-    let pe_al  = 18 - (pos + 62 + 5)
+    let pe_wf1_d = iatK32Rva + 30 * 8 - (textRva + pos + 56 + 6)
+    let pe_wf2_d = iatK32Rva + 30 * 8 - (textRva + pos + 88 + 6)
+    let pe_al    = 18 - (pos + 99 + 5)
     sb = sbAppend(sb, hexByte(0x53))
     sb = sbAppend(sb, hexByte(0x56))
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x38))
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xCE))
     sb = sbAppend(sb, hexByte(0xE8)+hexDword(pe_sl))
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))
-    sb = sbAppend(sb, hexByte(0xB9)+hexDword(0xFFFFFFF4))                        // MOV ECX,-12 (STD_ERROR)
+    sb = sbAppend(sb, hexByte(0xB9)+hexDword(0xFFFFFFF4))                              // MOV ECX,-12 (STD_ERROR)
     sb = sbAppend(sb, hexByte(0xFF)+hexByte(0x15)+hexDword(pe_gsh_d))
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0x44)+hexByte(0x24)+hexByte(0x28))  // MOV [RSP+0x28], RAX (cache handle)
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xF2))
-    sb = sbAppend(sb, hexByte(0x41)+hexByte(0x89)+hexByte(0xD8))                // MOV R8D,EBX (len) REX.B
-    sb = sbAppend(sb, hexByte(0x4C)+hexByte(0x8D)+hexByte(0x4C)+hexByte(0x24)+hexByte(0x18)) // LEA R9,[RSP+24]
-    sb = sbAppend(sb, hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x20)+hexDword(0)) // MOV QWORD[RSP+32],0
-    sb = sbAppend(sb, hexByte(0xFF)+hexByte(0x15)+hexDword(pe_wf_d))
+    sb = sbAppend(sb, hexByte(0x41)+hexByte(0x89)+hexByte(0xD8))
+    sb = sbAppend(sb, hexByte(0x4C)+hexByte(0x8D)+hexByte(0x4C)+hexByte(0x24)+hexByte(0x18))
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x20)+hexDword(0))
+    sb = sbAppend(sb, hexByte(0xFF)+hexByte(0x15)+hexDword(pe_wf1_d))                  // CALL [WriteFile] #1
+    sb = sbAppend(sb, hexByte(0xC6)+hexByte(0x44)+hexByte(0x24)+hexByte(0x30)+hexByte(0x0A))  // MOV BYTE [RSP+0x30], 10
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x8B)+hexByte(0x4C)+hexByte(0x24)+hexByte(0x28))  // MOV RCX, [RSP+0x28]
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x8D)+hexByte(0x54)+hexByte(0x24)+hexByte(0x30))  // LEA RDX, [RSP+0x30]
+    sb = sbAppend(sb, hexByte(0x41)+hexByte(0xB8)+hexDword(1))                          // MOV R8D, 1
+    sb = sbAppend(sb, hexByte(0x4C)+hexByte(0x8D)+hexByte(0x4C)+hexByte(0x24)+hexByte(0x18))
+    sb = sbAppend(sb, hexByte(0xFF)+hexByte(0x15)+hexDword(pe_wf2_d))                  // CALL [WriteFile] #2 (overlapped already 0)
     sb = sbAppend(sb, hexByte(0xB9)+hexDword(1))
     sb = sbAppend(sb, hexByte(0xE8)+hexDword(pe_al))
     sb = sbAppend(sb, hexByte(0xC6)+hexByte(0x00)+hexByte(0x00))
@@ -2532,12 +2551,12 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     sb = sbAppend(sb, hexByte(0x5E))
     sb = sbAppend(sb, hexByte(0x5B))
     sb = sbAppend(sb, hexByte(0xC3))
-    pos = 1349
+    pos = 1423
 
     // ── kr_printl → jmp kr_print ─────────────────────────────────
     // 5 bytes
     sb = sbAppend(sb, hexByte(0xE9)+hexDword(1195 - (pos + 5)))                  // JMP kr_print
-    pos = 1354
+    pos = 1428
 
     // ── kr_exit(RCX=code_str) ────────────────────────────────────
     // 22 bytes
@@ -2549,7 +2568,7 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     sb = sbAppend(sb, hexByte(0xFF)+hexByte(0x15)+hexDword(ex_ep_d))            // CALL ExitProcess
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))
     sb = sbAppend(sb, hexByte(0xC3))
-    pos = 1376
+    pos = 1450
 
     // ── kr_substring(RCX=s, RDX=start_str, R8=end_str) ──────────
     // 100 bytes. push RBX,RSI,RDI + sub rsp,48
@@ -2597,7 +2616,7 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     sb = sbAppend(sb, hexByte(0x5E))
     sb = sbAppend(sb, hexByte(0x5B))
     sb = sbAppend(sb, hexByte(0xC3))
-    pos = 1481
+    pos = 1555
 
     // ── kr_startswith(RCX=s, RDX=prefix) ─────────────────────────
     // 70 bytes. push RBX + sub rsp,48
@@ -2638,9 +2657,11 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     sb = sbAppend(sb, hexByte(0x5B))
     sb = sbAppend(sb, hexByte(0xC3))
     // sb has 1559 good bytes (0..1558) + 60 garbage bytes from broken kr_contains attempt.
-    // Strip garbage: each byte = 3 chars (xHH), so 1559*3=4677 good chars.
-    let sb_good = substring(sbToString(sb), 0, 4677)
-    pos = 1559
+    // Strip garbage: each byte = 3 chars (xHH), so 1633*3=4899 good chars.
+    // (bootstrap block grew by 74 bytes when kr_print/kr_printerr each added
+    // a second WriteFile call to emit a trailing '\n' per the spec.)
+    let sb_good = substring(sbToString(sb), 0, 4899)
+    pos = 1633
     let sb2 = sbNew()
 
     // ── kr_contains(RCX=s, RDX=needle) → "0"/"1" ─────────────────
@@ -3628,7 +3649,7 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
 
     // ── __rt_return_empty: alloc 1 byte, write 0, ret ─────────────
     // Compute actual position before emitting (pos tracking lags by ~16 bytes here)
-    let actual_emp_pos = 1559 + len(sbToString(sb2)) / 3
+    let actual_emp_pos = 1633 + len(sbToString(sb2)) / 3
     let emp_pos = actual_emp_pos
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))
     sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(1)+hexByte(0xE8)+hexDword(18 - (actual_emp_pos + 9 + 5)))
