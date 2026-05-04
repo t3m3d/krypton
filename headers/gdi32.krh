@@ -1,0 +1,54 @@
+// gdi32.krh — Krypton bindings for the Win32 graphics device interface
+// Usage: import "gdi32.krh"
+// Link line:  -lgdi32 (gcc) — ships in every MinGW install
+//
+// Pairs with user32.krh for windowed apps. C-emit pipeline only — see
+// project_v16_plan.md Tier 3 for the native-pipeline callback work.
+
+jxt {
+    c "windows.h"
+
+    // ── Text drawing ──────────────────────────────────────────────
+    func TextOutA(hdc, x, y, text, len)
+    func DrawTextA(hdc, text, len, rect, format)
+    func ExtTextOutA(hdc, x, y, options, rect, text, len, dx)
+    func GetTextExtentPoint32A(hdc, text, len, size)
+    func SetTextColor(hdc, color)
+    func SetBkColor(hdc, color)
+    func SetBkMode(hdc, mode)
+
+    // ── Pens / brushes ────────────────────────────────────────────
+    func CreatePen(style, width, color)
+    func CreateSolidBrush(color)
+    func CreateHatchBrush(style, color)
+    func GetStockObject(idx)
+    func SelectObject(hdc, obj)
+    func DeleteObject(obj)
+
+    // ── Fonts ─────────────────────────────────────────────────────
+    func CreateFontA(h, w, escape, orient, weight, italic, underline, strikeOut, charSet, outPrecision, clipPrecision, quality, pitchAndFamily, faceName)
+
+    // ── Shapes ────────────────────────────────────────────────────
+    func MoveToEx(hdc, x, y, prev)
+    func LineTo(hdc, x, y)
+    func Rectangle(hdc, l, t, r, b)
+    func Ellipse(hdc, l, t, r, b)
+    func RoundRect(hdc, l, t, r, b, ew, eh)
+    func Polygon(hdc, points, count)
+    func Polyline(hdc, points, count)
+    func FillRect(hdc, rect, brush)
+    func FrameRect(hdc, rect, brush)
+    func InvertRect(hdc, rect)
+
+    // ── Bitmaps / DC management ──────────────────────────────────
+    func CreateCompatibleDC(hdc)
+    func CreateCompatibleBitmap(hdc, w, h)
+    func DeleteDC(hdc)
+    func BitBlt(dst, dx, dy, w, h, src, sx, sy, rop)
+    func StretchBlt(dst, dx, dy, dw, dh, src, sx, sy, sw, sh, rop)
+    func SetDIBitsToDevice(hdc, x, y, w, h, sx, sy, startScan, lines, bits, info, usage)
+
+    // ── Pixel access ──────────────────────────────────────────────
+    func SetPixel(hdc, x, y, color)
+    func GetPixel(hdc, x, y)
+}

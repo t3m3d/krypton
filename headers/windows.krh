@@ -79,6 +79,85 @@ jxt {
         field PeakPagefileUsage          SIZE_T
     }
 
+    // ── GUI structs (used by user32.krh / gdi32.krh) ───────────
+    // C-path only — native pipeline's typed-struct table doesn't cover
+    // these yet. Use via the C-emit pipeline (jxt + cfunc).
+
+    // Note: type table recognizes WORD/DWORD/ULONGLONG/SIZE_T/ULONG_PTR/
+    // LONGLONG/HANDLE/PVOID/BYTE/CHAR_ARRAY etc. INT/UINT/LONG fall through
+    // to the DWORD (32-bit) default, which is correct for Windows x64
+    // (LONG is 32-bit on Windows, unlike Linux). LONG_PTR / LPARAM (64-bit
+    // signed pointer-size) approximated as ULONG_PTR — sign mismatch
+    // doesn't matter for typical message-pump use.
+
+    struct POINT {
+        field x DWORD
+        field y DWORD
+    }
+
+    struct RECT {
+        field left   DWORD
+        field top    DWORD
+        field right  DWORD
+        field bottom DWORD
+    }
+
+    struct SIZE {
+        field cx DWORD
+        field cy DWORD
+    }
+
+    struct MSG {
+        field hwnd    HANDLE
+        field message DWORD
+        field wParam  ULONG_PTR
+        field lParam  ULONG_PTR
+        field time    DWORD
+        field ptX     DWORD  "pt.x"
+        field ptY     DWORD  "pt.y"
+    }
+
+    struct WNDCLASSEXA {
+        field cbSize        DWORD
+        field style         DWORD
+        field lpfnWndProc   PVOID
+        field cbClsExtra    DWORD
+        field cbWndExtra    DWORD
+        field hInstance     HANDLE
+        field hIcon         HANDLE
+        field hCursor       HANDLE
+        field hbrBackground HANDLE
+        field lpszMenuName  PVOID
+        field lpszClassName PVOID
+        field hIconSm       HANDLE
+    }
+
+    struct PAINTSTRUCT {
+        field hdc         HANDLE
+        field fErase      BOOL
+        field rcPaintL    DWORD  "rcPaint.left"
+        field rcPaintT    DWORD  "rcPaint.top"
+        field rcPaintR    DWORD  "rcPaint.right"
+        field rcPaintB    DWORD  "rcPaint.bottom"
+        field fRestore    BOOL
+        field fIncUpdate  BOOL
+    }
+
+    struct CREATESTRUCTA {
+        field lpCreateParams PVOID
+        field hInstance      HANDLE
+        field hMenu          HANDLE
+        field hwndParent     HANDLE
+        field cy             DWORD
+        field cx             DWORD
+        field y              DWORD
+        field x              DWORD
+        field style          DWORD
+        field lpszName       PVOID
+        field lpszClass      PVOID
+        field dwExStyle      DWORD
+    }
+
     // ── System info ────────────────────────────────────────────
     func GetUserNameA(buf, size)
     func GetComputerNameA(buf, size)
