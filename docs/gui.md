@@ -43,6 +43,7 @@ Every Win32 GUI program has the same five-part skeleton:
 | `headers/user32.krh` | user32.dll | Window classes, message pump, paint, dialogs, input, timers |
 | `headers/gdi32.krh` | gdi32.dll | Text drawing, pens / brushes / fonts, shapes, bitmaps |
 | `headers/comdlg32.krh` | comdlg32.dll | File open / save, colour picker, font picker, print, find / replace |
+| `headers/comctl32.krh` | comctl32.dll | Common controls — list view, tree view, tab control, status bar, toolbar, progress bar, slider, spin |
 
 Link line:
 
@@ -179,7 +180,8 @@ them directly to other Win32 calls without any conversion.
 | Mouse capture + custom drawing | ✓ shipped 1.5.1 (see `win_paint.k`) |
 | Common dialogs (file open/save, color, font) | ✓ shipped 1.5.1 via `comdlg32.krh` |
 | Multi-line text view | ✓ shipped 1.5.1 (use `EDIT` with `ES_MULTILINE`) |
-| Common controls (list view, tree view, tabs) | not yet — needs `comctl32.krh` |
+| Common controls (list view, status bar, toolbar) | ✓ shipped 1.5.1 via `comctl32.krh` |
+| Tree view, tab control, progress bar, slider | ✓ binding shipped — patterns documented but no example yet |
 | Native pipeline (gcc-free) GUI | not yet — Tier 1 + Tier 3 + native typed-struct expansion |
 | WindowProc in pure Krypton | not yet — Tier 3 native callbacks |
 | Higher-level wrappers (`stdlib/ui/`) | future, after Tier 3 |

@@ -1,0 +1,79 @@
+// comctl32.krh — Krypton bindings for the Win32 common controls library
+// Usage: import "comctl32.krh"
+// Link line:  -lcomctl32 (gcc) — ships in every MinGW install
+//
+// Common controls are the modern widgets every real Windows app uses:
+// list views, tree views, tab controls, progress bars, status bars,
+// toolbars, sliders, spin buttons, etc.
+//
+// Init: call InitCommonControlsEx with an INITCOMMONCONTROLSEX struct
+// before creating any common-control window. Most controls are accessed
+// via SendMessageA with class-specific message constants (LVM_*, TVM_*,
+// TB_*, etc.) — see the per-control demos under examples/win_*.k for
+// the typical patterns.
+
+jxt {
+    c "windows.h"
+    c "commctrl.h"
+
+    // ── Init ──────────────────────────────────────────────────────
+    func InitCommonControls()
+    func InitCommonControlsEx(icc) -> BOOL
+
+    // ── Image lists (used by ListView, TreeView, TabControl) ──────
+    func ImageList_Create(cx, cy, flags, initial, grow)
+    func ImageList_Destroy(himl) -> BOOL
+    func ImageList_Add(himl, bm, bmMask) -> INT
+    func ImageList_AddIcon(himl, icon) -> INT
+    func ImageList_GetIcon(himl, idx, flags)
+    func ImageList_GetImageCount(himl) -> INT
+    func ImageList_ReplaceIcon(himl, idx, icon) -> INT
+    func ImageList_SetImageCount(himl, count) -> BOOL
+    func ImageList_Remove(himl, idx) -> BOOL
+    func ImageList_Draw(himl, idx, hdc, x, y, style) -> BOOL
+
+    // ── Property sheets (tabbed dialogs) ──────────────────────────
+    func PropertySheetA(psh)
+    func CreatePropertySheetPageA(psp)
+    func DestroyPropertySheetPage(page) -> BOOL
+
+    // ── Drag list helpers (custom listbox drag) ───────────────────
+    func MakeDragList(hwnd) -> BOOL
+    func DrawInsert(parent, list, idx)
+    // Note: LBItemFromPt takes POINT by value, which the C-path
+    // wrappers can't express. Call it from cfunc { } if needed.
+
+    // ── MRU (most-recently-used) list ─────────────────────────────
+    // (handled via SHELL32 MRU functions today; keep here for reference)
+
+    // ── DPI-aware spinning around CCS_* styles needs no extra fns ─
+
+    // ── Status / Progress / Slider / Spin / ToolTip etc. ──────────
+    // These controls are created with CreateWindowExA using the class
+    // names below (comctl32 registers them when InitCommonControls runs):
+    //
+    //   STATUSCLASSNAME       — "msctls_statusbar32"
+    //   TOOLBARCLASSNAME      — "ToolbarWindow32"
+    //   REBARCLASSNAME        — "ReBarWindow32"
+    //   WC_LISTVIEW           — "SysListView32"
+    //   WC_TREEVIEW           — "SysTreeView32"
+    //   WC_TABCONTROL         — "SysTabControl32"
+    //   WC_HEADER             — "SysHeader32"
+    //   WC_COMBOBOXEX         — "ComboBoxEx32"
+    //   WC_DATETIMEPICK       — "SysDateTimePick32"
+    //   WC_MONTHCAL           — "SysMonthCal32"
+    //   WC_IPADDRESS          — "SysIPAddress32"
+    //   WC_LINK               — "SysLink"
+    //   PROGRESS_CLASS        — "msctls_progress32"
+    //   TRACKBAR_CLASS        — "msctls_trackbar32"
+    //   UPDOWN_CLASS          — "msctls_updown32"
+    //   ANIMATE_CLASS         — "SysAnimate32"
+    //   HOTKEY_CLASS          — "msctls_hotkey32"
+    //   TOOLTIPS_CLASS        — "tooltips_class32"
+    //
+    // Once created, control-specific configuration goes through
+    // SendMessageA(hwnd, MSG, wParam, lParam) using the appropriate
+    // message constants from <commctrl.h>. See examples/win_listview.k
+    // for the canonical "report-style ListView with multiple columns"
+    // pattern.
+}
