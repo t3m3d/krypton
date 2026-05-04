@@ -40,6 +40,47 @@ These two fixes are coupled — neither alone would have made the pattern work.
   PySide6 desktop frontend over a TCP JSON-line feed on `127.0.0.1:9090`.
   See https://github.com/t3m3d/kmon and the Programs page on krypton-lang.org.
 
+### `headers/` — Win32 GUI bindings (C-path)
+
+First wave of GUI groundwork. All C-emit pipeline only — the native PE
+backend's typed-struct table still tops out at the 1.5.0 five-struct set
+(SYSTEM_INFO / MEMORYSTATUSEX / ULARGE_INTEGER / CONSOLE_SCREEN_BUFFER_INFO /
+SYSTEM_POWER_STATUS), and native callback emit (`WindowProc`-style) is still
+1.6 work. Until those land, GUI apps go through the C path the same way kmon
+does — `jxt` declarations + `cfunc { }` for any windowproc body.
+
+- **`headers/windows.krh`** — added eight GUI structs:
+  `POINT`, `RECT`, `SIZE`, `MSG`, `WNDCLASSEXA`, `PAINTSTRUCT`, `CREATESTRUCTA`,
+  plus a clarifying comment on which type names the typed-struct accessor
+  generator recognises (WORD/DWORD/ULONGLONG/SIZE_T/ULONG_PTR/LONGLONG/HANDLE/
+  PVOID/BYTE/CHAR_ARRAY — INT/UINT/LONG fall through to DWORD, which is correct
+  for Windows x64).
+- **`headers/user32.krh`** — new file. ~50 function bindings covering window
+  class registration (`RegisterClassExA`, `GetClassInfoExA`), window
+  lifecycle (`CreateWindowExA`, `ShowWindow`, `UpdateWindow`, `DestroyWindow`,
+  `SetWindowPos`, `MoveWindow`, `InvalidateRect`), the message pump
+  (`GetMessageA`, `PeekMessageA`, `TranslateMessage`, `DispatchMessageA`,
+  `DefWindowProcA`, `PostQuitMessage`, `SendMessageA`, `PostMessageA`),
+  paint primitives (`BeginPaint`, `EndPaint`, `GetDC`, `ReleaseDC`),
+  modal dialogs (`MessageBoxA`, `MessageBeep`), resources (`LoadCursorA`,
+  `LoadIconA`, `LoadImageA`, `SetCursor`), input state
+  (`GetAsyncKeyState`, `GetCursorPos`, `ScreenToClient`, `SetCapture`),
+  and timers (`SetTimer`, `KillTimer`).
+- **`headers/gdi32.krh`** — new file. ~30 function bindings covering text
+  drawing (`TextOutA`, `DrawTextA`, `GetTextExtentPoint32A`, `SetTextColor`,
+  `SetBkColor`), pens / brushes / fonts (`CreatePen`, `CreateSolidBrush`,
+  `GetStockObject`, `SelectObject`, `DeleteObject`, `CreateFontA`),
+  shapes (`MoveToEx`, `LineTo`, `Rectangle`, `Ellipse`, `RoundRect`,
+  `Polygon`, `Polyline`, `FillRect`, `FrameRect`), and bitmap / DC management
+  (`CreateCompatibleDC`, `CreateCompatibleBitmap`, `BitBlt`, `StretchBlt`,
+  `SetPixel`, `GetPixel`).
+
+Smoke test: `structNew("RECT")` / `structSet(r, "RECT", "left", "10")` /
+`structGet(r, "RECT", "left")` round-trip cleanly through the generated
+typed-struct accessors. All 31 headers (29 existing + 2 new) parse OK.
+
+Link line for GUI apps: `gcc … -luser32 -lgdi32 -lkernel32`.
+
 ### Docs
 
 - Roadmap, README, grammar, EBNF, type/function specs all bumped to 1.5.1.

@@ -1,0 +1,81 @@
+// user32.krh — Krypton bindings for the Win32 windowing / message-pump API
+// Usage: import "user32.krh"
+// Link line:  -luser32 (gcc) — ships in every MinGW install
+//
+// All functions go through the C-emit pipeline (the native PE backend
+// doesn't yet support callback-based windowprocs — see project_v16_plan.md
+// Tier 3). Pair with windows.krh for the GUI structs (RECT, MSG,
+// WNDCLASSEXA, PAINTSTRUCT, CREATESTRUCTA).
+
+jxt {
+    c "windows.h"
+
+    // ── Window class registration ─────────────────────────────────
+    func RegisterClassExA(wcx)
+    func UnregisterClassA(name, instance)
+    func GetClassInfoExA(instance, name, wcx)
+
+    // ── Window creation / destruction ─────────────────────────────
+    func CreateWindowExA(exStyle, className, title, style, x, y, w, h, parent, menu, instance, lpParam)
+    func DestroyWindow(hwnd)
+    func ShowWindow(hwnd, cmd)
+    func UpdateWindow(hwnd)
+    func MoveWindow(hwnd, x, y, w, h, repaint)
+    func SetWindowPos(hwnd, after, x, y, w, h, flags)
+    func GetWindowRect(hwnd, rect)
+    func GetClientRect(hwnd, rect)
+    func InvalidateRect(hwnd, rect, erase)
+    func ValidateRect(hwnd, rect)
+    func SetWindowTextA(hwnd, text)
+    func GetWindowTextA(hwnd, buf, max)
+    func GetParent(hwnd)
+    func SetParent(child, newParent)
+    func IsWindow(hwnd)
+    func IsWindowVisible(hwnd)
+
+    // ── Message pump ──────────────────────────────────────────────
+    func GetMessageA(msg, hwnd, filterMin, filterMax)
+    func PeekMessageA(msg, hwnd, filterMin, filterMax, removeFlag)
+    func TranslateMessage(msg)
+    func DispatchMessageA(msg)
+    func PostMessageA(hwnd, msg, wParam, lParam)
+    func SendMessageA(hwnd, msg, wParam, lParam)
+    func DefWindowProcA(hwnd, msg, wParam, lParam)
+    func PostQuitMessage(exitCode)
+
+    // ── Paint ─────────────────────────────────────────────────────
+    func BeginPaint(hwnd, ps)
+    func EndPaint(hwnd, ps)
+    func GetDC(hwnd)
+    func ReleaseDC(hwnd, hdc)
+    func RedrawWindow(hwnd, rect, region, flags)
+
+    // ── Modal dialog primitives ───────────────────────────────────
+    func MessageBoxA(hwnd, text, caption, type)
+    func MessageBeep(type)
+
+    // ── Resources / cursors / icons ───────────────────────────────
+    func LoadCursorA(instance, name)
+    func LoadIconA(instance, name)
+    func LoadImageA(instance, name, type, cx, cy, fuLoad)
+    func SetCursor(cursor)
+    func ShowCursor(show)
+
+    // ── Keyboard / mouse state ────────────────────────────────────
+    func GetAsyncKeyState(vKey)
+    func GetKeyState(vKey)
+    func GetCursorPos(point)
+    func ScreenToClient(hwnd, point)
+    func ClientToScreen(hwnd, point)
+    func SetCapture(hwnd)
+    func ReleaseCapture()
+
+    // ── Timers ────────────────────────────────────────────────────
+    func SetTimer(hwnd, id, elapseMs, callback)
+    func KillTimer(hwnd, id)
+
+    // ── Misc ──────────────────────────────────────────────────────
+    // (GetSystemMetrics already declared in windows.krh)
+    func MapWindowPoints(from, to, points, count)
+    func AdjustWindowRectEx(rect, style, hasMenu, exStyle)
+}
