@@ -103,7 +103,7 @@ kcc.sh hello.k -o hello                  # default: native arm64 Mach-O
 ./hello
 ```
 
-`./verify_macho_self.sh` runs the end-to-end self-emitted Mach-O smoke tests.
+`./scripts/verify_macho_self.sh` runs the end-to-end self-emitted Mach-O smoke tests.
 
 Why this differs in implementation from Linux/Windows: macOS Tahoe+ AMFI rejects unsigned and improperly-formatted Mach-Os, so the emitter has to produce a properly chained-fixups dyld-linked binary AND embed a valid code signature. Both happen in pure Krypton.
 
@@ -450,8 +450,6 @@ krypton/
 ├── kcc.sh                 # Compiler driver (dispatches to per-platform native emitter)
 ├── Makefile               # Cross-platform make wrapper around build scripts
 ├── CHANGELOG.md           # Full version history
-├── RELEASE_NOTES_*.md     # Per-release notes
-├── Spec.md                # Language specification
 └── LICENSE                # Apache 2.0
 ```
 

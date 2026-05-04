@@ -6,13 +6,14 @@
 #
 # Run on a Mac after `./build.sh`:
 #
-#   ./verify_macho.sh                  # native arch only
-#   ./verify_macho.sh --both           # x86_64 + arm64
-#   ./verify_macho.sh --arch=arm64     # force one
+#   ./scripts/verify_macho.sh                  # native arch only
+#   ./scripts/verify_macho.sh --both           # x86_64 + arm64
+#   ./scripts/verify_macho.sh --arch=arm64     # force one
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# cd into repo root (script lives in scripts/)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
