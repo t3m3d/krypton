@@ -1,6 +1,6 @@
 # Krypton Grammar
 
-**Version 1.4.0** — EBNF grammar for the Krypton language.
+**Version 1.5.0** — EBNF grammar for the Krypton language.
 
 ```ebnf
 (* ===== Top-Level ===== *)

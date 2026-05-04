@@ -2,12 +2,12 @@
 
 **A self-hosting programming language that emits native machine code without a C compiler in the loop.**
 
-> Version 1.4.0
+> Version 1.5.0
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.4.0-brightgreen)
+![Version](https://img.shields.io/badge/version-1.5.0-brightgreen)
 
-Krypton is a dynamically typed language with clean syntax, 147 built-in functions, and a compiler written in itself. The **default** compilation pipeline produces a native executable on every supported platform — no gcc, no clang, no external toolchain at user-invocation time:
+Krypton is a dynamically typed language with clean syntax, ~150 built-in functions, and a compiler written in itself. The **default** compilation pipeline produces a native executable on every supported platform — no gcc, no clang, no external toolchain at user-invocation time:
 
 | Platform | Backend | Output |
 |----------|---------|--------|
@@ -433,7 +433,7 @@ krypton/
 ├── tutorial/              # Step-by-step language intro (25 numbered lessons)
 ├── tools/                 # Single-file CLI utilities written in Krypton (cat, grep, head, fmt, …)
 ├── headers/               # .krh module headers (Win32, libc bindings)
-├── tests/                 # Test suite (37 tests, run via ./build.sh test)
+├── tests/                 # Test suite (38 tests, run via ./build.sh test)
 ├── docs/                  # Roadmap + EBNF/types/functions specs
 ├── grammar/               # Single-source EBNF (krypton.ebnf)
 ├── extensions/            # Prebuilt VS Code extension (.vsix)
@@ -540,9 +540,9 @@ are C-path-only today.
 
 ---
 
-## Built-in Functions (147)
+## Built-in Functions (~150)
 
-I/O, strings, math, lists, maps, structs, floats, exceptions, line operations, system, type utilities, StringBuilder — see [Spec.md](Spec.md) for the full reference.
+I/O, strings, math, lists, maps, structs, floats, exceptions, line operations, system, type utilities, StringBuilder, plus the env / boolean / reverse runtime added in 1.5.0 — see [docs/spec/functions.md](docs/spec/functions.md) for the full reference, with each entry tagged native / C-path.
 
 ---
 

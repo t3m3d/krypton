@@ -1813,7 +1813,7 @@ func emitSectionHeader(name, virtSize, virtAddr, rawSize, rawOffset, characteris
 //   OFF_ARGP=3407   OFF_ARGC=3607  OFF_ARG=3657
 //   TOTAL=3737
 
-func bsHelperBlockSize() { emit 5755 }   // was 5681; +74 bytes for kr_print/kr_printerr trailing-'\n' WriteFile calls
+func bsHelperBlockSize() { emit 5803 }   // was 5681; +74 for kr_print/kr_printerr '\n', +48 for real kr_environ (was 5-byte stub)
 
 // Export offset lookup for bootstrap mode: returns "kr_name:offset\n..." table
 func bootstrapExportOffsets() {
@@ -1835,17 +1835,17 @@ func bootstrapExportOffsets() {
     t = t + "kr_truthy:1105\n"
     t = t + "kr_not:1062\n"
     t = t + "kr_len:1143\n"
-    t = t + "kr_substring:1382\n"
-    t = t + "kr_startswith:1482\n"
-    t = t + "kr_contains:1552\n"
-    t = t + "kr_indexof:1662\n"
-    t = t + "kr_trim:1772\n"
-    t = t + "kr_replace:1872\n"
-    t = t + "kr_split:2242\n"
-    t = t + "kr_getline:2292\n"
-    t = t + "kr_linecount:2342\n"
-    t = t + "kr_count:2392\n"
-    t = t + "kr_length:2392\n"
+    t = t + "kr_substring:1456\n"
+    t = t + "kr_startswith:1556\n"
+    t = t + "kr_contains:1626\n"
+    t = t + "kr_indexof:1736\n"
+    t = t + "kr_trim:1846\n"
+    t = t + "kr_replace:1946\n"
+    t = t + "kr_split:2316\n"
+    t = t + "kr_getline:2366\n"
+    t = t + "kr_linecount:2416\n"
+    t = t + "kr_count:2466\n"
+    t = t + "kr_length:2466\n"
     t = t + "kr_print:1201\n"
     t = t + "kr_printerr:1315\n"
     t = t + "kr_printl:1429\n"
@@ -3657,13 +3657,11 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28)+hexByte(0xC3))
     pos = actual_emp_pos + 22
 
-    // After all 35 stubs (each 5 bytes, except kr_idx which is 47 real bytes),
-    // the stub area ends at emp_pos + 22 + 5 (div64) + 47 (kr_idx) + 33*5 (stubs) = emp_pos + 239.
-    // Real implementations for redirected stubs are appended there.
-    // Stub area: emp_pos helper (22) + kr_div64 (5) + kr_idx (47 real) + 34 more 5-byte stubs = 244 bytes.
-    // Wait — 37 stub entries total (kr_div64 + kr_idx + 35 more). 35*5 + 47 + 5 = 227 bytes of stubs,
-    // plus emp_pos helper 22 = 249 bytes from actual_emp_pos to stub_impl_base.
-    let stub_impl_base = emp_pos + 249
+    // After all stubs, the stub area ends at emp_pos + (helper + sum-of-stub-sizes).
+    // emp_pos helper (22) + kr_div64 (5) + kr_idx (47 real) + 34 more 5-byte stubs = 244;
+    // kr_environ used to be a 5-byte stub but is now a real 53-byte impl (+48),
+    // so total stub area is 249 + 48 = 297 bytes from actual_emp_pos to stub_impl_base.
+    let stub_impl_base = emp_pos + 297
     let ptrderef_impl = stub_impl_base                  // 25 bytes
     let handleout_impl = stub_impl_base + 25            // 27 bytes
     let bufgetdword_impl = stub_impl_base + 52          // 24 bytes
@@ -3737,8 +3735,47 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_environ:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(emp_pos - (pos + 5)))
-    pos = pos + 5
+    // kr_environ(RCX=name) → RAX=string
+    // Was a stub returning ""; now actually calls GetEnvironmentVariableA
+    // (kernel32 IAT slot 25). 53 bytes.
+    //
+    //   [0]    53                      PUSH RBX
+    //   [1]    56                      PUSH RSI
+    //   [2-5]  48 83 EC 28             SUB RSP, 0x28
+    //   [6-8]  48 89 CB                MOV RBX, RCX            (save name)
+    //   [9-13] B9 00 04 00 00          MOV ECX, 1024
+    //   [14-18] E8 dd                  CALL __rt_alloc → buf
+    //   [19-21] 48 89 C6                MOV RSI, RAX            (save buf)
+    //   [22-24] C6 00 00                MOV BYTE [RAX], 0       (NUL-init: GEVA may not write on miss, alloc is unzeroed)
+    //   [25-27] 48 89 D9                MOV RCX, RBX            (name)
+    //   [28-30] 48 89 F2                MOV RDX, RSI            (buf)
+    //   [31-36] 41 B8 00 04 00 00      MOV R8D, 1024            (size)
+    //   [37-42] FF 15 dd                CALL [GetEnvironmentVariableA]  (k32 slot 25)
+    //   [43-45] 48 89 F0                MOV RAX, RSI            (return buf)
+    //   [46-49] 48 83 C4 28             ADD RSP, 0x28
+    //   [50]    5E                      POP RSI
+    //   [51]    5B                      POP RBX
+    //   [52]    C3                      RET
+    let env_al   = 18 - (pos + 14 + 5)                                   // CALL __rt_alloc (offset 14, ret 19)
+    let env_geva = iatK32Rva + 25 * 8 - (textRva + pos + 37 + 6)         // CALL [GetEnvironmentVariableA] slot 25 (offset 37, ret 43)
+    sb2 = sbAppend(sb2, hexByte(0x53))
+    sb2 = sbAppend(sb2, hexByte(0x56))
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCB))
+    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(1024))
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(env_al))
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC6))
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x00)+hexByte(0x00))
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD9))
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF2))
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0xB8)+hexDword(1024))
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(env_geva))
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF0))
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))
+    sb2 = sbAppend(sb2, hexByte(0x5E))
+    sb2 = sbAppend(sb2, hexByte(0x5B))
+    sb2 = sbAppend(sb2, hexByte(0xC3))
+    pos = pos + 53
     offsets = offsets + "kr_sizeof:" + pos + "\n"
     sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(sizeof_v2_impl - (pos + 5)))
     pos = pos + 5
