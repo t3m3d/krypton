@@ -74,6 +74,27 @@ jxt {
     func SetTimer(hwnd, id, elapseMs, callback)
     func KillTimer(hwnd, id)
 
+    // ── Menus ─────────────────────────────────────────────────────
+    func CreateMenu()
+    func CreatePopupMenu()
+    func DestroyMenu(menu) -> BOOL
+    func AppendMenuA(menu, flags, idNewItem, text) -> BOOL
+    func InsertMenuA(menu, position, flags, idNewItem, text) -> BOOL
+    func ModifyMenuA(menu, position, flags, idNewItem, text) -> BOOL
+    func RemoveMenu(menu, position, flags) -> BOOL
+    func DeleteMenu(menu, position, flags) -> BOOL
+    func SetMenu(hwnd, menu) -> BOOL
+    func GetMenu(hwnd)
+    func DrawMenuBar(hwnd) -> BOOL
+    func TrackPopupMenu(menu, flags, x, y, reserved, hwnd, rect)
+    func GetSubMenu(menu, pos)
+    func GetMenuItemCount(menu) -> INT
+    func GetMenuItemID(menu, pos) -> UINT
+    func CheckMenuItem(menu, idCheck, check) -> DWORD
+    func EnableMenuItem(menu, idEnable, enable) -> BOOL
+    func SetMenuItemInfoA(menu, item, byPosition, info) -> BOOL
+    func GetMenuItemInfoA(menu, item, byPosition, info) -> BOOL
+
     // ── Misc ──────────────────────────────────────────────────────
     // (GetSystemMetrics already declared in windows.krh)
     func MapWindowPoints(from, to, points, count)
