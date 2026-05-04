@@ -117,8 +117,19 @@ Link line for GUI apps: `gcc … -luser32 -lgdi32 -lkernel32`.
   for big-struct dialogs: wrap the call in a `cfunc { }` helper that
   builds `OPENFILENAMEA` in C and returns a clean string-typed result.
   452 KB.
+- **`examples/win_listview.k`** — first Krypton GUI with a real
+  data-grid widget. `SysListView32` in `LVS_REPORT` mode with three
+  columns (Name / Kind / Size), 15 sample rows, full-row select,
+  grid lines, double-buffered. Click a row → status bar updates with
+  the selection. Click a column header → rows sort by that column,
+  re-clicking flips ascending/descending. Plus a two-pane status bar
+  (`msctls_statusbar32`) at the bottom showing selection summary
+  and total row count. Demonstrates `InitCommonControlsEx`,
+  `LVM_INSERTITEMA` / `LVM_INSERTCOLUMNA` / `LVM_SORTITEMS` via
+  `SendMessageA`, `WM_NOTIFY` dispatch for `LVN_ITEMCHANGED` /
+  `LVN_COLUMNCLICK`, and `WM_SIZE` resize handling. 457 KB.
 
-### `headers/` — new comdlg32.krh
+### `headers/` — new comdlg32.krh + comctl32.krh
 
 - **`headers/comdlg32.krh`** — bindings for the Win32 common dialogs:
   `GetOpenFileNameA`, `GetSaveFileNameA`, `ChooseColorA`,
@@ -128,7 +139,20 @@ Link line for GUI apps: `gcc … -luser32 -lgdi32 -lkernel32`.
   Krypton-typed structs — call sites typically wrap the whole flow in
   `cfunc { }` and return a clean string result, as shown in
   `win_filedialog.k`.
-- All 32 headers (29 original + user32 + gdi32 + comdlg32) parse OK.
+- **`headers/comctl32.krh`** — bindings for the Win32 common controls
+  library: `InitCommonControls`, `InitCommonControlsEx`, image list
+  management (`ImageList_Create` / `Add` / `AddIcon` / `Draw` /
+  `Destroy`), property sheets, drag list helpers. Plus a documented
+  reference list of the comctl32-registered window class names
+  (`WC_LISTVIEW`, `WC_TREEVIEW`, `WC_TABCONTROL`, `STATUSCLASSNAME`,
+  `TOOLBARCLASSNAME`, `PROGRESS_CLASS`, `TRACKBAR_CLASS`,
+  `UPDOWN_CLASS`, etc.) — these controls are created via
+  `CreateWindowExA` with the right class name and configured via
+  `SendMessageA(hwnd, MSG, ...)` using the standard `LVM_*` / `TVM_*`
+  / `TB_*` message constants from `<commctrl.h>`. See
+  `examples/win_listview.k` for the canonical pattern.
+- All 33 headers (29 original + user32 + gdi32 + comdlg32 + comctl32)
+  parse OK.
 
 ### Docs
 
