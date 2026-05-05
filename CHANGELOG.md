@@ -2,6 +2,66 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [1.7.0] - 2026-05-04
+
+Memory-plumbing release. Tier 1 of the [2.0 GC plan](docs/v20_plan.md)
+ships here as a self-contained semantics-preserving optimization &mdash;
+no ABI change, no DLL rebuild required, PE output is byte-identical
+to 1.6.1 for every test program. The same patch cuts the kind of O(N&sup2;)
+allocation that produced the 50 GB kcc.exe blowup observed during
+1.6.1 development on a malformed source file.
+
+### Compiler memory &mdash; StringBuilder refactor
+
+Krypton has no GC today (bump-only arena), so every `s = s + chunk`
+chain in the compiler allocates a fresh string each iteration and
+abandons the previous one. For per-character loops over the source
+that is O(N&sup2;) in RAM. Replaced the worst hot paths in
+`compiler/windows_x86/x64.k` and `compiler/compile.k` with the
+already-available `sbNew` / `sbAppend` / `sbToString` builtins, which
+the runtime services with a single growable buffer.
+
+In `compiler/windows_x86/x64.k`:
+- `hexStrIR` (per-character escape encoding for the .rdata string table) &mdash;
+  was the single worst offender; eight per-character concat sites
+- `emitStringTable` (per-string outer loop)
+- `buildExportTable` &mdash; EAT, NPT, OT, name strings, directory
+- `buildImportTable` &mdash; descriptor + 14-step section assembly
+- `buildBootstrapImportTable` &mdash; bootstrap-mode descriptor + assembly
+
+In `compiler/compile.k`:
+- `cEscape` (C-string escaping for emitted source)
+- `expandEscapes` (string-literal escape resolution)
+
+`emitFuncFull` and the bootstrap helper block already use the `sbAppend`
+pattern; no change needed there.
+
+The change is invisible to user programs &mdash; PE output is byte-identical
+on every test compiled before and after.
+
+### Status of the 2.0 plan
+
+Tier 1 of the GC roadmap is now in. Remaining tiers stay out of 1.x:
+- 1.8 candidate or 2.0-alpha-1: Tier 2 arena allocator with epoch reset
+  (runtime-internal change, no ABI break, scope-bound bulk reclaim)
+- 2.0-alpha-2 onward: Tier 3 mark-sweep with shadow-stack roots,
+  rolled out per backend (Linux ELF first, Windows native second,
+  macOS arm64 last)
+
+See `docs/v20_plan.md` for the full sequencing including the new
+C-style low-level memory layer (typed pointers, `let local` stack
+allocation, restricted `asm` blocks, mmap, direct syscalls), lambdas
+in native, concurrency primitives, ARM64 Linux backend, and LSP.
+
+### Tooling
+
+- `kcc.exe` rebuilt &mdash; `kcc --version` reports 1.7.0
+- `assets/krypton.rc` bumped to `KCC_VER_MIN=7` and recompiled via
+  windres so file properties show 1.7.0
+- `installer/Output/krypton-1.7.0-setup.exe` to be produced from the
+  unchanged-AppId Inno script (in-place upgrade over 1.6.x / 1.5.x)
+- `versions/kcc_v170.exe` snapshot
+
 ## [1.6.1] - 2026-05-04
 
 A follow-on to 1.6.0 (which never reached the public download page) that

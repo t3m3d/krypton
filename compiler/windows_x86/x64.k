@@ -324,26 +324,26 @@ func hexStrIR(s) {
     // \xNN hex escapes are decoded to their actual byte values
     let tv = irUndoPrimary(s)
     let m = len(tv)
-    let out = ""
+    let sb = sbNew()
     let j = 0
     while j < m {
         let ch = tv[j]
         if ch == "\\" && j + 1 < m {
             let c = tv[j + 1]
             if c == "n" {
-                out = out + hexByte(10)
+                sb = sbAppend(sb, hexByte(10))
                 j += 2
             } else if c == "t" {
-                out = out + hexByte(9)
+                sb = sbAppend(sb, hexByte(9))
                 j += 2
             } else if c == "r" {
-                out = out + hexByte(13)
+                sb = sbAppend(sb, hexByte(13))
                 j += 2
             } else if c == "\\" {
-                out = out + hexByte(92)
+                sb = sbAppend(sb, hexByte(92))
                 j += 2
             } else if c == "\"" {
-                out = out + hexByte(34)
+                sb = sbAppend(sb, hexByte(34))
                 j += 2
             } else if c == "x" && j + 3 < m {
                 let h1 = charCode(tv[j + 2])
@@ -356,18 +356,19 @@ func hexStrIR(s) {
                 if h2 >= 48 && h2 <= 57 { v2 = h2 - 48 }
                 else if h2 >= 97 && h2 <= 102 { v2 = h2 - 87 }
                 else if h2 >= 65 && h2 <= 70 { v2 = h2 - 55 }
-                out = out + hexByte(v1 * 16 + v2)
+                sb = sbAppend(sb, hexByte(v1 * 16 + v2))
                 j += 4
             } else {
-                out = out + hexByte(92) + hexByte(charCode(c))
+                sb = sbAppend(sb, hexByte(92))
+                sb = sbAppend(sb, hexByte(charCode(c)))
                 j += 2
             }
         } else {
-            out = out + hexByte(charCode(ch))
+            sb = sbAppend(sb, hexByte(charCode(ch)))
             j += 1
         }
     }
-    emit out
+    emit sbToString(sb)
 }
 
 func collectStrings(ir) {
@@ -431,13 +432,14 @@ func totalStrBytes(strs) {
 
 func emitStringTable(strs) {
     let count = lineCount(strs)
-    let out = ""
+    let sb = sbNew()
     let i = 0
     while i < count {
-        out = out + hexStrIR(getLine(strs, i)) + hexByte(0)
+        sb = sbAppend(sb, hexStrIR(getLine(strs, i)))
+        sb = sbAppend(sb, hexByte(0))
         i += 1
     }
-    emit out
+    emit sbToString(sb)
 }
 
 // ── Import table builder ──────────────────────────────────────────
@@ -1758,20 +1760,21 @@ func buildExportTable(exportNames, allFuncOffsets, textRva, rdataRva, exportBase
     let dllNameRva = rdataRva + exportBase + dllNameOffset
 
     // Build EAT in original declaration order
-    let eat = ""
+    let eatSb = sbNew()
     let ni = 0
     while ni < count {
         let expFn = getLine(exportNames, ni)
         let foff = toInt(funcOffsetLookup(allFuncOffsets, expFn))
-        eat = eat + hexDword(textRva + foff)
+        eatSb = sbAppend(eatSb, hexDword(textRva + foff))
         ni += 1
     }
+    let eat = sbToString(eatSb)
 
     // Build NPT and OT from sorted names (GetProcAddress requires sorted NPT)
     let sortedNames = sortExportNames(exportNames, count)
-    let npt = ""
-    let ot  = ""
-    let nameStrs = ""
+    let nptSb = sbNew()
+    let otSb = sbNew()
+    let nameStrsSb = sbNew()
     let nameOff = funcNamesStart
     let si = 0
     while si < count {
@@ -1783,25 +1786,39 @@ func buildExportTable(exportNames, allFuncOffsets, textRva, rdataRva, exportBase
             if getLine(exportNames, oi) == sortedFn { origIdx = oi }
             oi += 1
         }
-        npt = npt + hexDword(rdataRva + exportBase + nameOff)
-        ot  = ot  + hexWord(origIdx)
-        nameStrs = nameStrs + hexStr(sortedFn) + hexByte(0)
+        nptSb = sbAppend(nptSb, hexDword(rdataRva + exportBase + nameOff))
+        otSb = sbAppend(otSb, hexWord(origIdx))
+        nameStrsSb = sbAppend(nameStrsSb, hexStr(sortedFn))
+        nameStrsSb = sbAppend(nameStrsSb, hexByte(0))
         nameOff = nameOff + len(sortedFn) + 1
         si += 1
     }
+    let npt = sbToString(nptSb)
+    let ot  = sbToString(otSb)
+    let nameStrs = sbToString(nameStrsSb)
     let otPadHex = ""
     if otPad > 0 { otPadHex = hexByte(0) + hexByte(0) }
 
-    let dir = hexDword(0) + hexDword(0) + hexWord(0) + hexWord(0)
-    dir = dir + hexDword(dllNameRva)
-    dir = dir + hexDword(1)
-    dir = dir + hexDword(count)
-    dir = dir + hexDword(count)
-    dir = dir + hexDword(eatRva)
-    dir = dir + hexDword(nptRva)
-    dir = dir + hexDword(otRva)
+    let dirSb = sbNew()
+    dirSb = sbAppend(dirSb, hexDword(0) + hexDword(0) + hexWord(0) + hexWord(0))
+    dirSb = sbAppend(dirSb, hexDword(dllNameRva))
+    dirSb = sbAppend(dirSb, hexDword(1))
+    dirSb = sbAppend(dirSb, hexDword(count))
+    dirSb = sbAppend(dirSb, hexDword(count))
+    dirSb = sbAppend(dirSb, hexDword(eatRva))
+    dirSb = sbAppend(dirSb, hexDword(nptRva))
+    dirSb = sbAppend(dirSb, hexDword(otRva))
 
-    emit dir + eat + npt + ot + otPadHex + hexStr(dllName) + hexByte(0) + nameStrs
+    let outSb = sbNew()
+    outSb = sbAppend(outSb, sbToString(dirSb))
+    outSb = sbAppend(outSb, eat)
+    outSb = sbAppend(outSb, npt)
+    outSb = sbAppend(outSb, ot)
+    outSb = sbAppend(outSb, otPadHex)
+    outSb = sbAppend(outSb, hexStr(dllName))
+    outSb = sbAppend(outSb, hexByte(0))
+    outSb = sbAppend(outSb, nameStrs)
+    emit sbToString(outSb)
 }
 
 func emitPEHeader(numSections, textSize, rdataSize, textRva, rdataRva, entryRva, imageSize, iatRva, iatSize, iatInfo) {
@@ -5504,18 +5521,22 @@ func buildBootstrapImportTable(rdataRva, strsSize) {
     let iltK32 = sbToString(sbIlt)
 
     // descriptor: OrigFirstThunk(4) TimeDateStamp(4) ForwarderChain(4) Name(4) FirstThunk(4)
-    let desc = hexDword(iltK32Rva) + hexDword(0) + hexDword(0) + hexDword(dllK32Rva) + hexDword(iatK32Rva)
-    desc = desc + hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0)  // null
+    let descSb = sbNew()
+    descSb = sbAppend(descSb, hexDword(iltK32Rva) + hexDword(0) + hexDword(0) + hexDword(dllK32Rva) + hexDword(iatK32Rva))
+    descSb = sbAppend(descSb, hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0))  // null
+    let desc = sbToString(descSb)
 
-    let out = ""
+    let outSb = sbNew()
     let pp = 0
-    while pp < impBasePad - impBase { out = out + hexByte(0)  pp += 1 }
-    out = out + desc + iltK32 + iltK32  // ILT + IAT
-    out = out + hexStrZ(dllK32Name)
-    if (dllNamesOffset + len(dllK32Name) + 1) % 2 != 0 { out = out + hexByte(0) }
-    out = out + hintTable
+    while pp < impBasePad - impBase { outSb = sbAppend(outSb, hexByte(0))  pp += 1 }
+    outSb = sbAppend(outSb, desc)
+    outSb = sbAppend(outSb, iltK32)
+    outSb = sbAppend(outSb, iltK32)  // ILT + IAT
+    outSb = sbAppend(outSb, hexStrZ(dllK32Name))
+    if (dllNamesOffset + len(dllK32Name) + 1) % 2 != 0 { outSb = sbAppend(outSb, hexByte(0)) }
+    outSb = sbAppend(outSb, hintTable)
 
-    emit out + "," + iatK32Rva + "," + descRva + "," + iatK32Size
+    emit sbToString(outSb) + "," + iatK32Rva + "," + descRva + "," + iatK32Size
 }
 
 // ── Import table emitter ──────────────────────────────────────────
@@ -5732,37 +5753,39 @@ func buildImportTable(rdataRva, strsSize, rtDllName) {
 
     // Build IMAGE_IMPORT_DESCRIPTOR (20 bytes each):
     // OriginalFirstThunk(4) TimeDateStamp(4) ForwarderChain(4) Name(4) FirstThunk(4)
-    let desc = ""
-    desc = desc + hexDword(iltK32Rva)  + hexDword(0) + hexDword(0) + hexDword(dllK32Rva)  + hexDword(iatK32Rva)
-    desc = desc + hexDword(iltRtRva)   + hexDword(0) + hexDword(0) + hexDword(dllRtRva)   + hexDword(iatRtRva)
-    desc = desc + hexDword(iltAdvRva)  + hexDword(0) + hexDword(0) + hexDword(dllAdvRva)  + hexDword(iatAdvRva)
-    desc = desc + hexDword(iltPdhRva)  + hexDword(0) + hexDword(0) + hexDword(dllPdhRva)  + hexDword(iatPdhRva)
-    desc = desc + hexDword(iltUserRva) + hexDword(0) + hexDword(0) + hexDword(dllUserRva) + hexDword(iatUserRva)
-    desc = desc + hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0)  // null descriptor
+    let descSb = sbNew()
+    descSb = sbAppend(descSb, hexDword(iltK32Rva)  + hexDword(0) + hexDword(0) + hexDword(dllK32Rva)  + hexDword(iatK32Rva))
+    descSb = sbAppend(descSb, hexDword(iltRtRva)   + hexDword(0) + hexDword(0) + hexDword(dllRtRva)   + hexDword(iatRtRva))
+    descSb = sbAppend(descSb, hexDword(iltAdvRva)  + hexDword(0) + hexDword(0) + hexDword(dllAdvRva)  + hexDword(iatAdvRva))
+    descSb = sbAppend(descSb, hexDword(iltPdhRva)  + hexDword(0) + hexDword(0) + hexDword(dllPdhRva)  + hexDword(iatPdhRva))
+    descSb = sbAppend(descSb, hexDword(iltUserRva) + hexDword(0) + hexDword(0) + hexDword(dllUserRva) + hexDword(iatUserRva))
+    descSb = sbAppend(descSb, hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0))  // null descriptor
+    let desc = sbToString(descSb)
 
     // Assemble the import section data
-    let out = ""
+    let outSb = sbNew()
     let pp = 0
-    while pp < impBasePad - impBase { out = out + hexByte(0)  pp += 1 }
-    out = out + desc
-    out = out + iltK32
-    out = out + iltRt
-    out = out + iltAdv
-    out = out + iltPdh
-    out = out + iltUser
-    out = out + iltK32   // IAT kernel32
-    out = out + iltRt    // IAT krypton_rt
-    out = out + iltAdv   // IAT advapi32
-    out = out + iltPdh   // IAT pdh
-    out = out + iltUser  // IAT user32
-    out = out + hexStrZ(dllK32Name)
-    out = out + hexStrZ(dllRtName)
-    out = out + hexStrZ(dllAdvName)
-    out = out + hexStrZ(dllPdhName)
-    out = out + hexStrZ(dllUserName)
+    while pp < impBasePad - impBase { outSb = sbAppend(outSb, hexByte(0))  pp += 1 }
+    outSb = sbAppend(outSb, desc)
+    outSb = sbAppend(outSb, iltK32)
+    outSb = sbAppend(outSb, iltRt)
+    outSb = sbAppend(outSb, iltAdv)
+    outSb = sbAppend(outSb, iltPdh)
+    outSb = sbAppend(outSb, iltUser)
+    outSb = sbAppend(outSb, iltK32)   // IAT kernel32
+    outSb = sbAppend(outSb, iltRt)    // IAT krypton_rt
+    outSb = sbAppend(outSb, iltAdv)   // IAT advapi32
+    outSb = sbAppend(outSb, iltPdh)   // IAT pdh
+    outSb = sbAppend(outSb, iltUser)  // IAT user32
+    outSb = sbAppend(outSb, hexStrZ(dllK32Name))
+    outSb = sbAppend(outSb, hexStrZ(dllRtName))
+    outSb = sbAppend(outSb, hexStrZ(dllAdvName))
+    outSb = sbAppend(outSb, hexStrZ(dllPdhName))
+    outSb = sbAppend(outSb, hexStrZ(dllUserName))
     let dllNamesEndOff = dllUserOffset + len(dllUserName) + 1
-    if dllNamesEndOff % 2 != 0 { out = out + hexByte(0) }
-    out = out + hintTable
+    if dllNamesEndOff % 2 != 0 { outSb = sbAppend(outSb, hexByte(0)) }
+    outSb = sbAppend(outSb, hintTable)
+    let out = sbToString(outSb)
 
     // Return: "hexdata,iatK32Rva,descRva,totalSize,iatAdvRva,iatPdhRva,iatUserRva"
     let iatTotal = iatK32Size + iatRtSize + iatAdvSize + iatPdhSize + iatUserSize
