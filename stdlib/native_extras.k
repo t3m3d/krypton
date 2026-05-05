@@ -8,6 +8,38 @@
 module native_extras
 
 
+// ── GC API surface (added 1.7.5) ──────────────────────────────────
+// These are placeholders for the Tier 2 / Tier 3 GC implementation
+// that lands in 1.7.6+. The API exists so user programs can be
+// written against the final shape now, but the bodies are stubs:
+//   - gcStats():     returns "0,0" (planned: "<bytesAllocated>,<bytesLimit>")
+//   - gcCollect():   returns 0 (planned: count of bytes reclaimed)
+//   - gcLimit(n):    accepts and returns n (planned: enforces a soft cap
+//                    on total allocation, aborts cleanly if exceeded)
+//
+// Real implementations need writable runtime state (a .data section in
+// the bootstrap DLL) and arena/epoch infrastructure in __rt_alloc,
+// neither of which shipped in 1.7.5. See docs/v20_plan.md for the
+// full sequencing.
+
+func gcStats() {
+    // Placeholder. Returns "<allocated>,<limit>" once Tier 2 lands.
+    emit "0,0"
+}
+
+func gcCollect() {
+    // Placeholder. Returns bytes reclaimed once Tier 3 mark-sweep lands.
+    emit 0
+}
+
+func gcLimit(n) {
+    // Placeholder. Tier 2 wires this to __rt_alloc's circuit breaker.
+    // Module-level mutable state isn't standard in Krypton stdlib, so
+    // the limit is just echoed back for now.
+    emit n
+}
+
+
 func join(list, sep) {
     if list == "" { emit "" }
     let sb = sbNew()
