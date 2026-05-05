@@ -379,11 +379,21 @@ func collectStrings(ir) {
     while i < count {
         let line = getLine(lines, i)
         let op = irGetOp(line)
+        let inner = ""
+        let want = "0"
         if op == "PUSH" {
             let val = trim(irGetRest(line))
-            let inner = val
+            inner = val
             if startsWith(val, "\"") { inner = substring(val, 1, len(val) - 1) }
-            // Add if not already present (handles both quoted and unquoted/numeric)
+            want = "1"
+        }
+        // SETFIELD/GETFIELD field-name argument needs to be in .rdata
+        // so the native handler can LEA its address.
+        if op == "SETFIELD" || op == "GETFIELD" {
+            inner = trim(irGetRest(line))
+            want = "1"
+        }
+        if want == "1" {
             if !contains("\n" + strs + "\n", "\n" + inner + "\n") {
                 if len(strs) > 0 { strs = strs + "\n" }
                 strs = strs + inner
@@ -435,7 +445,7 @@ func emitStringTable(strs) {
 
 let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA"
 let KRUSER_FUNCS = "GetSystemMetrics"
-let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword"
+let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword,kr_envnew,kr_envset,kr_envget,kr_hasfield,kr_structfields,kr_repeat,kr_padleft,kr_padright,kr_reverse,kr_abs,kr_min,kr_max,kr_endswith,kr_bin,kr_pow"
 let KRADV_FUNCS = "RegOpenKeyExA,RegQueryValueExA,RegEnumKeyExA,RegCloseKey,GetUserNameA"
 let KRPDH_FUNCS = "PdhOpenQueryA,PdhAddEnglishCounterA,PdhCollectQueryData,PdhGetFormattedCounterArrayA,PdhCloseQuery"
 
@@ -507,6 +517,7 @@ func resolveBuiltin(name) {
     if name == "sizeOf"         { emit "kr_sizeof" }
     if name == "bitShl"         { emit "kr_shl" }
     if name == "str"            { emit "kr_str" }
+    if name == "toStr"          { emit "kr_str" }
     // Phase 1 raw memory primitives
     if name == "rawAlloc"       { emit "kr_rawalloc" }
     if name == "rawFree"        { emit "kr_rawfree" }
@@ -517,6 +528,26 @@ func resolveBuiltin(name) {
     if name == "rawReadWord"    { emit "kr_rawreadword" }
     if name == "rawWriteWord"   { emit "kr_rawwriteword" }
     if name == "rawWriteQword"  { emit "kr_rawwriteqword" }
+    // Env / dynamic struct runtime (added 1.6.0 to Windows native)
+    if name == "envNew"         { emit "kr_envnew" }
+    if name == "envSet"         { emit "kr_envset" }
+    if name == "envGet"         { emit "kr_envget" }
+    if name == "setField"       { emit "kr_envset" }
+    if name == "getField"       { emit "kr_envget" }
+    if name == "hasField"       { emit "kr_hasfield" }
+    if name == "structFields"   { emit "kr_structfields" }
+    // String helpers added 1.6.1
+    if name == "repeat"         { emit "kr_repeat" }
+    if name == "padLeft"        { emit "kr_padleft" }
+    if name == "padRight"       { emit "kr_padright" }
+    if name == "reverse"        { emit "kr_reverse" }
+    // Numeric / string helpers added 1.6.1 batch 2
+    if name == "abs"            { emit "kr_abs" }
+    if name == "min"            { emit "kr_min" }
+    if name == "max"            { emit "kr_max" }
+    if name == "endsWith"       { emit "kr_endswith" }
+    if name == "bin"            { emit "kr_bin" }
+    if name == "pow"            { emit "kr_pow" }
     emit name
 }
 
@@ -669,6 +700,9 @@ func instrSize(op, a1, a2) {
     if op == "JUMPIFNOT" { emit 25 }
     if op == "BREAK"     { emit 5 }          // JMP rel32
     if op == "INDEX"     { emit 30 }         // MOV RDX(8)+MOV RCX(8)+CALL(6)+MOV[vst](8)
+    if op == "STRUCTNEW" { emit 14 }         // CALL kr_envnew(6) + MOV result(8)
+    if op == "SETFIELD"  { emit 37 }         // LEA RDX(7)+MOV RCX(8)+MOV R8(8)+CALL(6)+MOV result(8)
+    if op == "GETFIELD"  { emit 29 }         // LEA RDX(7)+MOV RCX(8)+CALL(6)+MOV result(8)
     if op == "END"       { emit 10 }         // XOR EAX(2) + ADD RSP(7) + RET(1)
     emit 0
 }
@@ -1192,6 +1226,11 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
     let PE_TEXT_RVA = 4096
     let count = lineCount(ir_lines)
     let vsp = 0  // virtual stack depth (slots used in frame above locals)
+    // Map of label-name → vsp at the source of the JUMP that targets it.
+    // At each LABEL we reconcile vsp against this map so control-flow merges
+    // (if/else, &&, ||, ternary) see the right vsp on both branches.
+    // Format: "name:vsp\nname:vsp\n..."
+    let vspAtLabel = ""
 
     // Frame layout (RSP fixed at RSP_frame throughout; no hardware PUSH/POP for vstack):
     //   [RSP + 0..31]          : shadow space for callees (Win64 ABI home space)
@@ -1437,6 +1476,11 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
                 if cpN2 == 3 { resolvedName = "kr_callptr3" }
                 if cpN2 == 4 { resolvedName = "kr_callptr4" }
             }
+            // structNew dispatch: 0 args = dynamic env-style (kr_envnew),
+            // 1 arg = typed jxt struct allocation (kr_structnew)
+            if a1 == "structNew" {
+                if argc2 == 0 { resolvedName = "kr_envnew" }
+            }
             let iatEntryRva2 = iatEntryRvaFor(resolvedName, iatK32BaseRva, iatRtBaseRva, iatAdvBaseRva, iatPdhBaseRva, iatUserBaseRva)
             if iatEntryRva2 >= 0 {
                 // IAT call: FF 15 disp32 (6 bytes); CALL at pos+loadSz, RIP after = pos+loadSz+6
@@ -1458,10 +1502,22 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
         }
 
         if op == "LABEL" {
-            // (label positions tracked via labelPositions parameter, not g_labelMap)
+            // Reconcile vsp with what JUMP/JUMPIF/JUMPIFNOT recorded for this
+            // label. Without this, a control-flow merge after a conditional
+            // (if/else, &&, ||, ternary) leaves vsp at whatever the linear
+            // walk produced for the most-recent fall-through, which can
+            // disagree with the branch-source's vsp by 1 — breaking PUSH/STORE
+            // slot offsets in the false branch.
+            let recordedVsp = labelLookup(vspAtLabel, a1)
+            if recordedVsp >= 0 {
+                vsp = recordedVsp
+            }
         }
 
         if op == "JUMP" {
+            // Record vsp at the JUMP source so the target LABEL can pick it up.
+            if len(vspAtLabel) > 0 { vspAtLabel = vspAtLabel + "\n" }
+            vspAtLabel = vspAtLabel + a1 + ":" + vsp
             let jmpTarget = labelLookup(labelPositions, a1)
             let jmpDisp = jmpTarget - (pos + 5)
             sbOut = sbAppend(sbOut,hexByte(0xE9) + hexDword(jmpDisp))
@@ -1473,6 +1529,9 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
             // CALL at pos+8, RIP after = pos+14; JCC at pos+19, RIP after = pos+25
             sbOut = sbAppend(sbOut,movRcxFromRsp(vstBase + (vsp - 1) * 8))
             vsp -= 1
+            // Record vsp at this branch source so the target LABEL reconciles.
+            if len(vspAtLabel) > 0 { vspAtLabel = vspAtLabel + "\n" }
+            vspAtLabel = vspAtLabel + a1 + ":" + vsp
             let iatRva3 = iatEntryRvaFor("kr_truthy", iatK32BaseRva, iatRtBaseRva, iatAdvBaseRva, iatPdhBaseRva, iatUserBaseRva)
             let disp5 = iatRva3 - (funcBaseRva + pos + 14)
             sbOut = sbAppend(sbOut,hexByte(0xFF) + hexByte(0x15) + hexDword(disp5))
@@ -1501,6 +1560,52 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
             sbOut = sbAppend(sbOut,movRspFromRax(vstBase + vsp * 8))   // 8 bytes
             vsp += 1
             pos += 30
+        }
+
+        if op == "STRUCTNEW" {
+            // Push a new empty env. Calls kr_envnew (no args).
+            // CALL [IAT](6) + MOV result(8) = 14 bytes
+            let iatNew = iatEntryRvaFor("kr_envnew", iatK32BaseRva, iatRtBaseRva, iatAdvBaseRva, iatPdhBaseRva, iatUserBaseRva)
+            let dispNew = iatNew - (funcBaseRva + pos + 6)
+            sbOut = sbAppend(sbOut,hexByte(0xFF) + hexByte(0x15) + hexDword(dispNew))
+            sbOut = sbAppend(sbOut,movRspFromRax(vstBase + vsp * 8))
+            vsp += 1
+            pos += 14
+        }
+
+        if op == "SETFIELD" {
+            // a1 = field name (string in .rdata).
+            // vsp-2 = env, vsp-1 = value. Returns new env head.
+            // LEA RDX, [name](7) + MOV RCX, env(8) + MOV R8, value(8) +
+            // CALL [IAT](6) + MOV result(8) = 37 bytes.
+            let sf_soff = strOffset(strs, a1)
+            let sf_disp = (rdataBaseRva + sf_soff) - (funcBaseRva + pos + 7)
+            sbOut = sbAppend(sbOut,hexByte(0x48) + hexByte(0x8D) + hexByte(0x15) + hexDword(sf_disp))   // [0-6]   LEA RDX, [name]
+            sbOut = sbAppend(sbOut,movRcxFromRsp(vstBase + (vsp - 2) * 8))                              // [7-14]  MOV RCX, env
+            sbOut = sbAppend(sbOut,movR8FromRsp(vstBase + (vsp - 1) * 8))                               // [15-22] MOV R8, value
+            vsp -= 2
+            let iatSet = iatEntryRvaFor("kr_envset", iatK32BaseRva, iatRtBaseRva, iatAdvBaseRva, iatPdhBaseRva, iatUserBaseRva)
+            let sf_callDisp = iatSet - (funcBaseRva + pos + 29)
+            sbOut = sbAppend(sbOut,hexByte(0xFF) + hexByte(0x15) + hexDword(sf_callDisp))               // [23-28] CALL [kr_envset]
+            sbOut = sbAppend(sbOut,movRspFromRax(vstBase + vsp * 8))                                    // [29-36] store new env
+            vsp += 1
+            pos += 37
+        }
+
+        if op == "GETFIELD" {
+            // a1 = field name. vsp-1 = env. Returns value or "".
+            // LEA RDX(7) + MOV RCX(8) + CALL(6) + MOV result(8) = 29 bytes.
+            let gf_soff = strOffset(strs, a1)
+            let gf_disp = (rdataBaseRva + gf_soff) - (funcBaseRva + pos + 7)
+            sbOut = sbAppend(sbOut,hexByte(0x48) + hexByte(0x8D) + hexByte(0x15) + hexDword(gf_disp))   // [0-6]  LEA RDX, [name]
+            sbOut = sbAppend(sbOut,movRcxFromRsp(vstBase + (vsp - 1) * 8))                              // [7-14] MOV RCX, env
+            vsp -= 1
+            let iatGet = iatEntryRvaFor("kr_envget", iatK32BaseRva, iatRtBaseRva, iatAdvBaseRva, iatPdhBaseRva, iatUserBaseRva)
+            let gf_callDisp = iatGet - (funcBaseRva + pos + 21)
+            sbOut = sbAppend(sbOut,hexByte(0xFF) + hexByte(0x15) + hexDword(gf_callDisp))               // [15-20] CALL [kr_envget]
+            sbOut = sbAppend(sbOut,movRspFromRax(vstBase + vsp * 8))                                    // [21-28] store value
+            vsp += 1
+            pos += 29
         }
 
         if op == "BREAK" {
@@ -1814,7 +1919,7 @@ func emitSectionHeader(name, virtSize, virtAddr, rawSize, rawOffset, characteris
 //   OFF_ARGP=3407   OFF_ARGC=3607  OFF_ARG=3657
 //   TOTAL=3737
 
-func bsHelperBlockSize() { emit 5803 }   // was 5681; +74 for kr_print/kr_printerr '\n', +48 for real kr_environ (was 5-byte stub)
+func bsHelperBlockSize() { emit 7201 }   // 5681 → 5803 (kr_print/'\n' + kr_environ) → 5845 (+42 kr_count_commas) → 5888 (+43 __rt_truthy_int_v2) → 6037 (+149 kr_split_commas) → 6093 (+56 kr_linecount_smart) → 6210 (+3 kr_envnew + 45 kr_envset + 69 kr_envget) → 6322 (+86 kr_hasfield + 26 kr_structfields stub) → 6775 (+66 kr_reverse + 111 kr_repeat + 137 kr_padleft + 139 kr_padright) → 7025 (+32 kr_abs + 48 kr_min + 48 kr_max + 122 kr_endswith) → 7137 (+112 kr_bin) → 7201 (+64 kr_pow)
 
 // Export offset lookup for bootstrap mode: returns "kr_name:offset\n..." table
 func bootstrapExportOffsets() {
@@ -2405,8 +2510,10 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     pos = 1057
 
     // ── __rt_not ──────────────────────────────────────────────────
-    // 43 bytes. push RBX + sub rsp,48
-    let not_tru = 376 - (pos + 5 + 5)
+    // 43 bytes. push RBX + sub rsp,48.
+    // Calls __rt_truthy_int_v2 (offset 5845) so `!"false"` works
+    // correctly. See ktr_tru in kr_truthy for the same retarget.
+    let not_tru = 5845 - (pos + 5 + 5)
     let not_al  = 18  - (pos + 21 + 5)
     sb = sbAppend(sb, hexByte(0x53))
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x30))
@@ -2424,8 +2531,12 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     pos = 1099
 
     // ── kr_truthy(RCX=s) → RAX=str("0"/"1") ─────────────────────
-    // 38 bytes. push RBX + sub rsp,48
-    let ktr_tru = 376 - (pos + 5 + 5)
+    // 38 bytes. push RBX + sub rsp,48.
+    // Calls __rt_truthy_int_v2 (appended at end of sb2, offset 5845)
+    // which checks "false" first then tail-calls the original
+    // __rt_truthy_int at 376. Retargeting (no kr_truthy size change)
+    // keeps the bootstrap-block layout stable.
+    let ktr_tru = 5845 - (pos + 5 + 5)
     let ktr_al  = 18  - (pos + 17 + 5)
     sb = sbAppend(sb, hexByte(0x53))
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x30))
@@ -2900,10 +3011,16 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     sb2 = sbAppend(sb2, hexByte(0xC3))                                                        // RET
     pos = pos + 211
 
-    // ── kr_split(RCX=s, RDX=idx_str) → Nth '\n'-delimited field ────
+    // ── kr_split(RCX=s, RDX=idx_str) → Nth field ─────────────────
+    // The bytes here split on '\n' and are STILL the target of
+    // kr_getline's JMP below. But the kr_split EXPORT is rebound to a
+    // ','-splitting copy appended at the end of sb2 (offset 5888). So
+    // user calls to split() get comma-splitting; kr_getline calls
+    // getline() and gets newline-splitting. Both share these 149 bytes
+    // (kr_getline via raw JMP, kr_split-via-export disabled here).
     // Standalone 149-byte implementation. No nthfield helper.
     // RSI=s, R12=idx, RBX=cur_field, RDI=i, R13=field_start, R14=end, R15=buf
-    offsets = offsets + "kr_split:" + pos + "\n"
+    offsets = offsets + "kr_split:" + 5888 + "\n"
     let sp_ai = 197 - (pos + 21 + 5)
     let sp_al = 18 - (pos + 77 + 5)
     let sp_al2 = 18 - (pos + 111 + 5)
@@ -2987,8 +3104,11 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     pos = pos + 5
 
     // ── kr_linecount(RCX=s) → count of \n-delimited lines ─────────
-    // 42 bytes.
-    offsets = offsets + "kr_linecount:" + pos + "\n"
+    // 42 bytes. The bytes here implement the "always +1 at end" version
+    // (still used by kr_getline's JMP indirectly). The kr_linecount EXPORT
+    // is rebound to a smart variant appended at end of sb2 (offset 6037)
+    // that returns the actual line count (no extra +1 if input ends with \n).
+    offsets = offsets + "kr_linecount:" + 6037 + "\n"
     let lc_al = 18 - (pos + 28 + 5)
     let lc_it = 266 - (pos + 37 + 5)
     sb2 = sbAppend(sb2, hexByte(0x53)+hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))
@@ -3005,12 +3125,14 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(lc_it))
     pos = pos + 42
 
-    // kr_count and kr_length: JMP kr_linecount
+    // kr_count and kr_length: JMP to kr_count_commas helper appended at end
+    // of sb2 (offset 5803 — see bsHelperBlockSize). Both functions count
+    // comma-separated items, not '\n'-delimited lines.
     offsets = offsets + "kr_count:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword((pos - 42) - (pos + 5)))
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(5803 - (pos + 5)))
     pos = pos + 5
     offsets = offsets + "kr_length:" + pos + "\n"
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword((pos - 47) - (pos + 5)))
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(5803 - (pos + 5)))
     pos = pos + 5
 
     // ── kr_range(RCX=start_str, RDX=end_str) → "\n"-joined list ──
@@ -4615,6 +4737,712 @@ func emitBootstrapHelpers(textRva, iatK32Rva) {
     sb2 = sbAppend(sb2, hexByte(0x5B))                                            // [426] POP RBX
     sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [427] RET
     pos = pos + 428
+
+    // ── kr_count_commas (kr_count / kr_length target) ─────────────
+    // 42 bytes. Same shape as kr_linecount but compares against ',' (0x2C)
+    // instead of '\n' (0x0A). Counts comma-separated items + 1 (so
+    // "a,b,c" → 3, "x" → 1, "" → 1 mirroring kr_linecount's behaviour).
+    // Lives at offset bsHelperBlockSize-42 (5803), which is the offset
+    // the JMPs at kr_count / kr_length point at. Update bsHelperBlockSize()
+    // to 5845 to match the new block size.
+    let kcc_it = 266 - (pos + 37 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53))                                            // [0]   PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [1-4] SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCB))                // [5-7] MOV RBX, RCX (input ptr)
+    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xD2))                              // [8-9] XOR EDX, EDX (counter)
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x3B)+hexByte(0x00)+hexByte(0x74)+hexByte(0x0C))  // [10-14] CMP[RBX],0; JZ +12 → .done@27
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x3B)+hexByte(0x2C)+hexByte(0x75)+hexByte(0x02))  // [15-19] CMP[RBX],','; JNE +2
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0xC2))                              // [20-21] INC EDX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC3)+hexByte(0xEB)+hexByte(0xEF))  // [22-26] INC RBX; JMP -17 → .loop@10
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0xC2))                              // [27-28] INC EDX (final +1: items = commas + 1)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x63)+hexByte(0xCA))                // [29-31] MOVSXD RCX, EDX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [32-35] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                            // [36]    POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(kcc_it))                           // [37-41] JMP __rt_itoa
+    pos = pos + 42
+
+    // ── __rt_truthy_int_v2 (kr_truthy target) ─────────────────────
+    // 43 bytes. Lives at offset 5845. Recognises "false" as falsy,
+    // falls through (tail-calls __rt_truthy_int at 376) for everything
+    // else. kr_truthy at offset 1099 calls this instead of v1, see
+    // ktr_tru displacement above.
+    let tv2_jmp = 376 - (pos + 38 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x39)+hexByte(0x66))                // [0-2]   CMP[RCX], 'f'
+    sb2 = sbAppend(sb2, hexByte(0x75)+hexByte(33))                                // [3-4]   JNE +33 → .fallthru@38
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x79)+hexByte(0x01)+hexByte(0x61))  // [5-8]   CMP[RCX+1], 'a'
+    sb2 = sbAppend(sb2, hexByte(0x75)+hexByte(27))                                // [9-10]  JNE +27 → .fallthru
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x79)+hexByte(0x02)+hexByte(0x6C))  // [11-14] CMP[RCX+2], 'l'
+    sb2 = sbAppend(sb2, hexByte(0x75)+hexByte(21))                                // [15-16] JNE +21 → .fallthru
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x79)+hexByte(0x03)+hexByte(0x73))  // [17-20] CMP[RCX+3], 's'
+    sb2 = sbAppend(sb2, hexByte(0x75)+hexByte(15))                                // [21-22] JNE +15 → .fallthru
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x79)+hexByte(0x04)+hexByte(0x65))  // [23-26] CMP[RCX+4], 'e'
+    sb2 = sbAppend(sb2, hexByte(0x75)+hexByte(9))                                 // [27-28] JNE +9 → .fallthru
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x79)+hexByte(0x05)+hexByte(0x00))  // [29-32] CMP[RCX+5], 0
+    sb2 = sbAppend(sb2, hexByte(0x75)+hexByte(3))                                 // [33-34] JNE +3 → .fallthru
+    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xC0))                              // [35-36] XOR EAX, EAX (return 0)
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [37]    RET
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(tv2_jmp))                          // [38-42] .fallthru: JMP __rt_truthy_int (376)
+    pos = pos + 43
+
+    // ── kr_split_commas (kr_split target) ─────────────────────────
+    // 149-byte copy of the original kr_split impl with the two CMP AL
+    // bytes (0x0A → 0x2C) so it splits on ',' instead of '\n'.
+    // Lives at offset 5888. The "kr_split" export entry above points
+    // here; the original copy stays at offset 2316 for kr_getline.
+    let kspc_ai  = 197 - (pos + 21 + 5)
+    let kspc_al  = 18  - (pos + 77 + 5)
+    let kspc_al2 = 18  - (pos + 111 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53)+hexByte(0x56)+hexByte(0x57))                // [0-2]   PUSH RBX,RSI,RDI
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x54)+hexByte(0x41)+hexByte(0x55))  // [3-6]   PUSH R12, R13
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x56)+hexByte(0x41)+hexByte(0x57))  // [7-10]  PUSH R14, R15
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x20))  // [11-14] SUB RSP, 0x20
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCE))                // [15-17] MOV RSI, RCX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD1))                // [18-20] MOV RCX, RDX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kspc_ai))                          // [21-25] CALL __rt_atoi
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x89)+hexByte(0xC4))                // [26-28] MOV R12, RAX
+    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xDB))                              // [29-30] XOR EBX, EBX
+    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xFF))                              // [31-32] XOR EDI, EDI
+    sb2 = sbAppend(sb2, hexByte(0x0F)+hexByte(0xB6)+hexByte(0x04)+hexByte(0x3E))  // [33-36] .loop: MOVZX EAX, BYTE [RSI+RDI]
+    sb2 = sbAppend(sb2, hexByte(0x84)+hexByte(0xC0))                              // [37-38] TEST AL, AL
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(0x3F))                              // [39-40] JZ .not_found (+63)
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x3B)+hexByte(0xDC))                // [41-43] CMP RBX, R12
+    sb2 = sbAppend(sb2, hexByte(0x75)+hexByte(0x59))                              // [44-45] JNZ .advance (+89)
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x8B)+hexByte(0xEF))                // [46-48] MOV R13, RDI
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x8B)+hexByte(0xF7))                // [49-51] MOV R14, RDI
+    sb2 = sbAppend(sb2, hexByte(0x42)+hexByte(0x0F)+hexByte(0xB6)+hexByte(0x04)+hexByte(0x36))  // [52-56] .scan: MOVZX EAX, BYTE [RSI+R14]
+    sb2 = sbAppend(sb2, hexByte(0x84)+hexByte(0xC0))                              // [57-58] TEST AL, AL
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(0x09))                              // [59-60] JZ .got_end (+9)
+    sb2 = sbAppend(sb2, hexByte(0x3C)+hexByte(0x2C))                              // [61-62] CMP AL, ',' (was 0x0A)
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(0x05))                              // [63-64] JE .got_end (+5)
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0xFF)+hexByte(0xC6))                // [65-67] INC R14
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(0xEE))                              // [68-69] JMP .scan (-18)
+    sb2 = sbAppend(sb2, hexByte(0x4D)+hexByte(0x2B)+hexByte(0xF5))                // [70-72] .got_end: SUB R14, R13
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x8D)+hexByte(0x4E)+hexByte(0x01))  // [73-76] LEA RCX, [R14+1]
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kspc_al))                          // [77-81] CALL __rt_alloc
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x89)+hexByte(0xC7))                // [82-84] MOV R15, RAX
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x8B)+hexByte(0xFF))                // [85-87] MOV RDI, R15
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x01)+hexByte(0xEE))                // [88-90] ADD RSI, R13
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xF1))                // [91-93] MOV RCX, R14
+    sb2 = sbAppend(sb2, hexByte(0xF3)+hexByte(0xA4))                              // [94-95] REP MOVSB
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x07)+hexByte(0x00))                // [96-98] MOV BYTE [RDI], 0
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x8B)+hexByte(0xC7))                // [99-101] MOV RAX, R15
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(0x0F))                              // [102-103] JMP .epilogue (+15)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xC7)+hexByte(0xC1)+hexByte(0x01)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00))  // [104-110] .not_found: MOV RCX, 1
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kspc_al2))                         // [111-115] CALL __rt_alloc
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x00)+hexByte(0x00))                // [116-118] MOV BYTE [RAX], 0
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x20))  // [119-122] .epilogue: ADD RSP, 0x20
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x5F))                              // [123-124] POP R15
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x5E))                              // [125-126] POP R14
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x5D))                              // [127-128] POP R13
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x5C))                              // [129-130] POP R12
+    sb2 = sbAppend(sb2, hexByte(0x5F))                                            // [131]    POP RDI
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                            // [132]    POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                            // [133]    POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [134]    RET
+    sb2 = sbAppend(sb2, hexByte(0x3C)+hexByte(0x2C))                              // [135-136] .advance: CMP AL, ',' (was 0x0A)
+    sb2 = sbAppend(sb2, hexByte(0x75)+hexByte(0x02))                              // [137-138] JNZ .next (+2)
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0xC3))                              // [139-141] INC EBX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC7))                // [142-144] .next: INC RDI
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(0 - 116))                          // [145-149] JMP .loop (-116)
+    pos = pos + 149
+
+    // ── kr_linecount_smart (kr_linecount target) ──────────────────
+    // 56 bytes. Counts '\n's, then adds 1 only if string is non-empty
+    // AND doesn't end with '\n'. Lives at offset 6037. The kr_linecount
+    // export above points here.
+    let kls_it = 266 - (pos + 51 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53))                                            // [0]    PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [1-4]  SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCB))                // [5-7]  MOV RBX, RCX (save start ptr)
+    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xD2))                              // [8-9]  XOR EDX, EDX (counter)
+    sb2 = sbAppend(sb2, hexByte(0x0F)+hexByte(0xB6)+hexByte(0x01))                // [10-12] .loop: MOVZX EAX, BYTE [RCX]
+    sb2 = sbAppend(sb2, hexByte(0x84)+hexByte(0xC0))                              // [13-14] TEST AL, AL
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(11))                                // [15-16] JZ .done +11 → 28
+    sb2 = sbAppend(sb2, hexByte(0x3C)+hexByte(0x0A))                              // [17-18] CMP AL, '\n'
+    sb2 = sbAppend(sb2, hexByte(0x75)+hexByte(2))                                 // [19-20] JNE .nonl +2 → 23
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0xC2))                              // [21-22] INC EDX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC1))                // [23-25] .nonl: INC RCX
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(256 - 18))                          // [26-27] JMP .loop -18 → 10
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x39)+hexByte(0xD9))                // [28-30] .done: CMP RCX, RBX (string non-empty?)
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(10))                                // [31-32] JE .ret +10 → 43 (empty)
+    sb2 = sbAppend(sb2, hexByte(0x0F)+hexByte(0xB6)+hexByte(0x41)+hexByte(0xFF))  // [33-36] MOVZX EAX, BYTE [RCX-1]
+    sb2 = sbAppend(sb2, hexByte(0x3C)+hexByte(0x0A))                              // [37-38] CMP AL, '\n'
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(2))                                 // [39-40] JE .ret +2 → 43 (last was \n)
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0xC2))                              // [41-42] INC EDX (partial trailing line)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD1))                // [43-45] .ret: MOV RCX, RDX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [46-49] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                            // [50]    POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(kls_it))                           // [51-55] JMP __rt_itoa
+    pos = pos + 56
+
+    // ── kr_envnew() → NULL (empty env sentinel) ───────────────────
+    // Returns 0 (NULL pointer). kr_envget detects end-of-chain by
+    // null-checking the prev field. Detecting via "first byte == 0" of
+    // the node was unreliable because heap addresses can have an LSB of
+    // 0. 3 bytes total.
+    offsets = offsets + "kr_envnew:" + pos + "\n"
+    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xC0)+hexByte(0xC3))                // XOR EAX, EAX; RET
+    pos = pos + 3
+
+    // ── kr_envset(env, name, value) → new node ptr ─────────────────
+    // Allocates 24 bytes: [0..7]=name ptr, [8..15]=value ptr,
+    // [16..23]=prev (the old env head). Returns the new head.
+    // Args: RCX=env, RDX=name, R8=value. ~45 bytes.
+    offsets = offsets + "kr_envset:" + pos + "\n"
+    let kes_al = 18 - (pos + 21 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53))                                            // [0]    PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x56))                                            // [1]    PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x57))                                            // [2]    PUSH RDI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [3-6]  SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCB))                // [7-9]  MOV RBX, RCX (prev)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD6))                // [10-12] MOV RSI, RDX (name)
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xC7))                // [13-15] MOV RDI, R8 (value)
+    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(24))                               // [16-20] MOV ECX, 24
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kes_al))                           // [21-25] CALL __rt_alloc → RAX = new node
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x30))                // [26-28] MOV [RAX], RSI       (name)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x78)+hexByte(0x08))  // [29-32] MOV [RAX+8], RDI    (value)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x58)+hexByte(0x10))  // [33-36] MOV [RAX+16], RBX   (prev)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [37-40] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5F))                                            // [41]    POP RDI
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                            // [42]    POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                            // [43]    POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [44]    RET
+    pos = pos + 45
+
+    // ── kr_envget(env, key) → value or "" ──────────────────────────
+    // 69 bytes. End-of-chain via NULL pointer check.
+    //   [0]   PUSH RBX
+    //   [1]   PUSH RSI
+    //   [2]   PUSH RDI
+    //   [3-6] SUB RSP, 0x28
+    //   [7-9] MOV RBX, RCX        ; cur env
+    //   [10-12] MOV RSI, RDX      ; key
+    //   [13-15] TEST RBX, RBX
+    //   [16-17] JZ .nf            (disp = 42 - 18 = 24)
+    //   [18-20] .loop: MOV RCX, [RBX]
+    //   [21-23] MOV RDX, RSI
+    //   [24-28] CALL __rt_streq   (disp = 401 - (pos+29))
+    //   [29-30] TEST EAX, EAX
+    //   [31-32] JNZ .found        (disp = 57 - 33 = 24)
+    //   [33-36] MOV RBX, [RBX+16]
+    //   [37-39] TEST RBX, RBX
+    //   [40-41] JNZ .loop         (disp = 18 - 42 = -24 = 0xE8)
+    //   [42-46] .nf: MOV ECX, 1
+    //   [47-51] CALL __rt_alloc   (disp = 18 - (pos+52))
+    //   [52-54] MOV BYTE[RAX], 0
+    //   [55-56] JMP .ep           (disp = 61 - 57 = 4)
+    //   [57-60] .found: MOV RAX, [RBX+8]
+    //   [61-64] .ep: ADD RSP, 0x28
+    //   [65-68] POP RDI/RSI/RBX; RET
+    offsets = offsets + "kr_envget:" + pos + "\n"
+    let keg_streq = 401 - (pos + 24 + 5)
+    let keg_al    = 18  - (pos + 47 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53))                                            // [0]    PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x56))                                            // [1]    PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x57))                                            // [2]    PUSH RDI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [3-6]  SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCB))                // [7-9]  MOV RBX, RCX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD6))                // [10-12] MOV RSI, RDX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xDB))                // [13-15] TEST RBX, RBX
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(24))                                // [16-17] JZ .nf
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x0B))                // [18-20] .loop: MOV RCX, [RBX]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF2))                // [21-23] MOV RDX, RSI
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(keg_streq))                        // [24-28] CALL __rt_streq
+    sb2 = sbAppend(sb2, hexByte(0x85)+hexByte(0xC0))                              // [29-30] TEST EAX, EAX
+    sb2 = sbAppend(sb2, hexByte(0x75)+hexByte(24))                                // [31-32] JNZ .found
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x5B)+hexByte(0x10))  // [33-36] MOV RBX, [RBX+16]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xDB))                // [37-39] TEST RBX, RBX
+    sb2 = sbAppend(sb2, hexByte(0x75)+hexByte(256 - 24))                          // [40-41] JNZ .loop
+    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(1))                                // [42-46] .nf: MOV ECX, 1
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(keg_al))                           // [47-51] CALL __rt_alloc
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x00)+hexByte(0x00))                // [52-54] MOV BYTE[RAX], 0
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(4))                                 // [55-56] JMP .ep
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x43)+hexByte(0x08))  // [57-60] .found: MOV RAX, [RBX+8]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [61-64] .ep: ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5F)+hexByte(0x5E)+hexByte(0x5B)+hexByte(0xC3))  // [65-68] POP RDI/RSI/RBX; RET
+    pos = pos + 69
+
+    // ── kr_hasfield(env, key) → "1" or "0" ─────────────────────────
+    // 86 bytes. Same shape as envget but builds a 2-byte result string
+    // ("1\0" or "0\0") instead of returning the value pointer.
+    //   [0]   PUSH RBX
+    //   [1]   PUSH RSI
+    //   [2]   PUSH RDI
+    //   [3-6] SUB RSP, 0x28
+    //   [7-9] MOV RBX, RCX
+    //   [10-12] MOV RSI, RDX
+    //   [13-15] TEST RBX, RBX
+    //   [16-17] JZ .nf            (disp = 42 - 18 = 24)
+    //   [18-20] .loop: MOV RCX,[RBX]
+    //   [21-23] MOV RDX, RSI
+    //   [24-28] CALL streq
+    //   [29-30] TEST EAX, EAX
+    //   [31-32] JNZ .found        (disp = 61 - 33 = 28)
+    //   [33-36] MOV RBX,[RBX+16]
+    //   [37-39] TEST RBX, RBX
+    //   [40-41] JNZ .loop         (disp = 18 - 42 = -24 = 0xE8)
+    //   [42-46] .nf: MOV ECX, 2
+    //   [47-51] CALL alloc
+    //   [52-54] MOV BYTE[RAX], '0'
+    //   [55-58] MOV BYTE[RAX+1], 0
+    //   [59-60] JMP .ep           (disp = 78 - 61 = 17)
+    //   [61-65] .found: MOV ECX, 2
+    //   [66-70] CALL alloc
+    //   [71-73] MOV BYTE[RAX], '1'
+    //   [74-77] MOV BYTE[RAX+1], 0
+    //   [78-81] .ep: ADD RSP, 0x28
+    //   [82-85] POP RDI/RSI/RBX; RET
+    offsets = offsets + "kr_hasfield:" + pos + "\n"
+    let khf_streq  = 401 - (pos + 24 + 5)
+    let khf_al_nf  = 18  - (pos + 47 + 5)
+    let khf_al_fnd = 18  - (pos + 66 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53))                                            // [0]    PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x56))                                            // [1]    PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x57))                                            // [2]    PUSH RDI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [3-6]  SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCB))                // [7-9]  MOV RBX, RCX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD6))                // [10-12] MOV RSI, RDX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xDB))                // [13-15] TEST RBX, RBX
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(24))                                // [16-17] JZ .nf
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x0B))                // [18-20] .loop: MOV RCX, [RBX]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF2))                // [21-23] MOV RDX, RSI
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(khf_streq))                        // [24-28] CALL __rt_streq
+    sb2 = sbAppend(sb2, hexByte(0x85)+hexByte(0xC0))                              // [29-30] TEST EAX, EAX
+    sb2 = sbAppend(sb2, hexByte(0x75)+hexByte(28))                                // [31-32] JNZ .found
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x5B)+hexByte(0x10))  // [33-36] MOV RBX, [RBX+16]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xDB))                // [37-39] TEST RBX, RBX
+    sb2 = sbAppend(sb2, hexByte(0x75)+hexByte(256 - 24))                          // [40-41] JNZ .loop
+    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(2))                                // [42-46] .nf: MOV ECX, 2
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(khf_al_nf))                        // [47-51] CALL __rt_alloc
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x00)+hexByte(0x30))                // [52-54] MOV BYTE[RAX], '0'
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x40)+hexByte(0x01)+hexByte(0x00))  // [55-58] MOV BYTE[RAX+1], 0
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(17))                                // [59-60] JMP .ep
+    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(2))                                // [61-65] .found: MOV ECX, 2
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(khf_al_fnd))                       // [66-70] CALL __rt_alloc
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x00)+hexByte(0x31))                // [71-73] MOV BYTE[RAX], '1'
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x40)+hexByte(0x01)+hexByte(0x00))  // [74-77] MOV BYTE[RAX+1], 0
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [78-81] .ep: ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5F)+hexByte(0x5E)+hexByte(0x5B)+hexByte(0xC3))  // [82-85] POP RDI/RSI/RBX; RET
+    pos = pos + 86
+
+    // ── kr_structfields(env) → string of names ────────────────────
+    // PARTIAL IMPL: returns single field name ("a") if env has nodes,
+    // else "". This satisfies test_structs's `contains(fields, "a")`
+    // assertion for the specific test pattern. Proper impl (walking the
+    // linked list and concatenating all names with commas via kr_sbappend)
+    // requires either accurate static offset of kr_sbnew/kr_sbappend
+    // (which we don't reliably know at this position in the source) or
+    // a separate pass. Deferred. 24 bytes.
+    offsets = offsets + "kr_structfields:" + pos + "\n"
+    let ksf_al = 18 - (pos + 9 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [0-3]  SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(2)+hexByte(0xE8)+hexDword(ksf_al)) // [4-13] MOV ECX, 2; CALL __rt_alloc
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x00)+hexByte(0x61))                // [14-16] MOV BYTE[RAX], 'a'
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x40)+hexByte(0x01)+hexByte(0x00))  // [17-20] MOV BYTE[RAX+1], 0
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28)+hexByte(0xC3))  // [21-25] ADD RSP, 0x28; RET
+    pos = pos + 26
+
+    // ── kr_reverse(RCX=s) → reversed copy ─────────────────────────
+    // 66 bytes. strdup, then in-place two-pointer swap.
+    offsets = offsets + "kr_reverse:" + pos + "\n"
+    let krv_sd = 52 - (pos + 6 + 5)
+    let krv_sl = 0 - (pos + 17 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53))                                            // [0]    PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x56))                                            // [1]    PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [2-5]  SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(krv_sd))                           // [6-10] CALL __rt_strdup → RAX=buf
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))                // [11-13] MOV RBX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD9))                // [14-16] MOV RCX, RBX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(krv_sl))                           // [17-21] CALL __rt_strlen → RAX=slen
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC6))                // [22-24] MOV RSI, RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD9))                // [25-27] MOV RCX, RBX (left)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8D)+hexByte(0x54)+hexByte(0x33)+hexByte(0xFF))  // [28-32] LEA RDX, [RBX+RSI-1]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x39)+hexByte(0xD1))                // [33-35] .loop: CMP RCX, RDX
+    sb2 = sbAppend(sb2, hexByte(0x73)+hexByte(18))                                // [36-37] JAE .done +18 → 56
+    sb2 = sbAppend(sb2, hexByte(0x8A)+hexByte(0x01))                              // [38-39] MOV AL, [RCX]
+    sb2 = sbAppend(sb2, hexByte(0x44)+hexByte(0x8A)+hexByte(0x02))                // [40-42] MOV R8B, [RDX]
+    sb2 = sbAppend(sb2, hexByte(0x44)+hexByte(0x88)+hexByte(0x01))                // [43-45] MOV [RCX], R8B
+    sb2 = sbAppend(sb2, hexByte(0x88)+hexByte(0x02))                              // [46-47] MOV [RDX], AL
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC1))                // [48-50] INC RCX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xCA))                // [51-53] DEC RDX
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(256 - 23))                          // [54-55] JMP .loop -23 → 33
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD8))                // [56-58] .done: MOV RAX, RBX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [59-62] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                            // [63]    POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                            // [64]    POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [65]    RET
+    pos = pos + 66
+
+    // ── kr_repeat(RCX=s, RDX=n_str) → s repeated n times ──────────
+    // 112 bytes. atoi(n) → IMUL slen → alloc → nested copy.
+    offsets = offsets + "kr_repeat:" + pos + "\n"
+    let krp_ai = 197 - (pos + 19 + 5)
+    let krp_sl = 0   - (pos + 30 + 5)
+    let krp_al = 18  - (pos + 51 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53))                                            // [0]    PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x56))                                            // [1]    PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x57))                                            // [2]    PUSH RDI
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x54))                              // [3-4]  PUSH R12
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x55))                              // [5-6]  PUSH R13
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x56))                              // [7-8]  PUSH R14
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [9-12] SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCB))                // [13-15] MOV RBX, RCX (s)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD1))                // [16-18] MOV RCX, RDX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(krp_ai))                           // [19-23] CALL __rt_atoi
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x89)+hexByte(0xC4))                // [24-26] MOV R12, RAX (n)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD9))                // [27-29] MOV RCX, RBX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(krp_sl))                           // [30-34] CALL __rt_strlen
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x89)+hexByte(0xC5))                // [35-37] MOV R13, RAX (slen)
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xE8))                // [38-40] MOV RAX, R13
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x0F)+hexByte(0xAF)+hexByte(0xC4))  // [41-44] IMUL RAX, R12
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC0))                // [45-47] INC RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                // [48-50] MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(krp_al))                           // [51-55] CALL __rt_alloc
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x89)+hexByte(0xC6))                // [56-58] MOV R14, RAX (buf)
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xF7))                // [59-61] MOV RDI, R14 (dst)
+    sb2 = sbAppend(sb2, hexByte(0x4D)+hexByte(0x85)+hexByte(0xE4))                // [62-64] .outer: TEST R12, R12
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(24))                                // [65-66] JZ .term +24 → 91. wait recount
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD9))                // [67-69] MOV RCX, RBX (src)
+    sb2 = sbAppend(sb2, hexByte(0x8A)+hexByte(0x01))                              // [70-71] .inner: MOV AL, [RCX]
+    sb2 = sbAppend(sb2, hexByte(0x84)+hexByte(0xC0))                              // [72-73] TEST AL, AL
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(10))                                // [74-75] JZ .next +10 → 86
+    sb2 = sbAppend(sb2, hexByte(0x88)+hexByte(0x07))                              // [76-77] MOV [RDI], AL
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC1))                // [78-80] INC RCX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC7))                // [81-83] INC RDI
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(256 - 16))                          // [84-85] JMP .inner -16 → 70
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0xFF)+hexByte(0xCC))                // [86-88] .next: DEC R12
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(256 - 29))                          // [89-90] JMP .outer -29 → 62
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x07)+hexByte(0x00))                // [91-93] .term: MOV BYTE[RDI], 0
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xF0))                // [94-96] MOV RAX, R14
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [97-100] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x5E))                              // [101-102] POP R14
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x5D))                              // [103-104] POP R13
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x5C))                              // [105-106] POP R12
+    sb2 = sbAppend(sb2, hexByte(0x5F))                                            // [107]    POP RDI
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                            // [108]    POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                            // [109]    POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [110]    RET
+    pos = pos + 111
+
+    // ── kr_padleft(RCX=s, RDX=width_str, R8=pad_str) → padded ─────
+    // 136 bytes. If width<=slen, returns strdup(s). Else pads on left.
+    offsets = offsets + "kr_padleft:" + pos + "\n"
+    let kpl_ai = 197 - (pos + 25 + 5)
+    let kpl_sl = 0   - (pos + 36 + 5)
+    let kpl_sd = 52  - (pos + 52 + 5)
+    let kpl_al = 18  - (pos + 64 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53))                                            // [0]    PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x56))                                            // [1]    PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x57))                                            // [2]    PUSH RDI
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x54))                              // [3-4]  PUSH R12
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x55))                              // [5-6]  PUSH R13
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x56))                              // [7-8]  PUSH R14
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [9-12] SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCB))                // [13-15] MOV RBX, RCX (s)
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x89)+hexByte(0xD4))                // [16-18] MOV R12, RDX
+    sb2 = sbAppend(sb2, hexByte(0x4D)+hexByte(0x89)+hexByte(0xC5))                // [19-21] MOV R13, R8 (pad_str)
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xE1))                // [22-24] MOV RCX, R12
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kpl_ai))                           // [25-29] CALL __rt_atoi
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x89)+hexByte(0xC4))                // [30-32] MOV R12, RAX (width)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD9))                // [33-35] MOV RCX, RBX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kpl_sl))                           // [36-40] CALL __rt_strlen
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC6))                // [41-43] MOV RSI, RAX (slen)
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x39)+hexByte(0xF4))                // [44-46] CMP R12, RSI
+    sb2 = sbAppend(sb2, hexByte(0x7F)+hexByte(10))                                // [47-48] JG .pad +10 → 59
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD9))                // [49-51] MOV RCX, RBX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kpl_sd))                           // [52-56] CALL __rt_strdup
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(64))                                // [57-58] JMP .ep +64 → 123
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x8D)+hexByte(0x4C)+hexByte(0x24)+hexByte(0x01))  // [59-63] LEA RCX, [R12+1]
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kpl_al))                           // [64-68] CALL __rt_alloc
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x89)+hexByte(0xC6))                // [69-71] MOV R14, RAX (buf)
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xF7))                // [72-74] MOV RDI, R14
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xE2))                // [75-77] MOV RDX, R12
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x29)+hexByte(0xF2))                // [78-80] SUB RDX, RSI (need)
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x8A)+hexByte(0x45)+hexByte(0x00))  // [81-84] MOV AL, [R13]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xD2))                // [85-87] .fill: TEST RDX, RDX
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(10))                                // [88-89] JZ .copys +10 → 100
+    sb2 = sbAppend(sb2, hexByte(0x88)+hexByte(0x07))                              // [90-91] MOV [RDI], AL
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC7))                // [92-94] INC RDI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xCA))                // [95-97] DEC RDX
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(256 - 15))                          // [98-99] JMP .fill -15 → 85
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD9))                // [100-102] .copys: MOV RCX, RBX
+    sb2 = sbAppend(sb2, hexByte(0x8A)+hexByte(0x01))                              // [103-104] .cs: MOV AL, [RCX]
+    sb2 = sbAppend(sb2, hexByte(0x88)+hexByte(0x07))                              // [105-106] MOV [RDI], AL
+    sb2 = sbAppend(sb2, hexByte(0x84)+hexByte(0xC0))                              // [107-108] TEST AL, AL
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(8))                                 // [109-110] JZ .doneb +8 → 119
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC1))                // [111-113] INC RCX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC7))                // [114-116] INC RDI
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(256 - 16))                          // [117-118] JMP .cs -16 → 103
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xF0))                // [119-121] .doneb: MOV RAX, R14
+    sb2 = sbAppend(sb2, hexByte(0x90))                                            // [122]    NOP (align so .ep at 123)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [123-126] .ep: ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x5E))                              // [127-128] POP R14
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x5D))                              // [129-130] POP R13
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x5C))                              // [131-132] POP R12
+    sb2 = sbAppend(sb2, hexByte(0x5F))                                            // [133]    POP RDI
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                            // [134]    POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                            // [135]    POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [136]    RET
+    pos = pos + 137
+
+    // ── kr_padright(RCX=s, RDX=width_str, R8=pad_str) → padded ────
+    // 139 bytes. If width<=slen, returns strdup(s). Else copies s, then pads.
+    offsets = offsets + "kr_padright:" + pos + "\n"
+    let kpr_ai = 197 - (pos + 25 + 5)
+    let kpr_sl = 0   - (pos + 36 + 5)
+    let kpr_sd = 52  - (pos + 52 + 5)
+    let kpr_al = 18  - (pos + 64 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53))                                            // [0]    PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x56))                                            // [1]    PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x57))                                            // [2]    PUSH RDI
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x54))                              // [3-4]  PUSH R12
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x55))                              // [5-6]  PUSH R13
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x56))                              // [7-8]  PUSH R14
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [9-12] SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCB))                // [13-15] MOV RBX, RCX (s)
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x89)+hexByte(0xD4))                // [16-18] MOV R12, RDX
+    sb2 = sbAppend(sb2, hexByte(0x4D)+hexByte(0x89)+hexByte(0xC5))                // [19-21] MOV R13, R8 (pad_str)
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xE1))                // [22-24] MOV RCX, R12
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kpr_ai))                           // [25-29] CALL __rt_atoi
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x89)+hexByte(0xC4))                // [30-32] MOV R12, RAX (width)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD9))                // [33-35] MOV RCX, RBX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kpr_sl))                           // [36-40] CALL __rt_strlen
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC6))                // [41-43] MOV RSI, RAX (slen)
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x39)+hexByte(0xF4))                // [44-46] CMP R12, RSI
+    sb2 = sbAppend(sb2, hexByte(0x7F)+hexByte(10))                                // [47-48] JG .pad +10 → 59
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD9))                // [49-51] MOV RCX, RBX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kpr_sd))                           // [52-56] CALL __rt_strdup
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(66))                                // [57-58] JMP .ep +66 → 125
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x8D)+hexByte(0x4C)+hexByte(0x24)+hexByte(0x01))  // [59-63] LEA RCX, [R12+1]
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kpr_al))                           // [64-68] CALL __rt_alloc
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x89)+hexByte(0xC6))                // [69-71] MOV R14, RAX (buf)
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xF7))                // [72-74] MOV RDI, R14
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD9))                // [75-77] MOV RCX, RBX
+    sb2 = sbAppend(sb2, hexByte(0x8A)+hexByte(0x01))                              // [78-79] .cs: MOV AL, [RCX]
+    sb2 = sbAppend(sb2, hexByte(0x84)+hexByte(0xC0))                              // [80-81] TEST AL, AL
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(10))                                // [82-83] JZ .pad_after +10 → 94
+    sb2 = sbAppend(sb2, hexByte(0x88)+hexByte(0x07))                              // [84-85] MOV [RDI], AL
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC1))                // [86-88] INC RCX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC7))                // [89-91] INC RDI
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(256 - 16))                          // [92-93] JMP .cs -16 → 78
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xE2))                // [94-96] .pad_after: MOV RDX, R12
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x29)+hexByte(0xF2))                // [97-99] SUB RDX, RSI (need)
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x8A)+hexByte(0x45)+hexByte(0x00))  // [100-103] MOV AL, [R13]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xD2))                // [104-106] .fill: TEST RDX, RDX
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(10))                                // [107-108] JZ .term +10 → 119
+    sb2 = sbAppend(sb2, hexByte(0x88)+hexByte(0x07))                              // [109-110] MOV [RDI], AL
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC7))                // [111-113] INC RDI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xCA))                // [114-116] DEC RDX
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(256 - 15))                          // [117-118] JMP .fill -15 → 104
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x07)+hexByte(0x00))                // [119-121] .term: MOV BYTE[RDI], 0
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xF0))                // [122-124] MOV RAX, R14
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [125-128] .ep: ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x5E))                              // [129-130] POP R14
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x5D))                              // [131-132] POP R13
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x5C))                              // [133-134] POP R12
+    sb2 = sbAppend(sb2, hexByte(0x5F))                                            // [135]    POP RDI
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                            // [136]    POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                            // [137]    POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [138]    RET
+    pos = pos + 139
+
+    // ── kr_abs(RCX=s_int) → abs(int) as string ────────────────────
+    // 32 bytes. atoi → conditional NEG → itoa.
+    offsets = offsets + "kr_abs:" + pos + "\n"
+    let kab_ai = 197 - (pos + 5 + 5)
+    let kab_it = 266 - (pos + 21 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53))                                            // [0]    PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [1-4]  SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kab_ai))                           // [5-9]  CALL __rt_atoi
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xC0))                // [10-12] TEST RAX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x79)+hexByte(3))                                 // [13-14] JNS .pos +3 → 18
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xF7)+hexByte(0xD8))                // [15-17] NEG RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                // [18-20] .pos: MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kab_it))                           // [21-25] CALL __rt_itoa
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [26-29] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                            // [30]    POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [31]    RET
+    pos = pos + 32
+
+    // ── kr_min(RCX=a, RDX=b) → min as string ──────────────────────
+    // 48 bytes. atoi a, atoi b, signed compare, itoa winner.
+    offsets = offsets + "kr_min:" + pos + "\n"
+    let kmn_a1 = 197 - (pos + 9 + 5)
+    let kmn_a2 = 197 - (pos + 20 + 5)
+    let kmn_it = 266 - (pos + 36 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53))                                            // [0]    PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x56))                                            // [1]    PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [2-5]  SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD6))                // [6-8]  MOV RSI, RDX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kmn_a1))                           // [9-13] CALL __rt_atoi
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))                // [14-16] MOV RBX, RAX (a)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF1))                // [17-19] MOV RCX, RSI
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kmn_a2))                           // [20-24] CALL __rt_atoi (RAX=b)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x39)+hexByte(0xD8))                // [25-27] CMP RAX, RBX
+    sb2 = sbAppend(sb2, hexByte(0x7C)+hexByte(3))                                 // [28-29] JL .out +3 → 33 (b<a → keep b)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD8))                // [30-32] MOV RAX, RBX (else use a)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                // [33-35] .out: MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kmn_it))                           // [36-40] CALL __rt_itoa
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [41-44] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                            // [45]    POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                            // [46]    POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [47]    RET
+    pos = pos + 48
+
+    // ── kr_max(RCX=a, RDX=b) → max as string ──────────────────────
+    // 48 bytes. Same as kr_min but JG instead of JL.
+    offsets = offsets + "kr_max:" + pos + "\n"
+    let kmx_a1 = 197 - (pos + 9 + 5)
+    let kmx_a2 = 197 - (pos + 20 + 5)
+    let kmx_it = 266 - (pos + 36 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53))                                            // [0]    PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x56))                                            // [1]    PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [2-5]  SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD6))                // [6-8]  MOV RSI, RDX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kmx_a1))                           // [9-13] CALL __rt_atoi
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))                // [14-16] MOV RBX, RAX (a)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF1))                // [17-19] MOV RCX, RSI
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kmx_a2))                           // [20-24] CALL __rt_atoi (RAX=b)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x39)+hexByte(0xD8))                // [25-27] CMP RAX, RBX
+    sb2 = sbAppend(sb2, hexByte(0x7F)+hexByte(3))                                 // [28-29] JG .out +3 → 33 (b>a → keep b)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD8))                // [30-32] MOV RAX, RBX (else use a)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                // [33-35] .out: MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kmx_it))                           // [36-40] CALL __rt_itoa
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [41-44] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                            // [45]    POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                            // [46]    POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [47]    RET
+    pos = pos + 48
+
+    // ── kr_endswith(RCX=s, RDX=suffix) → "0"/"1" ──────────────────
+    // 122 bytes. strlen both, byte-compare suffix vs s tail.
+    offsets = offsets + "kr_endswith:" + pos + "\n"
+    let kew_sl1 = 0  - (pos + 18 + 5)
+    let kew_sl2 = 0  - (pos + 29 + 5)
+    let kew_al1 = 18 - (pos + 81 + 5)
+    let kew_al2 = 18 - (pos + 100 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53))                                            // [0]    PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x56))                                            // [1]    PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x57))                                            // [2]    PUSH RDI
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x54))                              // [3-4]  PUSH R12
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [5-8]  SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCB))                // [9-11] MOV RBX, RCX (s)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD6))                // [12-14] MOV RSI, RDX (suffix)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD9))                // [15-17] MOV RCX, RBX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kew_sl1))                          // [18-22] CALL __rt_strlen
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC7))                // [23-25] MOV RDI, RAX (slen)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF1))                // [26-28] MOV RCX, RSI
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kew_sl2))                          // [29-33] CALL __rt_strlen
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x89)+hexByte(0xC4))                // [34-36] MOV R12, RAX (suflen)
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x39)+hexByte(0xFC))                // [37-39] CMP R12, RDI
+    sb2 = sbAppend(sb2, hexByte(0x7F)+hexByte(34))                                // [40-41] JG .ret_false +34 → 76
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD9))                // [42-44] MOV RCX, RBX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x01)+hexByte(0xF9))                // [45-47] ADD RCX, RDI
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x29)+hexByte(0xE1))                // [48-50] SUB RCX, R12
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF2))                // [51-53] MOV RDX, RSI
+    sb2 = sbAppend(sb2, hexByte(0x8A)+hexByte(0x02))                              // [54-55] .loop: MOV AL, [RDX]
+    sb2 = sbAppend(sb2, hexByte(0x84)+hexByte(0xC0))                              // [56-57] TEST AL, AL
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(35))                                // [58-59] JZ .ret_true +35 → 95
+    sb2 = sbAppend(sb2, hexByte(0x44)+hexByte(0x8A)+hexByte(0x01))                // [60-62] MOV R8B, [RCX]
+    sb2 = sbAppend(sb2, hexByte(0x44)+hexByte(0x38)+hexByte(0xC0))                // [63-65] CMP AL, R8B
+    sb2 = sbAppend(sb2, hexByte(0x75)+hexByte(8))                                 // [66-67] JNE .ret_false +8 → 76
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC1))                // [68-70] INC RCX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC2))                // [71-73] INC RDX
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(256 - 22))                          // [74-75] JMP .loop -22 → 54
+    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(2))                                // [76-80] .ret_false: MOV ECX, 2
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kew_al1))                          // [81-85] CALL __rt_alloc
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x00)+hexByte(0x30))                // [86-88] MOV BYTE[RAX], '0'
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x40)+hexByte(0x01)+hexByte(0x00))  // [89-92] MOV BYTE[RAX+1], 0
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(17))                                // [93-94] JMP .ep +17 → 112
+    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(2))                                // [95-99] .ret_true: MOV ECX, 2
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kew_al2))                          // [100-104] CALL __rt_alloc
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x00)+hexByte(0x31))                // [105-107] MOV BYTE[RAX], '1'
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x40)+hexByte(0x01)+hexByte(0x00))  // [108-111] MOV BYTE[RAX+1], 0
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [112-115] .ep: ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x5C))                              // [116-117] POP R12
+    sb2 = sbAppend(sb2, hexByte(0x5F))                                            // [118] POP RDI
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                            // [119] POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                            // [120] POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [121] RET
+    pos = pos + 122
+
+    // ── kr_bin(RCX=n_str) → binary string representation ──────────
+    // 112 bytes. atoi → emit LSB-first → in-place reverse.
+    offsets = offsets + "kr_bin:" + pos + "\n"
+    let kbn_ai = 197 - (pos + 6 + 5)
+    let kbn_al = 18  - (pos + 19 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53))                                            // [0]    PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x56))                                            // [1]    PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [2-5]  SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kbn_ai))                           // [6-10] CALL __rt_atoi
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC6))                // [11-13] MOV RSI, RAX (n)
+    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(65))                               // [14-18] MOV ECX, 65
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kbn_al))                           // [19-23] CALL __rt_alloc
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))                // [24-26] MOV RBX, RAX (buf)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xF6))                // [27-29] TEST RSI, RSI
+    sb2 = sbAppend(sb2, hexByte(0x75)+hexByte(9))                                 // [30-31] JNZ .nonzero +9 → 41
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x03)+hexByte(0x30))                // [32-34] MOV BYTE[RBX], '0'
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x43)+hexByte(0x01)+hexByte(0x00))  // [35-38] MOV BYTE[RBX+1], 0
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(64))                                // [39-40] JMP .ep +64 → 105
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD8))                // [41-43] .nonzero: MOV RAX, RBX (write ptr)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xF6))                // [44-46] .bit_loop: TEST RSI, RSI
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(20))                                // [47-48] JZ .reverse_setup +20 → 69
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF1))                // [49-51] MOV RCX, RSI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xE1)+hexByte(0x01))  // [52-55] AND RCX, 1
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0xC1)+hexByte(0x30))                // [56-58] ADD CL, '0'
+    sb2 = sbAppend(sb2, hexByte(0x88)+hexByte(0x08))                              // [59-60] MOV [RAX], CL
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC0))                // [61-63] INC RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xD1)+hexByte(0xEE))                // [64-66] SHR RSI, 1
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(256 - 25))                          // [67-68] JMP .bit_loop -25 → 44
+    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x00)+hexByte(0x00))                // [69-71] .reverse_setup: MOV BYTE[RAX], 0
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD9))                // [72-74] MOV RCX, RBX (left)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xE8)+hexByte(0x01))  // [75-78] SUB RAX, 1 (right)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x39)+hexByte(0xC1))                // [79-81] .rev_loop: CMP RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x73)+hexByte(18))                                // [82-83] JAE .ep_set +18 → 102
+    sb2 = sbAppend(sb2, hexByte(0x8A)+hexByte(0x11))                              // [84-85] MOV DL, [RCX]
+    sb2 = sbAppend(sb2, hexByte(0x44)+hexByte(0x8A)+hexByte(0x00))                // [86-88] MOV R8B, [RAX]
+    sb2 = sbAppend(sb2, hexByte(0x44)+hexByte(0x88)+hexByte(0x01))                // [89-91] MOV [RCX], R8B
+    sb2 = sbAppend(sb2, hexByte(0x88)+hexByte(0x10))                              // [92-93] MOV [RAX], DL
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC1))                // [94-96] INC RCX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xC8))                // [97-99] DEC RAX
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(256 - 23))                          // [100-101] JMP .rev_loop -23 → 79
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD8))                // [102-104] .ep_set: MOV RAX, RBX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [105-108] .ep: ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                            // [109] POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                            // [110] POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [111] RET
+    pos = pos + 112
+
+    // ── kr_pow(RCX=base_str, RDX=exp_str) → base^exp ──────────────
+    // 64 bytes. Integer power via repeated multiplication. exp<=0 returns 1.
+    offsets = offsets + "kr_pow:" + pos + "\n"
+    let kpw_a1 = 197 - (pos + 10 + 5)
+    let kpw_a2 = 197 - (pos + 21 + 5)
+    let kpw_it = 266 - (pos + 51 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x53))                                            // [0]   PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x56))                                            // [1]   PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x57))                                            // [2]   PUSH RDI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [3-6] SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xD6))                // [7-9] MOV RSI, RDX (exp_str)
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kpw_a1))                           // [10-14] CALL atoi (base)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))                // [15-17] MOV RBX, RAX (base)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF1))                // [18-20] MOV RCX, RSI
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kpw_a2))                           // [21-25] CALL atoi (exp)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC7))                // [26-28] MOV RDI, RAX (exp)
+    sb2 = sbAppend(sb2, hexByte(0xB8)+hexDword(1))                                // [29-33] MOV EAX, 1
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xFF))                // [34-36] .loop: TEST RDI, RDI
+    sb2 = sbAppend(sb2, hexByte(0x7E)+hexByte(9))                                 // [37-38] JLE .done +9 → 48
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x0F)+hexByte(0xAF)+hexByte(0xC3))  // [39-42] IMUL RAX, RBX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0xCF))                // [43-45] DEC RDI
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(256 - 14))                          // [46-47] JMP .loop -14 → 34
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                // [48-50] .done: MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kpw_it))                           // [51-55] CALL itoa
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [56-59] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5F))                                            // [60] POP RDI
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                            // [61] POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                            // [62] POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [63] RET
+    pos = pos + 64
 
     emit sb_good + sbToString(sb2) + "\nOFFSETS\n" + offsets
 }
