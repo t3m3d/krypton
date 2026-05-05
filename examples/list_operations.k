@@ -2,6 +2,8 @@
 // Demonstrates: for-in, sort, reverse, slice, join, zip, unique, range,
 //               indexOf, sumList, maxList, minList, fill, every, some, countOf
 
+import "stdlib/native_extras.k"
+
 just run {
     kp("=== List Operations ===")
     kp("")

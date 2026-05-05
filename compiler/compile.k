@@ -2610,7 +2610,7 @@ func cRuntime() {
     r = sbAppend(r, "static char* kr_mod(const char* a, const char* b) { return kr_itoa(atoi(a) % atoi(b)); }\nstatic char* kr_neg(const char* a) { return kr_itoa(-atoi(a)); }\nstatic char* kr_not(const char* a) { return atoi(a) ? _K_ZERO : _K_ONE; }\n\nstatic char* kr_eq(const char* a, const char* b) {\n    return strcmp(a, b) == 0 ? _K_ONE : _K_ZERO;\n}\nstatic char* kr_neq(const char* a, const char* b) {\n    return strcmp(a, b) != 0 ? _K_ONE : _K_ZERO;\n")
     r = sbAppend(r, "}\nstatic char* kr_lt(const char* a, const char* b) {\n    if (kr_isnum(a) && kr_isnum(b)) return atoi(a) < atoi(b) ? _K_ONE : _K_ZERO;\n    return strcmp(a, b) < 0 ? _K_ONE : _K_ZERO;\n}\nstatic char* kr_gt(const char* a, const char* b) {\n    if (kr_isnum(a) && kr_isnum(b)) return atoi(a) > atoi(b) ? _K_ONE : _K_ZERO;\n    return strcmp(a, b) > 0 ? _K_ONE : _K_ZERO;\n")
     r = sbAppend(r, "}\nstatic char* kr_lte(const char* a, const char* b) {\n    return kr_gt(a, b) == _K_ZERO ? _K_ONE : _K_ZERO;\n}\nstatic char* kr_gte(const char* a, const char* b) {\n    return kr_lt(a, b) == _K_ZERO ? _K_ONE : _K_ZERO;\n}\n\nstatic int kr_truthy(const char* s) {\n")
-    r = sbAppend(r, "    if (!s || !*s) return 0;\n    if (strcmp(s, \"0\") == 0) return 0;\n    return 1;\n}\n\nstatic char* kr_print(const char* s) {\n")
+    r = sbAppend(r, "    if (!s || !*s) return 0;\n    if (strcmp(s, \"0\") == 0) return 0;\n    if (strcmp(s, \"false\") == 0) return 0;\n    return 1;\n}\n\nstatic char* kr_print(const char* s) {\n")
     r = sbAppend(r, "    printf(\"%s\\n\", s);\n")
     r = sbAppend(r, "    return _K_EMPTY;\n}\n\nstatic char* kr_len(const char* s) { return kr_itoa((int)strlen(s)); }\n\nstatic char* kr_idx(const char* s, int i) {\n    char buf[2] = {s[i], 0};\n    return kr_str(buf);\n}\n\nstatic char* kr_split(const char* s, const char* idxs) {\n")
     r = sbAppend(r, "    int idx = atoi(idxs);\n    int count = 0;\n    const char* start = s;\n    const char* p = s;\n    while (*p) {\n        if (*p == ',') {\n            if (count == idx) {\n                int len = (int)(p - start);\n")
@@ -2628,7 +2628,7 @@ func cRuntime() {
     r = sbAppend(r, "    if (!*s) return kr_str(\"0\");\n    int count = 1;\n    const char* p = s;\n")
     r = sbAppend(r, "    while (*p) { if (*p == '\\n') count++; p++; }\n")
     r = sbAppend(r, "    if (*(p - 1) == '\\n') count--;\n")
-    r = sbAppend(r, "    return kr_itoa(count);\n}\n\nstatic char* kr_count(const char* s) {\n    return kr_linecount(s);\n}\n\n")
+    r = sbAppend(r, "    return kr_itoa(count);\n}\n\nstatic char* kr_count(const char* s) {\n    int n = 1;\n    if (s) { const char* p = s; while (*p) { if (*p == ',') n++; p++; } }\n    return kr_itoa(n);\n}\n\n")
 
     // v0.2.0 builtins
     r = sbAppend(r, "static char* kr_writefile(const char* path, const char* data) {\n    FILE* f = fopen(path, \"wb\");\n    if (!f) return _K_ZERO;\n    fwrite(data, 1, strlen(data), f);\n    fclose(f);\n    return _K_ONE;\n}\n\n")
@@ -3924,7 +3924,7 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
 
 
 just run {
-    let kccVer = "1.6.0"
+    let kccVer = "1.6.1"
 
     // Parse flags: --version, --ir, --headers PATH, -o OUTFILE
     let irMode = 0
