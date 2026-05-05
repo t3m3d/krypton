@@ -525,62 +525,63 @@ func tokVal(tok) {
 // === C string escaping ===
 
 func cEscape(s) {
-    let out = ""
+    let sb = sbNew()
     let i = 0
     let start = 0
     while i < len(s) {
         let c = s[i]
         if c == "\\" || c == "\"" || c == "\n" || c == "\r" || c == "\t" {
             if i > start {
-                out = out + substring(s, start, i)
+                sb = sbAppend(sb, substring(s, start, i))
             }
             if c == "\\" {
-                out = out + "\\\\"
+                sb = sbAppend(sb, "\\\\")
             } else if c == "\"" {
-                out = out + "\\\""
+                sb = sbAppend(sb, "\\\"")
             } else if c == "\n" {
-                out = out + "\\n"
+                sb = sbAppend(sb, "\\n")
             } else if c == "\r" {
-                out = out + "\\r"
+                sb = sbAppend(sb, "\\r")
             } else if c == "\t" {
-                out = out + "\\t"
+                sb = sbAppend(sb, "\\t")
             }
             start = i + 1
         }
         i += 1
     }
     if i > start {
-        out = out + substring(s, start, i)
+        sb = sbAppend(sb, substring(s, start, i))
     }
-    emit out
+    emit sbToString(sb)
 }
 
 // === Expand escape sequences in string tokens ===
 
 func expandEscapes(s) {
-    let out = ""
+    let sb = sbNew()
     let i = 0
     let start = 0
     while i < len(s) {
         if s[i] == "\\" {
             if i > start {
-                out = out + substring(s, start, i)
+                sb = sbAppend(sb, substring(s, start, i))
             }
             i += 1
             if i < len(s) {
                 let c = s[i]
                 if c == "n" {
-                    out = out + "\n"
+                    sb = sbAppend(sb, "\n")
                 } else if c == "t" {
-                    out = out + "\t"
+                    sb = sbAppend(sb, "\t")
                 } else if c == "r" {
-                    out = out + "\r"
+                    sb = sbAppend(sb, "\r")
                 } else if c == "\\" {
-                    out = out + "\\"
+                    sb = sbAppend(sb, "\\")
                 } else if c == "\"" {
-                    out = out + "\""
+                    sb = sbAppend(sb, "\"")
                 } else {
-                    out = out + "\\" + c
+                    sb = sbAppend(sb, "\\")
+                    sb = sbAppend(sb, c)
                 }
             }
             start = i + 1
@@ -588,9 +589,9 @@ func expandEscapes(s) {
         i += 1
     }
     if i > start {
-        out = out + substring(s, start, i)
+        sb = sbAppend(sb, substring(s, start, i))
     }
-    emit out
+    emit sbToString(sb)
 }
 
 // === Function table helpers ===
@@ -3924,7 +3925,7 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
 
 
 just run {
-    let kccVer = "1.6.1"
+    let kccVer = "1.7.0"
 
     // Parse flags: --version, --ir, --headers PATH, -o OUTFILE
     let irMode = 0
