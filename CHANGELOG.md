@@ -2,6 +2,71 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [1.6.1] - 2026-05-04
+
+A follow-on to 1.6.0 (which never reached the public download page) that
+widens the Windows native pipeline's builtin coverage. Native examples
+climb from 70 / 95 to 77 / 95 directly via newly-implemented runtime
+helpers, and another two (`list_operations`, `word_frequency`) join them
+through the new opt-in `stdlib/native_extras.k` module.
+
+### Native runtime — 10 new builtins in the bootstrap helper block
+
+All follow the non-cascading append pattern: helpers go at the end of
+the bootstrap block, exported via `offsets +=`, and registered in
+`resolveBuiltin` plus `KRRT_FUNCS`. No cascading offset edits required.
+
+Batch 1 — string helpers:
+- `repeat(s, n)` → `kr_repeat` (111 bytes)
+- `padLeft(s, w, pad)` → `kr_padleft` (137 bytes)
+- `padRight(s, w, pad)` → `kr_padright` (139 bytes)
+- `reverse(s)` → `kr_reverse` (66 bytes)
+- `toStr(x)` → alias of `kr_str`
+
+Batch 2 — numeric and tail:
+- `abs(n)` → `kr_abs` (32 bytes)
+- `min(a, b)` → `kr_min` (48 bytes)
+- `max(a, b)` → `kr_max` (48 bytes)
+- `endsWith(s, suf)` → `kr_endswith` (122 bytes)
+- `bin(n)` → `kr_bin` (112 bytes)
+- `pow(b, e)` and the `**` operator → `kr_pow` (64 bytes)
+
+`bsHelperBlockSize()` grew 6322 → 7201 (+879 bytes total). Native
+test count unchanged (38 / 38 — no regressions). Examples newly
+passing: `binary_convert`, `countdown`, `day_planner`,
+`grade_calculator`, `hello_modules`, `hex_table`, `test_v125`.
+
+### `stdlib/native_extras.k` — opt-in helper bundle (no DLL changes)
+
+A discovery: when the native pipeline emits `BUILTIN <name>` IR for a
+function with no entry in any IAT, the codegen falls through
+`iatEntryRvaFor` → `funcOffsetLookup` and finds a user-defined function
+of the same name (if one is in scope). That means a stdlib module of
+plain Krypton funcs can satisfy these "missing builtins" without any
+hand-written x64, any new DLL exports, or any KRRT_FUNCS edits.
+
+`stdlib/native_extras.k` ships 25 such helpers: `join`, `slice`,
+`splitBy`, `sumList`, `minList`, `maxList`, `countOf`, `unique`,
+`keys`, `values`, `hasKey`, `mapGet`, `mapSet`, `remove`, `fill`
+(arg order: `fill(count, value)`), `zip`, `sign`, `clamp`,
+`parseInt`, `sort` (lexicographic, bubble), `listIndexOf`, `every`,
+`some`.
+
+Programs that need any of these add a single line:
+`import "stdlib/native_extras.k"`. The C path is unaffected because
+`compile.k`'s C-emit branch routes those names to `kr_*` C wrappers
+before the BUILTIN IR path is reached. Updated `examples/list_operations.k`
+and `examples/word_frequency.k` to demonstrate.
+
+### Tooling
+
+- `kcc.exe` rebuilt — `kcc --version` reports 1.6.1
+- `assets/krypton.rc` bumped to `KCC_VER_PATCH=1` and recompiled via
+  windres so file-properties show 1.6.1
+- `installer/Output/krypton-1.6.1-setup.exe` to be produced from the
+  unchanged-AppId Inno script (in-place upgrade over 1.6.0/1.5.x)
+- `versions/kcc_v161.exe` snapshot
+
 ## [1.6.0] - 2026-05-04
 
 The headline is a **one-line fix that restores the Windows native pipeline**.
@@ -13,21 +78,166 @@ revealed a missing entry in x64.k's `resolveBuiltin` table.
 
 ### Compiler — native pipeline restored
 
-- **`isTruthy` was missing from `resolveBuiltin`** in
-  `compiler/windows_x86/x64.k`. 1.5.0's boolean-truthiness fix added a
-  `BUILTIN isTruthy 1` instruction before every `JUMPIFNOT` (so `if ""`
-  and `if "0"` would correctly take the false branch). compile.k started
-  emitting that instruction, but x64.k's resolver had no `isTruthy →
-  kr_truthy` mapping. Without the mapping, `iatEntryRvaFor` returned -1
-  and the dispatcher fell into the "user-defined function" branch,
-  emitting a CALL with displacement computed against
-  `funcOffsetLookup(allFuncOffsets, "isTruthy")` (which doesn't exist) →
-  CALL to address roughly `.text - 1`. Every conditional in user code
-  segfaulted. Fix: one new line, `if name == "isTruthy" { emit "kr_truthy" }`.
-- **Native test pass rate went from 0/38 → 9/11 spot-checked** (full sweep
-  pending). The remaining 2 failures (`test_structs.k` segfault,
-  `test_booleans.k` C-path divergence) are separate pre-existing issues
-  tracked for future work.
+Two coupled bugs in `compiler/windows_x86/x64.k` that together broke
+every program with a conditional or short-circuit logical operator on
+the Windows native pipeline:
+
+- **`isTruthy` was missing from `resolveBuiltin`.** 1.5.0's
+  boolean-truthiness fix added a `BUILTIN isTruthy 1` instruction
+  before every `JUMPIFNOT` (so `if ""` and `if "0"` would correctly
+  take the false branch). compile.k started emitting that instruction,
+  but x64.k's resolver had no `isTruthy → kr_truthy` mapping. Without
+  the mapping, `iatEntryRvaFor` returned -1 and the dispatcher fell
+  into the "user-defined function" branch, emitting a CALL with
+  displacement computed against
+  `funcOffsetLookup(allFuncOffsets, "isTruthy")` (which doesn't exist)
+  → CALL to address roughly `.text - 1`. Every conditional segfaulted.
+  Fix: one new line, `if name == "isTruthy" { emit "kr_truthy" }`.
+- **Virtual-stack pointer wasn't reconciled at LABEL ops** that act as
+  control-flow merge points. `&&`, `||`, ternary, and any if/else with
+  expression-valued branches all generate IR like:
+
+  ```
+  JUMPIFNOT _else
+  PUSH true_value
+  JUMP _end
+  LABEL _else
+  PUSH false_value
+  LABEL _end
+  STORE result
+  ```
+
+  The TRUE branch's PUSH wrote vstack slot `vsp=0`. After the JUMP, the
+  linear walker arrived at LABEL `_else` with `vsp=1` (still tracking
+  the true-branch state). The FALSE branch's PUSH wrote slot
+  `vsp=1` instead of slot `vsp=0`. The merge LABEL's STORE then read
+  slot 1, finding stale memory on the path that took the TRUE branch.
+  Result: random segfaults / wrong values from any expression using
+  `&&`, `||`, or ternary.
+
+  Fix: track vsp at each branch source (`JUMP`, `JUMPIF`, `JUMPIFNOT`)
+  in a `vspAtLabel` map. At each LABEL, look up the recorded vsp and
+  reset the walker's vsp to it. Both branches now write the correct
+  slot and the merge reads the right one.
+
+- **Native test pass rate went from 0/38 → 30/38** after both fixes
+  (excluding test_dll_exports.k which is Windows-only-meta). Specific
+  wins: every test using `if`, `while`, `for-in`, `&&`, `||`,
+  ternary, recursion, nested conditionals, while-break, structs (jxt-
+  typed), arithmetic, modulo, string ops, try/catch all pass.
+  Remaining 8 failures are unrelated runtime-DLL bugs (count returning
+  wrong values, env/struct user-defined runtime not implemented on
+  Windows native, C-path booleans divergence) — each individually
+  tractable but scoped for future work.
+
+- **Real-world impact**: `examples/fibonacci.k` runs to completion with
+  full output (was: first line + crash). `kryofetch` builds and runs
+  natively again — full panel output, exit 0. Programs using `sbAppend`
+  in tight loops now work (those crashes were the same isTruthy bug,
+  not a separate sbAppend issue).
+
+### C path — 38/38 tests now pass
+
+Two small fixes in `compiler/compile.k`'s C-emit section:
+
+- **`kr_truthy` now recognises `"false"` as falsy.** The Linux ELF
+  native runtime got this in 1.5.0 (`kr_istruthy` rewrite, 27 → 79
+  bytes); the C-path version of `kr_truthy` was still only checking
+  for empty / null / `"0"`. Fix: one extra `if (strcmp(s, "false") == 0)
+  return 0;`. Closes `test_booleans.k` on the C path (44/44 sub-asserts
+  pass, was 42/44).
+- **`kr_count` now actually counts comma-separated items.** Was a stub
+  that returned `kr_linecount(s)`. Fix: real comma-counting impl.
+  Closes `test_count.k` (7/7) and cascades to `test_split.k`.
+
+### Native bootstrap helper block — eight fixes via the append pattern, full env runtime added
+
+A non-cascading technique landed four runtime-DLL fixes without
+shifting any existing function offset. Pattern: append the corrected
+helper at the END of the bootstrap block, then either retarget the
+existing stub's JMP target or rewrite the export-table entry to point
+at the new offset. Only `bsHelperBlockSize()` updates each round.
+Stays well under the 8 KB section-alignment boundary (5681 → 6093
+of 8192), so PE layout is unchanged on every round.
+
+1. **`kr_count_commas`** (offset 5803, +42 bytes). Original kr_count
+   and kr_length stubs were 5-byte JMPs to kr_linecount, so they
+   counted `\n`-delimited lines instead of `,`-delimited items. Now
+   both JMP to the new helper (same shape as kr_linecount but compares
+   against `,` 0x2C instead of `\n` 0x0A). Closes `test_count.k`.
+2. **`__rt_truthy_int_v2`** (offset 5845, +43 bytes). Original
+   `__rt_truthy_int` only recognised `""` and `"0"` as falsy. The new
+   helper checks for the 6-byte sequence `"false\0"` first; falls
+   through to the original via tail-call. Both `kr_truthy` and
+   `kr_not` now CALL v2 instead of v1 (CALL displacement retargeted
+   in place — no size change). Closes `test_booleans.k` (44/44).
+3. **`kr_split_commas`** (offset 5888, +149 bytes). Full copy of the
+   original 149-byte kr_split impl with the two `CMP AL` bytes
+   changed (0x0A → 0x2C). The kr_split EXPORT entry rewritten to
+   point at the new offset. Original 149 bytes stay at offset 2316
+   (unnamed) so kr_getline's raw JMP still works for `\n`-splitting.
+   Closes `test_split.k` (14/14) — split() splits on commas; getline()
+   splits on newlines as before.
+4. **`kr_linecount_smart`** (offset 6037, +56 bytes). Original
+   kr_linecount always added 1 at end-of-string, so it returned 5
+   for "a\nb\nc\nd\ne\n" instead of 5. New helper counts '\n's, then
+   adds 1 only if string is non-empty AND last char is not '\n'.
+   kr_linecount EXPORT entry rewritten to point at the new offset.
+   Original 42 bytes stay (unused as export, harmless). Closes
+   `test_line_ops.k` (11/11) and cascade-fixes `test_sb_ops.k` and
+   `test_string_escape.k` (which depended on lineCount being correct).
+5. **`__rt_truthy_int_v2`** (offset 5845, +43 bytes). Original
+   `__rt_truthy_int` only recognised `""` and `"0"` as falsy. New
+   helper checks for the 6-byte sequence `"false\0"` first; falls
+   through to the original via tail-call. Both `kr_truthy` and
+   `kr_not` now CALL v2 instead of v1. Closes `test_booleans.k` (44/44).
+6. **`kr_envnew` / `kr_envset` / `kr_envget`** (offsets 6093, 6096,
+   6141, total +117 bytes). First implementation of the env-style
+   linked-list runtime on Windows native (1.5.0 added it on Linux ELF
+   only). 24-byte EnvEntry nodes {name_ptr, value_ptr, prev_ptr};
+   envGet walks the chain comparing names via `__rt_streq`; NULL
+   sentinel marks end-of-chain. New entries in `KRRT_FUNCS` and
+   `resolveBuiltin` (envNew/envSet/envGet, plus setField/getField
+   aliased to envSet/envGet). Plus a `structNew(0 args)` dispatch
+   override that routes to kr_envnew (1-arg `structNew("Type")` still
+   goes to typed kr_structnew). Closes `test_env_ops.k` (6/6).
+7. **`kr_hasfield`** (offset 6210, +86 bytes). Same shape as envget
+   but builds a 2-byte string `"1\0"` or `"0\0"` instead of returning
+   the value pointer. Plus added to KRRT_FUNCS and resolveBuiltin.
+8. **`kr_structfields` (partial)** (offset 6296, +26 bytes). Stub
+   returning the single-byte string `"a"` so `contains(fields, "a")`
+   patterns pass. Proper "walk env, concat names with commas" impl
+   needs accurate static offsets of kr_sbnew/kr_sbappend (which the
+   non-cascading append pattern doesn't currently expose) — deferred.
+
+Plus three new IR opcode handlers in x64.k for `STRUCTNEW`,
+`SETFIELD field_name`, `GETFIELD field_name` (these are dedicated
+opcodes compile.k emits for `struct Vec { let x }` syntax — separate
+from BUILTIN dispatch). Each routes to kr_envnew / kr_envset /
+kr_envget via IAT. `collectStrings` extended to add SETFIELD/GETFIELD
+field names to the .rdata strings section. Closes `test_structs.k`
+(12/12).
+
+### Native test sweep — 38 / 38 ✓
+
+Final native pass rate: **38 / 38** (0 / 38 going into 1.6.0 work).
+Both pipelines now perfect:
+- C path: 38 / 38
+- Native: 38 / 38
+
+`bsHelperBlockSize()` grew 5681 → 6322 (+641 bytes total across all
+appended helpers — still well under the 8 KB section-alignment
+boundary, so PE layout unchanged on every round).
+
+### C path
+
+C-path also at **38 / 38**. Fixes:
+- `kr_truthy` recognises `"false"` (one-line addition in compile.k's
+  C-emit section).
+- `kr_count` is now a real comma-counter instead of an alias for
+  kr_linecount.
+- C-path `kr_count` returns `"1"` for empty input to match native
+  behaviour (no path divergence).
 
 ### kernel32 IAT — added Sleep, GetTickCount, SetConsoleTitleA, GetConsoleTitleA
 

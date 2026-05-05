@@ -1,3 +1,5 @@
+import "stdlib/native_extras.k"
+
 // Word frequency analyzer
 // Demonstrates: for-in, compound assignment (+=), keys, values, hasKey,
 //               splitBy, sort, const, ternary
