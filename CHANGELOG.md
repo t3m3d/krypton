@@ -4,66 +4,113 @@ All notable changes to the Krypton language and compiler.
 
 ## [1.7.5] - 2026-05-04
 
-GC API surface introduction. Ships the `gcStats()` / `gcCollect()` /
-`gcLimit(n)` builtin signatures so user programs can be written
-against the final shape of the 2.0 garbage collector now, even
-though the bodies are placeholders. Real implementations land in
-1.7.6 (arena slabs + circuit breaker) and 2.0 (mark-sweep).
+**GC starts actually working.** 1.7.5 adds the first real allocation
+tracking and soft-limit enforcement to the Windows native runtime.
+Programs can read `gcAllocated()` to see total bytes ever allocated,
+and `gcSetLimit(n)` installs a circuit breaker that aborts the
+process cleanly with `ExitProcess(99)` if total allocation crosses
+the cap. The bootstrap DLL grew its first writable data slot.
 
-### Why ship the API before the implementation
+### Bootstrap DLL — writable globals + tracked allocator
 
-Two reasons. First, programs that *will* care about GC settings
-(long-running services, the planned LSP, anything that allocates
-in a loop) can already write `import "stdlib/native_extras.k"` and
-call `gcLimit(...)` / `gcStats()` today, then upgrade to 1.7.6
-without touching their source. Second, decoupling the API from the
-runtime work lets us validate the surface (function names, arg
-shapes, return formats) in real code before committing to it in
-the bootstrap DLL.
+- New 32-byte zero-initialised slot at the very start of the
+  bootstrap DLL's `.rdata` section, holding the GC globals:
+  `[+0] alloc_total` (qword), `[+8] alloc_limit` (qword),
+  `[+16..+31]` reserved.
+- `.rdata` characteristics flipped from `0x40000040` (read-only) to
+  `0xC0000040` (read+write) so the slot is writable at runtime.
+- The import table and export table now start at `.rdata + 32`
+  instead of `.rdata + 0`. RVA computations updated; PE layout
+  otherwise unchanged.
+- `__rt_alloc` (the 34-byte slot at offset 18 in the bootstrap
+  helper block) now tail-jumps via `JMP rel32` to a new
+  `__rt_alloc_v2` helper appended at the end of the block. The
+  slot stays 34 bytes so every existing `CALL __rt_alloc` site
+  still resolves correctly &mdash; no offset cascading.
+- `__rt_alloc_v2`: adds the requested size to `alloc_total`, loads
+  `alloc_limit`; if the limit is non-zero and total exceeds it,
+  calls `ExitProcess(99)`; otherwise calls `GetProcessHeap` +
+  `HeapAlloc` as before.
 
-### What's in 1.7.5
+### Four new runtime primitives, exported from `krypton_rt.dll`
 
-- `stdlib/native_extras.k` adds three GC builtins:
-  - `gcStats()` &mdash; returns `"<allocated>,<limit>"` once Tier 2 lands.
-    Today returns the literal `"0,0"`.
-  - `gcCollect()` &mdash; returns bytes reclaimed once Tier 3
-    mark-sweep lands. Today returns `0`.
-  - `gcLimit(n)` &mdash; sets a soft allocation cap. Tier 2 wires this
-    to `__rt_alloc`'s circuit breaker. Today echoes `n` back.
-- All three are pure-Krypton placeholders. No bootstrap DLL changes,
-  no `__rt_alloc` modification, no new IAT entries.
+- `kr_gc_allocated()` &mdash; returns total bytes allocated since
+  process start (int-string).
+- `kr_gc_limit()` &mdash; returns current soft limit (int-string;
+  `0` = unlimited).
+- `kr_gc_set_limit(n)` &mdash; sets the limit; returns the original
+  input string.
+- `kr_gc_collect()` &mdash; placeholder, returns `"0"`. Tier 3
+  mark-sweep gives this real semantics in 2.0.
 
-### What 1.7.5 explicitly does NOT ship
+`KRRT_FUNCS` grew by 4. `bsHelperBlockSize()` grew 7201 &rarr; 7368
+(+167 bytes: 76 for `__rt_alloc_v2`, 21 each for `kr_gc_allocated`
+and `kr_gc_limit`, 23 for `kr_gc_set_limit`, 26 for `kr_gc_collect`).
 
-- No actual allocation tracking. Krypton's bump arena still grows
-  monotonically.
-- No reclamation. `gcCollect()` is a no-op.
-- No enforcement of `gcLimit(n)`. Programs that exceed it won't
-  abort.
-- The 50 GB kcc.exe blowup scenario is mitigated by 1.7.0's
-  StringBuilder refactor (less O(N&sup2;) growth) but not eliminated.
+### Compiler bindings
+
+- `compiler/windows_x86/x64.k`'s `resolveBuiltin` maps
+  `gcAllocated` &rarr; `kr_gc_allocated`, `gcLimit` &rarr; `kr_gc_limit`,
+  `gcSetLimit` &rarr; `kr_gc_set_limit`, `gcCollect` &rarr; `kr_gc_collect`.
+- `compiler/compile.k`'s builtin list adds the four names so calls
+  emit the `BUILTIN` IR opcode (rather than falling through to
+  user-function lookup).
+- `stdlib/native_extras.k` now provides a `gcStats()` convenience
+  wrapper that returns `"<allocated>,<limit>"` by calling the two
+  primitives and concatenating.
+
+### Verified end-to-end
+
+- `gcAllocated()` returns `0` at process start, climbs as strings
+  are concatenated. Confirmed monotonic increase across multiple
+  reads.
+- `gcSetLimit(100)` followed by a string-allocating loop aborts
+  the program with rc=99 instead of pinning RAM.
+- Fibonacci compiles to the same 8192-byte PE and runs cleanly
+  &mdash; existing `__rt_alloc` callers (every `CALL` to offset 18)
+  transparently get the new tracking.
+- `examples/test_builtins.k` (repeat/padLeft/padRight/reverse)
+  passes unchanged.
+
+### What 1.7.5 still does NOT ship
+
+- No reclamation. `gcCollect()` is still a placeholder. The
+  bump arena still grows monotonically; only the *limit* enforcement
+  is new. Programs that allocate beyond the limit abort rather
+  than reclaim.
+- Single-threaded only. The `ADD [RIP+disp], RCX` is not `LOCK`-
+  prefixed, so multi-threaded use would race. Krypton has no
+  threading yet, so this is fine for 1.7.x.
+- Linux ELF and macOS arm64 backends not yet updated. Windows
+  native is the lead platform for the GC infrastructure work
+  through 2.0; the other two pick it up before final 2.0.
 
 ### Roadmap
 
-- **1.7.6** &mdash; Tier 2 of the GC plan. Arena slab allocator with
-  per-allocation tracking and a real `gcLimit(n)` circuit breaker
-  in `__rt_alloc`. Requires a writable `.data` section in the
-  bootstrap DLL (PE structural change), so it's its own session.
+- **1.7.6** &mdash; arena slab allocator: replace per-string `HeapAlloc`
+  with bulk slab allocation, add `kr_arena_reset()` for explicit
+  scope-bound bulk free. Less GC pressure; foundation for epoch
+  reset.
 - **2.0** &mdash; Tier 3. Real mark-sweep collector with
   shadow-stack roots, ABI break, full `gcCollect()` semantics.
+  Plus the C-style low-level memory layer (typed pointers, `let
+  local` stack allocation, restricted `asm` blocks), lambdas in
+  native, concurrency, ARM64 Linux backend, LSP.
 
-See `docs/v20_plan.md` for the full sequencing including the C-style
-low-level memory layer, lambdas in native, concurrency, ARM64 Linux
-backend, and LSP.
+See `docs/v20_plan.md` for the full sequencing.
 
 ### Tooling
 
 - `kcc.exe` rebuilt &mdash; `kcc --version` reports 1.7.5
 - `assets/krypton.rc` bumped to `KCC_VER_PATCH=5` and recompiled via
   windres so file properties show 1.7.5
+- `runtime/krypton_rt.dll` rebuilt: 11776 &rarr; 12288 bytes (the new
+  helpers + the GC globals slot push it over a page boundary)
 - `installer/Output/krypton-1.7.5-setup.exe` produced from the
   unchanged-AppId Inno script (in-place upgrade over 1.6.x / 1.7.0)
 - `versions/kcc_v175.exe` snapshot
+- `bootstrap/x64_host_windows_x86_64.exe` and
+  `bootstrap/krypton_rt_windows.dll` synced
 - `RELEASE_NOTES_1.7.5.txt` in the repo root
 
 ## [1.7.0] - 2026-05-04
