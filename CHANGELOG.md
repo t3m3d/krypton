@@ -2,6 +2,70 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [1.7.5] - 2026-05-04
+
+GC API surface introduction. Ships the `gcStats()` / `gcCollect()` /
+`gcLimit(n)` builtin signatures so user programs can be written
+against the final shape of the 2.0 garbage collector now, even
+though the bodies are placeholders. Real implementations land in
+1.7.6 (arena slabs + circuit breaker) and 2.0 (mark-sweep).
+
+### Why ship the API before the implementation
+
+Two reasons. First, programs that *will* care about GC settings
+(long-running services, the planned LSP, anything that allocates
+in a loop) can already write `import "stdlib/native_extras.k"` and
+call `gcLimit(...)` / `gcStats()` today, then upgrade to 1.7.6
+without touching their source. Second, decoupling the API from the
+runtime work lets us validate the surface (function names, arg
+shapes, return formats) in real code before committing to it in
+the bootstrap DLL.
+
+### What's in 1.7.5
+
+- `stdlib/native_extras.k` adds three GC builtins:
+  - `gcStats()` &mdash; returns `"<allocated>,<limit>"` once Tier 2 lands.
+    Today returns the literal `"0,0"`.
+  - `gcCollect()` &mdash; returns bytes reclaimed once Tier 3
+    mark-sweep lands. Today returns `0`.
+  - `gcLimit(n)` &mdash; sets a soft allocation cap. Tier 2 wires this
+    to `__rt_alloc`'s circuit breaker. Today echoes `n` back.
+- All three are pure-Krypton placeholders. No bootstrap DLL changes,
+  no `__rt_alloc` modification, no new IAT entries.
+
+### What 1.7.5 explicitly does NOT ship
+
+- No actual allocation tracking. Krypton's bump arena still grows
+  monotonically.
+- No reclamation. `gcCollect()` is a no-op.
+- No enforcement of `gcLimit(n)`. Programs that exceed it won't
+  abort.
+- The 50 GB kcc.exe blowup scenario is mitigated by 1.7.0's
+  StringBuilder refactor (less O(N&sup2;) growth) but not eliminated.
+
+### Roadmap
+
+- **1.7.6** &mdash; Tier 2 of the GC plan. Arena slab allocator with
+  per-allocation tracking and a real `gcLimit(n)` circuit breaker
+  in `__rt_alloc`. Requires a writable `.data` section in the
+  bootstrap DLL (PE structural change), so it's its own session.
+- **2.0** &mdash; Tier 3. Real mark-sweep collector with
+  shadow-stack roots, ABI break, full `gcCollect()` semantics.
+
+See `docs/v20_plan.md` for the full sequencing including the C-style
+low-level memory layer, lambdas in native, concurrency, ARM64 Linux
+backend, and LSP.
+
+### Tooling
+
+- `kcc.exe` rebuilt &mdash; `kcc --version` reports 1.7.5
+- `assets/krypton.rc` bumped to `KCC_VER_PATCH=5` and recompiled via
+  windres so file properties show 1.7.5
+- `installer/Output/krypton-1.7.5-setup.exe` produced from the
+  unchanged-AppId Inno script (in-place upgrade over 1.6.x / 1.7.0)
+- `versions/kcc_v175.exe` snapshot
+- `RELEASE_NOTES_1.7.5.txt` in the repo root
+
 ## [1.7.0] - 2026-05-04
 
 Memory-plumbing release. Tier 1 of the [2.0 GC plan](docs/v20_plan.md)
