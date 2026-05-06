@@ -447,7 +447,7 @@ func emitStringTable(strs) {
 
 let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA"
 let KRUSER_FUNCS = "GetSystemMetrics"
-let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword,kr_envnew,kr_envset,kr_envget,kr_hasfield,kr_structfields,kr_repeat,kr_padleft,kr_padright,kr_reverse,kr_abs,kr_min,kr_max,kr_endswith,kr_bin,kr_pow,kr_gc_allocated,kr_gc_limit,kr_gc_set_limit,kr_gc_collect,kr_arena_reset"
+let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword,kr_envnew,kr_envset,kr_envget,kr_hasfield,kr_structfields,kr_repeat,kr_padleft,kr_padright,kr_reverse,kr_abs,kr_min,kr_max,kr_endswith,kr_bin,kr_pow,kr_gc_allocated,kr_gc_limit,kr_gc_set_limit,kr_gc_collect,kr_arena_reset,kr_gc_checkpoint,kr_gc_restore"
 let KRADV_FUNCS = "RegOpenKeyExA,RegQueryValueExA,RegEnumKeyExA,RegCloseKey,GetUserNameA"
 let KRPDH_FUNCS = "PdhOpenQueryA,PdhAddEnglishCounterA,PdhCollectQueryData,PdhGetFormattedCounterArrayA,PdhCloseQuery"
 
@@ -556,6 +556,8 @@ func resolveBuiltin(name) {
     if name == "gcSetLimit"     { emit "kr_gc_set_limit" }
     if name == "gcCollect"      { emit "kr_gc_collect" }
     if name == "gcReset"        { emit "kr_arena_reset" }
+    if name == "gcCheckpoint"   { emit "kr_gc_checkpoint" }
+    if name == "gcRestore"      { emit "kr_gc_restore" }
     emit name
 }
 
@@ -1942,7 +1944,7 @@ func emitSectionHeader(name, virtSize, virtAddr, rawSize, rawOffset, characteris
 //   OFF_ARGP=3407   OFF_ARGC=3607  OFF_ARG=3657
 //   TOTAL=3737
 
-func bsHelperBlockSize() { emit 7485 }   // 5681 → 5803 (kr_print/'\n' + kr_environ) → 5845 (+42 kr_count_commas) → 5888 (+43 __rt_truthy_int_v2) → 6037 (+149 kr_split_commas) → 6093 (+56 kr_linecount_smart) → 6210 (+3 kr_envnew + 45 kr_envset + 69 kr_envget) → 6322 (+86 kr_hasfield + 26 kr_structfields stub) → 6775 (+66 kr_reverse + 111 kr_repeat + 137 kr_padleft + 139 kr_padright) → 7025 (+32 kr_abs + 48 kr_min + 48 kr_max + 122 kr_endswith) → 7137 (+112 kr_bin) → 7201 (+64 kr_pow) → 7368 (1.7.5: +76 __rt_alloc_v2 + 21 kr_gc_allocated + 21 kr_gc_limit + 23 kr_gc_set_limit + 26 kr_gc_collect) → 7485 (1.7.6: __rt_alloc_v2 grew 76→172 = +96, +21 kr_arena_reset)
+func bsHelperBlockSize() { emit 7818 }   // 1.7.8: kr_gc_checkpoint grew 52→62 (warmup alloc fix for fresh-process restore)   // 5681 → 5803 (kr_print/'\n' + kr_environ) → 5845 (+42 kr_count_commas) → 5888 (+43 __rt_truthy_int_v2) → 6037 (+149 kr_split_commas) → 6093 (+56 kr_linecount_smart) → 6210 (+3 kr_envnew + 45 kr_envset + 69 kr_envget) → 6322 (+86 kr_hasfield + 26 kr_structfields stub) → 6775 (+66 kr_reverse + 111 kr_repeat + 137 kr_padleft + 139 kr_padright) → 7025 (+32 kr_abs + 48 kr_min + 48 kr_max + 122 kr_endswith) → 7137 (+112 kr_bin) → 7201 (+64 kr_pow) → 7368 (1.7.5: +76 __rt_alloc_v2 + 21 kr_gc_allocated + 21 kr_gc_limit + 23 kr_gc_set_limit + 26 kr_gc_collect) → 7485 (1.7.6: __rt_alloc_v2 grew 76→172 = +96, +21 kr_arena_reset) → 7666 (1.7.7: __rt_alloc_v2 grew 172→277 = +105, kr_arena_reset grew 21→97 = +76)
 
 // Export offset lookup for bootstrap mode: returns "kr_name:offset\n..." table
 func bootstrapExportOffsets() {
@@ -5471,79 +5473,116 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     pos = pos + 64
 
     // ── __rt_alloc_v2(RCX=size) → RAX=ptr ─────────────────────────
-    // 172 bytes. 1.7.6 arena slab allocator. Tracks alloc_total + checks
-    // soft limit (1.7.5 semantics). Then bump-allocates from a 64 MB
-    // slab kept in gcGlobals[16..23]; falls back to per-call HeapAlloc
-    // if the slab is full. The slab is allocated lazily on first call
-    // and recycled by gcReset() (kr_arena_reset).
+    // 277 bytes. 1.7.7 multi-slab arena allocator. Same tracking + soft
+    // limit semantics as 1.7.6, but instead of falling back to per-call
+    // HeapAlloc when the slab fills, allocates a NEW 64 MB slab and
+    // links it into the chain. gcReset() walks the chain and frees all
+    // slabs except the first one. The huge-allocation fallback (size >
+    // SLAB_SIZE-8) still goes straight to HeapAlloc.
     //
-    // gcGlobals layout (32 bytes total):
+    // gcGlobals layout (48 bytes, expanded from 32 in 1.7.6):
     //   +0  alloc_total (qword)
     //   +8  alloc_limit (qword)
-    //   +16 slab_base   (qword) — 0 if slab not yet allocated
-    //   +24 slab_off    (qword) — bytes used in current slab
-    let v2_total_add        = gcGlobalsRva + 0  - (textRva + pos + 15)
-    let v2_limit_load       = (gcGlobalsRva + 8) - (textRva + pos + 22)
-    let v2_total_load       = gcGlobalsRva + 0  - (textRva + pos + 34)
-    let v2_exit_disp        = iatK32Rva + 0 * 8  - (textRva + pos + 50)
-    let v2_slab_base_load   = (gcGlobalsRva + 16) - (textRva + pos + 65)
-    let v2_slab_off_load    = (gcGlobalsRva + 24) - (textRva + pos + 77)
-    let v2_slab_off_update  = (gcGlobalsRva + 24) - (textRva + pos + 100)
-    let v2_gph1_disp        = iatK32Rva + 29 * 8 - (textRva + pos + 108)
-    let v2_ha1_disp         = iatK32Rva + 26 * 8 - (textRva + pos + 125)
-    let v2_slab_base_store  = (gcGlobalsRva + 16) - (textRva + pos + 137)
-    let v2_slab_off_init    = (gcGlobalsRva + 24) - (textRva + pos + 144)
-    let v2_gph2_disp        = iatK32Rva + 29 * 8 - (textRva + pos + 152)
-    let v2_ha2_disp         = iatK32Rva + 26 * 8 - (textRva + pos + 166)
+    //   +16 slab_first  (qword) — head of slab linked list (NEW in 1.7.7)
+    //   +24 slab_curr   (qword) — current allocation slab (was +16)
+    //   +32 slab_off    (qword) — bytes used in slab_curr (was +24)
+    //   +40 reserved    (qword)
+    //
+    // Each slab: [0..7] = ptr to next slab (NULL if last), [8..63MB+8] = payload.
+    // slab_off starts at 8 (past the next-pointer prefix).
+    let v2_total_add         = (gcGlobalsRva + 0)  - (textRva + pos + 16)
+    let v2_limit_load        = (gcGlobalsRva + 8)  - (textRva + pos + 23)
+    let v2_total_load        = (gcGlobalsRva + 0)  - (textRva + pos + 35)
+    let v2_exit_disp         = iatK32Rva + 0 * 8   - (textRva + pos + 51)
+    let v2_slab_curr_load    = (gcGlobalsRva + 24) - (textRva + pos + 79)
+    let v2_slab_off_load     = (gcGlobalsRva + 32) - (textRva + pos + 91)
+    let v2_slab_off_update   = (gcGlobalsRva + 32) - (textRva + pos + 114)
+    // .first_slab at 119
+    let v2_gph1_disp         = iatK32Rva + 29 * 8  - (textRva + pos + 125)
+    let v2_ha1_disp          = iatK32Rva + 26 * 8  - (textRva + pos + 142)
+    let v2_slab_first_store  = (gcGlobalsRva + 16) - (textRva + pos + 154)
+    let v2_slab_curr_store_a = (gcGlobalsRva + 24) - (textRva + pos + 161)
+    let v2_slab_off_init_a   = (gcGlobalsRva + 32) - (textRva + pos + 179)
+    // .new_slab at 185
+    let v2_gph2_disp         = iatK32Rva + 29 * 8  - (textRva + pos + 194)
+    let v2_ha2_disp          = iatK32Rva + 26 * 8  - (textRva + pos + 211)
+    let v2_slab_curr_store_b = (gcGlobalsRva + 24) - (textRva + pos + 233)
+    let v2_slab_off_init_b   = (gcGlobalsRva + 32) - (textRva + pos + 244)
+    // .huge_alloc at 250
+    let v2_gph3_disp         = iatK32Rva + 29 * 8  - (textRva + pos + 256)
+    let v2_ha3_disp          = iatK32Rva + 26 * 8  - (textRva + pos + 270)
     sb2 = sbAppend(sb2, hexByte(0x53))                                                       // [0]     PUSH RBX
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x30))             // [1-4]   SUB RSP, 0x30
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCB))                           // [5-7]   MOV RBX, RCX (save size)
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x01)+hexByte(0x0D)+hexDword(v2_total_add))    // [8-14]  ADD [RIP+alloc_total], RCX
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x0D)+hexDword(v2_limit_load))   // [15-21] MOV RCX, [RIP+alloc_limit]
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xC9))                           // [22-24] TEST RCX, RCX
-    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(23))                                           // [25-26] JZ .no_limit +23 → 50
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x15)+hexDword(v2_total_load))   // [27-33] MOV RDX, [RIP+alloc_total]
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x39)+hexByte(0xCA))                           // [34-36] CMP RDX, RCX (total vs limit)
-    sb2 = sbAppend(sb2, hexByte(0x76)+hexByte(11))                                           // [37-38] JBE .no_limit +11 → 50
-    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(99))                                          // [39-43] MOV ECX, 99
-    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(v2_exit_disp))                  // [44-49] CALL [ExitProcess]
-    // .no_limit at 50: align RBX up to 8 bytes
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC3)+hexByte(0x07))             // [50-53] ADD RBX, 7
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xE3)+hexByte(0xF8))             // [54-57] AND RBX, -8
-    // Try slab path
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x05)+hexDword(v2_slab_base_load))   // [58-64] MOV RAX, [RIP+slab_base]
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xC0))                           // [65-67] TEST RAX, RAX
-    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(32))                                           // [68-69] JZ .alloc_slab +32 → 102
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x15)+hexDword(v2_slab_off_load))    // [70-76] MOV RDX, [RIP+slab_off]
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8D)+hexByte(0x0C)+hexByte(0x1A))             // [77-80] LEA RCX, [RDX+RBX]
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x81)+hexByte(0xF9)+hexDword(67108864))        // [81-87] CMP RCX, 64MB (0x04000000)
-    sb2 = sbAppend(sb2, hexByte(0x77)+hexByte(56))                                           // [88-89] JA .fallback +56 → 146
-    // Slab succeeds
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x01)+hexByte(0xD0))                           // [90-92] ADD RAX, RDX (ptr = base + off)
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x0D)+hexDword(v2_slab_off_update))  // [93-99] MOV [RIP+slab_off], RCX (new offset)
-    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(64))                                           // [100-101] JMP .epilogue +64 → 166
-    // .alloc_slab at 102: HeapAlloc(64MB)
-    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(v2_gph1_disp))                  // [102-107] CALL [GetProcessHeap]
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                           // [108-110] MOV RCX, RAX
-    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xD2))                                         // [111-112] XOR EDX, EDX
-    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0xB8)+hexDword(67108864))                      // [113-118] MOV R8d, 64MB
-    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(v2_ha1_disp))                   // [119-124] CALL [HeapAlloc]
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xC0))                           // [125-127] TEST RAX, RAX
-    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(16))                                           // [128-129] JZ .fallback +16 → 146
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x05)+hexDword(v2_slab_base_store))  // [130-136] MOV [RIP+slab_base], RAX
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x1D)+hexDword(v2_slab_off_init))    // [137-143] MOV [RIP+slab_off], RBX (init off=size)
-    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(20))                                           // [144-145] JMP .epilogue +20 → 166 (RAX=slab base=ptr)
-    // .fallback at 146: per-call HeapAlloc(size)
-    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(v2_gph2_disp))                  // [146-151] CALL [GetProcessHeap]
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                           // [152-154] MOV RCX, RAX
-    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xD2))                                         // [155-156] XOR EDX, EDX
-    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x89)+hexByte(0xD8))                           // [157-159] MOV R8, RBX
-    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(v2_ha2_disp))                   // [160-165] CALL [HeapAlloc]
-    // .epilogue at 166
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x30))             // [166-169] ADD RSP, 0x30
-    sb2 = sbAppend(sb2, hexByte(0x5B))                                                       // [170]    POP RBX
-    sb2 = sbAppend(sb2, hexByte(0xC3))                                                       // [171]    RET
-    pos = pos + 172
+    sb2 = sbAppend(sb2, hexByte(0x56))                                                       // [1]     PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))             // [2-5]   SUB RSP, 0x28 (3 pushes incl RIP = 32, +40 = 72 mod 16 = 8 — WRONG: see align below)
+    // Stack at this point: 8 (RIP at fn entry) + 8 (RBX) + 8 (RSI) + 40 (SUB) = 64 mod 16 = 0. Good for inner CALLs.
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCB))                           // [6-8]   MOV RBX, RCX (save size)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x01)+hexByte(0x0D)+hexDword(v2_total_add))    // [9-15]  ADD [RIP+alloc_total], RCX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x0D)+hexDword(v2_limit_load))   // [16-22] MOV RCX, [RIP+alloc_limit]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xC9))                           // [23-25] TEST RCX, RCX
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(23))                                           // [26-27] JZ .no_limit +23 → 51
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x15)+hexDword(v2_total_load))   // [28-34] MOV RDX, [RIP+alloc_total]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x39)+hexByte(0xCA))                           // [35-37] CMP RDX, RCX
+    sb2 = sbAppend(sb2, hexByte(0x76)+hexByte(11))                                           // [38-39] JBE .no_limit +11 → 51
+    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(99))                                          // [40-44] MOV ECX, 99
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(v2_exit_disp))                  // [45-50] CALL [ExitProcess]
+    // .no_limit at 51
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC3)+hexByte(0x07))             // [51-54] ADD RBX, 7
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xE3)+hexByte(0xF8))             // [55-58] AND RBX, -8
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x81)+hexByte(0xFB)+hexByte(0xF8)+hexByte(0xFF)+hexByte(0xFF)+hexByte(0x03))  // [59-65] CMP RBX, 67108856 (SLAB_SIZE-8)
+    sb2 = sbAppend(sb2, hexByte(0x0F)+hexByte(0x87)+hexDword(178))                           // [66-71] JA .huge_alloc rel32 → 250 (disp = 250-72 = 178)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x05)+hexDword(v2_slab_curr_load))   // [72-78] MOV RAX, [RIP+slab_curr]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xC0))                           // [79-81] TEST RAX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(35))                                           // [82-83] JZ .first_slab +35 → 119
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x15)+hexDword(v2_slab_off_load))    // [84-90] MOV RDX, [RIP+slab_off]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8D)+hexByte(0x0C)+hexByte(0x1A))             // [91-94] LEA RCX, [RDX+RBX]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x81)+hexByte(0xF9)+hexDword(67108864))        // [95-101] CMP RCX, 67108864 (SLAB_SIZE = 64MB)
+    sb2 = sbAppend(sb2, hexByte(0x77)+hexByte(81))                                           // [102-103] JA .new_slab +81 → 185
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x01)+hexByte(0xD0))                           // [104-106] ADD RAX, RDX (ptr = curr + off)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x0D)+hexDword(v2_slab_off_update))  // [107-113] MOV [RIP+slab_off], RCX
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(151))                                         // [114-118] JMP .epilogue rel32 → 270 (disp = 270-119 = 151)
+    // .first_slab at 119
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(v2_gph1_disp))                  // [119-124] CALL [GetProcessHeap]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                           // [125-127] MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xD2))                                         // [128-129] XOR EDX, EDX
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0xB8)+hexDword(67108864))                      // [130-135] MOV R8d, 67108864
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(v2_ha1_disp))                   // [136-141] CALL [HeapAlloc]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xC0))                           // [142-144] TEST RAX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(103))                                          // [145-146] JZ .huge_alloc +103 → 250
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x05)+hexDword(v2_slab_first_store))  // [147-153] MOV [RIP+slab_first], RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x05)+hexDword(v2_slab_curr_store_a)) // [154-160] MOV [RIP+slab_curr], RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xC7)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00))  // [161-167] MOV QWORD [RAX], 0 (next=NULL)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8D)+hexByte(0x4B)+hexByte(0x08))             // [168-171] LEA RCX, [RBX+8] (slab_off = size+8)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x0D)+hexDword(v2_slab_off_init_a))  // [172-178] MOV [RIP+slab_off], RCX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC0)+hexByte(0x08))             // [179-182] ADD RAX, 8 (ptr = new + 8)
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(85))                                           // [183-184] JMP .epilogue +85 → 270
+    // .new_slab at 185
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC6))                           // [185-187] MOV RSI, RAX (save old slab_curr)
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(v2_gph2_disp))                  // [188-193] CALL [GetProcessHeap]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                           // [194-196] MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xD2))                                         // [197-198] XOR EDX, EDX
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0xB8)+hexDword(67108864))                      // [199-204] MOV R8d, 67108864
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(v2_ha2_disp))                   // [205-210] CALL [HeapAlloc]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xC0))                           // [211-213] TEST RAX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(34))                                           // [214-215] JZ .huge_alloc +34 → 250
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x06))                           // [216-218] MOV [RSI], RAX (old->next = new)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xC7)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00))  // [219-225] MOV QWORD [RAX], 0 (new->next = NULL)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x05)+hexDword(v2_slab_curr_store_b)) // [226-232] MOV [RIP+slab_curr], RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8D)+hexByte(0x4B)+hexByte(0x08))             // [233-236] LEA RCX, [RBX+8]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x0D)+hexDword(v2_slab_off_init_b))  // [237-243] MOV [RIP+slab_off], RCX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC0)+hexByte(0x08))             // [244-247] ADD RAX, 8
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(20))                                           // [248-249] JMP .epilogue +20 → 270
+    // .huge_alloc at 250: per-call HeapAlloc(size)
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(v2_gph3_disp))                  // [250-255] CALL [GetProcessHeap]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                           // [256-258] MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xD2))                                         // [259-260] XOR EDX, EDX
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x89)+hexByte(0xD8))                           // [261-263] MOV R8, RBX
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(v2_ha3_disp))                   // [264-269] CALL [HeapAlloc]
+    // .epilogue at 270
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))             // [270-273] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                                       // [274]    POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                                       // [275]    POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                                       // [276]    RET
+    pos = pos + 277
 
     // ── kr_gc_allocated() → int-string of total bytes allocated ────
     // 21 bytes. Reads gcGlobals[0] and tail-calls __rt_itoa.
@@ -5597,23 +5636,141 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     pos = pos + 26
 
     // ── kr_arena_reset() → "0" ─────────────────────────────────────
-    // 1.7.6: Tier 2 arena recycle. Zeroes slab_off so the slab is reused
-    // from the start, and resets alloc_total so subsequent gcAllocated()
-    // readings start at 0. Memory in the slab is NOT freed — it's just
-    // re-bumpable. Off-slab fallback allocations (the rare ones) are
-    // not reclaimed; they stay alive until process exit. Returns "0"
-    // for IR convention via tail-jump to kr_gc_collect.
+    // 1.7.7: walks the slab linked list, frees every slab AFTER the first
+    // via HeapFree, then re-sets state to "single slab, empty" — slab_curr
+    // = slab_first, slab_off = 8 (past the next-pointer header), alloc_total
+    // = 0. Returns "0" via tail-jump to kr_gc_collect.
     offsets = offsets + "kr_arena_reset:" + pos + "\n"
-    let kar_off_store   = (gcGlobalsRva + 24) - (textRva + pos + 9)
-    let kar_total_store = (gcGlobalsRva + 0)  - (textRva + pos + 16)
-    // kr_gc_collect was just emitted 26 bytes back; its start = pos - 26
-    let kar_jmp_target  = pos - 26
-    let kar_jmp_disp    = kar_jmp_target - (pos + 21)
-    sb2 = sbAppend(sb2, hexByte(0x31)+hexByte(0xC0))                                          // [0-1]   XOR EAX, EAX (zero-extends to RAX)
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x05)+hexDword(kar_off_store))    // [2-8]   MOV [RIP+slab_off], RAX
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x05)+hexDword(kar_total_store))  // [9-15]  MOV [RIP+alloc_total], RAX
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(kar_jmp_disp))                                 // [16-20] JMP kr_gc_collect (returns "0")
-    pos = pos + 21
+    let kar_first_load   = (gcGlobalsRva + 16) - (textRva + pos + 14)
+    let kar_gph_disp     = iatK32Rva + 29 * 8  - (textRva + pos + 36)
+    let kar_hf_disp      = iatK32Rva + 27 * 8  - (textRva + pos + 50)  // HeapFree at IAT idx 27
+    let kar_curr_store   = (gcGlobalsRva + 24) - (textRva + pos + 67)
+    let kar_off_store    = (gcGlobalsRva + 32) - (textRva + pos + 78)
+    let kar_total_store  = (gcGlobalsRva + 0)  - (textRva + pos + 85)
+    // kr_gc_collect was emitted 26 bytes before kr_arena_reset
+    let kar_jmp_target   = pos - 26
+    let kar_jmp_disp     = kar_jmp_target - (pos + 97)
+    sb2 = sbAppend(sb2, hexByte(0x53))                                                        // [0]     PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x56))                                                        // [1]     PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x57))                                                        // [2]     PUSH RDI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x20))              // [3-6]   SUB RSP, 0x20 (3 pushes + RIP = 32, +32 = 64 mod 16 = 0)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x1D)+hexDword(kar_first_load))   // [7-13]  MOV RBX, [RIP+slab_first]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xDB))                            // [14-16] TEST RBX, RBX
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(66))                                            // [17-18] JZ .done +66 → 85
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x33))                            // [19-21] MOV RSI, [RBX] (cur = first->next)
+    // .free_loop at 22
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xF6))                            // [22-24] TEST RSI, RSI
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(28))                                            // [25-26] JZ .reset_state +28 → 55
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x3E))                            // [27-29] MOV RDI, [RSI] (next = cur->next)
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(kar_gph_disp))                   // [30-35] CALL [GetProcessHeap]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                            // [36-38] MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xD2))                                          // [39-40] XOR EDX, EDX
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x89)+hexByte(0xF0))                            // [41-43] MOV R8, RSI
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(kar_hf_disp))                    // [44-49] CALL [HeapFree]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xFE))                            // [50-52] MOV RSI, RDI (cur = next)
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(256 - 33))                                      // [53-54] JMP .free_loop -33 → 22 (disp = -33 = 0xDF)
+    // .reset_state at 55
+    sb2 = sbAppend(sb2, hexByte(0x31)+hexByte(0xC0))                                          // [55-56] XOR EAX, EAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x03))                            // [57-59] MOV [RBX], RAX (slab_first->next = NULL)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x1D)+hexDword(kar_curr_store))   // [60-66] MOV [RIP+slab_curr], RBX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xC7)+hexByte(0x05)+hexDword(kar_off_store)+hexByte(0x08)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00))  // [67-77] MOV QWORD [RIP+slab_off], 8
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x05)+hexDword(kar_total_store))  // [78-84] MOV [RIP+alloc_total], RAX
+    // .done at 85
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x20))              // [85-88] ADD RSP, 0x20
+    sb2 = sbAppend(sb2, hexByte(0x5F))                                                        // [89]    POP RDI
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                                        // [90]    POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                                        // [91]    POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(kar_jmp_disp))                                 // [92-96] JMP kr_gc_collect (tail-call, returns "0")
+    pos = pos + 97
+
+    // ── kr_gc_checkpoint() → token int-string ──────────────────────
+    // 1.7.8: save the current arena state so user code can later
+    // gcRestore(token) and free everything allocated since.
+    //
+    // First does a 1-byte warmup alloc to GUARANTEE slab_curr is
+    // non-NULL (otherwise a checkpoint taken before any user alloc
+    // would record a NULL slab_curr and gcRestore would crash on
+    // the chain-walk dereference). This costs 8 bytes (aligned)
+    // wasted in the slab — fine in exchange for the simpler invariant.
+    //
+    // Then: save current slab_curr + slab_off, allocate 16-byte
+    // token, write the saved state into it, return token ptr as
+    // int-string.
+    offsets = offsets + "kr_gc_checkpoint:" + pos + "\n"
+    let kcp_warmup    = 18  - (pos + 16)            // CALL __rt_alloc(1) at byte 11, RIP after = 16
+    let kcp_curr_load = (gcGlobalsRva + 24) - (textRva + pos + 23)
+    let kcp_off_load  = (gcGlobalsRva + 32) - (textRva + pos + 30)
+    let kcp_alloc     = 18  - (pos + 40)            // CALL __rt_alloc(16) at byte 35, RIP after = 40
+    let kcp_itoa      = 266 - (pos + 55)            // CALL __rt_itoa at byte 50, RIP after = 55
+    sb2 = sbAppend(sb2, hexByte(0x53))                                                        // [0]    PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x56))                                                        // [1]    PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))              // [2-5]  SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(1))                                            // [6-10] MOV ECX, 1 (warmup alloc)
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kcp_warmup))                                   // [11-15] CALL __rt_alloc (forces slab init)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x1D)+hexDword(kcp_curr_load))    // [16-22] MOV RBX, [RIP+slab_curr]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x35)+hexDword(kcp_off_load))     // [23-29] MOV RSI, [RIP+slab_off]
+    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(16))                                           // [30-34] MOV ECX, 16
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kcp_alloc))                                    // [35-39] CALL __rt_alloc → RAX = token ptr
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x18))                            // [40-42] MOV [RAX], RBX (token+0 = saved slab_curr)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x70)+hexByte(0x08))              // [43-46] MOV [RAX+8], RSI (token+8 = saved slab_off)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                            // [47-49] MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kcp_itoa))                                     // [50-54] CALL __rt_itoa → RAX = int-string of token
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))              // [55-58] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                                        // [59]    POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                                        // [60]    POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                                        // [61]    RET
+    pos = pos + 62
+
+    // ── kr_gc_restore(RCX=token_str) → "0" ─────────────────────────
+    // 1.7.8: rewind the arena to a checkpoint. atoi the token to get
+    // the token pointer, read [token+0] = saved_slab_curr, [token+8]
+    // = saved_slab_off, free every slab in saved_slab_curr->next chain
+    // via HeapFree, then write saved_slab_curr->next = NULL and restore
+    // slab_curr/slab_off in gcGlobals. The token's own memory falls
+    // into the freed range (or is rewound past), so the token becomes
+    // invalid after this call. alloc_total is NOT adjusted — it still
+    // shows the lifetime cumulative.
+    offsets = offsets + "kr_gc_restore:" + pos + "\n"
+    let kgr_atoi      = 197 - (pos + 14)            // internal CALL → no textRva
+    let kgr_gph       = iatK32Rva + 29 * 8 - (textRva + pos + 38)
+    let kgr_hf        = iatK32Rva + 27 * 8 - (textRva + pos + 52)
+    let kgr_curr_st   = (gcGlobalsRva + 24) - (textRva + pos + 69)
+    let kgr_off_st    = (gcGlobalsRva + 32) - (textRva + pos + 76)
+    // kr_gc_collect was emitted before kr_arena_reset (97 bytes) and kr_gc_checkpoint (62 bytes in 1.7.8 — was 52, grew by warmup-alloc fix)
+    let kgr_jmp_target = pos - 97 - 62 - 26
+    let kgr_jmp_disp   = kgr_jmp_target - (pos + 90)
+    sb2 = sbAppend(sb2, hexByte(0x53))                                                        // [0]    PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x56))                                                        // [1]    PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x57))                                                        // [2]    PUSH RDI
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x54))                                          // [3-4]  PUSH R12
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))              // [5-8]  SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(kgr_atoi))                                     // [9-13] CALL __rt_atoi → RAX = token ptr
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x18))                            // [14-16] MOV RBX, [RAX] (saved_slab_curr)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x70)+hexByte(0x08))              // [17-20] MOV RSI, [RAX+8] (saved_slab_off)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x3B))                            // [21-23] MOV RDI, [RBX] (cur = saved_slab_curr->next)
+    // .free_loop at 24
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xFF))                            // [24-26] TEST RDI, RDI
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(28))                                            // [27-28] JZ .restore_state +28 → 57
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x8B)+hexByte(0x27))                            // [29-31] MOV R12, [RDI] (next = cur->next)
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(kgr_gph))                        // [32-37] CALL [GetProcessHeap]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                            // [38-40] MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xD2))                                          // [41-42] XOR EDX, EDX
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0x89)+hexByte(0xF8))                            // [43-45] MOV R8, RDI
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0x15)+hexDword(kgr_hf))                         // [46-51] CALL [HeapFree]
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xE7))                            // [52-54] MOV RDI, R12 (cur = next)
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(256 - 33))                                      // [55-56] JMP .free_loop -33 → 24
+    // .restore_state at 57
+    sb2 = sbAppend(sb2, hexByte(0x31)+hexByte(0xC0))                                          // [57-58] XOR EAX, EAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x03))                            // [59-61] MOV [RBX], RAX (saved_slab_curr->next = NULL)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x1D)+hexDword(kgr_curr_st))      // [62-68] MOV [RIP+slab_curr], RBX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x35)+hexDword(kgr_off_st))       // [69-75] MOV [RIP+slab_off], RSI
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))              // [76-79] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x5C))                                          // [80-81] POP R12
+    sb2 = sbAppend(sb2, hexByte(0x5F))                                                        // [82]    POP RDI
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                                        // [83]    POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                                        // [84]    POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(kgr_jmp_disp))                                 // [85-89] JMP kr_gc_collect (returns "0")
+    pos = pos + 90
 
     emit sb_good + sbToString(sb2) + "\nOFFSETS\n" + offsets
 }
@@ -6101,13 +6258,20 @@ just run {
         let bsTextFileSz = alignUp(bsFullText, PE_FILE_ALIGN)
         let bsRdataRvaB = PE_TEXT_RVA2 + alignUp(bsFullText, PE_SECT_ALIGN)
 
-        // 1.7.5: GC globals slot (32 bytes) at start of .rdata. Imports
-        // shift to offset 32 so the globals get a stable RVA the bootstrap
-        // helpers can reference via RIP-relative addressing.
+        // 1.7.5: GC globals slot at start of .rdata. Imports shift past the
+        // slot so the globals get a stable RVA the bootstrap helpers can
+        // reference via RIP-relative addressing.
+        // Layout (1.7.7): 48 bytes
+        //   +0  alloc_total
+        //   +8  alloc_limit
+        //   +16 slab_first  (head of slab linked list; NEW in 1.7.7)
+        //   +24 slab_curr   (current allocation slab; was slab_base in 1.7.6)
+        //   +32 slab_off    (offset within slab_curr's data area; was +24 in 1.7.6)
+        //   +40 reserved
         let gcGlobalsRva = bsRdataRvaB
 
-        // Build kernel32-only import table (now starting at .rdata+32)
-        let bsImpData = buildBootstrapImportTable(bsRdataRvaB, 32)
+        // Build kernel32-only import table (now starting at .rdata+48)
+        let bsImpData = buildBootstrapImportTable(bsRdataRvaB, 48)
         let bsImpHex = split(bsImpData, 0)
         let bsIatK32B = toInt(split(bsImpData, 1))
         let bsIatDescRvaB = toInt(split(bsImpData, 2))
@@ -6146,14 +6310,14 @@ just run {
         printErr("bs debug: bsImpSz=" + bsImpSz + " exportNames.lines=" + lineCount(bsExportNames) + " offsets.lines=" + lineCount(bsOffsets))
         printErr("bs debug: bsRdataRvaB=" + bsRdataRvaB + " bsIatK32B=" + bsIatK32B)
         printErr("bs debug: first exportName=" + getLine(bsExportNames, 0) + " first offset=" + getLine(bsOffsets, 0))
-        // Export table lives after globals(32) + imports(bsImpSz). Pass exportBase = 32 + bsImpSz.
-        let bsExpHex = buildExportTable(bsExportNames, bsOffsets, PE_TEXT_RVA2, bsRdataRvaB, 32 + bsImpSz, "krypton_rt.dll")
-        let bsExpRva = bsRdataRvaB + 32 + bsImpSz
+        // Export table lives after globals(48) + imports(bsImpSz). Pass exportBase = 48 + bsImpSz.
+        let bsExpHex = buildExportTable(bsExportNames, bsOffsets, PE_TEXT_RVA2, bsRdataRvaB, 48 + bsImpSz, "krypton_rt.dll")
+        let bsExpRva = bsRdataRvaB + 48 + bsImpSz
         let bsExpSz = len(bsExpHex) / 3
         printErr("bs debug: bsExpSz=" + bsExpSz + " bsExpRva=" + bsExpRva)
 
-        // .rdata = globals(32) + imports + exports
-        let bsRdataSz = 32 + bsImpSz + bsExpSz
+        // .rdata = globals(48) + imports + exports
+        let bsRdataSz = 48 + bsImpSz + bsExpSz
         let bsRdataFileSz = alignUp(bsRdataSz, PE_FILE_ALIGN)
         let bsRdataFileOffB = PE_TEXT_FILE_OFF + bsTextFileSz
         let bsImgSz = bsRdataRvaB + alignUp(bsRdataSz, PE_SECT_ALIGN)
@@ -6173,10 +6337,10 @@ just run {
         let bsTxtPad = bsTextFileSz - bsFullText
         let bsRdPad = bsRdataFileSz - bsRdataSz
 
-        // Build the 32-byte zero-initialised GC globals slot
+        // Build the 48-byte zero-initialised GC globals slot (1.7.7: was 32 bytes)
         let bsGcGlobalsSb = sbNew()
         let bsGcI = 0
-        while bsGcI < 32 { bsGcGlobalsSb = sbAppend(bsGcGlobalsSb, hexByte(0))  bsGcI = bsGcI + 1 }
+        while bsGcI < 48 { bsGcGlobalsSb = sbAppend(bsGcGlobalsSb, hexByte(0))  bsGcI = bsGcI + 1 }
         let bsGcGlobalsHex = sbToString(bsGcGlobalsSb)
 
         let bsPE = bsHdrHex + hexPad(bsHdrPad) + bsCodeHex + bsDllMain + hexPad(bsTxtPad) + bsGcGlobalsHex + bsImpHex + bsExpHex + hexPad(bsRdPad)

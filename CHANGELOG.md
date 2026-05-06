@@ -2,6 +2,159 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [1.7.8] - 2026-05-04 (internal build, not released)
+
+Checkpoint / restore primitives for the arena. `gcCheckpoint()` returns
+an opaque token that captures the current arena state; `gcRestore(token)`
+walks the slab chain freeing everything allocated since, then rewinds
+`slab_curr` and `slab_off`. Useful for scope-bound bulk free without
+having to reset the entire arena.
+
+This is an *internal* build — kept under `versions/kcc_v178.exe` as a
+record snapshot. No installer, no public release.
+
+### Two new runtime primitives
+
+- **`kr_gc_checkpoint()`** (62 bytes) — allocates a 16-byte token from
+  the arena itself, stores `[saved_slab_curr, saved_slab_off]` into
+  it, returns the token pointer as int-string. Includes a 1-byte
+  warmup `__rt_alloc` call at the very start to guarantee the slab
+  is initialized — otherwise a checkpoint taken before any user
+  allocation would record `slab_curr = NULL` and `gcRestore` would
+  crash on the chain dereference.
+- **`kr_gc_restore(token_str)`** (90 bytes) — `atoi`s the token,
+  reads back the saved state, walks `saved_slab_curr->next` chain
+  freeing each slab via `HeapFree`, sets
+  `saved_slab_curr->next = NULL`, restores `slab_curr` and `slab_off`.
+  The token's own memory is reclaimed (slab_off rewinds past it),
+  so the token becomes invalid after the restore — caller mustn't
+  reuse it.
+
+`alloc_total` is intentionally NOT adjusted on restore — it still
+shows lifetime cumulative bytes allocated. Reasoning: most callers
+use `gcAllocated()` for diagnostics where lifetime is what they
+want; if you need "current usage" you'd derive it differently
+(e.g., before/after pair).
+
+### Compiler bindings
+
+- `compiler/windows_x86/x64.k`'s `resolveBuiltin` maps
+  `gcCheckpoint` → `kr_gc_checkpoint`,
+  `gcRestore` → `kr_gc_restore`.
+- `compiler/compile.k`'s builtin list adds the two names.
+- `KRRT_FUNCS` grew by 2.
+
+### Verified end-to-end
+
+- Single-slab checkpoint/restore — counter behaves correctly,
+  subsequent allocs land in the rewound slot.
+- Multi-slab checkpoint/restore — 80 MB allocated between checkpoint
+  and restore (forces second slab); after restore, second slab is
+  freed via HeapFree, slab_curr rewinds to first slab. Subsequent
+  allocations succeed.
+- Limit semantics still work: `gcSetLimit(100)` + alloc loop aborts
+  with `rc=99`.
+- Fibonacci compiles + runs cleanly.
+
+### Bug caught mid-cut (worth remembering)
+
+First version of `gcCheckpoint` read `slab_curr` before any
+allocation could initialize it. If `gcCheckpoint()` was the first
+operation in `just run { ... }`, slab_curr was NULL → token recorded
+NULL → `gcRestore`'s `MOV RDI, [RBX]` crashed dereferencing NULL.
+Fix: warm up with a 1-byte alloc inside `gcCheckpoint` before
+saving state. Costs 8 bytes (aligned) of slab waste in exchange for
+a much simpler invariant for `gcRestore`.
+
+`bsHelperBlockSize()` 7666 → 7818 (+152 bytes).
+
+### Tooling
+
+- `kcc.exe` rebuilt — `kcc --version` reports 1.7.8
+- `assets/krypton_rc.o` rebuilt via windres
+- `runtime/krypton_rt.dll` rebuilt — 12800 bytes (was 12288, the
+  +152 bytes pushed past a 512-byte file-alignment boundary)
+- `versions/kcc_v178.exe` snapshot
+- **No installer, no upload, no download page**
+- Bootstrap seeds NOT updated
+
+## [1.7.7] - 2026-05-04 (internal build, not released)
+
+Multi-slab arena. Allocations beyond a single 64 MB slab now allocate
+new slabs and link them into a chain instead of falling back to per-call
+HeapAlloc. `gcReset()` walks the chain and frees every slab except the
+first via HeapFree, then resets state. The bump-allocator fast path is
+preserved for arbitrarily large total allocations.
+
+This is an *internal* build — kept under `versions/kcc_v177.exe` as a
+record snapshot. No installer, no public release.
+
+### gcGlobals expanded to 48 bytes (was 32)
+
+Added `slab_first` (head of slab linked list) so `gcReset()` knows
+which slab to keep.
+- `+0`  alloc_total (qword) — unchanged
+- `+8`  alloc_limit (qword) — unchanged
+- `+16` slab_first  (qword) — NEW: head of slab chain
+- `+24` slab_curr   (qword) — current allocation slab (was `+16`)
+- `+32` slab_off    (qword) — bytes used in slab_curr (was `+24`)
+- `+40` reserved
+
+Each slab: `[0..7]` = pointer to next slab (NULL if last),
+`[8..SLAB_SIZE-1]` = payload area. `slab_off` starts at 8 (past the
+next-pointer prefix).
+
+### `__rt_alloc_v2` rewritten — 172 → 277 bytes
+
+New behavior on slab overflow: allocate a new 64 MB slab via
+`HeapAlloc`, link `slab_curr->next = new`, set `slab_curr = new`,
+`slab_off = 8`. Bump from new slab. Repeats indefinitely (each new
+slab is another 64 MB chunk).
+
+Falls back to per-call `HeapAlloc` only for genuinely huge single
+allocations (size > `SLAB_SIZE - 8` = ~64 MB). These rare allocations
+aren't tracked by the slab list and aren't reclaimed by `gcReset()`.
+
+### `kr_arena_reset` rewritten — 21 → 97 bytes
+
+Walks `slab_first->next` chain, calling `HeapFree(GetProcessHeap(), 0,
+slab)` for each subsequent slab. Then sets `slab_first->next = NULL`,
+`slab_curr = slab_first`, `slab_off = 8`, `alloc_total = 0`. The first
+slab is preserved so the next allocation still hits the fast bump path
+without paying for a fresh `HeapAlloc`.
+
+### Verified end-to-end
+
+- Allocated 80,910,710 bytes (~77 MB) in a tight loop, exceeding the
+  single-slab cap. Result: clean run, multi-slab path exercised.
+- `gcReset()` after the heavy load brought counter back to 0.
+- Subsequent small alloc started from offset 0 (well, 26 bytes for the
+  `gcAllocated()` return string), proving the chain was reset and the
+  first slab was reused.
+- Soft limit still works: `gcSetLimit(100)` + alloc loop aborts with
+  `rc=99`.
+- Fibonacci compiles + runs cleanly.
+
+`bsHelperBlockSize()` 7485 → 7666 (+181 bytes).
+
+### Known limits
+
+- 64 MB slab size hardcoded. Could be a #define-equivalent for tuning.
+- `HeapFree` failure on the per-slab free is silently ignored (no error
+  propagation). Probably fine — `HeapFree` rarely fails on a known-good
+  pointer, but worth tracking.
+- The huge-alloc fallback (>64 MB single allocation) leaks until process
+  exit. Acceptable for now — these are rare edge cases.
+
+### Tooling
+
+- `kcc.exe` rebuilt — `kcc --version` reports 1.7.7
+- `assets/krypton_rc.o` rebuilt via windres
+- `versions/kcc_v177.exe` snapshot
+- `runtime/krypton_rt.dll` rebuilt (12288 bytes — same as 1.7.6, fits)
+- **No installer, no GitHub upload, no download page** — internal only
+- Bootstrap seeds NOT updated
+
 ## [1.7.6] - 2026-05-04 (internal build, not released)
 
 Tier 2 of the GC plan: arena slab allocator. `__rt_alloc` now
