@@ -2,7 +2,7 @@
 
 All notable changes to the Krypton language and compiler.
 
-## [1.8.0] - 2026-05-04 (internal build, not released)
+## [1.8.0] - 2026-05-04 (release candidate — installer built, upload pending)
 
 Diagnostic primitives + comprehensive memory model docs. Rolls up the
 Tier 1 + Tier 2 GC machinery from 1.7.x (StringBuilder refactor,
@@ -11,9 +11,9 @@ multi-slab linked list, scope-bound checkpoint/restore, auto-emit
 via `pure_` prefix) and adds the visibility primitives that finish
 the diagnostic story.
 
-This is an *internal* build kept under `versions/kcc_v180.exe`. No
-installer, no public release. Future public 1.8.x rolls all of this
-up into one upload.
+**Installer built and ready** at `installer/Output/krypton-1.8.0-setup.exe`
+(2.35 MB). Bootstrap seeds synced. GitHub upload pending user
+go-ahead.
 
 ### Two new diagnostic primitives
 
@@ -75,9 +75,14 @@ mid-instruction.
 - `runtime/krypton_rt.dll` rebuilt — 12800 bytes (unchanged from
   1.7.x — the new helpers fit in the existing page)
 - `versions/kcc_v180.exe` snapshot
-- **No installer, no upload, no download page** — internal only.
-  Public 1.8.x rolls up everything from internal 1.7.6 → 1.8.0
-- Bootstrap seeds NOT updated
+- `installer/krypton-installer.iss` bumped to `KryptonVersion="1.8.0"`
+- **`installer/Output/krypton-1.8.0-setup.exe`** produced from the
+  unchanged-AppId Inno script (2.35 MB; in-place upgrade over
+  any 1.4.x / 1.5.x / 1.6.x / 1.7.x install)
+- `bootstrap/x64_host_windows_x86_64.exe` and
+  `bootstrap/krypton_rt_windows.dll` synced (so the next clean
+  rebuild from git seeds reproduces 1.8.0)
+- GitHub upload + krypton-lang.org download page **pending user go-ahead**
 
 ## [1.7.9] - 2026-05-04 (internal build, not released)
 
