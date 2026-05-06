@@ -2,6 +2,147 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [1.8.0] - 2026-05-04 (internal build, not released)
+
+Diagnostic primitives + comprehensive memory model docs. Rolls up the
+Tier 1 + Tier 2 GC machinery from 1.7.x (StringBuilder refactor,
+allocation tracking, soft limit + circuit breaker, single-slab arena,
+multi-slab linked list, scope-bound checkpoint/restore, auto-emit
+via `pure_` prefix) and adds the visibility primitives that finish
+the diagnostic story.
+
+This is an *internal* build kept under `versions/kcc_v180.exe`. No
+installer, no public release. Future public 1.8.x rolls all of this
+up into one upload.
+
+### Two new diagnostic primitives
+
+- **`gcSlabCount()`** (35 bytes) — walks `slab_first->next` chain
+  counting. Returns int-string. Useful for understanding multi-slab
+  behavior under load.
+- **`gcSlabBytes()`** (21 bytes) — returns `slab_off`, the bump
+  offset within the current slab (includes the 8-byte next-pointer
+  header). Together with `gcSlabCount()`, lets user code estimate
+  total current usage:
+  `(slabCount - 1) * 64MB + slabBytes`.
+
+`KRRT_FUNCS` grew by 2. `bsHelperBlockSize()` 7818 → 7874 (+56 bytes).
+
+### Compiler bindings
+
+- `compiler/windows_x86/x64.k`'s `resolveBuiltin` maps
+  `gcSlabCount` → `kr_gc_slab_count`,
+  `gcSlabBytes` → `kr_gc_slab_bytes`.
+- `compiler/compile.k`'s builtin list adds the two names.
+
+### Verified end-to-end
+
+```
+empty state: 1 slab, 48 bytes used
+after 80 MB allocations: 2 slabs, 14 MB used in current
+after gcReset: 1 slab, 56 bytes used
+```
+
+Multi-slab behavior observable for the first time without inferring
+from `gcAllocated()` math.
+
+### Bug caught mid-cut (saved to memory)
+
+First version of `kr_gc_slab_count` had `JZ +8` (target byte 26)
+instead of `JZ +7` (target byte 25). With +8 the jump landed
+mid-instruction (in the middle of the CALL opcode), causing
+`SIGILL` / illegal instruction. Generic lesson: when computing
+short-jump displacements, target = byte _index_ of destination
+instruction's first byte; disp = target - (RIP after the JZ
+instruction itself). Off-by-one between "byte index of target" and
+"length-of-RIP-after-instruction" is the easy way to land
+mid-instruction.
+
+### New documentation
+
+- **`docs/memory_vs_c.md`** — comprehensive head-to-head with C's
+  `malloc`/`free` model. Covers: side-by-side comparison table,
+  the 50 GB scenario as a concrete example, `--watch` / event-loop
+  pattern, procedural-helper `pure_` pattern, full primitive
+  reference, what Krypton's model is NOT (no mark-sweep yet,
+  single-threaded, no defrag), and when C is still the right
+  choice.
+
+### Tooling
+
+- `kcc.exe` rebuilt — `kcc --version` reports 1.8.0
+- `assets/krypton.rc` bumped to `KCC_VER_MIN=8`, `KCC_VER_PATCH=0`
+- `runtime/krypton_rt.dll` rebuilt — 12800 bytes (unchanged from
+  1.7.x — the new helpers fit in the existing page)
+- `versions/kcc_v180.exe` snapshot
+- **No installer, no upload, no download page** — internal only.
+  Public 1.8.x rolls up everything from internal 1.7.6 → 1.8.0
+- Bootstrap seeds NOT updated
+
+## [1.7.9] - 2026-05-04 (internal build, not released)
+
+Auto-emission of `gcCheckpoint` / `gcRestore` for functions whose name
+starts with `pure_`. The compiler wraps the body so per-call slab
+allocations are reclaimed on return, without the user having to
+write the boilerplate explicitly. Procedural functions (no return
+value, no `emit`) get bounded memory for free.
+
+This is an *internal* build — kept under `versions/kcc_v179.exe` as a
+record snapshot. No installer, no public release.
+
+### What `pure_` does
+
+In `compiler/compile.k`'s IR-emission for function declarations
+(`irFuncIR`), if the function name starts with `pure_` the body is
+wrapped:
+
+```
+LOCAL _gc_ck
+BUILTIN gcCheckpoint 0
+STORE _gc_ck
+<original body>
+LOAD _gc_ck
+BUILTIN gcRestore 1
+POP
+```
+
+After the function returns, the slab pointer rewinds past everything
+the function allocated. The lifetime-cumulative `gcAllocated()` counter
+still reflects the allocations (it tracks lifetime, not current usage),
+but the actual slab space is reclaimed.
+
+### Caveats — when NOT to use `pure_`
+
+- The wrapping appends BEFORE the implicit function-end RETURN. If the
+  body has an explicit `emit X` or `return X`, control transfers out
+  via `RETURN` BEFORE the appended `gcRestore` runs. The function
+  leaks just like a non-pure function would. **Use `pure_` only for
+  procedural functions** (side-effects only, no useful return value).
+- Returning an allocated value from a `pure_` function is undefined —
+  even if the wrap somehow ran, the returned pointer would point into
+  the rewound (now-freed) slab range.
+- `pure_` functions still pay the `gcCheckpoint`/`gcRestore` overhead
+  per call (~30 bytes of slab + Win32 syscall for the chain walk if
+  multi-slab). Cheap compared to leaks but not free.
+
+### Verified
+
+- `pure_renderPanel(name)` test: compiles, runs, output identical to
+  non-pure version.
+- 1000-iteration tight loop of `pure_doWork(i)` with ~3 KB/call
+  allocation: clean run, exit code 0, no OOM.
+
+### Tooling
+
+- `kcc.exe` rebuilt — `kcc --version` reports 1.7.9
+- `assets/krypton_rc.o` rebuilt via windres
+- `versions/kcc_v179.exe` snapshot
+- `runtime/krypton_rt.dll` unchanged from 1.7.8 (no runtime change —
+  this is purely a compiler-side IR transformation that uses
+  existing primitives)
+- **No installer, no upload, no download page**
+- Bootstrap seeds NOT updated
+
 ## [1.7.8] - 2026-05-04 (internal build, not released)
 
 Checkpoint / restore primitives for the arena. `gcCheckpoint()` returns
