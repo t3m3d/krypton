@@ -20,7 +20,14 @@
 #            platform's native pipeline is verified stable. Don't use it
 #            for new work; if native fails, file a bug.
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve through symlinks so /usr/local/bin/kcc.sh → repo/kcc.sh finds repo files.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+    SDIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ $SOURCE != /* ]] && SOURCE="$SDIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 
 # ── Platform detection ─────────────────────────────────────────────
 # On Linux: ./kcc (ELF), --native uses elf.k → ELF
@@ -65,6 +72,7 @@ IRFLAG=""
 NATIVE_MODE=0
 LLVM_MODE=0
 GCC_MODE=0
+GCC_EXPLICIT=0  # tracks whether --gcc was passed (vs. implicit default on macOS)
 C_MODE=0       # --c: emit C source (legacy; default is native binary now)
 
 while [[ $# -gt 0 ]]; do
@@ -72,7 +80,7 @@ while [[ $# -gt 0 ]]; do
         --ir)      IRFLAG="--ir"; shift ;;
         --native)  NATIVE_MODE=1; shift ;;
         --llvm)    LLVM_MODE=1; shift ;;
-        --gcc)     GCC_MODE=1; shift ;;
+        --gcc)     GCC_MODE=1; GCC_EXPLICIT=1; shift ;;
         --c)       C_MODE=1; shift ;;
         -o)        OUTFILE="$2"; shift 2 ;;
         -l*|-L*|-W*) LIBS="$LIBS $1"; shift ;;
@@ -329,23 +337,35 @@ if [[ -z "$OUTFILE" ]]; then
 fi
 
 if [[ "$GCC_MODE" -ne 1 ]]; then
-    NATIVE_MODE=1
-    exec "$0" --native -o "$OUTFILE" "$SRCFILE"
+    # macOS native (macho_arm64_self.k) is slice-3f — handles a useful subset
+    # but lacks CAT, range, list-iteration, polymorphic ADD, and ~100 more
+    # builtins. For full feature parity (template strings, for-in, etc.) the
+    # implicit default on macOS is the C+clang path. Use --native to opt
+    # into the self-hosted path explicitly.
+    if [[ "$PLATFORM" == "macos" ]]; then
+        GCC_MODE=1
+    else
+        NATIVE_MODE=1
+        exec "$0" --native -o "$OUTFILE" "$SRCFILE"
+    fi
 fi
 
 # ──────────────────────────────────────────────────────────────────────────
-# DEPRECATED: --gcc path. Krypton's stated goal is no C-language tools in
-# operations. Native is the default. This branch only runs when the user
-# explicitly opts in with --gcc and is kept temporarily for emergency
-# fallback while we close out the remaining native-pipeline gaps:
+# C+clang/gcc path. Used when:
+#   - --gcc was passed explicitly (deprecation warning shown)
+#   - macOS implicit default (no warning — until macho_arm64_self.k catches up)
+# Krypton's stated long-term goal is no C-language tools in operations;
+# native pipelines are the future:
 #   - Linux:   elf.k self-host bug at >66 funcs (bug #3 in REBUILD_SEED.md)
 #   - Windows: x64.k self-host parity not yet verified
-#   - macOS:   macho_arm64_self.k handles all builtins arm64 supports
+#   - macOS:   macho_arm64_self.k handles slice 3f surface only
 # Once each platform's native rebuild path replaces gcc in kcc.sh's lazy
 # host-rebuild block, --gcc gets removed entirely.
 # ──────────────────────────────────────────────────────────────────────────
-echo "kcc: warning: --gcc is deprecated; native is the default and goal." >&2
-echo "kcc: see bootstrap/REBUILD_SEED.md for the path to gcc-free." >&2
+if [[ "$GCC_EXPLICIT" -eq 1 ]]; then
+    echo "kcc: warning: --gcc is deprecated; native is the default and goal." >&2
+    echo "kcc: see bootstrap/REBUILD_SEED.md for the path to gcc-free." >&2
+fi
 TMPFILE="${OUTFILE}__kcc_tmp.c"
 "$KCC_EXE" $HEADERS_FLAG "$SRCFILE" > "$TMPFILE"
 if [[ $? -ne 0 ]]; then
