@@ -770,6 +770,10 @@ func arm64_b_cond(cond, rel) {
     r = r % 0x80000
     emit hexDword(0x54000000 + (r * 0x20) + cond)
 }
+// brk #imm16  (software breakpoint trap) → 0xd4200000 | (imm16 << 5)
+func arm64_brk(imm16) {
+    emit hexDword(0xd4200000 + (imm16 * 0x20))
+}
 // add Xd, Xn, Xm (64-bit, no shift, register form) — alias for the 3-reg add.
 // Already covered by arm64_add_xxx; just alias here.
 //
@@ -777,6 +781,8 @@ func arm64_b_cond(cond, rel) {
 // pointer in x0. Uses x1 (cell ptr), x2 (new bump). 7 instructions.
 // Note: no 8-byte alignment of allocations — caller may waste a few bytes
 // per call but bump pointer eventually drifts. Acceptable for our heap sizes.
+// 15 instructions; size in x4 (preserved across the call). Uses x5 for limit
+// (instead of x4 like emitAllocN) so the size register isn't clobbered.
 func emitAllocVar(instrIdx, textVaddr, textOff) {
     let bumpVaddr = g_DATA_VADDR + 0x4000
     let pcAtAdrp = textVaddr + textOff + instrIdx * 4
@@ -784,13 +790,21 @@ func emitAllocVar(instrIdx, textVaddr, textOff) {
     let bumpPage = bumpVaddr / 4096 * 4096
     let imm21 = (bumpPage - pcPage) / 4096
     let s = ""
-    s = s + arm64_adrp(1, imm21)
-    s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)
-    s = s + arm64_ldr_imm(0, 1, 0)
-    s = s + arm64_cbnz(0, 2)
-    s = s + arm64_add_imm(0, 1, 8)
-    s = s + arm64_add_xxx(2, 0, 4)         // x2 = x0 + x4 (size in x4)
-    s = s + arm64_str_imm(2, 1, 0)
+    s = s + arm64_adrp(1, imm21)                        // 0
+    s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)       // 1
+    s = s + arm64_ldr_imm(9, 1, 3)                      // 2: ldr x9, [x1, #24] (alloc_total)
+    s = s + arm64_add_xxx(9, 9, 4)                      // 3: x9 += x4 (size)
+    s = s + arm64_str_imm(9, 1, 3)                      // 4: str x9, [x1, #24]
+    s = s + arm64_ldr_imm(10, 1, 4)                     // 5: ldr x10, [x1, #32] (alloc_limit)
+    s = s + arm64_cbz(10, 4)                            // 6: if limit==0 skip 3
+    s = s + arm64_cmp_xx(9, 10)                         // 7: cmp x9, x10
+    s = s + arm64_b_cond(0x09, 2)                       // 8: b.ls +2 (skip brk)
+    s = s + arm64_brk(99)                               // 9: brk #99 (limit exceeded)
+    s = s + arm64_ldr_imm(0, 1, 0)                      // 10
+    s = s + arm64_cbnz(0, 2)                            // 11
+    s = s + arm64_add_imm(0, 1, 64)                     // 12: first-time init (matches emitAllocN)
+    s = s + arm64_add_xxx(2, 0, 4)                      // 13: x2 = x0 + x4
+    s = s + arm64_str_imm(2, 1, 0)                      // 14
     emit s
 }
 
@@ -809,6 +823,15 @@ func emitAllocVar(instrIdx, textVaddr, textOff) {
 // The cell starts at zero (zero-fill default). The cbnz dance handles the
 // first-time case: if loaded ptr is 0, treat the cell address + 8 as the
 // initial heap pointer.
+// 15 instructions when GC tracking + limit check are enabled (was 7 pre-1.7.5).
+// System-area layout in __DATA zero-fill (per emitAllocN/Var convention):
+//   +0  bump_cell        (existing)
+//   +8  argc save        (set by __main__ prologue, read by argCount())
+//   +16 argv save        (set by __main__ prologue, read by arg())
+//   +24 alloc_total      (NEW — bytes allocated cumulative)
+//   +32 alloc_limit      (NEW — soft cap; 0 = no limit)
+//   +40..+63 reserved
+//   +64.. heap
 func emitAllocN(n, instrIdx, textVaddr, textOff) {
     let bumpVaddr = g_DATA_VADDR + 0x4000          // bump cell in zero-fill region
     let pcAtAdrp = textVaddr + textOff + instrIdx * 4
@@ -817,13 +840,21 @@ func emitAllocN(n, instrIdx, textVaddr, textOff) {
     let imm21 = (bumpPage - pcPage) / 4096
     let nAligned = ((n + 7) / 8) * 8
     let s = ""
-    s = s + arm64_adrp(1, imm21)                        // adrp x1, bump_cell@PAGE
-    s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)       // add  x1, x1, bump_cell@PAGEOFF
-    s = s + arm64_ldr_imm(0, 1, 0)                      // ldr  x0, [x1]   ; current free (or 0 first time)
-    s = s + arm64_cbnz(0, 2)                            // if x0 != 0 skip next 1
-    s = s + arm64_add_imm(0, 1, 64)                     // x0 = bump_cell + 64 (heap, past system area at +8..+63)
-    s = s + arm64_add_imm(2, 0, nAligned)               // x2 = x0 + nAligned
-    s = s + arm64_str_imm(2, 1, 0)                      // str x2, [x1]    ; advance bump
+    s = s + arm64_adrp(1, imm21)                        // 0: adrp x1, bump_cell@PAGE
+    s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)       // 1: add  x1, x1, bump_cell@PAGEOFF
+    s = s + arm64_ldr_imm(9, 1, 3)                      // 2: ldr  x9, [x1, #24]   (alloc_total)
+    s = s + arm64_add_imm(9, 9, nAligned)               // 3: x9 += nAligned
+    s = s + arm64_str_imm(9, 1, 3)                      // 4: str  x9, [x1, #24]
+    s = s + arm64_ldr_imm(10, 1, 4)                     // 5: ldr  x10, [x1, #32]  (alloc_limit)
+    s = s + arm64_cbz(10, 4)                            // 6: if limit==0 skip 3 (jump to ldr at 10)
+    s = s + arm64_cmp_xx(9, 10)                         // 7: cmp x9, x10
+    s = s + arm64_b_cond(0x09, 2)                       // 8: b.ls +2 (if total <= limit, skip brk)
+    s = s + arm64_brk(99)                               // 9: brk #99 (limit exceeded)
+    s = s + arm64_ldr_imm(0, 1, 0)                      // 10: ldr  x0, [x1]   ; current free (or 0 first time)
+    s = s + arm64_cbnz(0, 2)                            // 11: if x0 != 0 skip next 1
+    s = s + arm64_add_imm(0, 1, 64)                     // 12: x0 = bump_cell + 64 (heap, past system area)
+    s = s + arm64_add_imm(2, 0, nAligned)               // 13: x2 = x0 + nAligned
+    s = s + arm64_str_imm(2, 1, 0)                      // 14: str x2, [x1]    ; advance bump
     emit s
 }
 
@@ -1203,6 +1234,21 @@ func parseFullIR(ir) {
                     } else if bname == "trim" {
                         curOps = sbAppend(curOps, "BUILTIN_TRIM\n")
                         nOps += 1
+                    } else if bname == "gcAllocated" {
+                        curOps = sbAppend(curOps, "BUILTIN_GCALLOCATED\n")
+                        nOps += 1
+                    } else if bname == "gcLimit" {
+                        curOps = sbAppend(curOps, "BUILTIN_GCLIMIT\n")
+                        nOps += 1
+                    } else if bname == "gcSetLimit" {
+                        curOps = sbAppend(curOps, "BUILTIN_GCSETLIMIT\n")
+                        nOps += 1
+                    } else if bname == "gcReset" {
+                        curOps = sbAppend(curOps, "BUILTIN_GCRESET\n")
+                        nOps += 1
+                    } else if bname == "gcCollect" {
+                        curOps = sbAppend(curOps, "BUILTIN_GCCOLLECT\n")
+                        nOps += 1
                     }
                 } else if op == "POP" {
                     curOps = sbAppend(curOps, "POP\n")
@@ -1404,17 +1450,17 @@ func opInstrCount(opTok) {
     if opTok == "LABEL"            { emit 0 }
     if opTok == "NEG"              { emit 3 }   // pop, neg, push
     if opTok == "NOT"              { emit 4 }   // pop, cmp, cset, push
-    if opTok == "INDEX"            { emit 13 }  // pop i, pop s, alloc(7), ldrb, strb char, strb NUL, push
+    if opTok == "INDEX"            { emit 21 }  // pop i, pop s, alloc(15), ldrb, strb char, strb NUL, push
     if opTok == "BUILTIN_KP"       { emit 21 }  // direct write() + write("\n") via syscall, survives explicit exit()
     if opTok == "BUILTIN_EXIT"     { emit 5 }
     if opTok == "BUILTIN_LEN"      { emit 7 }   // pop, mov, ldrb-post, cbnz, sub-reg, sub-imm, push
     if opTok == "BUILTIN_CHARCODE" { emit 3 }   // pop, ldrb, push
-    if opTok == "BUILTIN_SUBSTRING"{ emit 23 }
+    if opTok == "BUILTIN_SUBSTRING"{ emit 31 }
     if opTok == "BUILTIN_STARTSWITH"{ emit 14 }
     if opTok == "BUILTIN_ISDIGIT"  { emit 10 }
     if opTok == "BUILTIN_TOINT"    { emit 16 }
     if opTok == "BUILTIN_INDEXOF"  { emit 21 }
-    if opTok == "BUILTIN_SBNEW"        { emit 10 }
+    if opTok == "BUILTIN_SBNEW"        { emit 18 }
     if opTok == "BUILTIN_SBAPPEND"     { emit 21 }
     if opTok == "BUILTIN_SBTOSTRING"   { emit 3 }
     if opTok == "BUILTIN_CONTAINS"     { emit 23 }   // indexOf core (20) + cmp + cset + push
@@ -1424,9 +1470,14 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_ENDSWITH"     { emit 29 }
     if opTok == "BUILTIN_ARG"          { emit 21 }  // inline-toInt + load argv + index
     if opTok == "BUILTIN_ARGCOUNT"     { emit 5 }
-    if opTok == "BUILTIN_READFILE"     { emit 27 }
+    if opTok == "BUILTIN_READFILE"     { emit 35 }
     if opTok == "BUILTIN_WRITEFILE"    { emit 22 }
-    if opTok == "BUILTIN_TRIM"         { emit 42 }
+    if opTok == "BUILTIN_TRIM"         { emit 50 }
+    if opTok == "BUILTIN_GCALLOCATED"  { emit 4 }   // adrp + add + ldr [x1,#24] + push
+    if opTok == "BUILTIN_GCLIMIT"      { emit 4 }   // adrp + add + ldr [x1,#32] + push
+    if opTok == "BUILTIN_GCSETLIMIT"   { emit 5 }   // pop + adrp + add + str [x1,#32] + push
+    if opTok == "BUILTIN_GCRESET"      { emit 6 }   // adrp + add + str xzr,[x1] + str xzr,[x1,#24] + movz + push
+    if opTok == "BUILTIN_GCCOLLECT"    { emit 2 }   // movz + push (no-op stub)
     if opTok == "POP"              { emit 1 }
     emit 0
 }
@@ -1777,7 +1828,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_pop(4)                    // x4 = s
             instrIdx = instrIdx + 2
             s = s + emitAllocN(2, instrIdx, textVaddr, textOff)
-            instrIdx = instrIdx + 7
+            instrIdx = instrIdx + 15
             s = s + arm64_ldrb_reg(5, 4, 3)         // ldrb w5, [x4, x3]
             s = s + arm64_strb_imm(5, 0, 0)         // strb w5, [x0]
             s = s + arm64_strb_imm(31, 0, 1)        // strb wzr, [x0, #1]
@@ -1792,7 +1843,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_add_imm(4, 4, 1)          // x4 = len_data + 1 (alloc room for NUL)
             instrIdx = instrIdx + 5
             s = s + emitAllocVar(instrIdx, textVaddr, textOff)
-            instrIdx = instrIdx + 7
+            instrIdx = instrIdx + 15
             s = s + arm64_add_xxx(9, 8, 7)          // x9 = src = s + start
             s = s + arm64_movz_x_imm(5, 0)          // x5 = i = 0
             s = s + arm64_sub_imm(4, 4, 1)          // x4 = len_data
@@ -1872,7 +1923,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_movz_x_imm(4, 32768)      // size = 32 KB
             instrIdx = instrIdx + 1
             s = s + emitAllocVar(instrIdx, textVaddr, textOff)
-            instrIdx = instrIdx + 7
+            instrIdx = instrIdx + 15
             s = s + arm64_str_imm(31, 0, 0)         // str xzr, [x0]  (len = 0)
             s = s + arm64_push_x0()
             instrIdx = instrIdx + 2
@@ -2107,7 +2158,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_movz_x_imm_lsl16(4, 16)       // x4 = 16 << 16 = 1 MB
             instrIdx = instrIdx + 7
             s = s + emitAllocVar(instrIdx, textVaddr, textOff)
-            instrIdx = instrIdx + 7
+            instrIdx = instrIdx + 15
             s = s + arm64_mov_xx(20, 0)                 // save buf
             s = s + arm64_mov_xx(0, 19)                 // fd
             s = s + arm64_mov_xx(1, 20)                 // buf
@@ -2169,7 +2220,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_add_imm(4, 10, 1)         // ALLOC
             instrIdx = instrIdx + 25
             s = s + emitAllocVar(instrIdx, textVaddr, textOff)
-            instrIdx = instrIdx + 7
+            instrIdx = instrIdx + 15
             s = s + arm64_add_xxx(9, 6, 12)
             s = s + arm64_movz_x_imm(11, 0)
             s = s + arm64_cmp_xx(11, 10)            // LOOP3
@@ -2181,6 +2232,63 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_strb_reg(31, 0, 10)
             s = s + arm64_push_x0()
             instrIdx = instrIdx + 10
+        } else if opTok == "BUILTIN_GCALLOCATED" {
+            // Read alloc_total at bump_cell + 24, push as int. 4 instructions.
+            let bumpVaddr = g_DATA_VADDR + 0x4000
+            let pcAtAdrp = textVaddr + textOff + instrIdx * 4
+            let pcPage = pcAtAdrp / 4096 * 4096
+            let bumpPage = bumpVaddr / 4096 * 4096
+            let imm21 = (bumpPage - pcPage) / 4096
+            s = s + arm64_adrp(1, imm21)
+            s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)
+            s = s + arm64_ldr_imm(0, 1, 3)            // ldr x0, [x1, #24] (alloc_total)
+            s = s + arm64_push_x0()
+            instrIdx = instrIdx + 4
+        } else if opTok == "BUILTIN_GCLIMIT" {
+            // Read alloc_limit at bump_cell + 32, push as int. 4 instructions.
+            let bumpVaddr = g_DATA_VADDR + 0x4000
+            let pcAtAdrp = textVaddr + textOff + instrIdx * 4
+            let pcPage = pcAtAdrp / 4096 * 4096
+            let bumpPage = bumpVaddr / 4096 * 4096
+            let imm21 = (bumpPage - pcPage) / 4096
+            s = s + arm64_adrp(1, imm21)
+            s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)
+            s = s + arm64_ldr_imm(0, 1, 4)            // ldr x0, [x1, #32] (alloc_limit)
+            s = s + arm64_push_x0()
+            instrIdx = instrIdx + 4
+        } else if opTok == "BUILTIN_GCSETLIMIT" {
+            // Pop value, store at alloc_limit, push back. 5 instructions.
+            s = s + arm64_pop_x0()
+            instrIdx = instrIdx + 1
+            let bumpVaddr = g_DATA_VADDR + 0x4000
+            let pcAtAdrp = textVaddr + textOff + instrIdx * 4
+            let pcPage = pcAtAdrp / 4096 * 4096
+            let bumpPage = bumpVaddr / 4096 * 4096
+            let imm21 = (bumpPage - pcPage) / 4096
+            s = s + arm64_adrp(1, imm21)
+            s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)
+            s = s + arm64_str_imm(0, 1, 4)            // str x0, [x1, #32] (alloc_limit = arg)
+            s = s + arm64_push_x0()
+            instrIdx = instrIdx + 4
+        } else if opTok == "BUILTIN_GCRESET" {
+            // Zero bump_cell + alloc_total; push 0. 6 instructions.
+            let bumpVaddr = g_DATA_VADDR + 0x4000
+            let pcAtAdrp = textVaddr + textOff + instrIdx * 4
+            let pcPage = pcAtAdrp / 4096 * 4096
+            let bumpPage = bumpVaddr / 4096 * 4096
+            let imm21 = (bumpPage - pcPage) / 4096
+            s = s + arm64_adrp(1, imm21)
+            s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)
+            s = s + arm64_str_imm(31, 1, 0)           // str xzr, [x1] (bump_cell = 0)
+            s = s + arm64_str_imm(31, 1, 3)           // str xzr, [x1, #24] (alloc_total = 0)
+            s = s + arm64_movz_x_imm(0, 0)
+            s = s + arm64_push_x0()
+            instrIdx = instrIdx + 6
+        } else if opTok == "BUILTIN_GCCOLLECT" {
+            // No-op stub. Push 0. 2 instructions.
+            s = s + arm64_movz_x_imm(0, 0)
+            s = s + arm64_push_x0()
+            instrIdx = instrIdx + 2
         } else if opTok == "BUILTIN_WRITEFILE" {
             // writeFile(path, content): open(path, O_WRONLY|O_CREAT|O_TRUNC, 0644),
             // strlen(content), write, close, return 0. 22 instructions.
