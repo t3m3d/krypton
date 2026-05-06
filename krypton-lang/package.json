@@ -44,7 +44,7 @@
         "krypton.kls.path": {
           "type": "string",
           "default": "",
-          "description": "Path to the kls.exe (Krypton Language Server) binary. Leave empty to look it up on PATH or alongside the extension."
+          "description": "Path to the kls (Krypton Language Server) binary — kls.exe on Windows, kls on macOS/Linux. Leave empty to look it up on PATH or alongside the extension."
         },
         "krypton.kls.enabled": {
           "type": "boolean",

@@ -31,17 +31,26 @@ cfunc {
     #include <stdio.h>
     #include <stdlib.h>
     #include <string.h>
-    #include <io.h>
-    #include <fcntl.h>
+    #ifdef _WIN32
+        #include <io.h>
+        #include <fcntl.h>
+        #define KR_STRNICMP _strnicmp
+    #else
+        #include <strings.h>     // strncasecmp on POSIX
+        #define KR_STRNICMP strncasecmp
+    #endif
 
     static int g_inited = 0;
 
     char* krLspInit(void) {
         if (!g_inited) {
-            // Defeat CRLF translation; binary mode preserves \r\n in headers
-            // and clean byte counts in bodies.
-            _setmode(_fileno(stdin), _O_BINARY);
-            _setmode(_fileno(stdout), _O_BINARY);
+            #ifdef _WIN32
+                // Defeat CRLF translation; binary mode preserves \r\n in headers
+                // and clean byte counts in bodies.
+                _setmode(_fileno(stdin),  _O_BINARY);
+                _setmode(_fileno(stdout), _O_BINARY);
+            #endif
+            // POSIX stdin/stdout are already byte-clean — no setmode needed.
             // Disable buffering on stdout so frames flush immediately.
             setvbuf(stdout, NULL, _IONBF, 0);
             // Line-buffer stderr so logs interleave readably.
@@ -86,7 +95,7 @@ cfunc {
             // Parse "Content-Length: N"
             const char* prefix = "Content-Length:";
             size_t plen = strlen(prefix);
-            if (hi >= (int)plen && _strnicmp(header, prefix, plen) == 0) {
+            if (hi >= (int)plen && KR_STRNICMP(header, prefix, plen) == 0) {
                 const char* p = header + plen;
                 while (*p == ' ' || *p == '\t') p++;
                 contentLen = atoi(p);
