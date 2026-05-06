@@ -447,7 +447,7 @@ func emitStringTable(strs) {
 
 let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA"
 let KRUSER_FUNCS = "GetSystemMetrics"
-let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword,kr_envnew,kr_envset,kr_envget,kr_hasfield,kr_structfields,kr_repeat,kr_padleft,kr_padright,kr_reverse,kr_abs,kr_min,kr_max,kr_endswith,kr_bin,kr_pow,kr_gc_allocated,kr_gc_limit,kr_gc_set_limit,kr_gc_collect,kr_arena_reset,kr_gc_checkpoint,kr_gc_restore"
+let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword,kr_envnew,kr_envset,kr_envget,kr_hasfield,kr_structfields,kr_repeat,kr_padleft,kr_padright,kr_reverse,kr_abs,kr_min,kr_max,kr_endswith,kr_bin,kr_pow,kr_gc_allocated,kr_gc_limit,kr_gc_set_limit,kr_gc_collect,kr_arena_reset,kr_gc_checkpoint,kr_gc_restore,kr_gc_slab_count,kr_gc_slab_bytes"
 let KRADV_FUNCS = "RegOpenKeyExA,RegQueryValueExA,RegEnumKeyExA,RegCloseKey,GetUserNameA"
 let KRPDH_FUNCS = "PdhOpenQueryA,PdhAddEnglishCounterA,PdhCollectQueryData,PdhGetFormattedCounterArrayA,PdhCloseQuery"
 
@@ -558,6 +558,8 @@ func resolveBuiltin(name) {
     if name == "gcReset"        { emit "kr_arena_reset" }
     if name == "gcCheckpoint"   { emit "kr_gc_checkpoint" }
     if name == "gcRestore"      { emit "kr_gc_restore" }
+    if name == "gcSlabCount"    { emit "kr_gc_slab_count" }
+    if name == "gcSlabBytes"    { emit "kr_gc_slab_bytes" }
     emit name
 }
 
@@ -1944,7 +1946,7 @@ func emitSectionHeader(name, virtSize, virtAddr, rawSize, rawOffset, characteris
 //   OFF_ARGP=3407   OFF_ARGC=3607  OFF_ARG=3657
 //   TOTAL=3737
 
-func bsHelperBlockSize() { emit 7818 }   // 1.7.8: kr_gc_checkpoint grew 52→62 (warmup alloc fix for fresh-process restore)   // 5681 → 5803 (kr_print/'\n' + kr_environ) → 5845 (+42 kr_count_commas) → 5888 (+43 __rt_truthy_int_v2) → 6037 (+149 kr_split_commas) → 6093 (+56 kr_linecount_smart) → 6210 (+3 kr_envnew + 45 kr_envset + 69 kr_envget) → 6322 (+86 kr_hasfield + 26 kr_structfields stub) → 6775 (+66 kr_reverse + 111 kr_repeat + 137 kr_padleft + 139 kr_padright) → 7025 (+32 kr_abs + 48 kr_min + 48 kr_max + 122 kr_endswith) → 7137 (+112 kr_bin) → 7201 (+64 kr_pow) → 7368 (1.7.5: +76 __rt_alloc_v2 + 21 kr_gc_allocated + 21 kr_gc_limit + 23 kr_gc_set_limit + 26 kr_gc_collect) → 7485 (1.7.6: __rt_alloc_v2 grew 76→172 = +96, +21 kr_arena_reset) → 7666 (1.7.7: __rt_alloc_v2 grew 172→277 = +105, kr_arena_reset grew 21→97 = +76)
+func bsHelperBlockSize() { emit 7874 }   // 1.7.8: kr_gc_checkpoint 52→62 (warmup fix). 1.8.0: +35 kr_gc_slab_count + 21 kr_gc_slab_bytes   // 5681 → 5803 (kr_print/'\n' + kr_environ) → 5845 (+42 kr_count_commas) → 5888 (+43 __rt_truthy_int_v2) → 6037 (+149 kr_split_commas) → 6093 (+56 kr_linecount_smart) → 6210 (+3 kr_envnew + 45 kr_envset + 69 kr_envget) → 6322 (+86 kr_hasfield + 26 kr_structfields stub) → 6775 (+66 kr_reverse + 111 kr_repeat + 137 kr_padleft + 139 kr_padright) → 7025 (+32 kr_abs + 48 kr_min + 48 kr_max + 122 kr_endswith) → 7137 (+112 kr_bin) → 7201 (+64 kr_pow) → 7368 (1.7.5: +76 __rt_alloc_v2 + 21 kr_gc_allocated + 21 kr_gc_limit + 23 kr_gc_set_limit + 26 kr_gc_collect) → 7485 (1.7.6: __rt_alloc_v2 grew 76→172 = +96, +21 kr_arena_reset) → 7666 (1.7.7: __rt_alloc_v2 grew 172→277 = +105, kr_arena_reset grew 21→97 = +76)
 
 // Export offset lookup for bootstrap mode: returns "kr_name:offset\n..." table
 func bootstrapExportOffsets() {
@@ -5771,6 +5773,40 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     sb2 = sbAppend(sb2, hexByte(0x5B))                                                        // [84]    POP RBX
     sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(kgr_jmp_disp))                                 // [85-89] JMP kr_gc_collect (returns "0")
     pos = pos + 90
+
+    // ── kr_gc_slab_count() → number of slabs in the chain (int-string) ──
+    // 1.8.0 diagnostic: walks slab_first->next chain counting. Returns 0
+    // if no slab has ever been allocated (slab_first == NULL).
+    offsets = offsets + "kr_gc_slab_count:" + pos + "\n"
+    let gsc_first = (gcGlobalsRva + 16) - (textRva + pos + 13)
+    let gsc_itoa  = 266 - (pos + 30)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))              // [0-3]   SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xC9))                                          // [4-5]   XOR ECX, ECX (count = 0)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x05)+hexDword(gsc_first))        // [6-12]  MOV RAX, [RIP+slab_first]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xC0))                            // [13-15] .loop: TEST RAX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(7))                                             // [16-17] JZ .done +7 → 25
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0xC1))                                          // [18-19] INC ECX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x00))                            // [20-22] MOV RAX, [RAX] (next)
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(256 - 12))                                      // [23-24] JMP .loop -12 → 13
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(gsc_itoa))                                     // [25-29] .done: CALL __rt_itoa
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))              // [30-33] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                                        // [34]    RET
+    pos = pos + 35
+
+    // ── kr_gc_slab_bytes() → bytes used in current slab (int-string) ──
+    // 1.8.0 diagnostic: returns slab_off, the bump offset within the
+    // current slab. INCLUDES the 8-byte next-pointer header. Total
+    // current usage across all slabs ≈ (gcSlabCount() - 1) * 67108864
+    // + gcSlabBytes(). Returns 0 if slab_off is 0 (no allocations yet).
+    offsets = offsets + "kr_gc_slab_bytes:" + pos + "\n"
+    let gsb_off  = (gcGlobalsRva + 32) - (textRva + pos + 11)
+    let gsb_itoa = 266 - (pos + 16)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))              // [0-3]   SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x0D)+hexDword(gsb_off))          // [4-10]  MOV RCX, [RIP+slab_off]
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(gsb_itoa))                                     // [11-15] CALL __rt_itoa
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))              // [16-19] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                                        // [20]    RET
+    pos = pos + 21
 
     emit sb_good + sbToString(sb2) + "\nOFFSETS\n" + offsets
 }
