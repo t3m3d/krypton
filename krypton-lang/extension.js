@@ -34,14 +34,15 @@ let trace = false;
 // ── kls.exe location ────────────────────────────────────────────
 
 function findKlsBinary(extensionPath) {
+    const KLS_NAME = process.platform === "win32" ? "kls.exe" : "kls";
     const cfg = vscode.workspace.getConfiguration("krypton");
     const explicit = cfg.get("kls.path", "");
     const probes = [];
     if (explicit) probes.push(["config", explicit]);
     probes.push(
-        ["bundled",  path.join(extensionPath, "kls.exe")],
-        ["sibling1", path.join(extensionPath, "..", "..", "kls.exe")],
-        ["sibling2", path.join(extensionPath, "..", "kls.exe")]
+        ["bundled",  path.join(extensionPath, KLS_NAME)],
+        ["sibling1", path.join(extensionPath, "..", "..", KLS_NAME)],
+        ["sibling2", path.join(extensionPath, "..", KLS_NAME)]
     );
     for (const [tag, p] of probes) {
         const ok = fs.existsSync(p);
@@ -276,7 +277,8 @@ function activateImpl(context) {
 
     const bin = findKlsBinary(context.extensionPath);
     if (!bin) {
-        const msg = "Krypton: kls.exe not found. Set 'krypton.kls.path' or place kls.exe on PATH. " +
+        const klsName = process.platform === "win32" ? "kls.exe" : "kls";
+        const msg = `Krypton: ${klsName} not found. Set 'krypton.kls.path' or place ${klsName} on PATH. ` +
                     "Syntax highlighting still works.";
         output.appendLine(msg);
         vscode.window.showWarningMessage(msg);
