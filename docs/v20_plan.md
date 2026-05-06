@@ -323,13 +323,23 @@ Estimated: 4-6 sessions.
 ## Sequencing
 
 ```
-GC Tier 1 (StringBuilder)     — first commit toward 2.0  [STARTED]
+GC Tier 1 (StringBuilder)        — SHIPPED 1.7.0
        ↓
-GC Tier 2 (Arena epochs)      — 2.0-alpha-1
+GC API surface (alloc tracking)  — SHIPPED 1.7.5
        ↓
-GC Tier 3 (Mark-sweep, ELF)   — 2.0-alpha-2
+GC Tier 2a (single arena slab)   — SHIPPED internal 1.7.6
        ↓
-GC Tier 3 (Windows + macOS)   — 2.0-alpha-3
+GC Tier 2b (multi-slab + reset)  — SHIPPED internal 1.7.7
+       ↓
+GC Tier 2c (checkpoint/restore)  — SHIPPED internal 1.7.8
+       ↓
+Auto-emission of gcReset/Checkpoint  — 1.8 / 2.0-alpha-1
+at scope boundaries (if static analysis can prove safety)
+       ↓
+Linux ELF + macOS arm64 catch up to Windows on GC infra
+(see docs/macos_gc_port_plan.md for the macOS side)
+       ↓
+GC Tier 3 (Mark-sweep with shadow stack)  — 2.0-alpha-2
        ↓                ↘                  ↘
 Typed-ptr / local /     Lambdas         ARM64 Linux       — 2.0-beta-1
 asm / mmap              in native       backend             (parallel)
@@ -344,6 +354,13 @@ LSP server                                       — 2.0-rc-1
 The C-style memory layer can run in parallel with lambdas and ARM64
 once GC is stable on at least one platform — the pieces touch
 different parts of the codegen.
+
+**Status as of 2026-05-04**: Tier 1 + 2a/b/c are done on Windows. The
+Tier 2 work has been more substantial than originally scoped (multi-slab
++ checkpoint/restore primitives) — what was originally "1.8 candidate"
+arena work shipped as internal 1.7.x snapshots. 1.7.5 is the most
+recent **public** release; 1.7.6/7/8 are kept under `versions/` as
+record snapshots. Next public release rolls them up; likely 1.8.0.
 
 The two GC alpha-3 work items (Windows, macOS) can happen in either
 order; the parallel work item only depends on GC alpha-3 being done on

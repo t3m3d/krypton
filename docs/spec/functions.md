@@ -1,6 +1,6 @@
 # Krypton Built-in Functions Reference
 
-**Version 1.6.0** — Reference for built-in functions.
+**Version 1.8.0** — Reference for built-in functions.
 
 All values in Krypton are strings. Functions that operate on numbers parse their
 arguments and return numeric strings. Lists are comma-separated strings (`"a,b,c"`).
@@ -388,6 +388,79 @@ pipeline to be safe.
 - `exec(cmd)` — execute and return exit code.
 
 ---
+
+## Garbage collection (added 1.7.5+)
+
+The Windows native runtime exposes allocation tracking and a soft
+limit on the bump arena. Linux ELF and macOS arm64 backends do not yet
+have these — they're scheduled to catch up before final 2.0.
+
+### gcAllocated() — (native, Windows; 1.7.5+)
+Total bytes allocated by `__rt_alloc` since process start (lifetime
+cumulative). Returns int-string. Useful for diagnosing per-scope
+allocation cost: read before and after a chunk of work, subtract.
+
+### gcLimit() — (native, Windows; 1.7.5+)
+Current soft allocation cap (int-string). `"0"` means unlimited.
+
+### gcSetLimit(n) — (native, Windows; 1.7.5+)
+Set the soft cap. If `gcAllocated()` ever exceeds `n`, the next
+`__rt_alloc` call abort the process cleanly with `ExitProcess(99)`.
+Use to bound pathological allocation patterns (the `kcc.exe` 50 GB
+blowup that motivated this would have aborted at, say, `gcSetLimit(1<<30)`).
+
+### gcCollect() — (native, Windows; 1.7.5+)
+Placeholder. Returns `"0"`. Real mark-sweep semantics ship in 2.0.
+
+### gcReset() — (native, Windows; 1.7.6 internal+)
+Recycles the arena: zeros `slab_off` (so the next allocation starts at
+the slab's beginning), zeros `alloc_total`, and frees every slab in
+the chain except the first via `HeapFree`. Use at scope boundaries
+where you know everything allocated since process start (or since the
+last reset) is no longer needed. Returns `"0"`.
+
+### gcCheckpoint() — (native, Windows; 1.7.8 internal+)
+Returns an opaque token capturing the current arena state (`slab_curr`
++ `slab_off`). Pair with `gcRestore(token)` for scope-bound bulk free
+without disturbing pre-checkpoint allocations.
+
+### gcRestore(token) — (native, Windows; 1.7.8 internal+)
+Rewind the arena to the state captured by `gcCheckpoint()`. Walks the
+slab chain from `saved_slab_curr->next`, frees each subsequent slab
+via `HeapFree`, restores `slab_curr`/`slab_off`. **The token is
+single-use** — its memory falls in the rewound range and gets
+overwritten by the next allocation. Take a fresh `gcCheckpoint()` for
+each scope; never reuse a token across loop iterations.
+
+Idiomatic per-iteration cleanup:
+```krypton
+while running == 1 {
+    let ck = gcCheckpoint()
+    doScopedWork()
+    gcRestore(ck)
+}
+```
+
+### gcSlabCount() — (native, Windows; 1.8.0 internal+)
+Number of 64 MB slabs in the chain. Returns int-string. `"1"` when
+only the first slab is allocated, `"2"`+ once multi-slab kicks in.
+`"0"` if no allocation has ever happened.
+
+### gcSlabBytes() — (native, Windows; 1.8.0 internal+)
+Bytes used in the current (last) slab — the bump offset `slab_off`
+including the 8-byte next-pointer header. Together with
+`gcSlabCount()` you can estimate total current usage:
+
+```krypton
+let estCurrent = (toInt(gcSlabCount()) - 1) * 67108864 + toInt(gcSlabBytes())
+```
+
+### `pure_` function name prefix — (native, Windows; 1.7.9 internal+)
+Functions whose name starts with `pure_` get auto-wrapped by the
+compiler with `gcCheckpoint()` at entry and `gcRestore()` at exit.
+Per-call slab allocations are reclaimed automatically. Caveat: the
+wrap appends BEFORE the implicit RETURN, so `pure_` functions must
+be **procedural** — no explicit `emit` / `return` of allocated values.
 
 ## Notes
 

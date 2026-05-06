@@ -3496,7 +3496,7 @@ func irCall(tokens, pos, ntoks, lc) {
     // The previous substring-only check silently routed user functions named
     // add/sub/mul/div/pos/etc. through the BUILTIN path → backends emitted
     // UNSUPPORTED markers → stack corruption at runtime. Bug found 2026-05-03.
-    let builtins = "print,kp,printErr,readLine,input,readFile,writeFile,arg,argCount,len,count,substring,charAt,indexOf,contains,startsWith,endsWith,replace,trim,lstrip,rstrip,center,toLower,toUpper,repeat,padLeft,padRight,charCode,fromCharCode,splitBy,format,strReverse,isAlpha,isDigit,isSpace,toInt,parseInt,abs,min,max,pow,sqrt,sign,clamp,hex,bin,floor,ceil,round,split,length,first,last,head,tail,append,join,reverse,sort,unique,fill,zip,slice,listIndexOf,every,some,countOf,sumList,maxList,minList,range,words,lines,keys,values,hasKey,structNew,getField,setField,hasField,structFields,random,timestamp,environ,exit,assert,type,isTruthy,toStr,throw,mapGet,mapSet,mapDel,fadd,fsub,fmul,fdiv,fsqrt,ffloor,fceil,fround,fformat,flt,fgt,feq,sbNew,sbAppend,sbToString,bufNew,bufStr,bufGetDword,bufSetDword,bufGetWord,bufGetQword,bufGetDwordAt,bufGetQwordAt,bufSetByte,bufSetDwordAt,handleOut,handleGet,handleInt,toHandle,ptrDeref,ptrIndex,callPtr,getLine,lineCount,envNew,envSet,envGet,makeResult,getResultTag,getResultVal,getResultEnv,getResultPos,gcAllocated,gcLimit,gcSetLimit,gcCollect,gcReset,gcCheckpoint,gcRestore"
+    let builtins = "print,kp,printErr,readLine,input,readFile,writeFile,arg,argCount,len,count,substring,charAt,indexOf,contains,startsWith,endsWith,replace,trim,lstrip,rstrip,center,toLower,toUpper,repeat,padLeft,padRight,charCode,fromCharCode,splitBy,format,strReverse,isAlpha,isDigit,isSpace,toInt,parseInt,abs,min,max,pow,sqrt,sign,clamp,hex,bin,floor,ceil,round,split,length,first,last,head,tail,append,join,reverse,sort,unique,fill,zip,slice,listIndexOf,every,some,countOf,sumList,maxList,minList,range,words,lines,keys,values,hasKey,structNew,getField,setField,hasField,structFields,random,timestamp,environ,exit,assert,type,isTruthy,toStr,throw,mapGet,mapSet,mapDel,fadd,fsub,fmul,fdiv,fsqrt,ffloor,fceil,fround,fformat,flt,fgt,feq,sbNew,sbAppend,sbToString,bufNew,bufStr,bufGetDword,bufSetDword,bufGetWord,bufGetQword,bufGetDwordAt,bufGetQwordAt,bufSetByte,bufSetDwordAt,handleOut,handleGet,handleInt,toHandle,ptrDeref,ptrIndex,callPtr,getLine,lineCount,envNew,envSet,envGet,makeResult,getResultTag,getResultVal,getResultEnv,getResultPos,gcAllocated,gcLimit,gcSetLimit,gcCollect,gcReset,gcCheckpoint,gcRestore,gcSlabCount,gcSlabBytes"
     if contains("," + builtins + ",", "," + fname + ",") {
         emit code + "BUILTIN " + fname + " " + argc + "\n," + (p + 1)
     }
@@ -3881,6 +3881,15 @@ func irFuncIR(tokens, pos, ntoks) {
     let bp = irBlockIR(tokens, p, ntoks, 0, "1")
     let bodyCode = pairVal(bp)
     p = pairPos(bp)
+    // 1.7.9 — auto-emit gcCheckpoint/gcRestore around functions whose name
+    // starts with "pure_". Wraps the body so all per-function allocations
+    // get reclaimed on return. CAVEAT: the wrapping appends BEFORE the
+    // implicit function-end RETURN only, so functions with explicit
+    // emit/return statements don't reach the restore. pure_ functions
+    // should be procedural (side-effects only, no return value).
+    if startsWith(fname, "pure_") {
+        bodyCode = "LOCAL _gc_ck\nBUILTIN gcCheckpoint 0\nSTORE _gc_ck\n" + bodyCode + "LOAD _gc_ck\nBUILTIN gcRestore 1\nPOP\n"
+    }
     emit "FUNC " + fname + " " + pc + "\n" + params + bodyCode + "END\n\n," + p
 }
 
@@ -3925,7 +3934,7 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
 
 
 just run {
-    let kccVer = "1.7.8"
+    let kccVer = "1.8.0"
 
     // Parse flags: --version, --ir, --headers PATH, -o OUTFILE
     let irMode = 0

@@ -1,12 +1,17 @@
 # Krypton Roadmap
 
-Current released version: **1.6.0** (2026-05-04).
+Current released version: **1.7.5** (2026-05-04). Internal builds beyond
+1.7.5 (1.7.6 / 1.7.7 / 1.7.8) are kept under `versions/kcc_v17X.exe`
+snapshots and ship features incrementally as the GC machinery is built
+out toward 2.0 — they are not on the public download page.
 
 The v1.0.0 goal — native compilation without an external C compiler — shipped in 1.0.0
 (2026-03-23). Subsequent 1.x releases extended the native pipeline (Linux ELF, Windows
-PE/COFF, macOS arm64 Mach-O) and the language itself.
+PE/COFF, macOS arm64 Mach-O), the language itself, and (in 1.7.x) the
+GC infrastructure on the Windows native runtime.
 
 For per-release detail, see `CHANGELOG.md` at the repo root.
+For the 2.0 plan and the multi-tier GC sequencing, see `docs/v20_plan.md`.
 
 ---
 
@@ -48,56 +53,84 @@ expected).
 
 ---
 
-## Near-term: 1.6
+## Shipped (1.5 — 1.7.5)
 
-Goal: close the remaining native-runtime gaps and make the standard library
-reachable from native programs.
+- **1.5.x** — compile.k import-walker fixes (CBLOCK propagation, skipBlock-after-jxt).
+- **1.6.0** — Windows native pipeline restored. Pre-1.6.0, every `if`/`while`
+  on the native path crashed silently (`isTruthy` was missing from
+  `resolveBuiltin`). Native test suite went 0/38 → 38/38.
+- **1.6.1** — late-cycle adds: 10 string/numeric builtins (`repeat`,
+  `padLeft`, `padRight`, `reverse`, `abs`, `min`, `max`, `endsWith`,
+  `bin`, `pow` + `**` operator), plus `stdlib/native_extras.k` with
+  25 list/map helpers (`join`, `slice`, `splitBy`, `sort`, `keys`,
+  `values`, `hasKey`, `mapGet`/`mapSet`, etc.). Examples climbed
+  70/95 → 77/95 passing on the native pipeline.
+- **1.7.0** — memory-plumbing release. Tier 1 of the GC plan: replaced
+  `s = s + chunk` chains in `compiler/windows_x86/x64.k` and
+  `compiler/compile.k` with `sbAppend` to cut the O(N²) allocation
+  pattern that produced a 50 GB `kcc.exe` blowup on a malformed
+  source file.
+- **1.7.5** — GC API surface + first real allocation tracking. Bootstrap
+  DLL got its first writable `.rdata` slot. New primitives:
+  `gcAllocated()`, `gcLimit()`, `gcSetLimit(n)`, `gcCollect()` (placeholder).
+  `gcSetLimit(n)` installs a circuit breaker that aborts cleanly with
+  `ExitProcess(99)` if total allocation exceeds the cap — direct fix
+  for the 1.6.1 50 GB scenario.
+
+## Internal builds (post-1.7.5, snapshotted in `versions/`)
+
+Released as `versions/kcc_v17X.exe` snapshots only — no installer, no
+download page, no upload. Used to validate the GC machinery before the
+next public release rolls them up.
+
+- **1.7.6 (internal)** — `gcReset()` primitive. `__rt_alloc` redirected
+  to `__rt_alloc_v2` which bump-allocates from a 64 MB slab; `gcReset()`
+  zeroes `slab_off` for O(1) recycle. kryofetch `--watch` measurement
+  showed memory bounded across renders (was leaking 110 KB/render
+  pre-1.7.6).
+- **1.7.7 (internal)** — multi-slab arena. When 64 MB slab fills,
+  allocate a new slab via `HeapAlloc` and link it into a chain.
+  `gcReset()` walks the chain and frees every slab except the first.
+  No more per-call HeapAlloc fallback for total allocations under
+  64 MB per slab.
+- **1.7.8 (internal)** — checkpoint/restore primitives. `gcCheckpoint()`
+  returns a token; `gcRestore(token)` rewinds the arena to that point,
+  freeing slabs allocated since via `HeapFree`. Tighter scope than
+  `gcReset` (which always rewinds to slab start). Token is single-use
+  per `gcRestore` (it's allocated in the arena and gets reclaimed on
+  restore).
+
+For the full 2.0 plan including the C-style low-level memory layer,
+lambdas in native, concurrency, ARM64 Linux backend, and LSP, see
+[`docs/v20_plan.md`](v20_plan.md).
+
+## Carried-over items (not on the GC track)
+
+These are still open but lower priority than the GC machinery push:
 
 - **Native module imports.** `import "stdlib/result.k"` should work via the native
-  pipeline, not just the C path. Currently the IR walk inlines top-level `func`
+  pipeline end-to-end (currently the IR walk inlines top-level `func`
   declarations from the file, but path resolution and de-duplication for nested
-  imports needs work. Would unblock `examples/import_demo.k` and remove the
-  inline-pair-helpers workaround scattered through tests/examples.
+  imports needs work). Would unblock `examples/import_demo.k`.
 - **Windows typed-struct expansion.** The Windows PE backend's V2 struct table
   supports five C structs today (`SYSTEM_INFO`, `MEMORYSTATUSEX`,
   `ULARGE_INTEGER`, `CONSOLE_SCREEN_BUFFER_INFO`, `SYSTEM_POWER_STATUS`).
-  Add `PROCESSENTRY32` (parent-process walks) and `WIN32_FIND_DATAA` (directory
-  enumeration) so programs like kryofetch can detect their parent shell and
-  count installed packages without falling back to env vars or gcc.
+  Add `PROCESSENTRY32` and `WIN32_FIND_DATAA` so programs like kryofetch can
+  detect their parent shell and count installed packages without falling back
+  to env vars or gcc.
 - **Cross-platform parity for new ELF builtins.** `reverse`, struct/env runtime,
   and the trim/toUpper/toLower group landed on Linux first in 1.5;
-  bring them to `compiler/macos_arm64/macho_arm64_self.k`.
+  bring them to `compiler/macos_arm64/macho_arm64_self.k`. (Tracked
+  alongside the macOS GC port — see `docs/macos_gc_port_plan.md`.)
 - **`tokenize` as a runtime function.** Currently a compile.k internal; would let
-  user programs do tokenization without depending on a compiler binary. Would
-  unblock `examples/runtokcount.k` and `examples/test_tokenize.k`.
-- **Auto-compute Windows runtime offsets.** `compiler/windows_x86/x64.k` has
-  six hardcoded byte-offset values that all shift together when any builtin
-  changes size. Refactor to compute them automatically (the Linux ELF backend
-  already does this via `funcVAddrs`). Would make adding Win32 builtins ~10x
-  cheaper.
+  user programs do tokenization without depending on a compiler binary.
+- **Auto-compute Windows runtime offsets.** Most of this was incidentally
+  resolved by 1.6.0/1.6.1's non-cascading append pattern (helpers go
+  at the end of the bootstrap block, retarget JMPs). The "six
+  hardcoded offsets" warning still applies in the older middle of
+  the block.
 - **Smart-int boundary documentation + tooling.** Values ≥ `0x40000000` (1 GiB) are
   treated as string pointers; ints near that boundary collide. Add a runtime
-  check, a clearer error, and document the limit prominently.
+  check + clearer error.
 - **Drop the gcc bootstrap fallback.** `kcc.sh` still falls back to gcc for
-  `elf_host` rebuild when `elf.k` self-host fails past ~67 funcs — fix that
-  self-host bug, then remove the gcc path entirely.
-
----
-
-## 2.0 candidates
-
-Larger items that probably merit a major version bump.
-
-- **ARM64 native backend for Linux.** Today only macOS arm64 has a native backend.
-- **Lambdas as first-class values** in the native pipeline. The C path supports
-  them via lifted helpers; native pipeline does not.
-- **Garbage collection.** Replace the bump-only arena with a real GC. Today the
-  arena grows monotonically until process exit; for long-running programs
-  (servers, agents) this isn't viable.
-- **Concurrency primitives.** Goroutine-style `go` blocks (the keyword is already
-  reserved), with channels.
-- **Package manager.** `kpm install foo` or similar — fetch and pin Krypton
-  modules from a registry.
-- **LSP server.** Editor support for diagnostics, jump-to-definition, autocomplete.
-- **Quantum backend.** The original vision; reserved keywords (`quantum`, `qpute`,
-  `process`, `measure`, `prepare`) are already in the tokenizer for it.
+  `elf_host` rebuild when `elf.k` self-host fails past ~67 funcs.
