@@ -2,6 +2,100 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [1.7.6] - 2026-05-04 (internal build, not released)
+
+Tier 2 of the GC plan: arena slab allocator. `__rt_alloc` now
+bump-allocates from a 64 MB slab held in `gcGlobals[16..23]` instead
+of calling `HeapAlloc` per string. New `gcReset()` builtin recycles
+the slab in O(1). The 1.7.5 tracking + soft-limit semantics are
+preserved.
+
+This is an *internal* build — kept under `versions/kcc_v176.exe` as
+a record snapshot. No installer, no download page, no public release.
+Next public release rolls 1.7.5 → 1.8 or similar once the arena
+infrastructure is exercised across more programs.
+
+### Bootstrap helper block — slab-based `__rt_alloc_v2`
+
+- Replaced the 76-byte `__rt_alloc_v2` from 1.7.5 with a 172-byte
+  version that:
+  - Tracks `alloc_total` and enforces `alloc_limit` (1.7.5 behavior)
+  - Aligns the requested size up to 8 bytes
+  - Bump-allocates from a 64 MB slab pointed to by `gcGlobals[16]`,
+    with the next-free offset in `gcGlobals[24]`
+  - Lazily allocates the slab via `HeapAlloc(64MB)` on first use
+  - Falls back to per-call `HeapAlloc` if the slab is full or
+    creation fails (no abort, no regression vs. 1.7.5)
+- `__rt_alloc`'s 34-byte stub at offset 18 still `JMP rel32`s to
+  `__rt_alloc_v2` — same target offset (7201), no call-site changes
+  anywhere in the bootstrap block.
+- `gcGlobals` slot is still 32 bytes; the previously-reserved
+  `+16` and `+24` qwords are now used.
+
+### New runtime primitive — `kr_arena_reset`
+
+- 21 bytes. Zeros `slab_off` (so the next allocation reuses the
+  start of the slab) and `alloc_total` (so subsequent
+  `gcAllocated()` reads start from 0). Memory in the slab is NOT
+  freed — it's just re-bumpable. Off-slab fallback allocations
+  stay alive until process exit.
+- Returns `"0"` (tail-jumps to `kr_gc_collect` for the placeholder
+  return string).
+
+### Compiler bindings
+
+- `compiler/windows_x86/x64.k`'s `resolveBuiltin` maps `gcReset` →
+  `kr_arena_reset`.
+- `compiler/compile.k`'s builtin list adds `gcReset` so calls emit
+  `BUILTIN gcReset 0` IR.
+- `KRRT_FUNCS` grew by 1 (`kr_arena_reset`).
+
+### Verified end-to-end
+
+- `gcAllocated()` climbs as strings concat (408 bytes after 10
+  iterations of `"scratch " + i + " more text"`).
+- `gcReset()` zeroes the counter (`2` after reset = the `gcAllocated()`
+  return-string itself).
+- Same workload after `gcReset()` allocates from the same slab range
+  rather than growing the bump pointer.
+- 1.7.5 limit semantics preserved — `gcSetLimit(100)` still aborts
+  with `rc=99` when exceeded.
+- Fibonacci compiles to byte-identical 8192-byte PE and runs cleanly.
+
+`bsHelperBlockSize()` 7368 → 7485 (+117 bytes: +96 for `__rt_alloc_v2`
+growth, +21 for `kr_arena_reset`).
+`runtime/krypton_rt.dll` unchanged at 12288 bytes (the section is
+already two pages; the new helpers fit).
+DLL exports: 110 → 111.
+
+### What 1.7.6 still does NOT ship
+
+- No automatic reset emission. The compiler doesn't insert
+  `gcReset()` at scope boundaries — user code calls it explicitly.
+  Auto-emission is a Tier 2.5 / 2.0 design discussion.
+- No mark-sweep. `gcCollect()` is still placeholder. Reachability
+  analysis lands in 2.0 with shadow-stack roots.
+- No multi-slab. If a program allocates more than 64 MB between
+  resets without one of the allocations exceeding the slab budget,
+  fallback per-call `HeapAlloc` kicks in for those overflows
+  (slow path, but correct).
+- Linux ELF and macOS arm64 still on 1.6-era runtime — Windows
+  remains the lead platform.
+
+### Tooling
+
+- `kcc.exe` rebuilt — `kcc --version` reports 1.7.6
+- `assets/krypton.rc` bumped to `KCC_VER_PATCH=6`, `assets/krypton_rc.o`
+  recompiled via windres
+- `versions/kcc_v176.exe` snapshot
+- `runtime/krypton_rt.dll` rebuilt (12288 bytes, same as 1.7.5 — the
+  bootstrap text section absorbed the +117 bytes without crossing a
+  page boundary)
+- **No installer, no GitHub upload, no download page** — internal
+  build only. The bootstrap seeds (`bootstrap/x64_host_windows_x86_64.exe`,
+  `bootstrap/krypton_rt_windows.dll`) intentionally NOT updated
+  for the same reason.
+
 ## [1.7.5] - 2026-05-04
 
 **GC starts actually working.** 1.7.5 adds the first real allocation
