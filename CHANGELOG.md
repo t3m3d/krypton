@@ -2,6 +2,52 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [post-1.8.0] - 2026-05-05 (in repo, no installer cut yet)
+
+### kls — Krypton Language Server (lsp/, sessions 1–3)
+
+First self-hosted LSP server for Krypton. Built on top of the 1.8.0
+release without bumping the language version.
+
+- **Server `kls.exe` (477 KB)** in `lsp/`, written entirely in Krypton
+  plus a single `cfunc` block for binary-mode stdio framing:
+  - `lex.k` — position-aware tokenizer + lex diagnostics
+    (unterminated strings/comments/backticks, bad hex literals)
+  - `validate.k` — bracket/paren/bracket balance, missing func names,
+    bare `let`, duplicate function names (warning)
+  - `symbols.k` — token walk → DocumentSymbol JSON
+  - `complete.k` — keywords + 109 builtins + open-buffer functions
+  - `json_parse.k` — recursive JSON parser → flat dot-path map (custom
+    `\x03`/`\x04` separators since C-path `mapSet` collides with commas
+    and `envSet`/`envGet` warns to stderr on miss)
+  - `json_emit.k` — nested JSON builder
+  - `jsonrpc.k` — Content-Length framed stdio (`_setmode(_O_BINARY)`)
+  - `kls.k` — main loop, dispatch, document table
+
+  Capabilities advertised: `textDocumentSync` (Full),
+  `publishDiagnostics`, `documentSymbolProvider`, `completionProvider`.
+
+- **VS Code extension `krypton-language-1.8.1.vsix` (181 KB)** in
+  `krypton-lang/`:
+  - `extension.js` (~300 LOC) — hand-rolled JSON-RPC client (no
+    `vscode-languageclient` dependency, so the .vsix stays single-file)
+  - Bundles `kls.exe` so out-of-box install works on Windows
+  - Settings: `krypton.kls.path`, `krypton.kls.enabled`,
+    `krypton.kls.trace`
+
+- **Test drivers**: `lsp/test_kls.py` (Python) and
+  `lsp/test_extension.js` (Node, mirrors what VS Code does).
+
+Bugs caught and fixed during development:
+
+- Krypton has no `\xNN` string escape — need `fromCharCode(N)` for
+  control bytes
+- C-path `mapSet`/`mapGet` builtins use comma-list format incompatible
+  with values containing commas (Krypton source is full of them)
+- `splitBy` returns comma-joined Krypton list, can't index with `[i]`
+- `envGet` writes "undefined variable" warnings to stderr — would
+  pollute LSP transport on misses
+
 ## [1.8.0] - 2026-05-04 (release candidate — installer built, upload pending)
 
 Diagnostic primitives + comprehensive memory model docs. Rolls up the
