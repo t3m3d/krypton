@@ -1,10 +1,11 @@
 {
   "name": "krypton-lang",
   "displayName": "Krypton",
-  "description": "Syntax highlighting for the Krypton programming language (.k files)",
-  "version": "1.8.0",
+  "description": "Syntax highlighting + language server (kls) for the Krypton programming language (.k files)",
+  "version": "1.8.2",
   "publisher": "krypton-lang",
   "license": "MIT",
+  "main": "./extension.js",
   "repository": {
     "type": "git",
     "url": "https://github.com/t3m3d/krypton"
@@ -13,7 +14,12 @@
     "vscode": "^1.75.0"
   },
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onLanguage:krypton",
+    "workspaceContains:**/*.k"
   ],
   "contributes": {
     "languages": [
@@ -30,6 +36,27 @@
         "scopeName": "source.krypton",
         "path": "./syntaxes/krypton.tmLanguage.json"
       }
-    ]
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Krypton",
+      "properties": {
+        "krypton.kls.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the kls.exe (Krypton Language Server) binary. Leave empty to look it up on PATH or alongside the extension."
+        },
+        "krypton.kls.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the kls language server (diagnostics, document symbols, completion). Disable for syntax highlighting only."
+        },
+        "krypton.kls.trace": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log every JSON-RPC frame sent and received to the 'Krypton LSP' output channel. Noisy."
+        }
+      }
+    }
   }
 }

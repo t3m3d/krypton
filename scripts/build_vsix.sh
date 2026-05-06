@@ -34,6 +34,8 @@ cat > "$WORK/[Content_Types].xml" <<'EOF'
   <Default Extension=".vsixmanifest" ContentType="text/xml" />
   <Default Extension=".json" ContentType="application/json" />
   <Default Extension=".md" ContentType="text/markdown" />
+  <Default Extension=".js" ContentType="application/javascript" />
+  <Default Extension=".exe" ContentType="application/octet-stream" />
 </Types>
 EOF
 
@@ -43,8 +45,8 @@ cat > "$WORK/extension.vsixmanifest" <<EOF
   <Metadata>
     <Identity Language="en-US" Id="krypton-lang" Version="${VERSION}" Publisher="krypton-lang" />
     <DisplayName>Krypton</DisplayName>
-    <Description xml:space="preserve">Syntax highlighting for the Krypton programming language (.k files)</Description>
-    <Tags>krypton,language,syntax</Tags>
+    <Description xml:space="preserve">Krypton language support: syntax highlighting plus the kls language server (diagnostics, document outline, completion).</Description>
+    <Tags>krypton,language,syntax,lsp</Tags>
     <Categories>Programming Languages</Categories>
     <GalleryFlags>Public</GalleryFlags>
   </Metadata>
@@ -63,6 +65,13 @@ cp "$SRC/package.json"                        "$WORK/extension/package.json"
 cp "$SRC/language-configuration.json"         "$WORK/extension/language-configuration.json"
 cp "$SRC/syntaxes/krypton.tmLanguage.json"    "$WORK/extension/syntaxes/krypton.tmLanguage.json"
 [[ -f "$SRC/README.md" ]] && cp "$SRC/README.md" "$WORK/extension/README.md"
+[[ -f "$SRC/extension.js" ]] && cp "$SRC/extension.js" "$WORK/extension/extension.js"
+
+# Bundle kls.exe so out-of-box install just works (Windows users).
+if [[ -f "kls.exe" ]]; then
+    cp "kls.exe" "$WORK/extension/kls.exe"
+    echo "  bundled kls.exe ($(stat -c%s kls.exe 2>/dev/null || stat -f%z kls.exe) bytes)"
+fi
 
 mkdir -p extensions
 rm -f "$OUT"
