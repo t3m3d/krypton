@@ -133,9 +133,23 @@ vim.lsp.start({
 
 ### VS Code
 
-A wrapper extension that registers `kls.exe` as a language client is
-**session 3**. Currently the [krypton-lang](../krypton-lang/) extension
-provides syntax highlighting only.
+The [krypton-lang](../krypton-lang/) extension (1.8.1+) bundles `kls.exe`
+and a hand-rolled JSON-RPC client (no `vscode-languageclient`
+dependency, so the .vsix stays tiny — 181 KB). Install:
+
+```bash
+code --install-extension extensions/krypton-language-1.8.1.vsix
+```
+
+Configuration:
+
+```json
+{
+  "krypton.kls.path": "",       // empty = use bundled binary
+  "krypton.kls.enabled": true,  // false = syntax-only mode
+  "krypton.kls.trace": false    // true = log every frame
+}
+```
 
 ## Known caveats
 
