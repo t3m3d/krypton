@@ -82,6 +82,18 @@ mid-instruction.
 - `bootstrap/x64_host_windows_x86_64.exe` and
   `bootstrap/krypton_rt_windows.dll` synced (so the next clean
   rebuild from git seeds reproduces 1.8.0)
+- VS Code extension bumped 1.6.0 → 1.8.0
+  (`krypton-lang/package.json`). Builtins regex in
+  `krypton-lang/syntaxes/krypton.tmLanguage.json` expanded to cover
+  every primitive added 1.6.0 → 1.8.0: `padLeft`, `padRight`,
+  `min`, `max`, `bin`, `sign`, `clamp`, the full GC primitive set
+  (`gcAllocated`, `gcLimit`, `gcSetLimit`, `gcCollect`, `gcReset`,
+  `gcCheckpoint`, `gcRestore`, `gcSlabCount`, `gcSlabBytes`), the
+  `native_extras.k` stdlib helpers (`join`, `slice`, `splitBy`,
+  `sort`, `keys`, `values`, etc.), and the buf/handle/ptr/raw
+  families. New `extensions/krypton-language-1.8.0.vsix` packaged
+  alongside the 1.5.0 one — install with
+  `code --install-extension krypton-language-1.8.0.vsix --force`.
 - GitHub upload + krypton-lang.org download page **pending user go-ahead**
 
 ## [1.7.9] - 2026-05-04 (internal build, not released)
