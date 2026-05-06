@@ -76,7 +76,9 @@ native_pipeline_available() {
     case "$OSNAME/$ARCH" in
         linux/x86_64)   return 0 ;;
         windows/x86_64) return 0 ;;
-        macos/aarch64)  return 0 ;;
+        # macos/aarch64: macho_arm64_self.k is slice-3f (partial). Smoke tests
+        # use the implicit C+clang path on macOS until the native backend
+        # supports CAT, range, list iteration, polymorphic ADD, etc.
         *)              return 1 ;;
     esac
 }

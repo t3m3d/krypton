@@ -4,7 +4,14 @@
 # kcc-arm64, kcc-x64.exe). This script picks the right one at run time
 # so callers can keep invoking ./kcc uniformly.
 set -e
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve through symlinks so /usr/local/bin/kcc → repo/kcc finds repo/kcc-arm64
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 case "$(uname -s)/$(uname -m)" in
     Darwin/arm64|Darwin/aarch64)             BIN="kcc-arm64" ;;
     Linux/x86_64|Linux/amd64)                BIN="kcc-x64" ;;
