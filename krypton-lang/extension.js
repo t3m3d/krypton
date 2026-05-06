@@ -159,6 +159,7 @@ function applyDiagnostics(params) {
 // ── Document lifecycle ──────────────────────────────────────────
 
 function openDoc(doc) {
+    if (output) output.appendLine(`onDidOpen: ${doc.uri.toString()} (lang=${doc.languageId})`);
     if (doc.languageId !== "krypton") return;
     documentVersions.set(doc.uri.toString(), doc.version);
     notify("textDocument/didOpen", {
@@ -172,6 +173,7 @@ function openDoc(doc) {
 }
 
 function changeDoc(e) {
+    if (output && trace) output.appendLine(`onDidChange: ${e.document.uri.toString()} (lang=${e.document.languageId})`);
     if (e.document.languageId !== "krypton") return;
     documentVersions.set(e.document.uri.toString(), e.document.version);
     // Full sync — server is configured for sync mode 1.
@@ -198,6 +200,9 @@ function symbolProvider() {
                 textDocument: { uri: doc.uri.toString() }
             }).then(syms => {
                 if (!Array.isArray(syms)) return [];
+                if (output) {
+                    output.appendLine(`documentSymbol(${doc.uri.toString()}) -> ${syms.length} items: ${syms.map(s => s.name).join(", ")}`);
+                }
                 return syms.map(s => {
                     const range = new vscode.Range(
                         s.range.start.line, s.range.start.character,
@@ -211,7 +216,10 @@ function symbolProvider() {
                     const kind = (s.kind != null) ? (s.kind - 1) : vscode.SymbolKind.Function;
                     return new vscode.DocumentSymbol(s.name, "", kind, range, sel);
                 });
-            }).catch(() => []);
+            }).catch(e => {
+                if (output) output.appendLine(`documentSymbol error: ${e.message}`);
+                return [];
+            });
         }
     };
 }
@@ -245,7 +253,7 @@ function activate(context) {
     output = vscode.window.createOutputChannel("Krypton LSP");
     diagnostics = vscode.languages.createDiagnosticCollection("kls");
     context.subscriptions.push(output, diagnostics);
-    output.appendLine("Krypton extension 1.8.2 activated");
+    output.appendLine("Krypton extension 1.8.4 activated");
     output.appendLine("extensionPath: " + context.extensionPath);
     output.show(true);   // surface the channel so first-time users see it
 
