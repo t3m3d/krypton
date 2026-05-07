@@ -193,6 +193,7 @@ cfunc {
     // Forward decls — defined later but called from kr_gui_proc on WM_SIZE.
     static void kr_gui_apply_parts(void);
     static void kr_gui_reflow_all(int new_client_w, int new_client_h);
+    static void kr_gui_docks_relayout_for(HWND wnd);
 
     // Multi-monitor scan: find the first non-primary monitor. Used by
     // krGuiWindow to place popups on the secondary screen so they
@@ -307,6 +308,8 @@ cfunc {
             int cw = LOWORD(lp);
             int ch = HIWORD(lp);
             kr_gui_reflow_all(cw, ch);
+            // Re-layout any dock manager attached to this window.
+            kr_gui_docks_relayout_for(hwnd);
         }
         if (msg == WM_COMMAND) {
             int id = (int)LOWORD(wp);
@@ -879,6 +882,129 @@ cfunc {
         }
         if (!pop) return (char*)"0";
         AppendMenuW(pop, MF_SEPARATOR, 0, NULL);
+        return (char*)"1";
+    }
+
+    // ── Dock layout (Visual Studio-ish) ────────────────────────
+    //
+    // A dock manager owns a set of child widgets, each tagged with a
+    // side and a fixed size on its main axis. On every WM_SIZE of the
+    // owning window the dock recomputes positions:
+    //
+    //   top    panels eat from the top edge
+    //   bottom panels eat from the bottom edge
+    //   left   panels eat from the left edge
+    //   right  panels eat from the right edge
+    //   fill   takes whatever's left in the middle (one of these)
+    //
+    // Insertion order matters — first dockTop is closer to the edge
+    // than the second dockTop. The single fill widget always wins
+    // the leftover middle box.
+    //
+    //   let dock = guiDock(win)
+    //   guiDockTop(dock,    toolbar,   tbHeight)
+    //   guiDockBottom(dock, statusbar, 28)
+    //   guiDockLeft(dock,   tree,      240)
+    //   guiDockFill(dock,   editor)
+    //   guiDockApply(dock)         // initial layout
+
+    typedef struct {
+        HWND hwnd;
+        int  side;        // 0=top, 1=bottom, 2=left, 3=right, 4=fill
+        int  size;
+    } kr_gui_dock_child;
+
+    typedef struct {
+        HWND window;
+        kr_gui_dock_child kids[64];
+        int  n_kids;
+    } kr_gui_dock;
+
+    #define KR_GUI_MAX_DOCKS 8
+    static kr_gui_dock* g_docks[KR_GUI_MAX_DOCKS];
+    static int g_n_docks = 0;
+
+    static void kr_gui_dock_layout(kr_gui_dock* d) {
+        if (!d || !d->window) return;
+        RECT cr;
+        GetClientRect(d->window, &cr);
+        int top = cr.top, bot = cr.bottom, lft = cr.left, rgt = cr.right;
+        // First pass: top / bottom / left / right consume edges in
+        // declaration order. Fill is applied last with the leftover.
+        for (int i = 0; i < d->n_kids; i++) {
+            kr_gui_dock_child* c = &d->kids[i];
+            if (!c->hwnd || c->side == 4) continue;
+            int x, y, w, h;
+            if (c->side == 0) {           // top
+                x = lft; y = top; w = rgt - lft; h = c->size; top += c->size;
+            } else if (c->side == 1) {    // bottom
+                x = lft; y = bot - c->size; w = rgt - lft; h = c->size; bot -= c->size;
+            } else if (c->side == 2) {    // left
+                x = lft; y = top; w = c->size; h = bot - top; lft += c->size;
+            } else {                      // right
+                x = rgt - c->size; y = top; w = c->size; h = bot - top; rgt -= c->size;
+            }
+            SetWindowPos(c->hwnd, NULL, x, y, w, h,
+                         SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+        // Fill consumes whatever's left.
+        for (int i = 0; i < d->n_kids; i++) {
+            kr_gui_dock_child* c = &d->kids[i];
+            if (c->side == 4 && c->hwnd) {
+                SetWindowPos(c->hwnd, NULL, lft, top, rgt - lft, bot - top,
+                             SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+        }
+    }
+
+    static void kr_gui_docks_relayout_for(HWND wnd) {
+        for (int i = 0; i < g_n_docks; i++) {
+            if (g_docks[i] && g_docks[i]->window == wnd) {
+                kr_gui_dock_layout(g_docks[i]);
+            }
+        }
+    }
+
+    char* krGuiDock(char* window_str) {
+        HWND wnd = NULL;
+        sscanf(window_str, "%p", (void**)&wnd);
+        if (!wnd) return (char*)"0";
+        kr_gui_dock* d = (kr_gui_dock*)calloc(1, sizeof(*d));
+        if (!d) return (char*)"0";
+        d->window = wnd;
+        if (g_n_docks < KR_GUI_MAX_DOCKS) g_docks[g_n_docks++] = d;
+        char buf[32];
+        snprintf(buf, sizeof(buf), "0x%llx", (unsigned long long)(ULONG_PTR)d);
+        return kr_gui_dup(buf);
+    }
+
+    static kr_gui_dock* kr_gui_dock_resolve(const char* h) {
+        if (!h || h[0] != '0' || h[1] != 'x') return NULL;
+        kr_gui_dock* d = NULL;
+        sscanf(h, "0x%llx", (unsigned long long*)&d);
+        return d;
+    }
+
+    static char* kr_gui_dock_add(char* dock_str, char* h_str, int side, int size) {
+        kr_gui_dock* d = kr_gui_dock_resolve(dock_str);
+        if (!d || d->n_kids >= 64) return (char*)"0";
+        HWND ctl = kr_gui_resolve(h_str);
+        if (!ctl) return (char*)"0";
+        d->kids[d->n_kids].hwnd = ctl;
+        d->kids[d->n_kids].side = side;
+        d->kids[d->n_kids].size = size;
+        d->n_kids++;
+        return (char*)"1";
+    }
+
+    char* krGuiDockTop(char* d, char* h, char* s)    { return kr_gui_dock_add(d, h, 0, atoi(s)); }
+    char* krGuiDockBottom(char* d, char* h, char* s) { return kr_gui_dock_add(d, h, 1, atoi(s)); }
+    char* krGuiDockLeft(char* d, char* h, char* s)   { return kr_gui_dock_add(d, h, 2, atoi(s)); }
+    char* krGuiDockRight(char* d, char* h, char* s)  { return kr_gui_dock_add(d, h, 3, atoi(s)); }
+    char* krGuiDockFill(char* d, char* h)            { return kr_gui_dock_add(d, h, 4, 0); }
+    char* krGuiDockApply(char* d_str) {
+        kr_gui_dock* d = kr_gui_dock_resolve(d_str);
+        if (d) kr_gui_dock_layout(d);
         return (char*)"1";
     }
 
@@ -2229,6 +2355,13 @@ func guiImageSet(image, path)                    { emit krGuiImageSet(image, pat
 // counterpart so guiOnClick / guiGetText / etc. work normally.
 
 func guiMove(handle, x, y, w, h)                 { emit krGuiMove(handle, x + "", y + "", w + "", h + "") }
+func guiDock(window)                             { emit krGuiDock(window) }
+func guiDockTop(dock, hwnd, size)                { emit krGuiDockTop(dock, hwnd, size + "") }
+func guiDockBottom(dock, hwnd, size)             { emit krGuiDockBottom(dock, hwnd, size + "") }
+func guiDockLeft(dock, hwnd, size)               { emit krGuiDockLeft(dock, hwnd, size + "") }
+func guiDockRight(dock, hwnd, size)              { emit krGuiDockRight(dock, hwnd, size + "") }
+func guiDockFill(dock, hwnd)                     { emit krGuiDockFill(dock, hwnd) }
+func guiDockApply(dock)                          { emit krGuiDockApply(dock) }
 func guiSplitter(parent, x, y, w, h, orientation) { emit krGuiSplitter(parent, x + "", y + "", w + "", h + "", orientation) }
 func guiSplitterPos(splitter)                    { emit krGuiSplitterPos(splitter) }
 func guiCombo(parent, x, y, w, h)                { emit krGuiCombo(parent, x + "", y + "", w + "", h + "") }
