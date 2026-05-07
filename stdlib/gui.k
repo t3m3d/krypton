@@ -2061,6 +2061,19 @@ func guiImageSet(image, path)                    { emit krGuiImageSet(image, pat
 // cursor position. Each returns the same handle/id as its non-stack
 // counterpart so guiOnClick / guiGetText / etc. work normally.
 
+func guiCombo(parent, x, y, w, h)                { emit krGuiCombo(parent, x + "", y + "", w + "", h + "") }
+func guiComboAdd(combo, item)                    { emit krGuiComboAdd(combo, item) }
+func guiComboClear(combo)                        { emit krGuiComboClear(combo) }
+func guiComboSelected(combo)                     { emit krGuiComboSelected(combo) }
+func guiComboSet(combo, idx)                     { emit krGuiComboSet(combo, idx + "") }
+func guiColorPicker(initialHex)                  { emit krGuiColorPicker(initialHex) }
+func guiDatePicker(parent, x, y, w, h)           { emit krGuiDatePicker(parent, x + "", y + "", w + "", h + "") }
+func guiDateGet(picker)                          { emit krGuiDateGet(picker) }
+func guiDateSet(picker, ymd)                     { emit krGuiDateSet(picker, ymd) }
+func guiScrollbar(parent, x, y, w, h, vertical)  { emit krGuiScrollbar(parent, x + "", y + "", w + "", h + "", vertical + "") }
+func guiScrollbarRange(sb, lo, hi, page)         { emit krGuiScrollbarRange(sb, lo + "", hi + "", page + "") }
+func guiScrollbarValue(sb)                       { emit krGuiScrollbarValue(sb) }
+func guiScrollbarSet(sb, value)                  { emit krGuiScrollbarSet(sb, value + "") }
 func guiVStack(parent, x, y, width, gap)         { emit krGuiVStack(parent, x + "", y + "", width + "", gap + "") }
 func guiHStack(parent, x, y, height, gap)        { emit krGuiHStack(parent, x + "", y + "", height + "", gap + "") }
 func guiVNext(stack, height)                     { emit krGuiVNext(stack, height + "") }
