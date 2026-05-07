@@ -87,6 +87,8 @@ test*
 *.ir
 *.dll
 !runtime/krypton_rt.dll
+!runtime/ckrypton_gui.dll
+!runtime/ckrypton_proc.dll
 *.obj
 *.lib
 *.txt

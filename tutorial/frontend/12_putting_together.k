@@ -24,14 +24,15 @@ func updateStatus() {
 
 func onAdd() {
     let s = guiGetText(g_input)
-    if len(s) == 0 { return }
-    let prefix = "[ ] "
-    if guiIsChecked(g_done) == "1" { prefix = "[x] " }
-    guiListAdd(g_list, prefix + s)
-    guiSetText(g_input, "")
-    g_added = g_added + 1
-    updateStatus()
-    guiStatusIcon(g_bar, 0, "info")
+    if len(s) > 0 {
+        let prefix = "[ ] "
+        if guiIsChecked(g_done) == "1" { prefix = "[x] " }
+        guiListAdd(g_list, prefix + s)
+        guiSetText(g_input, "")
+        g_added = g_added + 1
+        updateStatus()
+        guiStatusIcon(g_bar, 0, "info")
+    }
 }
 
 func onPick() {
