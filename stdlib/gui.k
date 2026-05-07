@@ -48,6 +48,12 @@ jxt {
     func krGuiLabel(parent, text, x, y, w, h)  -> char_ptr
     func krGuiTextInput(parent, x, y, w, h)    -> char_ptr
     func krGuiTextArea(parent, x, y, w, h)     -> char_ptr
+    func krGuiRichEdit(parent, x, y, w, h)     -> char_ptr
+    func krGuiRichSetFmt(rich, start, end, hexColor, bold)
+    func krGuiRichClearFmt(rich)
+    func krGuiRichAppend(rich, text, hexColor, bold)
+    func krGuiRichReadOnly(rich, on)
+    func krGuiRichSetMonoFont(rich, family, ptSize)
     func krGuiCheckbox(parent, label, x, y, w, h) -> char_ptr
     func krGuiIsChecked(hwnd)                  -> char_ptr
     func krGuiSetChecked(hwnd, on)
@@ -576,6 +582,148 @@ cfunc {
         char buf[32];
         snprintf(buf, sizeof(buf), "0x%llx", (unsigned long long)(ULONG_PTR)ctl);
         return kr_gui_dup(buf);
+    }
+
+    // ── RichEdit (msftedit.dll RICHEDIT50W) ────────────────────
+    //
+    // Per-character formatting — what we need for code-editor-style
+    // syntax highlighting. msftedit.dll registers RICHEDIT50W; we
+    // dynamic-load on first use so no -lmsimg32 link tax.
+    //
+    //   guiRichEdit(parent, x, y, w, h)            → handle
+    //   guiRichSetFmt(rich, start, end, hex, bold) → color a range
+    //   guiRichClearFmt(rich)                       → reset all to plain
+    //   guiRichAppend(rich, text, hex, bold)        → tail with color
+    //   guiRichReadOnly(rich, on)                   → 1 to lock edits
+    //   guiRichSetMonoFont(rich, "Consolas", 11)    → font for whole control
+
+    static int g_richedit_loaded = 0;
+
+    static int kr_rich_load(void) {
+        if (g_richedit_loaded) return 1;
+        if (!LoadLibraryA("msftedit.dll")) return 0;
+        g_richedit_loaded = 1;
+        return 1;
+    }
+
+    static COLORREF kr_parse_hex_color(const char* hex) {
+        const char* p = hex ? hex : "";
+        if (*p == '#') p++;
+        if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) p += 2;
+        unsigned int v = 0;
+        sscanf(p, "%x", &v);
+        return RGB((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF);
+    }
+
+    char* krGuiRichEdit(char* parent_str, char* xs, char* ys, char* ws, char* hs) {
+        if (!kr_rich_load()) return (char*)"0";
+        HWND parent = NULL;
+        sscanf(parent_str, "%p", (void**)&parent);
+        if (!parent) return (char*)"0";
+        int id = kr_gui_register_id();
+        HWND ctl = CreateWindowExW(
+            WS_EX_CLIENTEDGE, L"RICHEDIT50W", L"",
+            WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL |
+            ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL |
+            ES_NOHIDESEL | ES_WANTRETURN,
+            atoi(xs), atoi(ys), atoi(ws), atoi(hs),
+            parent, (HMENU)(LONG_PTR)id, GetModuleHandleA(NULL), NULL);
+        if (!ctl) return (char*)"0";
+        // RichEdit doesn't honour the global Segoe UI font well — set
+        // a sensible monospaced default so it looks like a code editor
+        // out of the box.
+        HFONT mono = CreateFontA(
+            -15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, "Consolas");
+        if (mono) SendMessageW(ctl, WM_SETFONT, (WPARAM)mono, MAKELPARAM(TRUE, 0));
+        // Subscribe to all change/selection notifications so callers
+        // can wire onChange if they want a "buffer dirty" signal.
+        SendMessageW(ctl, EM_SETEVENTMASK, 0, ENM_CHANGE | ENM_SELCHANGE);
+        char buf[32];
+        snprintf(buf, sizeof(buf), "0x%llx", (unsigned long long)(ULONG_PTR)ctl);
+        return kr_gui_dup(buf);
+    }
+
+    char* krGuiRichSetFmt(char* h, char* s_str, char* e_str, char* hex, char* bold_str) {
+        HWND ctl = kr_gui_resolve(h);
+        if (!ctl) return (char*)"0";
+        int s = atoi(s_str ? s_str : "0");
+        int e = atoi(e_str ? e_str : "0");
+        int bold = atoi(bold_str ? bold_str : "0");
+        // Save and restore the user's selection so format-runs from
+        // syntax-highlight passes don't yank the cursor around.
+        CHARRANGE saved;
+        SendMessageW(ctl, EM_EXGETSEL, 0, (LPARAM)&saved);
+        CHARRANGE cr; cr.cpMin = s; cr.cpMax = e;
+        SendMessageW(ctl, EM_EXSETSEL, 0, (LPARAM)&cr);
+        CHARFORMAT2W cf;
+        memset(&cf, 0, sizeof(cf));
+        cf.cbSize    = sizeof(cf);
+        cf.dwMask    = CFM_COLOR | CFM_BOLD;
+        cf.crTextColor = kr_parse_hex_color(hex);
+        cf.dwEffects   = bold ? CFE_BOLD : 0;
+        SendMessageW(ctl, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+        SendMessageW(ctl, EM_EXSETSEL, 0, (LPARAM)&saved);
+        return (char*)"1";
+    }
+
+    char* krGuiRichClearFmt(char* h) {
+        HWND ctl = kr_gui_resolve(h);
+        if (!ctl) return (char*)"0";
+        CHARRANGE saved;
+        SendMessageW(ctl, EM_EXGETSEL, 0, (LPARAM)&saved);
+        CHARRANGE all; all.cpMin = 0; all.cpMax = -1;
+        SendMessageW(ctl, EM_EXSETSEL, 0, (LPARAM)&all);
+        CHARFORMAT2W cf;
+        memset(&cf, 0, sizeof(cf));
+        cf.cbSize  = sizeof(cf);
+        cf.dwMask  = CFM_COLOR | CFM_BOLD | CFM_ITALIC | CFM_UNDERLINE;
+        cf.crTextColor = RGB(0xd4, 0xd4, 0xd4);
+        cf.dwEffects   = 0;
+        SendMessageW(ctl, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+        SendMessageW(ctl, EM_EXSETSEL, 0, (LPARAM)&saved);
+        return (char*)"1";
+    }
+
+    char* krGuiRichAppend(char* h, char* text, char* hex, char* bold_str) {
+        HWND ctl = kr_gui_resolve(h);
+        if (!ctl) return (char*)"0";
+        // Snap selection to end-of-text, set format, insert.
+        int len_chars = (int)SendMessageW(ctl, WM_GETTEXTLENGTH, 0, 0);
+        CHARRANGE end; end.cpMin = len_chars; end.cpMax = len_chars;
+        SendMessageW(ctl, EM_EXSETSEL, 0, (LPARAM)&end);
+        CHARFORMAT2W cf;
+        memset(&cf, 0, sizeof(cf));
+        cf.cbSize = sizeof(cf);
+        cf.dwMask = CFM_COLOR | CFM_BOLD;
+        cf.crTextColor = kr_parse_hex_color(hex);
+        cf.dwEffects   = atoi(bold_str ? bold_str : "0") ? CFE_BOLD : 0;
+        SendMessageW(ctl, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+        wchar_t* w = kr_gui_to_w(text ? text : "");
+        SendMessageW(ctl, EM_REPLACESEL, FALSE, (LPARAM)w);
+        return (char*)"1";
+    }
+
+    char* krGuiRichReadOnly(char* h, char* on_str) {
+        HWND ctl = kr_gui_resolve(h);
+        if (!ctl) return (char*)"0";
+        SendMessageW(ctl, EM_SETREADONLY,
+                     atoi(on_str ? on_str : "0") ? TRUE : FALSE, 0);
+        return (char*)"1";
+    }
+
+    char* krGuiRichSetMonoFont(char* h, char* family, char* pt_str) {
+        HWND ctl = kr_gui_resolve(h);
+        if (!ctl) return (char*)"0";
+        int pt = atoi(pt_str ? pt_str : "11");
+        HFONT mono = CreateFontA(
+            -(pt * 96 / 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN,
+            (family && *family) ? family : "Consolas");
+        if (mono) SendMessageW(ctl, WM_SETFONT, (WPARAM)mono, MAKELPARAM(TRUE, 0));
+        return (char*)"1";
     }
 
     // ── Checkbox ───────────────────────────────────────────────
@@ -4662,6 +4810,16 @@ cfunc {
         return (char*)"1";
     }
 
+    // RichEdit — Win32-only widget. macOS gets no-op stubs so apps that
+    // use guiRichEdit on the Mac don't crash; they just see an empty
+    // handle and the format/append calls become no-ops.
+    char* krGuiRichEdit(char* p, char* x, char* y, char* w, char* h)        { (void)p;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
+    char* krGuiRichSetFmt(char* r, char* s, char* e, char* c, char* b)      { (void)r;(void)s;(void)e;(void)c;(void)b; return (char*)"0"; }
+    char* krGuiRichClearFmt(char* r)                                        { (void)r; return (char*)"0"; }
+    char* krGuiRichAppend(char* r, char* t, char* c, char* b)               { (void)r;(void)t;(void)c;(void)b; return (char*)"0"; }
+    char* krGuiRichReadOnly(char* r, char* o)                               { (void)r;(void)o; return (char*)"0"; }
+    char* krGuiRichSetMonoFont(char* r, char* f, char* p)                   { (void)r;(void)f;(void)p; return (char*)"0"; }
+
     #undef KR_STUB_S
     #undef KR_STUB_0
 
@@ -4679,6 +4837,12 @@ cfunc {
     char* krGuiLabel(char* p, char* t, char* x, char* y, char* w, char* h)                       { (void)p;(void)t;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
     char* krGuiTextInput(char* p, char* x, char* y, char* w, char* h)                             { (void)p;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
     char* krGuiTextArea(char* p, char* x, char* y, char* w, char* h)                              { (void)p;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
+    char* krGuiRichEdit(char* p, char* x, char* y, char* w, char* h)                              { (void)p;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
+    char* krGuiRichSetFmt(char* r, char* s, char* e, char* c, char* b)                            { (void)r;(void)s;(void)e;(void)c;(void)b; return (char*)"0"; }
+    char* krGuiRichClearFmt(char* r)                                                              { (void)r; return (char*)"0"; }
+    char* krGuiRichAppend(char* r, char* t, char* c, char* b)                                     { (void)r;(void)t;(void)c;(void)b; return (char*)"0"; }
+    char* krGuiRichReadOnly(char* r, char* o)                                                     { (void)r;(void)o; return (char*)"0"; }
+    char* krGuiRichSetMonoFont(char* r, char* f, char* p)                                         { (void)r;(void)f;(void)p; return (char*)"0"; }
     char* krGuiCheckbox(char* p, char* l, char* x, char* y, char* w, char* h)                    { (void)p;(void)l;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
     char* krGuiIsChecked(char* h)                                                                 { (void)h; return (char*)"0"; }
     char* krGuiSetChecked(char* h, char* o)                                                       { (void)h;(void)o; return (char*)"0"; }
@@ -4778,6 +4942,12 @@ func guiButton(parent, label, x, y, w, h)        { emit krGuiButton(parent, labe
 func guiLabel(parent, text, x, y, w, h)          { emit krGuiLabel(parent, text, x + "", y + "", w + "", h + "") }
 func guiTextInput(parent, x, y, w, h)            { emit krGuiTextInput(parent, x + "", y + "", w + "", h + "") }
 func guiTextArea(parent, x, y, w, h)             { emit krGuiTextArea(parent, x + "", y + "", w + "", h + "") }
+func guiRichEdit(parent, x, y, w, h)             { emit krGuiRichEdit(parent, x + "", y + "", w + "", h + "") }
+func guiRichSetFmt(rich, start, end, hexColor, bold) { emit krGuiRichSetFmt(rich, start + "", end + "", hexColor, bold + "") }
+func guiRichClearFmt(rich)                       { emit krGuiRichClearFmt(rich) }
+func guiRichAppend(rich, text, hexColor, bold)   { emit krGuiRichAppend(rich, text, hexColor, bold + "") }
+func guiRichReadOnly(rich, on)                   { emit krGuiRichReadOnly(rich, on + "") }
+func guiRichSetMonoFont(rich, family, ptSize)    { emit krGuiRichSetMonoFont(rich, family, ptSize + "") }
 func guiCheckbox(parent, label, x, y, w, h)      { emit krGuiCheckbox(parent, label, x + "", y + "", w + "", h + "") }
 func guiIsChecked(hwnd)                          { emit krGuiIsChecked(hwnd) }
 func guiSetChecked(hwnd, on)                     { emit krGuiSetChecked(hwnd, on + "") }
