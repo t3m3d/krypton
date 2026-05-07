@@ -1,4 +1,4 @@
-// stdlib/gui.k — High-level Win32 GUI library for Krypton.
+// stdlib/gui.k — High-level cross-platform GUI library for Krypton.
 //
 // Wraps the boilerplate from examples/win_*.k into a small, opinionated
 // API so a Krypton GUI program can stay short:
@@ -20,16 +20,22 @@
 //   }
 //
 // Uses the C codegen path because Krypton's native pipeline doesn't
-// yet support arbitrary cross-language callbacks (Win32 WindowProc).
-// Every API below is implemented in cfunc { } and exposed as a thin
-// Krypton wrapper. Drop-in replaceable when native callbacks land.
+// yet support arbitrary cross-language callbacks (Win32 WindowProc /
+// Cocoa target-action). Every API below is implemented in cfunc { }
+// and exposed as a thin Krypton wrapper. Drop-in replaceable when
+// native callbacks land.
+//
+// Backends:
+//   Windows  — full surface (Win32 + Common Controls v6 + DWM).
+//   macOS    — first slice via Cocoa over the Objective-C runtime
+//              (NSWindow, NSButton, NSTextField, NSAlert). Widgets
+//              not yet ported are no-op stubs so programs still link.
+//   Linux    — no-op stubs; native GTK/X11 backend TBD.
 //
 // Build a GUI program:
-//   kcc.exe my_gui.k > my_gui.c
-//   gcc my_gui.c -o my_gui.exe -luser32 -lgdi32 -lcomctl32 -ldwmapi -lm -w
-//
-// (kbackend / kcode-win and the standard `gcc + Win32 libs` link line
-// already cover this.)
+//   Windows:  kcc my_gui.k -o my_gui.exe -luser32 -lgdi32 -lcomctl32 \
+//                  -ldwmapi -luxtheme -ladvapi32
+//   macOS:    kcc my_gui.k -o my_gui -Wl,-framework,Cocoa -lobjc
 
 module gui
 
@@ -131,6 +137,7 @@ jxt {
 
 
 cfunc {
+#if defined(_WIN32)
     // Pull in modern API surface (SetWindowTheme, IsThemeActive, etc.)
     // before windows.h locks the version.
     #ifndef _WIN32_WINNT
@@ -2301,6 +2308,2464 @@ cfunc {
         PostQuitMessage(0);
         return (char*)"1";
     }
+
+#elif defined(__APPLE__)
+    // ──────────────────────────────────────────────────────────────────
+    // macOS — Cocoa via the Objective-C runtime C API.
+    //
+    // We talk to AppKit through objc_msgSend rather than embedding .m
+    // sources so kcc's plain `.c → clang` pipeline still works. Link
+    // line on macOS:
+    //   clang gui.c -o gui -Wl,-framework,Cocoa -lobjc -lm -w
+    // (kcc.sh already passes -Wl,… through unchanged.)
+    //
+    // Implements the same krGui* API surface as the Win32 path. Widgets
+    // not yet wired return empty handles so existing programs link and
+    // run; they just don't render those widgets.
+    //
+    // First slice: window, label, text input, button, message box,
+    // init/show/run/quit, onClick, set/getText. Everything else is a
+    // no-op stub for now and will be filled in incrementally.
+    // ──────────────────────────────────────────────────────────────────
+
+    #include <objc/objc.h>
+    #include <objc/runtime.h>
+    #include <objc/message.h>
+    #include <stdio.h>
+    #include <stdlib.h>
+    #include <string.h>
+
+    // Hand-roll the geometry types so we don't pull in CoreGraphics.h.
+    // 64-bit only — modern macOS (Apple Silicon + recent Intel) is LP64.
+    typedef struct { double x, y; } KRPoint;
+    typedef struct { double width, height; } KRSize;
+    typedef struct { KRPoint origin; KRSize size; } KRRect;
+
+    // NSWindowStyleMask bits and NSBackingStoreType.
+    #define KR_NS_TITLED       1UL
+    #define KR_NS_CLOSABLE     2UL
+    #define KR_NS_MINIATURIZE  4UL
+    #define KR_NS_RESIZABLE    8UL
+    #define KR_NS_BACKING_BUF  2UL
+
+    // objc_msgSend isn't typed — every call site has to cast it to the
+    // exact (id, SEL, …) signature so the compiler emits the right ABI
+    // sequence. These shorthands cover the common shapes.
+    #define MSG_V(o, s)         ((void(*)(id,SEL))objc_msgSend)((o),(s))
+    #define MSG_O(o, s)         ((id  (*)(id,SEL))objc_msgSend)((o),(s))
+    #define MSG_O_O(o, s, a)    ((id  (*)(id,SEL,id))objc_msgSend)((o),(s),(a))
+    #define MSG_V_O(o, s, a)    ((void(*)(id,SEL,id))objc_msgSend)((o),(s),(a))
+    #define MSG_V_L(o, s, a)    ((void(*)(id,SEL,long))objc_msgSend)((o),(s),(a))
+    #define MSG_V_C(o, s, a)    ((void(*)(id,SEL,signed char))objc_msgSend)((o),(s),(a))
+    #define MSG_V_SEL(o, s, a)  ((void(*)(id,SEL,SEL))objc_msgSend)((o),(s),(a))
+    #define MSG_L(o, s)         ((long(*)(id,SEL))objc_msgSend)((o),(s))
+
+    typedef signed char KR_BOOL;
+
+    // -[KrFlippedView isFlipped] returns YES so child-view coordinates
+    // run top-down, matching Krypton's Win32-shaped (x, y) API.
+    static KR_BOOL kr_view_is_flipped(id self, SEL _cmd) {
+        (void)self; (void)_cmd;
+        return 1;
+    }
+
+    // Click / change dispatch tables — slot N holds the Krypton sink
+    // for the control with tag (1000 + N). Win32 splits click events
+    // (WM_COMMAND) and change events (WM_HSCROLL, WM_NOTIFY) by message
+    // type; Cocoa funnels everything through one target/action, so we
+    // keep two slot tables and fire whichever the user wired. Same
+    // semantics, different bookkeeping.
+    typedef char* (*kr_gui_cb)(void);
+    #define KR_GUI_MAX_CB 256
+    static kr_gui_cb g_cb[KR_GUI_MAX_CB];
+    static kr_gui_cb g_change_cb[KR_GUI_MAX_CB];
+    static int g_next_id = 1000;
+
+    static id  g_app           = NULL;
+    static id  g_main_window   = NULL;
+    static id  g_content_view  = NULL;
+    static id  g_target        = NULL;   // shared NSObject for target/action
+    static id  g_tab_delegate  = NULL;   // shared NSTabView delegate (selection-changed)
+    static id  g_tree_helper   = NULL;   // shared NSOutlineView data-source + delegate
+    static id  g_menu_bar      = NULL;   // [NSApp setMainMenu:] target, lazily created
+    static int g_inited        = 0;
+
+    // Forward declarations — the tag/text helpers are defined further
+    // down with the other plumbing, but the dispatch impls below need
+    // them. Bodies live near kr_obj_from / kr_ns_to_c.
+    static void kr_set_widget_tag(id ctl, long tag);
+    static long kr_get_widget_tag(id ctl);
+
+    // Shared action method — looked up by sender tag so one selector
+    // can serve every wired control in the program. Fires onClick if
+    // wired, then onChange if wired (matches Win32 single-event flow
+    // when only one is set; double-wiring fires both intentionally).
+    static void kr_action_imp(id self, SEL _cmd, id sender) {
+        (void)self; (void)_cmd;
+        if (!sender) return;
+        long tag = kr_get_widget_tag(sender);
+        int slot = (int)tag - 1000;
+        if (slot < 0 || slot >= KR_GUI_MAX_CB) return;
+        if (g_cb[slot])        g_cb[slot]();
+        if (g_change_cb[slot]) g_change_cb[slot]();
+    }
+
+    // Shared tab-view delegate — NSTabView fires
+    // -tabView:didSelectTabViewItem: on selection change rather than
+    // routing through target/action, so we plumb it the same way as
+    // kr_action_imp but with the right method signature.
+    static void kr_tab_change_imp(id self, SEL _cmd, id tabview, id item) {
+        (void)self; (void)_cmd; (void)item;
+        if (!tabview) return;
+        long tag = kr_get_widget_tag(tabview);
+        int slot = (int)tag - 1000;
+        if (slot < 0 || slot >= KR_GUI_MAX_CB) return;
+        if (g_change_cb[slot]) g_change_cb[slot]();
+        else if (g_cb[slot])   g_cb[slot]();
+    }
+
+    // ── Dock manager (top/bottom/left/right/fill, edge-eating) ───
+    //
+    // Mirrors the Win32 dock manager: each dock owns a list of kids
+    // tagged with a side and a fixed size. krGuiDockApply lays them
+    // out by walking the kids in declaration order, eating edges off
+    // the contentView's bounds, then giving the leftover to fill.
+    // NSWindowDidResizeNotification re-fires the layout so panels
+    // reflow when the user resizes the window.
+    typedef struct {
+        id  view;            // NSView the user mounted
+        int side;            // 0=top, 1=bottom, 2=left, 3=right, 4=fill
+        int size;
+    } kr_dock_kid;
+
+    typedef struct {
+        id          window;        // NSWindow*
+        id          content;       // NSView* (cached contentView)
+        kr_dock_kid kids[64];
+        int         n_kids;
+    } kr_dock_state;
+
+    #define KR_GUI_MAX_DOCKS 8
+    static kr_dock_state* g_docks[KR_GUI_MAX_DOCKS];
+    static int g_n_docks = 0;
+
+    static void kr_dock_layout(kr_dock_state* d) {
+        if (!d || !d->content) return;
+        KRRect cf = ((KRRect(*)(id,SEL))objc_msgSend)(d->content, sel_getUid("bounds"));
+        double top = 0, bot = cf.size.height, lft = 0, rgt = cf.size.width;
+        for (int i = 0; i < d->n_kids; i++) {
+            kr_dock_kid* c = &d->kids[i];
+            if (!c->view || c->side == 4) continue;
+            KRRect r;
+            if (c->side == 0) {           // top — eat from top edge
+                r = (KRRect){{ lft, top }, { rgt - lft, (double)c->size }};
+                top += c->size;
+            } else if (c->side == 1) {    // bottom — eat from bottom edge
+                r = (KRRect){{ lft, bot - c->size }, { rgt - lft, (double)c->size }};
+                bot -= c->size;
+            } else if (c->side == 2) {    // left — eat from left edge
+                r = (KRRect){{ lft, top }, { (double)c->size, bot - top }};
+                lft += c->size;
+            } else {                      // right — eat from right edge
+                r = (KRRect){{ rgt - c->size, top }, { (double)c->size, bot - top }};
+                rgt -= c->size;
+            }
+            ((void(*)(id,SEL,KRRect))objc_msgSend)(c->view, sel_getUid("setFrame:"), r);
+        }
+        // Fill consumes whatever's left after edge eaters.
+        for (int i = 0; i < d->n_kids; i++) {
+            kr_dock_kid* c = &d->kids[i];
+            if (c->side == 4 && c->view) {
+                KRRect r = {{ lft, top }, { rgt - lft, bot - top }};
+                ((void(*)(id,SEL,KRRect))objc_msgSend)(c->view, sel_getUid("setFrame:"), r);
+            }
+        }
+    }
+
+    // NSNotificationCenter selector — fires on NSWindowDidResizeNotification.
+    // Walks every registered dock and re-lays out the ones whose owning
+    // window matches. Single shared selector keeps the observer count low.
+    static void kr_dock_resize_imp(id self, SEL _cmd, id notification) {
+        (void)self; (void)_cmd;
+        if (!notification) return;
+        id window = MSG_O(notification, sel_getUid("object"));
+        for (int i = 0; i < g_n_docks; i++) {
+            if (g_docks[i] && g_docks[i]->window == window) {
+                kr_dock_layout(g_docks[i]);
+            }
+        }
+    }
+
+    // Spinbox action — NSStepper sender. Each spinbox is a composite
+    // (NSStepper paired with an NSTextField); the textfield is wired
+    // to the stepper as an associated object so the action can mirror
+    // the new integer into the visible text and fire user callbacks.
+    static char kr_spin_partner_key;        // associated-object key
+
+    static void kr_spin_action_imp(id self, SEL _cmd, id stepper) {
+        (void)self; (void)_cmd;
+        if (!stepper) return;
+        id tf = (id)objc_getAssociatedObject(stepper, &kr_spin_partner_key);
+        if (tf) {
+            long v = MSG_L(stepper, sel_getUid("integerValue"));
+            char buf[32];
+            snprintf(buf, sizeof(buf), "%ld", v);
+            MSG_V_O(tf, sel_getUid("setStringValue:"),
+                    ((id(*)(id,SEL,const char*))objc_msgSend)(
+                        (id)objc_getClass("NSString"),
+                        sel_getUid("stringWithUTF8String:"),
+                        buf));
+        }
+        long tag = kr_get_widget_tag(stepper);
+        int slot = (int)tag - 1000;
+        if (slot < 0 || slot >= KR_GUI_MAX_CB) return;
+        if (g_change_cb[slot]) g_change_cb[slot]();
+        else if (g_cb[slot])   g_cb[slot]();
+    }
+
+    // Splitter — thin draggable bar matching the Win32 contract: a
+    // standalone STATIC the user drags to resize sibling panels. We
+    // build a KrSplitter NSView subclass that overrides mouseDown:,
+    // mouseDragged:, drawRect:, and isFlipped (so the bar's parent is
+    // assumed flipped, top-left coords).
+    typedef struct {
+        int    orient;             // 0 = horizontal bar (drag y), 1 = vertical bar (drag x)
+        int    pos;                // current top (h) or left (v) in parent coords
+        double drag_start_mouse;   // mouse coord at mouseDown (window coords)
+        int    drag_start_pos;     // splitter pos at mouseDown
+    } kr_split_state;
+    static char kr_split_state_key;
+
+    static void kr_split_mouseDown_imp(id self, SEL _cmd, id event) {
+        (void)_cmd;
+        if (!event) return;
+        kr_split_state* s = (kr_split_state*)objc_getAssociatedObject(self, &kr_split_state_key);
+        if (!s) return;
+        // -[NSEvent locationInWindow] returns NSPoint (16 bytes — fits
+        // in registers on both arm64 and x86_64, so plain objc_msgSend
+        // is correct without _stret.).
+        KRPoint loc = ((KRPoint(*)(id,SEL))objc_msgSend)(event, sel_getUid("locationInWindow"));
+        s->drag_start_mouse = (s->orient == 0) ? loc.y : loc.x;
+        s->drag_start_pos   = s->pos;
+    }
+
+    static void kr_split_mouseDragged_imp(id self, SEL _cmd, id event) {
+        (void)_cmd;
+        if (!event) return;
+        kr_split_state* s = (kr_split_state*)objc_getAssociatedObject(self, &kr_split_state_key);
+        if (!s) return;
+        KRPoint loc = ((KRPoint(*)(id,SEL))objc_msgSend)(event, sel_getUid("locationInWindow"));
+        double cur = (s->orient == 0) ? loc.y : loc.x;
+        int delta = (int)(cur - s->drag_start_mouse);
+        // Window coords are bottom-up; our flipped contentView is
+        // top-down. For the horizontal bar (drag y) we flip the sign so
+        // the bar visually tracks the cursor. The vertical bar's x is
+        // already aligned.
+        if (s->orient == 0) delta = -delta;
+        int newpos = s->drag_start_pos + delta;
+        if (newpos < 0) newpos = 0;
+        s->pos = newpos;
+
+        KRRect r = ((KRRect(*)(id,SEL))objc_msgSend)(self, sel_getUid("frame"));
+        if (s->orient == 0) r.origin.y = (double)newpos;
+        else                r.origin.x = (double)newpos;
+        ((void(*)(id,SEL,KRRect))objc_msgSend)(self, sel_getUid("setFrame:"), r);
+
+        long tag = kr_get_widget_tag(self);
+        int slot = (int)tag - 1000;
+        if (slot < 0 || slot >= KR_GUI_MAX_CB) return;
+        if (g_change_cb[slot]) g_change_cb[slot]();
+        else if (g_cb[slot])   g_cb[slot]();
+    }
+
+    // ── Tree view (NSOutlineView) data source / delegate ─────────
+    //
+    // One shared helper class implements the four NSOutlineView
+    // data-source selectors plus the selection-change delegate hook.
+    // Each tree's nodes are NSMutableDictionary {label, children}; the
+    // root array hangs off the outline view via associated objects.
+    static char kr_tree_root_key;
+
+    static long kr_tree_num_children_imp(id self, SEL _cmd, id outline, id item) {
+        (void)self; (void)_cmd;
+        if (item == NULL) {
+            id root = (id)objc_getAssociatedObject(outline, &kr_tree_root_key);
+            return root ? MSG_L(root, sel_getUid("count")) : 0;
+        }
+        id ch = ((id(*)(id,SEL,id))objc_msgSend)(item, sel_getUid("objectForKey:"),
+            ((id(*)(id,SEL,const char*))objc_msgSend)(
+                (id)objc_getClass("NSString"),
+                sel_getUid("stringWithUTF8String:"),
+                "children"));
+        return ch ? MSG_L(ch, sel_getUid("count")) : 0;
+    }
+
+    static id kr_tree_child_imp(id self, SEL _cmd, id outline, long idx, id item) {
+        (void)self; (void)_cmd;
+        id arr = NULL;
+        if (item == NULL) {
+            arr = (id)objc_getAssociatedObject(outline, &kr_tree_root_key);
+        } else {
+            arr = ((id(*)(id,SEL,id))objc_msgSend)(item, sel_getUid("objectForKey:"),
+                ((id(*)(id,SEL,const char*))objc_msgSend)(
+                    (id)objc_getClass("NSString"),
+                    sel_getUid("stringWithUTF8String:"),
+                    "children"));
+        }
+        if (!arr) return NULL;
+        return ((id(*)(id,SEL,long))objc_msgSend)(arr, sel_getUid("objectAtIndex:"), idx);
+    }
+
+    static signed char kr_tree_is_expandable_imp(id self, SEL _cmd, id outline, id item) {
+        (void)self; (void)_cmd; (void)outline;
+        if (item == NULL) return 0;
+        id ch = ((id(*)(id,SEL,id))objc_msgSend)(item, sel_getUid("objectForKey:"),
+            ((id(*)(id,SEL,const char*))objc_msgSend)(
+                (id)objc_getClass("NSString"),
+                sel_getUid("stringWithUTF8String:"),
+                "children"));
+        return (ch && MSG_L(ch, sel_getUid("count")) > 0) ? 1 : 0;
+    }
+
+    static id kr_tree_object_value_imp(id self, SEL _cmd, id outline, id col, id item) {
+        (void)self; (void)_cmd; (void)outline; (void)col;
+        if (item == NULL) return NULL;
+        return ((id(*)(id,SEL,id))objc_msgSend)(item, sel_getUid("objectForKey:"),
+            ((id(*)(id,SEL,const char*))objc_msgSend)(
+                (id)objc_getClass("NSString"),
+                sel_getUid("stringWithUTF8String:"),
+                "label"));
+    }
+
+    static void kr_tree_selection_did_change_imp(id self, SEL _cmd, id notification) {
+        (void)self; (void)_cmd;
+        if (!notification) return;
+        id outline = MSG_O(notification, sel_getUid("object"));
+        if (!outline) return;
+        long tag = kr_get_widget_tag(outline);
+        int slot = (int)tag - 1000;
+        if (slot < 0 || slot >= KR_GUI_MAX_CB) return;
+        if (g_change_cb[slot]) g_change_cb[slot]();
+        else if (g_cb[slot])   g_cb[slot]();
+    }
+
+    // Paint the bar a flat tint so it's visible without theming.
+    static void kr_split_drawRect_imp(id self, SEL _cmd, KRRect dirty) {
+        (void)_cmd; (void)dirty;
+        KRRect b = ((KRRect(*)(id,SEL))objc_msgSend)(self, sel_getUid("bounds"));
+        id color = MSG_O((id)objc_getClass("NSColor"), sel_getUid("lightGrayColor"));
+        MSG_V(color, sel_getUid("set"));
+        id path = ((id(*)(id,SEL,KRRect))objc_msgSend)(
+            (id)objc_getClass("NSBezierPath"),
+            sel_getUid("bezierPathWithRect:"), b);
+        MSG_V(path, sel_getUid("fill"));
+    }
+
+    // Splitter lives inside the flipped contentView, but its own
+    // children (none, in our design) would need top-left coords too;
+    // doesn't actually matter here since we don't add subviews. Kept
+    // for symmetry with KrFlippedView.
+    static KR_BOOL kr_split_isFlipped_imp(id self, SEL _cmd) {
+        (void)self; (void)_cmd;
+        return 1;
+    }
+
+    // Per-call duplicated buffer — same rationale as the Win32 side:
+    // handles are immutable identifiers, so callers' Krypton variables
+    // shouldn't all alias one static buffer.
+    static char* kr_gui_dup(const char* s) {
+        size_t n = strlen(s) + 1;
+        char* p = (char*)malloc(n);
+        if (p) memcpy(p, s, n);
+        return p;
+    }
+
+    // Format an Objective-C `id` as a hex handle string the Krypton
+    // side can pass back through char* parameters.
+    static char* kr_handle(id obj) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%p", (void*)obj);
+        return kr_gui_dup(buf);
+    }
+
+    static id kr_obj_from(const char* s) {
+        if (!s || !*s) return NULL;
+        void* p = NULL;
+        if (sscanf(s, "%p", &p) != 1) return NULL;
+        return (id)p;
+    }
+
+    // -setTag: lives on NSControl, not NSView, so widgets like NSTabView
+    // and our KrSplitter throw on direct setTag:. Route every tag access
+    // through these helpers — they call the native selector when it
+    // exists and fall back to an associated NSNumber when it doesn't.
+    static char kr_tag_fallback_key;
+
+    static void kr_set_widget_tag(id ctl, long tag) {
+        if (!ctl) return;
+        SEL setTag = sel_getUid("setTag:");
+        if (((signed char(*)(id,SEL,SEL))objc_msgSend)(
+                ctl, sel_getUid("respondsToSelector:"), setTag)) {
+            ((void(*)(id,SEL,long))objc_msgSend)(ctl, setTag, tag);
+            return;
+        }
+        id num = ((id(*)(id,SEL,long))objc_msgSend)(
+            (id)objc_getClass("NSNumber"),
+            sel_getUid("numberWithLong:"),
+            tag);
+        objc_setAssociatedObject(ctl, &kr_tag_fallback_key, num, 1);  // RETAIN_NONATOMIC
+    }
+
+    static long kr_get_widget_tag(id ctl) {
+        if (!ctl) return 0;
+        // NSView gained a read-only -tag that returns 0 by default.
+        // Real-set values from -setTag: come back here too, so prefer
+        // the native getter when it produces a non-zero answer.
+        SEL tagSel = sel_getUid("tag");
+        if (((signed char(*)(id,SEL,SEL))objc_msgSend)(
+                ctl, sel_getUid("respondsToSelector:"), tagSel)) {
+            long t = MSG_L(ctl, tagSel);
+            if (t != 0) return t;
+        }
+        id num = (id)objc_getAssociatedObject(ctl, &kr_tag_fallback_key);
+        if (num) return MSG_L(num, sel_getUid("longValue"));
+        return 0;
+    }
+
+    // UTF-8 → autoreleased NSString. AppKit retains as needed.
+    static id kr_ns_str(const char* utf8) {
+        if (!utf8) utf8 = "";
+        return ((id(*)(id,SEL,const char*))objc_msgSend)(
+            (id)objc_getClass("NSString"),
+            sel_getUid("stringWithUTF8String:"),
+            utf8);
+    }
+
+    // NSString → newly malloc'd UTF-8 (caller owns).
+    static char* kr_ns_to_c(id ns) {
+        if (!ns) return kr_gui_dup("");
+        const char* p = ((const char*(*)(id,SEL))objc_msgSend)(ns, sel_getUid("UTF8String"));
+        return kr_gui_dup(p ? p : "");
+    }
+
+    // One-time setup: NSApplication, target/action class, flipped view
+    // class. Both krGuiInit and krGuiWindow call this so either entry
+    // point is safe.
+    static void kr_gui_bootstrap(void) {
+        if (g_inited) return;
+        g_inited = 1;
+
+        for (int i = 0; i < KR_GUI_MAX_CB; i++) g_cb[i]        = NULL;
+        for (int i = 0; i < KR_GUI_MAX_CB; i++) g_change_cb[i] = NULL;
+
+        // [NSApplication sharedApplication]
+        g_app = MSG_O((id)objc_getClass("NSApplication"), sel_getUid("sharedApplication"));
+        // setActivationPolicy:NSApplicationActivationPolicyRegular (= 0)
+        MSG_V_L(g_app, sel_getUid("setActivationPolicy:"), 0);
+
+        // Build a small NSObject subclass that holds our target/action
+        // method. Using the runtime API keeps everything in plain C.
+        Class targetCls = objc_allocateClassPair((Class)objc_getClass("NSObject"), "KrGuiTarget", 0);
+        if (targetCls) {
+            class_addMethod(targetCls, sel_getUid("krAction:"),     (IMP)kr_action_imp,      "v@:@");
+            class_addMethod(targetCls, sel_getUid("krSpinAction:"), (IMP)kr_spin_action_imp, "v@:@");
+            class_addMethod(targetCls, sel_getUid("krDockResize:"), (IMP)kr_dock_resize_imp, "v@:@");
+            objc_registerClassPair(targetCls);
+        } else {
+            targetCls = (Class)objc_getClass("KrGuiTarget");
+        }
+        g_target = MSG_O(MSG_O((id)targetCls, sel_getUid("alloc")), sel_getUid("init"));
+
+        // NSTabView delegate — separate class because the selector
+        // signature differs from target/action.
+        Class tabCls = objc_allocateClassPair((Class)objc_getClass("NSObject"), "KrTabDelegate", 0);
+        if (tabCls) {
+            class_addMethod(tabCls, sel_getUid("tabView:didSelectTabViewItem:"),
+                            (IMP)kr_tab_change_imp, "v@:@@");
+            objc_registerClassPair(tabCls);
+        } else {
+            tabCls = (Class)objc_getClass("KrTabDelegate");
+        }
+        g_tab_delegate = MSG_O(MSG_O((id)tabCls, sel_getUid("alloc")), sel_getUid("init"));
+
+        // Flipped NSView — top-left origin so subviews lay out the way
+        // our (x, y) API documents.
+        Class flipped = objc_allocateClassPair((Class)objc_getClass("NSView"), "KrFlippedView", 0);
+        if (flipped) {
+            class_addMethod(flipped, sel_getUid("isFlipped"), (IMP)kr_view_is_flipped, "c@:");
+            objc_registerClassPair(flipped);
+        }
+
+        // KrSplitter — custom NSView subclass that draws a thin gray
+        // bar and tracks mouse drags to update its frame, mirroring the
+        // standalone-bar splitter from the Win32 backend.
+        Class splitCls = objc_allocateClassPair((Class)objc_getClass("NSView"), "KrSplitter", 0);
+        if (splitCls) {
+            class_addMethod(splitCls, sel_getUid("mouseDown:"),    (IMP)kr_split_mouseDown_imp,    "v@:@");
+            class_addMethod(splitCls, sel_getUid("mouseDragged:"), (IMP)kr_split_mouseDragged_imp, "v@:@");
+            class_addMethod(splitCls, sel_getUid("drawRect:"),     (IMP)kr_split_drawRect_imp,     "v@:{CGRect={CGPoint=dd}{CGSize=dd}}");
+            class_addMethod(splitCls, sel_getUid("isFlipped"),     (IMP)kr_split_isFlipped_imp,    "c@:");
+            objc_registerClassPair(splitCls);
+        }
+
+        // KrTreeHelper — single shared object that serves both as
+        // NSOutlineView data source and selection-change delegate.
+        Class treeCls = objc_allocateClassPair((Class)objc_getClass("NSObject"), "KrTreeHelper", 0);
+        if (treeCls) {
+            class_addMethod(treeCls, sel_getUid("outlineView:numberOfChildrenOfItem:"),
+                            (IMP)kr_tree_num_children_imp,        "q@:@@");
+            class_addMethod(treeCls, sel_getUid("outlineView:child:ofItem:"),
+                            (IMP)kr_tree_child_imp,               "@@:@q@");
+            class_addMethod(treeCls, sel_getUid("outlineView:isItemExpandable:"),
+                            (IMP)kr_tree_is_expandable_imp,       "c@:@@");
+            class_addMethod(treeCls, sel_getUid("outlineView:objectValueForTableColumn:byItem:"),
+                            (IMP)kr_tree_object_value_imp,        "@@:@@@");
+            class_addMethod(treeCls, sel_getUid("outlineViewSelectionDidChange:"),
+                            (IMP)kr_tree_selection_did_change_imp, "v@:@");
+            objc_registerClassPair(treeCls);
+        } else {
+            treeCls = (Class)objc_getClass("KrTreeHelper");
+        }
+        g_tree_helper = MSG_O(MSG_O((id)treeCls, sel_getUid("alloc")), sel_getUid("init"));
+    }
+
+    char* krGuiInit(void) {
+        kr_gui_bootstrap();
+        return (char*)"1";
+    }
+
+    char* krGuiWindow(char* title, char* w_str, char* h_str) {
+        kr_gui_bootstrap();
+        int w = atoi(w_str ? w_str : "640");
+        int h = atoi(h_str ? h_str : "480");
+        if (w <= 0) w = 640;
+        if (h <= 0) h = 480;
+
+        unsigned long mask = KR_NS_TITLED | KR_NS_CLOSABLE | KR_NS_MINIATURIZE | KR_NS_RESIZABLE;
+        KRRect frame = {{ 100.0, 100.0 }, { (double)w, (double)h }};
+
+        id win = MSG_O((id)objc_getClass("NSWindow"), sel_getUid("alloc"));
+        win = ((id(*)(id,SEL,KRRect,unsigned long,unsigned long,signed char))objc_msgSend)(
+            win, sel_getUid("initWithContentRect:styleMask:backing:defer:"),
+            frame, mask, KR_NS_BACKING_BUF, 0);
+
+        MSG_V_O(win, sel_getUid("setTitle:"), kr_ns_str(title ? title : "Krypton"));
+
+        // Replace the default contentView with our flipped subclass so
+        // child-view (x, y) measures from the top-left corner.
+        Class flipped = (Class)objc_getClass("KrFlippedView");
+        if (flipped) {
+            id view = MSG_O((id)flipped, sel_getUid("alloc"));
+            KRRect vr = {{0, 0}, {(double)w, (double)h}};
+            view = ((id(*)(id,SEL,KRRect))objc_msgSend)(view, sel_getUid("initWithFrame:"), vr);
+            MSG_V_O(win, sel_getUid("setContentView:"), view);
+            g_content_view = view;
+        } else {
+            g_content_view = MSG_O(win, sel_getUid("contentView"));
+        }
+
+        MSG_V(win, sel_getUid("center"));
+        g_main_window = win;
+        return kr_handle(win);
+    }
+
+    char* krGuiShow(char* hwnd_str) {
+        id win = kr_obj_from(hwnd_str);
+        if (!win) win = g_main_window;
+        if (!win) return (char*)"0";
+        MSG_V_O(win, sel_getUid("makeKeyAndOrderFront:"), NULL);
+        if (g_app) MSG_V_C(g_app, sel_getUid("activateIgnoringOtherApps:"), 1);
+        return (char*)"1";
+    }
+
+    // Resolve the parent argument (NSWindow* hex handle) to the
+    // contentView the widget should be added to. Falls back to the
+    // current main window's contentView so simple programs don't have
+    // to thread the handle through.
+    static id kr_resolve_container(const char* parent) {
+        id host = kr_obj_from(parent);
+        if (host) {
+            id v = MSG_O(host, sel_getUid("contentView"));
+            if (v) return v;
+            // Already a view (e.g. dock / stack handle in future).
+            return host;
+        }
+        return g_content_view;
+    }
+
+    static int kr_register_cb_slot(void) {
+        int id_int = g_next_id++;
+        int slot = id_int - 1000;
+        if (slot >= 0 && slot < KR_GUI_MAX_CB) g_cb[slot] = NULL;
+        return id_int;
+    }
+
+    char* krGuiButton(char* parent, char* label, char* x_str, char* y_str, char* w_str, char* h_str) {
+        id container = kr_resolve_container(parent);
+        if (!container) return (char*)"";
+
+        KRRect r = {{ (double)atoi(x_str), (double)atoi(y_str) },
+                    { (double)atoi(w_str), (double)atoi(h_str) }};
+
+        id btn = MSG_O((id)objc_getClass("NSButton"), sel_getUid("alloc"));
+        btn = ((id(*)(id,SEL,KRRect))objc_msgSend)(btn, sel_getUid("initWithFrame:"), r);
+        MSG_V_O(btn, sel_getUid("setTitle:"), kr_ns_str(label ? label : ""));
+        MSG_V_L(btn, sel_getUid("setBezelStyle:"), 1);   // NSBezelStyleRounded
+        MSG_V_O(btn, sel_getUid("setTarget:"), g_target);
+        MSG_V_SEL(btn, sel_getUid("setAction:"), sel_getUid("krAction:"));
+
+        int id_int = kr_register_cb_slot();
+        kr_set_widget_tag(btn, id_int);
+        MSG_V_O(container, sel_getUid("addSubview:"), btn);
+
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", id_int);
+        return kr_gui_dup(buf);
+    }
+
+    static id kr_make_text_field(id container, KRRect r, const char* text, int editable) {
+        id tf = MSG_O((id)objc_getClass("NSTextField"), sel_getUid("alloc"));
+        tf = ((id(*)(id,SEL,KRRect))objc_msgSend)(tf, sel_getUid("initWithFrame:"), r);
+        MSG_V_O(tf, sel_getUid("setStringValue:"), kr_ns_str(text ? text : ""));
+        if (!editable) {
+            // Label style: no border, no background, no editing.
+            MSG_V_C(tf, sel_getUid("setEditable:"),        0);
+            MSG_V_C(tf, sel_getUid("setBezeled:"),         0);
+            MSG_V_C(tf, sel_getUid("setDrawsBackground:"), 0);
+            MSG_V_C(tf, sel_getUid("setSelectable:"),      0);
+        } else {
+            MSG_V_C(tf, sel_getUid("setEditable:"), 1);
+            MSG_V_C(tf, sel_getUid("setBezeled:"),  1);
+        }
+        MSG_V_O(container, sel_getUid("addSubview:"), tf);
+        return tf;
+    }
+
+    char* krGuiLabel(char* parent, char* text, char* x_str, char* y_str, char* w_str, char* h_str) {
+        id container = kr_resolve_container(parent);
+        if (!container) return (char*)"";
+        KRRect r = {{ (double)atoi(x_str), (double)atoi(y_str) },
+                    { (double)atoi(w_str), (double)atoi(h_str) }};
+        return kr_handle(kr_make_text_field(container, r, text, 0));
+    }
+
+    char* krGuiTextInput(char* parent, char* x_str, char* y_str, char* w_str, char* h_str) {
+        id container = kr_resolve_container(parent);
+        if (!container) return (char*)"";
+        KRRect r = {{ (double)atoi(x_str), (double)atoi(y_str) },
+                    { (double)atoi(w_str), (double)atoi(h_str) }};
+        return kr_handle(kr_make_text_field(container, r, "", 1));
+    }
+
+    // Resolve a control handle that may be either a hex pointer (label /
+    // text-field NSObject*) or a decimal control id (button — registered
+    // via setTag:). Decimal lookup walks the contentView's subviews.
+    static id kr_resolve_control(const char* s) {
+        if (!s || !*s) return NULL;
+        if (s[0] == '0' && s[1] == 'x') return kr_obj_from(s);
+        long want = atol(s);
+        if (!g_content_view) return NULL;
+        id arr = MSG_O(g_content_view, sel_getUid("subviews"));
+        if (!arr) return NULL;
+        long n = MSG_L(arr, sel_getUid("count"));
+        for (long i = 0; i < n; i++) {
+            id sub = ((id(*)(id,SEL,long))objc_msgSend)(arr, sel_getUid("objectAtIndex:"), i);
+            long tag = kr_get_widget_tag(sub);
+            if (tag == want) return sub;
+        }
+        return NULL;
+    }
+
+    // For multi-line text areas the user holds an NSScrollView handle;
+    // the actual text lives on its document view (an NSTextView). All
+    // text reads/writes thread through this resolver.
+    static id kr_text_target(id ctl) {
+        if (!ctl) return NULL;
+        Class scrollCls = (Class)objc_getClass("NSScrollView");
+        if (scrollCls && ((signed char(*)(id,SEL,Class))objc_msgSend)(
+                ctl, sel_getUid("isKindOfClass:"), scrollCls)) {
+            id doc = MSG_O(ctl, sel_getUid("documentView"));
+            if (doc) return doc;
+        }
+        return ctl;
+    }
+
+    static int kr_is_textview(id obj) {
+        if (!obj) return 0;
+        Class tvCls = (Class)objc_getClass("NSTextView");
+        if (!tvCls) return 0;
+        return ((signed char(*)(id,SEL,Class))objc_msgSend)(
+                obj, sel_getUid("isKindOfClass:"), tvCls) != 0;
+    }
+
+    char* krGuiSetText(char* hwnd_str, char* text) {
+        id ctl = kr_text_target(kr_resolve_control(hwnd_str));
+        if (!ctl) return (char*)"0";
+        id ns = kr_ns_str(text ? text : "");
+        if (kr_is_textview(ctl)) {
+            // NSTextView uses -setString:, not -setStringValue:.
+            MSG_V_O(ctl, sel_getUid("setString:"), ns);
+            return (char*)"1";
+        }
+        SEL setStr = sel_getUid("setStringValue:");
+        if (((signed char(*)(id,SEL,SEL))objc_msgSend)(
+                ctl, sel_getUid("respondsToSelector:"), setStr)) {
+            MSG_V_O(ctl, setStr, ns);
+            return (char*)"1";
+        }
+        // Buttons store their visible text under -setTitle:.
+        MSG_V_O(ctl, sel_getUid("setTitle:"), ns);
+        return (char*)"1";
+    }
+
+    char* krGuiGetText(char* hwnd_str) {
+        id ctl = kr_text_target(kr_resolve_control(hwnd_str));
+        if (!ctl) return (char*)"";
+        if (kr_is_textview(ctl)) {
+            return kr_ns_to_c(MSG_O(ctl, sel_getUid("string")));
+        }
+        SEL getStr = sel_getUid("stringValue");
+        if (((signed char(*)(id,SEL,SEL))objc_msgSend)(
+                ctl, sel_getUid("respondsToSelector:"), getStr)) {
+            return kr_ns_to_c(MSG_O(ctl, getStr));
+        }
+        return kr_ns_to_c(MSG_O(ctl, sel_getUid("title")));
+    }
+
+    char* krGuiOnClick(char* id_str, char* sinkPtr) {
+        int id_int = atoi(id_str ? id_str : "0");
+        int slot = id_int - 1000;
+        if (slot < 0 || slot >= KR_GUI_MAX_CB) return (char*)"0";
+        g_cb[slot] = (kr_gui_cb)sinkPtr;
+        return (char*)"1";
+    }
+
+    char* krGuiMessageBox(char* title, char* msg) {
+        kr_gui_bootstrap();
+        id alert = MSG_O((id)objc_getClass("NSAlert"), sel_getUid("alloc"));
+        alert = MSG_O(alert, sel_getUid("init"));
+        MSG_V_O(alert, sel_getUid("setMessageText:"),     kr_ns_str(title ? title : "Krypton"));
+        MSG_V_O(alert, sel_getUid("setInformativeText:"), kr_ns_str(msg   ? msg   : ""));
+        ((long(*)(id,SEL))objc_msgSend)(alert, sel_getUid("runModal"));
+        return (char*)"1";
+    }
+
+    char* krGuiRun(void) {
+        if (!g_app) kr_gui_bootstrap();
+        if (g_app) MSG_V(g_app, sel_getUid("run"));
+        return (char*)"0";
+    }
+
+    char* krGuiQuit(void) {
+        if (g_app) MSG_V_O(g_app, sel_getUid("terminate:"), NULL);
+        return (char*)"1";
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Round 2 widgets — checkbox, combo, slider, progress, text area,
+    // image, file dialogs, listbox, move.
+    // ──────────────────────────────────────────────────────────────────
+
+    // ── Checkbox ──────────────────────────────────────────────────
+    char* krGuiCheckbox(char* parent, char* label, char* x_str, char* y_str, char* w_str, char* h_str) {
+        id container = kr_resolve_container(parent);
+        if (!container) return (char*)"";
+        KRRect r = {{ (double)atoi(x_str), (double)atoi(y_str) },
+                    { (double)atoi(w_str), (double)atoi(h_str) }};
+
+        id btn = MSG_O((id)objc_getClass("NSButton"), sel_getUid("alloc"));
+        btn = ((id(*)(id,SEL,KRRect))objc_msgSend)(btn, sel_getUid("initWithFrame:"), r);
+        MSG_V_O(btn, sel_getUid("setTitle:"), kr_ns_str(label ? label : ""));
+        MSG_V_L(btn, sel_getUid("setButtonType:"), 3);   // NSButtonTypeSwitch
+        MSG_V_O(btn, sel_getUid("setTarget:"), g_target);
+        MSG_V_SEL(btn, sel_getUid("setAction:"), sel_getUid("krAction:"));
+
+        int id_int = kr_register_cb_slot();
+        kr_set_widget_tag(btn, id_int);
+        MSG_V_O(container, sel_getUid("addSubview:"), btn);
+
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", id_int);
+        return kr_gui_dup(buf);
+    }
+
+    char* krGuiIsChecked(char* hwnd_str) {
+        id ctl = kr_resolve_control(hwnd_str);
+        if (!ctl) return (char*)"0";
+        long state = MSG_L(ctl, sel_getUid("state"));
+        return state ? (char*)"1" : (char*)"0";
+    }
+
+    char* krGuiSetChecked(char* hwnd_str, char* on_str) {
+        id ctl = kr_resolve_control(hwnd_str);
+        if (!ctl) return (char*)"0";
+        int on = atoi(on_str ? on_str : "0");
+        MSG_V_L(ctl, sel_getUid("setState:"), on ? 1 : 0);
+        return (char*)"1";
+    }
+
+    // ── Combo (NSPopUpButton, non-editable) ───────────────────────
+    char* krGuiCombo(char* parent, char* x_str, char* y_str, char* w_str, char* h_str) {
+        id container = kr_resolve_container(parent);
+        if (!container) return (char*)"";
+        KRRect r = {{ (double)atoi(x_str), (double)atoi(y_str) },
+                    { (double)atoi(w_str), (double)atoi(h_str) }};
+
+        id pop = MSG_O((id)objc_getClass("NSPopUpButton"), sel_getUid("alloc"));
+        // pullsDown:NO → value-selecting menu (matches Win32 CBS_DROPDOWNLIST).
+        pop = ((id(*)(id,SEL,KRRect,signed char))objc_msgSend)(
+            pop, sel_getUid("initWithFrame:pullsDown:"), r, 0);
+
+        // Tag + target/action so `guiOnChange(combo, fn)` works the
+        // same way it does for sliders (action fires on item pick).
+        int id_int = kr_register_cb_slot();
+        kr_set_widget_tag(pop, id_int);
+        MSG_V_O(pop, sel_getUid("setTarget:"), g_target);
+        MSG_V_SEL(pop, sel_getUid("setAction:"), sel_getUid("krAction:"));
+
+        MSG_V_O(container, sel_getUid("addSubview:"), pop);
+        return kr_handle(pop);
+    }
+
+    char* krGuiComboAdd(char* hwnd_str, char* item) {
+        id ctl = kr_resolve_control(hwnd_str);
+        if (!ctl) return (char*)"0";
+        MSG_V_O(ctl, sel_getUid("addItemWithTitle:"), kr_ns_str(item ? item : ""));
+        return (char*)"1";
+    }
+
+    char* krGuiComboClear(char* hwnd_str) {
+        id ctl = kr_resolve_control(hwnd_str);
+        if (!ctl) return (char*)"0";
+        MSG_V(ctl, sel_getUid("removeAllItems"));
+        return (char*)"1";
+    }
+
+    char* krGuiComboSelected(char* hwnd_str) {
+        id ctl = kr_resolve_control(hwnd_str);
+        if (!ctl) return (char*)"";
+        id ns = MSG_O(ctl, sel_getUid("titleOfSelectedItem"));
+        if (!ns) return (char*)"";
+        return kr_ns_to_c(ns);
+    }
+
+    char* krGuiComboSet(char* hwnd_str, char* idx_str) {
+        id ctl = kr_resolve_control(hwnd_str);
+        if (!ctl) return (char*)"0";
+        long idx = atol(idx_str ? idx_str : "0");
+        MSG_V_L(ctl, sel_getUid("selectItemAtIndex:"), idx);
+        return (char*)"1";
+    }
+
+    // ── Slider (NSSlider, horizontal) ─────────────────────────────
+    char* krGuiSlider(char* parent, char* x_str, char* y_str, char* w_str, char* h_str) {
+        id container = kr_resolve_container(parent);
+        if (!container) return (char*)"";
+        KRRect r = {{ (double)atoi(x_str), (double)atoi(y_str) },
+                    { (double)atoi(w_str), (double)atoi(h_str) }};
+
+        id sl = MSG_O((id)objc_getClass("NSSlider"), sel_getUid("alloc"));
+        sl = ((id(*)(id,SEL,KRRect))objc_msgSend)(sl, sel_getUid("initWithFrame:"), r);
+        ((void(*)(id,SEL,double))objc_msgSend)(sl, sel_getUid("setMinValue:"),    0.0);
+        ((void(*)(id,SEL,double))objc_msgSend)(sl, sel_getUid("setMaxValue:"),    100.0);
+        ((void(*)(id,SEL,double))objc_msgSend)(sl, sel_getUid("setDoubleValue:"), 0.0);
+        MSG_V_O(sl, sel_getUid("setTarget:"), g_target);
+        MSG_V_SEL(sl, sel_getUid("setAction:"), sel_getUid("krAction:"));
+
+        int id_int = kr_register_cb_slot();
+        kr_set_widget_tag(sl, id_int);
+        MSG_V_O(container, sel_getUid("addSubview:"), sl);
+
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", id_int);
+        return kr_gui_dup(buf);
+    }
+
+    char* krGuiSliderRange(char* sl_str, char* lo_str, char* hi_str) {
+        id ctl = kr_resolve_control(sl_str);
+        if (!ctl) return (char*)"0";
+        ((void(*)(id,SEL,double))objc_msgSend)(ctl, sel_getUid("setMinValue:"),
+            atof(lo_str ? lo_str : "0"));
+        ((void(*)(id,SEL,double))objc_msgSend)(ctl, sel_getUid("setMaxValue:"),
+            atof(hi_str ? hi_str : "100"));
+        return (char*)"1";
+    }
+
+    char* krGuiSliderSet(char* sl_str, char* v_str) {
+        id ctl = kr_resolve_control(sl_str);
+        if (!ctl) return (char*)"0";
+        ((void(*)(id,SEL,double))objc_msgSend)(ctl, sel_getUid("setDoubleValue:"),
+            atof(v_str ? v_str : "0"));
+        return (char*)"1";
+    }
+
+    char* krGuiSliderValue(char* sl_str) {
+        id ctl = kr_resolve_control(sl_str);
+        if (!ctl) return (char*)"0";
+        double v = ((double(*)(id,SEL))objc_msgSend)(ctl, sel_getUid("doubleValue"));
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%d", (int)v);
+        return kr_gui_dup(buf);
+    }
+
+    // ── Progress bar (NSProgressIndicator, bar style) ─────────────
+    char* krGuiProgress(char* parent, char* x_str, char* y_str, char* w_str, char* h_str) {
+        id container = kr_resolve_container(parent);
+        if (!container) return (char*)"";
+        KRRect r = {{ (double)atoi(x_str), (double)atoi(y_str) },
+                    { (double)atoi(w_str), (double)atoi(h_str) }};
+
+        id pi = MSG_O((id)objc_getClass("NSProgressIndicator"), sel_getUid("alloc"));
+        pi = ((id(*)(id,SEL,KRRect))objc_msgSend)(pi, sel_getUid("initWithFrame:"), r);
+        MSG_V_L(pi, sel_getUid("setStyle:"),         0);   // NSProgressIndicatorStyleBar
+        MSG_V_C(pi, sel_getUid("setIndeterminate:"), 0);
+        ((void(*)(id,SEL,double))objc_msgSend)(pi, sel_getUid("setMinValue:"),   0.0);
+        ((void(*)(id,SEL,double))objc_msgSend)(pi, sel_getUid("setMaxValue:"), 100.0);
+        MSG_V_O(container, sel_getUid("addSubview:"), pi);
+        return kr_handle(pi);
+    }
+
+    char* krGuiProgressSet(char* hwnd_str, char* pct_str) {
+        id ctl = kr_resolve_control(hwnd_str);
+        if (!ctl) return (char*)"0";
+        double v = atof(pct_str ? pct_str : "0");
+        if (v < 0)   v = 0;
+        if (v > 100) v = 100;
+        ((void(*)(id,SEL,double))objc_msgSend)(ctl, sel_getUid("setDoubleValue:"), v);
+        return (char*)"1";
+    }
+
+    // ── Text area (NSTextView in NSScrollView) ────────────────────
+    //
+    // The Krypton-visible handle is the NSScrollView so guiMove acts on
+    // the scrollable container; krGuiSetText / krGuiGetText forward
+    // through documentView via kr_text_target.
+    char* krGuiTextArea(char* parent, char* x_str, char* y_str, char* w_str, char* h_str) {
+        id container = kr_resolve_container(parent);
+        if (!container) return (char*)"";
+        KRRect r = {{ (double)atoi(x_str), (double)atoi(y_str) },
+                    { (double)atoi(w_str), (double)atoi(h_str) }};
+
+        id sv = MSG_O((id)objc_getClass("NSScrollView"), sel_getUid("alloc"));
+        sv = ((id(*)(id,SEL,KRRect))objc_msgSend)(sv, sel_getUid("initWithFrame:"), r);
+        MSG_V_C(sv, sel_getUid("setHasVerticalScroller:"),   1);
+        MSG_V_C(sv, sel_getUid("setHasHorizontalScroller:"), 0);
+        MSG_V_L(sv, sel_getUid("setBorderType:"),            2);   // NSBezelBorder
+
+        id tv = MSG_O((id)objc_getClass("NSTextView"), sel_getUid("alloc"));
+        KRRect tvr = {{ 0, 0 }, { r.size.width, r.size.height }};
+        tv = ((id(*)(id,SEL,KRRect))objc_msgSend)(tv, sel_getUid("initWithFrame:"), tvr);
+        MSG_V_C(tv, sel_getUid("setEditable:"),   1);
+        MSG_V_C(tv, sel_getUid("setSelectable:"), 1);
+        MSG_V_C(tv, sel_getUid("setRichText:"),   0);
+
+        MSG_V_O(sv, sel_getUid("setDocumentView:"), tv);
+        MSG_V_O(container, sel_getUid("addSubview:"), sv);
+        return kr_handle(sv);
+    }
+
+    // ── Move (relocate / resize any view) ─────────────────────────
+    char* krGuiMove(char* hwnd_str, char* x_str, char* y_str, char* w_str, char* h_str) {
+        id ctl = kr_resolve_control(hwnd_str);
+        if (!ctl) return (char*)"0";
+        KRRect r = {{ (double)atoi(x_str), (double)atoi(y_str) },
+                    { (double)atoi(w_str), (double)atoi(h_str) }};
+        ((void(*)(id,SEL,KRRect))objc_msgSend)(ctl, sel_getUid("setFrame:"), r);
+        return (char*)"1";
+    }
+
+    // ── Image (NSImageView) ───────────────────────────────────────
+    static id kr_load_ns_image(const char* path) {
+        if (!path || !*path) return NULL;
+        id ns_path = kr_ns_str(path);
+        id img = MSG_O((id)objc_getClass("NSImage"), sel_getUid("alloc"));
+        img = MSG_O_O(img, sel_getUid("initWithContentsOfFile:"), ns_path);
+        return img;
+    }
+
+    char* krGuiImage(char* parent, char* path, char* x_str, char* y_str, char* w_str, char* h_str) {
+        id container = kr_resolve_container(parent);
+        if (!container) return (char*)"";
+        KRRect r = {{ (double)atoi(x_str), (double)atoi(y_str) },
+                    { (double)atoi(w_str), (double)atoi(h_str) }};
+
+        id iv = MSG_O((id)objc_getClass("NSImageView"), sel_getUid("alloc"));
+        iv = ((id(*)(id,SEL,KRRect))objc_msgSend)(iv, sel_getUid("initWithFrame:"), r);
+        MSG_V_L(iv, sel_getUid("setImageScaling:"), 0);   // NSImageScaleProportionallyDown
+        id img = kr_load_ns_image(path);
+        if (img) MSG_V_O(iv, sel_getUid("setImage:"), img);
+        MSG_V_O(container, sel_getUid("addSubview:"), iv);
+        return kr_handle(iv);
+    }
+
+    char* krGuiImageSet(char* hwnd_str, char* path) {
+        id ctl = kr_resolve_control(hwnd_str);
+        if (!ctl) return (char*)"0";
+        id img = kr_load_ns_image(path);
+        if (!img) return (char*)"0";
+        MSG_V_O(ctl, sel_getUid("setImage:"), img);
+        return (char*)"1";
+    }
+
+    // ── File dialogs (NSOpenPanel / NSSavePanel) ──────────────────
+    //
+    // The Win32 contract for filterCsv accepts either a flat list like
+    // "*.txt,*.md" or labelled groups like "Text:*.txt;*.md". Cocoa
+    // wants bare extensions, so we strip "*." / leading "." and hand
+    // an NSArray of extension strings to -setAllowedFileTypes:. (That
+    // selector is deprecated in 10.15+ but still functional; the UTType
+    // replacement requires the UniformTypeIdentifiers framework.)
+    static id kr_build_filetypes_array(const char* csv) {
+        id arr = MSG_O((id)objc_getClass("NSMutableArray"), sel_getUid("array"));
+        if (!csv || !*csv) return arr;
+        char buf[1024];
+        size_t n = strlen(csv);
+        if (n >= sizeof(buf)) n = sizeof(buf) - 1;
+        memcpy(buf, csv, n);
+        buf[n] = 0;
+        char* p = buf;
+        while (*p) {
+            while (*p == ',' || *p == ';' || *p == ' ') p++;
+            char* tok = p;
+            while (*p && *p != ',' && *p != ';') p++;
+            char save = *p;
+            *p = 0;
+            char* colon = strchr(tok, ':');
+            if (colon) tok = colon + 1;
+            if      (tok[0] == '*' && tok[1] == '.') tok += 2;
+            else if (tok[0] == '*')                  tok += 1;
+            if (tok[0] == '.') tok += 1;
+            if (*tok) {
+                MSG_V_O(arr, sel_getUid("addObject:"), kr_ns_str(tok));
+            }
+            *p = save;
+            if (save) p++;
+        }
+        return arr;
+    }
+
+    char* krGuiOpenFile(char* title, char* filterCsv) {
+        kr_gui_bootstrap();
+        id panel = MSG_O((id)objc_getClass("NSOpenPanel"), sel_getUid("openPanel"));
+        MSG_V_O(panel, sel_getUid("setTitle:"),
+                kr_ns_str((title && *title) ? title : "Open File"));
+        MSG_V_C(panel, sel_getUid("setCanChooseFiles:"),         1);
+        MSG_V_C(panel, sel_getUid("setCanChooseDirectories:"),   0);
+        MSG_V_C(panel, sel_getUid("setAllowsMultipleSelection:"),0);
+        if (filterCsv && *filterCsv) {
+            MSG_V_O(panel, sel_getUid("setAllowedFileTypes:"),
+                    kr_build_filetypes_array(filterCsv));
+        }
+        long ok = ((long(*)(id,SEL))objc_msgSend)(panel, sel_getUid("runModal"));
+        if (ok != 1) return (char*)"";   // NSModalResponseOK = 1
+        id url = MSG_O(panel, sel_getUid("URL"));
+        if (!url) return (char*)"";
+        return kr_ns_to_c(MSG_O(url, sel_getUid("path")));
+    }
+
+    char* krGuiSaveFile(char* title, char* filterCsv, char* defaultName) {
+        kr_gui_bootstrap();
+        id panel = MSG_O((id)objc_getClass("NSSavePanel"), sel_getUid("savePanel"));
+        MSG_V_O(panel, sel_getUid("setTitle:"),
+                kr_ns_str((title && *title) ? title : "Save File"));
+        if (defaultName && *defaultName) {
+            MSG_V_O(panel, sel_getUid("setNameFieldStringValue:"),
+                    kr_ns_str(defaultName));
+        }
+        if (filterCsv && *filterCsv) {
+            MSG_V_O(panel, sel_getUid("setAllowedFileTypes:"),
+                    kr_build_filetypes_array(filterCsv));
+        }
+        long ok = ((long(*)(id,SEL))objc_msgSend)(panel, sel_getUid("runModal"));
+        if (ok != 1) return (char*)"";
+        id url = MSG_O(panel, sel_getUid("URL"));
+        if (!url) return (char*)"";
+        return kr_ns_to_c(MSG_O(url, sel_getUid("path")));
+    }
+
+    char* krGuiPickFolder(char* title) {
+        kr_gui_bootstrap();
+        id panel = MSG_O((id)objc_getClass("NSOpenPanel"), sel_getUid("openPanel"));
+        MSG_V_O(panel, sel_getUid("setTitle:"),
+                kr_ns_str((title && *title) ? title : "Pick a folder"));
+        MSG_V_C(panel, sel_getUid("setCanChooseFiles:"),         0);
+        MSG_V_C(panel, sel_getUid("setCanChooseDirectories:"),   1);
+        MSG_V_C(panel, sel_getUid("setAllowsMultipleSelection:"),0);
+        long ok = ((long(*)(id,SEL))objc_msgSend)(panel, sel_getUid("runModal"));
+        if (ok != 1) return (char*)"";
+        id url = MSG_O(panel, sel_getUid("URL"));
+        if (!url) return (char*)"";
+        return kr_ns_to_c(MSG_O(url, sel_getUid("path")));
+    }
+
+    // ── Listbox (NSScrollView around NSTableView) ─────────────────
+    //
+    // Cocoa lists are data-source-driven, so we attach an NSMutableArray
+    // to each NSTableView via objc_setAssociatedObject and feed it back
+    // through one shared data source object that responds to
+    // -numberOfRowsInTableView: and -tableView:objectValueForTableColumn:row:.
+    // The Krypton-visible handle is the NSScrollView (so guiMove acts on
+    // the scrollable container, not just the inner table).
+
+    static char kr_listbox_array_key;   // sentinel used as objc associated-object key
+
+    static long kr_lb_num_rows(id self, SEL _cmd, id tv) {
+        (void)self; (void)_cmd;
+        id arr = (id)objc_getAssociatedObject(tv, &kr_listbox_array_key);
+        if (!arr) return 0;
+        return MSG_L(arr, sel_getUid("count"));
+    }
+
+    static id kr_lb_obj_for_row(id self, SEL _cmd, id tv, id col, long row) {
+        (void)self; (void)_cmd; (void)col;
+        id arr = (id)objc_getAssociatedObject(tv, &kr_listbox_array_key);
+        if (!arr) return NULL;
+        return ((id(*)(id,SEL,long))objc_msgSend)(arr, sel_getUid("objectAtIndex:"), row);
+    }
+
+    static id g_listbox_ds = NULL;
+
+    static void kr_listbox_init(void) {
+        if (g_listbox_ds) return;
+        Class dsCls = objc_allocateClassPair((Class)objc_getClass("NSObject"), "KrListDS", 0);
+        if (dsCls) {
+            class_addMethod(dsCls, sel_getUid("numberOfRowsInTableView:"),
+                            (IMP)kr_lb_num_rows,    "q@:@");
+            class_addMethod(dsCls, sel_getUid("tableView:objectValueForTableColumn:row:"),
+                            (IMP)kr_lb_obj_for_row, "@@:@@q");
+            objc_registerClassPair(dsCls);
+        } else {
+            dsCls = (Class)objc_getClass("KrListDS");
+        }
+        g_listbox_ds = MSG_O(MSG_O((id)dsCls, sel_getUid("alloc")), sel_getUid("init"));
+    }
+
+    // Resolve a listbox handle (NSScrollView pointer) to its inner
+    // NSTableView. Returns NULL if the handle isn't actually a list.
+    static id kr_lb_table(const char* h) {
+        id sv = kr_obj_from(h);
+        if (!sv) return NULL;
+        Class scrollCls = (Class)objc_getClass("NSScrollView");
+        if (scrollCls && !((signed char(*)(id,SEL,Class))objc_msgSend)(
+                sv, sel_getUid("isKindOfClass:"), scrollCls)) return NULL;
+        return MSG_O(sv, sel_getUid("documentView"));
+    }
+
+    char* krGuiListbox(char* parent, char* x_str, char* y_str, char* w_str, char* h_str) {
+        kr_listbox_init();
+        id container = kr_resolve_container(parent);
+        if (!container) return (char*)"";
+        KRRect r = {{ (double)atoi(x_str), (double)atoi(y_str) },
+                    { (double)atoi(w_str), (double)atoi(h_str) }};
+
+        id sv = MSG_O((id)objc_getClass("NSScrollView"), sel_getUid("alloc"));
+        sv = ((id(*)(id,SEL,KRRect))objc_msgSend)(sv, sel_getUid("initWithFrame:"), r);
+        MSG_V_C(sv, sel_getUid("setHasVerticalScroller:"), 1);
+        MSG_V_L(sv, sel_getUid("setBorderType:"),          2);
+
+        id tv = MSG_O((id)objc_getClass("NSTableView"), sel_getUid("alloc"));
+        KRRect tvr = {{ 0, 0 }, { r.size.width, r.size.height }};
+        tv = ((id(*)(id,SEL,KRRect))objc_msgSend)(tv, sel_getUid("initWithFrame:"), tvr);
+        MSG_V_O(tv, sel_getUid("setHeaderView:"), NULL);   // hide header (single-column list)
+        MSG_V_C(tv, sel_getUid("setAllowsMultipleSelection:"), 0);
+
+        id col = MSG_O((id)objc_getClass("NSTableColumn"), sel_getUid("alloc"));
+        col = MSG_O_O(col, sel_getUid("initWithIdentifier:"), kr_ns_str("c0"));
+        ((void(*)(id,SEL,double))objc_msgSend)(col, sel_getUid("setWidth:"),
+                                               r.size.width - 2.0);
+        MSG_V_O(tv, sel_getUid("addTableColumn:"), col);
+
+        // Backing array, retained via the table view's associated objects.
+        id arr = MSG_O((id)objc_getClass("NSMutableArray"), sel_getUid("array"));
+        objc_setAssociatedObject(tv, &kr_listbox_array_key, arr, 1);  // OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        MSG_V_O(tv, sel_getUid("setDataSource:"), g_listbox_ds);
+
+        MSG_V_O(sv, sel_getUid("setDocumentView:"), tv);
+        MSG_V_O(container, sel_getUid("addSubview:"), sv);
+        return kr_handle(sv);
+    }
+
+    char* krGuiListAdd(char* hwnd_str, char* item) {
+        id tv = kr_lb_table(hwnd_str);
+        if (!tv) return (char*)"0";
+        id arr = (id)objc_getAssociatedObject(tv, &kr_listbox_array_key);
+        if (!arr) return (char*)"0";
+        MSG_V_O(arr, sel_getUid("addObject:"), kr_ns_str(item ? item : ""));
+        MSG_V(tv, sel_getUid("reloadData"));
+        return (char*)"1";
+    }
+
+    char* krGuiListClear(char* hwnd_str) {
+        id tv = kr_lb_table(hwnd_str);
+        if (!tv) return (char*)"0";
+        id arr = (id)objc_getAssociatedObject(tv, &kr_listbox_array_key);
+        if (!arr) return (char*)"0";
+        MSG_V(arr, sel_getUid("removeAllObjects"));
+        MSG_V(tv, sel_getUid("reloadData"));
+        return (char*)"1";
+    }
+
+    char* krGuiListSelected(char* hwnd_str) {
+        id tv = kr_lb_table(hwnd_str);
+        if (!tv) return (char*)"";
+        long row = MSG_L(tv, sel_getUid("selectedRow"));
+        if (row < 0) return (char*)"";
+        id arr = (id)objc_getAssociatedObject(tv, &kr_listbox_array_key);
+        if (!arr) return (char*)"";
+        long n = MSG_L(arr, sel_getUid("count"));
+        if (row >= n) return (char*)"";
+        id ns = ((id(*)(id,SEL,long))objc_msgSend)(arr, sel_getUid("objectAtIndex:"), row);
+        return kr_ns_to_c(ns);
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Round 4 widgets — spinbox, stack helpers, splitter.
+    // ──────────────────────────────────────────────────────────────────
+
+    // ── Spinbox (NSStepper + NSTextField composite) ──────────────
+    //
+    // Cocoa's NSStepper is just the up/down arrows; the visible value
+    // lives in a paired NSTextField. We add both as siblings, store
+    // each on the other via objc_setAssociatedObject, and route the
+    // stepper's action through krSpinAction: which mirrors the integer
+    // value into the textfield and fires user callbacks.
+    //
+    // The user-visible handle is the textfield's pointer (matches the
+    // Win32 EDIT-id convention — guiSetText / guiGetText already work
+    // on text fields). guiSpinboxRange / Set / Value forward through
+    // the textfield's associated stepper.
+
+    char* krGuiSpinbox(char* parent, char* x_str, char* y_str, char* w_str, char* h_str) {
+        id container = kr_resolve_container(parent);
+        if (!container) return (char*)"";
+        int x = atoi(x_str), y = atoi(y_str);
+        int w = atoi(w_str), h = atoi(h_str);
+        const int stepper_w = 19;        // standard NSStepper width
+        const int gap       = 2;
+
+        KRRect tfr = {{ (double)x,                              (double)y },
+                      { (double)(w - stepper_w - gap),          (double)h }};
+        KRRect str = {{ (double)(x + w - stepper_w),            (double)y },
+                      { (double)stepper_w,                      (double)h }};
+
+        id tf = MSG_O((id)objc_getClass("NSTextField"), sel_getUid("alloc"));
+        tf = ((id(*)(id,SEL,KRRect))objc_msgSend)(tf, sel_getUid("initWithFrame:"), tfr);
+        MSG_V_C(tf, sel_getUid("setEditable:"), 1);
+        MSG_V_C(tf, sel_getUid("setBezeled:"),  1);
+        MSG_V_O(tf, sel_getUid("setStringValue:"), kr_ns_str("0"));
+        MSG_V_L(tf, sel_getUid("setAlignment:"), 1);   // NSTextAlignmentRight
+
+        id st = MSG_O((id)objc_getClass("NSStepper"), sel_getUid("alloc"));
+        st = ((id(*)(id,SEL,KRRect))objc_msgSend)(st, sel_getUid("initWithFrame:"), str);
+        ((void(*)(id,SEL,double))objc_msgSend)(st, sel_getUid("setMinValue:"),    0.0);
+        ((void(*)(id,SEL,double))objc_msgSend)(st, sel_getUid("setMaxValue:"),    100.0);
+        ((void(*)(id,SEL,double))objc_msgSend)(st, sel_getUid("setIncrement:"),   1.0);
+        ((void(*)(id,SEL,double))objc_msgSend)(st, sel_getUid("setDoubleValue:"), 0.0);
+        MSG_V_C(st, sel_getUid("setValueWraps:"), 0);
+        MSG_V_O(st, sel_getUid("setTarget:"), g_target);
+        MSG_V_SEL(st, sel_getUid("setAction:"), sel_getUid("krSpinAction:"));
+
+        // Same slot for both halves so guiOnChange works whether the
+        // user passes the textfield handle or the stepper handle.
+        int slot_id = kr_register_cb_slot();
+        kr_set_widget_tag(st, slot_id);
+        kr_set_widget_tag(tf, slot_id);
+
+        objc_setAssociatedObject(st, &kr_spin_partner_key, tf, 1); // OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        objc_setAssociatedObject(tf, &kr_spin_partner_key, st, 1);
+
+        MSG_V_O(container, sel_getUid("addSubview:"), tf);
+        MSG_V_O(container, sel_getUid("addSubview:"), st);
+        return kr_handle(tf);
+    }
+
+    char* krGuiSpinboxRange(char* sb_str, char* lo_str, char* hi_str) {
+        id tf = kr_obj_from(sb_str);
+        if (!tf) return (char*)"0";
+        id st = (id)objc_getAssociatedObject(tf, &kr_spin_partner_key);
+        if (!st) return (char*)"0";
+        ((void(*)(id,SEL,double))objc_msgSend)(st, sel_getUid("setMinValue:"),
+            atof(lo_str ? lo_str : "0"));
+        ((void(*)(id,SEL,double))objc_msgSend)(st, sel_getUid("setMaxValue:"),
+            atof(hi_str ? hi_str : "100"));
+        return (char*)"1";
+    }
+
+    char* krGuiSpinboxSet(char* sb_str, char* v_str) {
+        id tf = kr_obj_from(sb_str);
+        if (!tf) return (char*)"0";
+        id st = (id)objc_getAssociatedObject(tf, &kr_spin_partner_key);
+        if (st) ((void(*)(id,SEL,double))objc_msgSend)(st, sel_getUid("setDoubleValue:"),
+                                                       atof(v_str ? v_str : "0"));
+        MSG_V_O(tf, sel_getUid("setStringValue:"), kr_ns_str(v_str ? v_str : "0"));
+        return (char*)"1";
+    }
+
+    char* krGuiSpinboxValue(char* sb_str) {
+        id tf = kr_obj_from(sb_str);
+        if (!tf) return (char*)"0";
+        return kr_ns_to_c(MSG_O(tf, sel_getUid("stringValue")));
+    }
+
+    // ── Layout stacks (pure C state) ─────────────────────────────
+    //
+    // Mirrors the Win32 stack helpers. A "stack" is just a layout
+    // cursor — parent, origin, cross-axis size, gap, current cursor.
+    // Each VNext / HNext returns the next coord and advances. No Cocoa
+    // calls — this is pure C state with the parent stored as a generic
+    // pointer (the caller's window handle).
+    typedef struct {
+        id   parent;       // NSWindow* the user passed in
+        int  x, y;
+        int  cross;        // width (V) or height (H)
+        int  gap;
+        int  cursor;       // next y (V) or next x (H)
+        int  orient;       // 0 = V, 1 = H
+    } kr_gui_stack;
+
+    static kr_gui_stack* kr_stack_resolve(const char* h) {
+        if (!h || h[0] != '0' || h[1] != 'x') return NULL;
+        void* p = NULL;
+        if (sscanf(h, "%p", &p) != 1) return NULL;
+        return (kr_gui_stack*)p;
+    }
+
+    static char* kr_stack_alloc(id parent, int x, int y, int cross, int gap, int orient) {
+        kr_gui_stack* s = (kr_gui_stack*)malloc(sizeof(*s));
+        if (!s) return (char*)"0";
+        s->parent = parent;
+        s->x      = x;
+        s->y      = y;
+        s->cross  = cross;
+        s->gap    = gap;
+        s->cursor = (orient == 0) ? y : x;
+        s->orient = orient;
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%p", (void*)s);
+        return kr_gui_dup(buf);
+    }
+
+    char* krGuiVStack(char* parent_str, char* xs, char* ys, char* ws, char* gs) {
+        id parent = kr_obj_from(parent_str);
+        if (!parent) parent = g_main_window;
+        return kr_stack_alloc(parent, atoi(xs), atoi(ys), atoi(ws), atoi(gs), 0);
+    }
+
+    char* krGuiHStack(char* parent_str, char* xs, char* ys, char* hs, char* gs) {
+        id parent = kr_obj_from(parent_str);
+        if (!parent) parent = g_main_window;
+        return kr_stack_alloc(parent, atoi(xs), atoi(ys), atoi(hs), atoi(gs), 1);
+    }
+
+    char* krGuiVNext(char* stack_str, char* size_str) {
+        kr_gui_stack* s = kr_stack_resolve(stack_str);
+        if (!s) return (char*)"0";
+        int cur = s->cursor;
+        s->cursor += atoi(size_str ? size_str : "0") + s->gap;
+        char buf[16]; snprintf(buf, sizeof(buf), "%d", cur);
+        return kr_gui_dup(buf);
+    }
+
+    char* krGuiHNext(char* stack_str, char* size_str) {
+        return krGuiVNext(stack_str, size_str);   // symmetric over the orient axis
+    }
+
+    char* krGuiStackParent(char* stack_str) {
+        kr_gui_stack* s = kr_stack_resolve(stack_str);
+        if (!s || !s->parent) return (char*)"0";
+        return kr_handle(s->parent);
+    }
+
+    static char* kr_stack_int_field(const char* stack_str, int v) {
+        kr_gui_stack* s = kr_stack_resolve(stack_str);
+        if (!s) return (char*)"0";
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", v);
+        return kr_gui_dup(buf);
+    }
+
+    char* krGuiStackX(char* s)   { kr_gui_stack* k = kr_stack_resolve(s); return k ? kr_stack_int_field(s, k->x)      : (char*)"0"; }
+    char* krGuiStackY(char* s)   { kr_gui_stack* k = kr_stack_resolve(s); return k ? kr_stack_int_field(s, k->y)      : (char*)"0"; }
+    char* krGuiStackW(char* s)   { kr_gui_stack* k = kr_stack_resolve(s); return k ? kr_stack_int_field(s, k->cross)  : (char*)"0"; }
+    char* krGuiStackH(char* s)   { return krGuiStackW(s); }
+    char* krGuiStackGap(char* s) { kr_gui_stack* k = kr_stack_resolve(s); return k ? kr_stack_int_field(s, k->gap)    : (char*)"0"; }
+
+    char* krGuiStackGapAdd(char* stack_str, char* px_str) {
+        kr_gui_stack* s = kr_stack_resolve(stack_str);
+        if (!s) return (char*)"0";
+        s->cursor += atoi(px_str ? px_str : "0");
+        return (char*)"1";
+    }
+
+    // ── Splitter (custom NSView with mouse tracking) ─────────────
+    //
+    // Matches the Win32 standalone-bar contract: a thin draggable bar
+    // that the user moves to resize sibling panels. Position changes
+    // fire the registered onChange callback; guiSplitterPos returns the
+    // current top-edge (horizontal bar) or left-edge (vertical bar).
+
+    char* krGuiSplitter(char* parent, char* x_str, char* y_str, char* w_str, char* h_str,
+                        char* orient_str) {
+        id container = kr_resolve_container(parent);
+        if (!container) return (char*)"";
+        int orient = 0;   // 0 = horizontal bar (user drags vertically)
+        if (orient_str && (orient_str[0] == 'v' || orient_str[0] == 'V')) orient = 1;
+
+        int x = atoi(x_str), y = atoi(y_str);
+        int w = atoi(w_str), h = atoi(h_str);
+        KRRect r = {{ (double)x, (double)y }, { (double)w, (double)h }};
+
+        Class splitCls = (Class)objc_getClass("KrSplitter");
+        if (!splitCls) return (char*)"";
+        id view = MSG_O((id)splitCls, sel_getUid("alloc"));
+        view = ((id(*)(id,SEL,KRRect))objc_msgSend)(view, sel_getUid("initWithFrame:"), r);
+
+        kr_split_state* s = (kr_split_state*)malloc(sizeof(*s));
+        s->orient           = orient;
+        s->pos              = (orient == 0) ? y : x;
+        s->drag_start_mouse = 0.0;
+        s->drag_start_pos   = s->pos;
+        // OBJC_ASSOCIATION_ASSIGN (= 0) so the runtime treats it as an
+        // opaque void* — it's a malloc'd struct, not an Objective-C
+        // object, so we don't want retain/release semantics.
+        objc_setAssociatedObject(view, &kr_split_state_key, (id)s, 0);
+
+        int slot_id = kr_register_cb_slot();
+        kr_set_widget_tag(view, slot_id);
+
+        MSG_V_O(container, sel_getUid("addSubview:"), view);
+
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", slot_id);
+        return kr_gui_dup(buf);
+    }
+
+    char* krGuiSplitterPos(char* sp_str) {
+        id ctl = kr_resolve_control(sp_str);
+        if (!ctl) return (char*)"0";
+        kr_split_state* s = (kr_split_state*)objc_getAssociatedObject(ctl, &kr_split_state_key);
+        if (!s) return (char*)"0";
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", s->pos);
+        return kr_gui_dup(buf);
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Stubs for the remaining surface — tree, status bar, toolbar,
+    // dock manager, color picker, scrollbar. Each returns an empty
+    // handle / "0" so existing programs link and run.
+    // ──────────────────────────────────────────────────────────────────
+
+    #define KR_STUB_S(name, ...) char* name(__VA_ARGS__) { return (char*)""; }
+    #define KR_STUB_0(name, ...) char* name(__VA_ARGS__) { return (char*)"0"; }
+
+    // ── Universal change-event hook ─────────────────────────────
+    //
+    // Decimal id (slider, tabs, menu items) or hex pointer (combo,
+    // date picker — anything we wired with setTag:) both work; the
+    // hex form looks up the widget's tag and resolves to the same slot.
+    char* krGuiOnChange(char* id_str, char* sinkPtr) {
+        int slot = -1;
+        if (id_str && id_str[0] == '0' && id_str[1] == 'x') {
+            id ctl = kr_obj_from(id_str);
+            if (ctl) {
+                long tag = kr_get_widget_tag(ctl);
+                if (tag >= 1000) slot = (int)tag - 1000;
+            }
+        } else {
+            slot = atoi(id_str ? id_str : "0") - 1000;
+        }
+        if (slot < 0 || slot >= KR_GUI_MAX_CB) return (char*)"0";
+        g_change_cb[slot] = (kr_gui_cb)sinkPtr;
+        return (char*)"1";
+    }
+
+    // ── Menus (NSMenu / NSMenuItem in the application main menu) ─
+    //
+    // macOS shows menus in the global menu bar at the top of the
+    // screen, not attached to a specific window. We lazily allocate
+    // an NSMenu, install it via [NSApp setMainMenu:], and seed it
+    // with an "App" placeholder containing a system Quit item so the
+    // bar renders correctly.
+
+    char* krGuiMenuBegin(char* window_str) {
+        (void)window_str;
+        kr_gui_bootstrap();
+        if (g_menu_bar) return kr_handle(g_menu_bar);
+
+        g_menu_bar = MSG_O((id)objc_getClass("NSMenu"), sel_getUid("alloc"));
+        g_menu_bar = MSG_O_O(g_menu_bar, sel_getUid("initWithTitle:"), kr_ns_str(""));
+
+        // Without a leading app menu, the user's first menu becomes
+        // the bold app menu — visually wrong. Seed an empty one with
+        // a Quit item that uses the standard -terminate: selector so
+        // ⌘Q works without us wiring anything.
+        id app_item = MSG_O((id)objc_getClass("NSMenuItem"), sel_getUid("alloc"));
+        app_item = ((id(*)(id,SEL,id,SEL,id))objc_msgSend)(
+            app_item, sel_getUid("initWithTitle:action:keyEquivalent:"),
+            kr_ns_str(""), NULL, kr_ns_str(""));
+
+        id app_menu = MSG_O((id)objc_getClass("NSMenu"), sel_getUid("alloc"));
+        app_menu = MSG_O_O(app_menu, sel_getUid("initWithTitle:"), kr_ns_str(""));
+
+        id quit = MSG_O((id)objc_getClass("NSMenuItem"), sel_getUid("alloc"));
+        quit = ((id(*)(id,SEL,id,SEL,id))objc_msgSend)(
+            quit, sel_getUid("initWithTitle:action:keyEquivalent:"),
+            kr_ns_str("Quit"), sel_getUid("terminate:"), kr_ns_str("q"));
+        MSG_V_O(quit, sel_getUid("setTarget:"), g_app);
+        MSG_V_O(app_menu, sel_getUid("addItem:"), quit);
+
+        MSG_V_O(app_item, sel_getUid("setSubmenu:"), app_menu);
+        MSG_V_O(g_menu_bar, sel_getUid("addItem:"), app_item);
+
+        MSG_V_O(g_app, sel_getUid("setMainMenu:"), g_menu_bar);
+        return kr_handle(g_menu_bar);
+    }
+
+    char* krGuiMenu(char* menubar_str, char* label) {
+        (void)menubar_str;
+        if (!g_menu_bar) krGuiMenuBegin(NULL);
+        id title = kr_ns_str(label ? label : "");
+        id top = MSG_O((id)objc_getClass("NSMenuItem"), sel_getUid("alloc"));
+        top = ((id(*)(id,SEL,id,SEL,id))objc_msgSend)(
+            top, sel_getUid("initWithTitle:action:keyEquivalent:"),
+            title, NULL, kr_ns_str(""));
+
+        id submenu = MSG_O((id)objc_getClass("NSMenu"), sel_getUid("alloc"));
+        submenu = MSG_O_O(submenu, sel_getUid("initWithTitle:"), title);
+
+        MSG_V_O(top, sel_getUid("setSubmenu:"), submenu);
+        MSG_V_O(g_menu_bar, sel_getUid("addItem:"), top);
+        return kr_handle(submenu);
+    }
+
+    char* krGuiMenuItem(char* submenu_str, char* label) {
+        id submenu = kr_obj_from(submenu_str);
+        if (!submenu) return (char*)"0";
+
+        int id_int = kr_register_cb_slot();
+        id item = MSG_O((id)objc_getClass("NSMenuItem"), sel_getUid("alloc"));
+        item = ((id(*)(id,SEL,id,SEL,id))objc_msgSend)(
+            item, sel_getUid("initWithTitle:action:keyEquivalent:"),
+            kr_ns_str(label ? label : ""),
+            sel_getUid("krAction:"),
+            kr_ns_str(""));
+        MSG_V_O(item, sel_getUid("setTarget:"), g_target);
+        kr_set_widget_tag(item, id_int);
+        MSG_V_O(submenu, sel_getUid("addItem:"), item);
+
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", id_int);
+        return kr_gui_dup(buf);
+    }
+
+    char* krGuiMenuSeparator(char* submenu_str) {
+        id submenu = kr_obj_from(submenu_str);
+        if (!submenu) return (char*)"0";
+        id sep = MSG_O((id)objc_getClass("NSMenuItem"), sel_getUid("separatorItem"));
+        MSG_V_O(submenu, sel_getUid("addItem:"), sep);
+        return (char*)"1";
+    }
+
+    // Legacy flat-item API — adds a clickable top-level entry to the
+    // menu bar. macOS top-level menus must own a submenu, so we wrap
+    // the action in a single-item dropdown and surface that as the
+    // visible click target. Functionally indistinguishable to user
+    // code; visually shows label → label in the menu.
+    char* krGuiMenuAdd(char* menubar_str, char* label) {
+        (void)menubar_str;
+        if (!g_menu_bar) krGuiMenuBegin(NULL);
+        int id_int = kr_register_cb_slot();
+        id title = kr_ns_str(label ? label : "");
+
+        id top = MSG_O((id)objc_getClass("NSMenuItem"), sel_getUid("alloc"));
+        top = ((id(*)(id,SEL,id,SEL,id))objc_msgSend)(
+            top, sel_getUid("initWithTitle:action:keyEquivalent:"),
+            title, NULL, kr_ns_str(""));
+
+        id submenu = MSG_O((id)objc_getClass("NSMenu"), sel_getUid("alloc"));
+        submenu = MSG_O_O(submenu, sel_getUid("initWithTitle:"), title);
+
+        id child = MSG_O((id)objc_getClass("NSMenuItem"), sel_getUid("alloc"));
+        child = ((id(*)(id,SEL,id,SEL,id))objc_msgSend)(
+            child, sel_getUid("initWithTitle:action:keyEquivalent:"),
+            title, sel_getUid("krAction:"), kr_ns_str(""));
+        MSG_V_O(child, sel_getUid("setTarget:"), g_target);
+        kr_set_widget_tag(child, id_int);
+        MSG_V_O(submenu, sel_getUid("addItem:"), child);
+
+        MSG_V_O(top, sel_getUid("setSubmenu:"), submenu);
+        MSG_V_O(g_menu_bar, sel_getUid("addItem:"), top);
+
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", id_int);
+        return kr_gui_dup(buf);
+    }
+
+    // ── Tabs (NSTabView with delegate-driven change events) ──────
+    char* krGuiTabs(char* parent, char* x_str, char* y_str, char* w_str, char* h_str) {
+        id container = kr_resolve_container(parent);
+        if (!container) return (char*)"";
+        KRRect r = {{ (double)atoi(x_str), (double)atoi(y_str) },
+                    { (double)atoi(w_str), (double)atoi(h_str) }};
+
+        id tabs = MSG_O((id)objc_getClass("NSTabView"), sel_getUid("alloc"));
+        tabs = ((id(*)(id,SEL,KRRect))objc_msgSend)(tabs, sel_getUid("initWithFrame:"), r);
+
+        int id_int = kr_register_cb_slot();
+        kr_set_widget_tag(tabs, id_int);
+        if (g_tab_delegate) MSG_V_O(tabs, sel_getUid("setDelegate:"), g_tab_delegate);
+        MSG_V_O(container, sel_getUid("addSubview:"), tabs);
+
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", id_int);
+        return kr_gui_dup(buf);
+    }
+
+    char* krGuiTabAdd(char* tabs_str, char* label) {
+        id tabs = kr_resolve_control(tabs_str);
+        if (!tabs) return (char*)"-1";
+        id title = kr_ns_str(label ? label : "");
+        id item  = MSG_O((id)objc_getClass("NSTabViewItem"), sel_getUid("alloc"));
+        item = MSG_O_O(item, sel_getUid("initWithIdentifier:"), title);
+        MSG_V_O(item, sel_getUid("setLabel:"), title);
+        MSG_V_O(tabs, sel_getUid("addTabViewItem:"), item);
+
+        long n = MSG_L(tabs, sel_getUid("numberOfTabViewItems"));
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%ld", n - 1);
+        return kr_gui_dup(buf);
+    }
+
+    char* krGuiTabSelected(char* tabs_str) {
+        id tabs = kr_resolve_control(tabs_str);
+        if (!tabs) return (char*)"-1";
+        id sel_item = MSG_O(tabs, sel_getUid("selectedTabViewItem"));
+        if (!sel_item) return (char*)"-1";
+        long idx = ((long(*)(id,SEL,id))objc_msgSend)(
+            tabs, sel_getUid("indexOfTabViewItem:"), sel_item);
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%ld", idx);
+        return kr_gui_dup(buf);
+    }
+
+    // ── Date picker (NSDatePicker, textual style + stepper) ──────
+    char* krGuiDatePicker(char* parent, char* x_str, char* y_str, char* w_str, char* h_str) {
+        id container = kr_resolve_container(parent);
+        if (!container) return (char*)"";
+        KRRect r = {{ (double)atoi(x_str), (double)atoi(y_str) },
+                    { (double)atoi(w_str), (double)atoi(h_str) }};
+
+        id dp = MSG_O((id)objc_getClass("NSDatePicker"), sel_getUid("alloc"));
+        dp = ((id(*)(id,SEL,KRRect))objc_msgSend)(dp, sel_getUid("initWithFrame:"), r);
+        // YearMonthDay only (no time) — matches Win32 DTS_SHORTDATEFORMAT.
+        // Element flags: NSYearMonthDayDatePickerElementFlag = 0x00C0.
+        MSG_V_L(dp, sel_getUid("setDatePickerElements:"), 0x00C0);
+        // Style 0 = NSTextFieldAndStepperDatePickerStyle (textual + arrows).
+        MSG_V_L(dp, sel_getUid("setDatePickerStyle:"), 0);
+
+        int id_int = kr_register_cb_slot();
+        kr_set_widget_tag(dp, id_int);
+        MSG_V_O(dp, sel_getUid("setTarget:"), g_target);
+        MSG_V_SEL(dp, sel_getUid("setAction:"), sel_getUid("krAction:"));
+
+        MSG_V_O(container, sel_getUid("addSubview:"), dp);
+        return kr_handle(dp);
+    }
+
+    // Format an NSDate as YYYY-MM-DD via NSCalendar so we match the
+    // Win32 contract without pulling in NSDateFormatter (which needs
+    // locale handling we don't want in a tiny C library).
+    static char* kr_format_nsdate(id ns_date) {
+        if (!ns_date) return kr_gui_dup("");
+        id cal = MSG_O((id)objc_getClass("NSCalendar"), sel_getUid("currentCalendar"));
+        // unitFlags: NSCalendarUnitYear|Month|Day = 4 | 8 | 16 = 28.
+        id comps = ((id(*)(id,SEL,unsigned long,id))objc_msgSend)(
+            cal, sel_getUid("components:fromDate:"), 28UL, ns_date);
+        long y = MSG_L(comps, sel_getUid("year"));
+        long m = MSG_L(comps, sel_getUid("month"));
+        long d = MSG_L(comps, sel_getUid("day"));
+        char out[16];
+        snprintf(out, sizeof(out), "%04ld-%02ld-%02ld", y, m, d);
+        return kr_gui_dup(out);
+    }
+
+    char* krGuiDateGet(char* hwnd_str) {
+        id ctl = kr_resolve_control(hwnd_str);
+        if (!ctl) return (char*)"";
+        id ns_date = MSG_O(ctl, sel_getUid("dateValue"));
+        return kr_format_nsdate(ns_date);
+    }
+
+    char* krGuiDateSet(char* hwnd_str, char* ymd) {
+        id ctl = kr_resolve_control(hwnd_str);
+        if (!ctl || !ymd) return (char*)"0";
+        int y = 0, m = 0, d = 0;
+        if (sscanf(ymd, "%d-%d-%d", &y, &m, &d) != 3) return (char*)"0";
+
+        id comps = MSG_O(MSG_O((id)objc_getClass("NSDateComponents"), sel_getUid("alloc")),
+                         sel_getUid("init"));
+        MSG_V_L(comps, sel_getUid("setYear:"),  y);
+        MSG_V_L(comps, sel_getUid("setMonth:"), m);
+        MSG_V_L(comps, sel_getUid("setDay:"),   d);
+        id cal = MSG_O((id)objc_getClass("NSCalendar"), sel_getUid("currentCalendar"));
+        id ns_date = ((id(*)(id,SEL,id))objc_msgSend)(
+            cal, sel_getUid("dateFromComponents:"), comps);
+        if (!ns_date) return (char*)"0";
+        MSG_V_O(ctl, sel_getUid("setDateValue:"), ns_date);
+        return (char*)"1";
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Round 5 widgets — tree view, status bar, toolbar.
+    // ──────────────────────────────────────────────────────────────────
+
+    // ── Tree view (NSOutlineView in NSScrollView) ────────────────
+    //
+    // Items are NSMutableDictionary { @"label", @"children" }; the
+    // root NSMutableArray is attached to the outline view via
+    // associated objects so the shared KrTreeHelper data source can
+    // find it. guiTreeAdd returns the new node's hex pointer so it can
+    // be passed back as the parent for nested adds.
+
+    char* krGuiTreeView(char* parent, char* x_str, char* y_str, char* w_str, char* h_str) {
+        kr_gui_bootstrap();
+        id container = kr_resolve_container(parent);
+        if (!container) return (char*)"";
+        KRRect r = {{ (double)atoi(x_str), (double)atoi(y_str) },
+                    { (double)atoi(w_str), (double)atoi(h_str) }};
+
+        id sv = MSG_O((id)objc_getClass("NSScrollView"), sel_getUid("alloc"));
+        sv = ((id(*)(id,SEL,KRRect))objc_msgSend)(sv, sel_getUid("initWithFrame:"), r);
+        MSG_V_C(sv, sel_getUid("setHasVerticalScroller:"), 1);
+        MSG_V_L(sv, sel_getUid("setBorderType:"),          2);
+
+        id tv = MSG_O((id)objc_getClass("NSOutlineView"), sel_getUid("alloc"));
+        KRRect tvr = {{ 0, 0 }, { r.size.width, r.size.height }};
+        tv = ((id(*)(id,SEL,KRRect))objc_msgSend)(tv, sel_getUid("initWithFrame:"), tvr);
+        MSG_V_O(tv, sel_getUid("setHeaderView:"), NULL);
+        MSG_V_C(tv, sel_getUid("setAllowsMultipleSelection:"), 0);
+
+        id col = MSG_O((id)objc_getClass("NSTableColumn"), sel_getUid("alloc"));
+        col = MSG_O_O(col, sel_getUid("initWithIdentifier:"), kr_ns_str("c0"));
+        ((void(*)(id,SEL,double))objc_msgSend)(col, sel_getUid("setWidth:"),
+                                               r.size.width - 4.0);
+        MSG_V_O(tv, sel_getUid("addTableColumn:"),       col);
+        MSG_V_O(tv, sel_getUid("setOutlineTableColumn:"), col);
+
+        // Root NSMutableArray retained via the outline view.
+        id root = MSG_O((id)objc_getClass("NSMutableArray"), sel_getUid("array"));
+        objc_setAssociatedObject(tv, &kr_tree_root_key, root, 1);  // RETAIN_NONATOMIC
+
+        if (g_tree_helper) {
+            MSG_V_O(tv, sel_getUid("setDataSource:"), g_tree_helper);
+            MSG_V_O(tv, sel_getUid("setDelegate:"),   g_tree_helper);
+        }
+
+        int slot_id = kr_register_cb_slot();
+        kr_set_widget_tag(tv, slot_id);
+
+        MSG_V_O(sv, sel_getUid("setDocumentView:"), tv);
+        MSG_V_O(container, sel_getUid("addSubview:"), sv);
+
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", slot_id);
+        return kr_gui_dup(buf);
+    }
+
+    char* krGuiTreeAdd(char* tree_str, char* parent_item_str, char* label) {
+        id tv = kr_resolve_control(tree_str);
+        if (!tv) return (char*)"";
+
+        // Empty / "0" / non-hex → add to root. Hex pointer → add as a
+        // child of that node (assuming caller passed a node we returned
+        // earlier). Out-of-band pointers are user bugs; not validated.
+        id parent = NULL;
+        if (parent_item_str && parent_item_str[0] == '0' && parent_item_str[1] == 'x') {
+            parent = kr_obj_from(parent_item_str);
+        }
+
+        id node = MSG_O(MSG_O((id)objc_getClass("NSMutableDictionary"), sel_getUid("alloc")),
+                        sel_getUid("init"));
+        ((void(*)(id,SEL,id,id))objc_msgSend)(node, sel_getUid("setObject:forKey:"),
+            kr_ns_str(label ? label : ""), kr_ns_str("label"));
+        id children = MSG_O((id)objc_getClass("NSMutableArray"), sel_getUid("array"));
+        ((void(*)(id,SEL,id,id))objc_msgSend)(node, sel_getUid("setObject:forKey:"),
+            children, kr_ns_str("children"));
+
+        id arr = NULL;
+        if (parent) {
+            arr = ((id(*)(id,SEL,id))objc_msgSend)(parent, sel_getUid("objectForKey:"),
+                kr_ns_str("children"));
+        } else {
+            arr = (id)objc_getAssociatedObject(tv, &kr_tree_root_key);
+        }
+        if (arr) MSG_V_O(arr, sel_getUid("addObject:"), node);
+
+        MSG_V(tv, sel_getUid("reloadData"));
+        return kr_handle(node);
+    }
+
+    char* krGuiTreeClear(char* tree_str) {
+        id tv = kr_resolve_control(tree_str);
+        if (!tv) return (char*)"0";
+        id root = (id)objc_getAssociatedObject(tv, &kr_tree_root_key);
+        if (!root) return (char*)"0";
+        MSG_V(root, sel_getUid("removeAllObjects"));
+        MSG_V(tv, sel_getUid("reloadData"));
+        return (char*)"1";
+    }
+
+    char* krGuiTreeSelected(char* tree_str) {
+        id tv = kr_resolve_control(tree_str);
+        if (!tv) return (char*)"";
+        long row = MSG_L(tv, sel_getUid("selectedRow"));
+        if (row < 0) return (char*)"";
+        id item = ((id(*)(id,SEL,long))objc_msgSend)(tv, sel_getUid("itemAtRow:"), row);
+        if (!item) return (char*)"";
+        id label = ((id(*)(id,SEL,id))objc_msgSend)(item, sel_getUid("objectForKey:"),
+            kr_ns_str("label"));
+        if (!label) return (char*)"";
+        return kr_ns_to_c(label);
+    }
+
+    // ── Status bar (faked: bottom-pinned NSView + NSTextField row) ─
+    //
+    // macOS doesn't have a native status bar; we approximate with a
+    // 24-tall layer-backed view at the bottom of the contentView,
+    // holding one NSTextField per "part". The parts CSV ("100,150,*")
+    // resolves stars to "remaining width / count of stars".
+    static char kr_status_parts_key;
+
+    static id kr_status_make_part(KRRect r) {
+        id tf = MSG_O((id)objc_getClass("NSTextField"), sel_getUid("alloc"));
+        tf = ((id(*)(id,SEL,KRRect))objc_msgSend)(tf, sel_getUid("initWithFrame:"), r);
+        MSG_V_C(tf, sel_getUid("setEditable:"),        0);
+        MSG_V_C(tf, sel_getUid("setBezeled:"),         0);
+        MSG_V_C(tf, sel_getUid("setDrawsBackground:"), 0);
+        MSG_V_C(tf, sel_getUid("setSelectable:"),      0);
+        MSG_V_O(tf, sel_getUid("setStringValue:"), kr_ns_str(""));
+        return tf;
+    }
+
+    char* krGuiStatusBar(char* window_str) {
+        kr_gui_bootstrap();
+        id win = kr_obj_from(window_str);
+        if (!win) win = g_main_window;
+        if (!win) return (char*)"";
+        id container = MSG_O(win, sel_getUid("contentView"));
+        if (!container) return (char*)"";
+
+        KRRect cf = ((KRRect(*)(id,SEL))objc_msgSend)(container, sel_getUid("frame"));
+        const int bar_h = 24;
+        KRRect br = {{ 0, cf.size.height - bar_h }, { cf.size.width, (double)bar_h }};
+
+        Class viewCls = (Class)objc_getClass("KrFlippedView");
+        if (!viewCls) viewCls = (Class)objc_getClass("NSView");
+        id bar = MSG_O((id)viewCls, sel_getUid("alloc"));
+        bar = ((id(*)(id,SEL,KRRect))objc_msgSend)(bar, sel_getUid("initWithFrame:"), br);
+        // NSViewWidthSizable | NSViewMinYMargin → stretch horizontally,
+        // anchor to the bottom edge of the contentView.
+        MSG_V_L(bar, sel_getUid("setAutoresizingMask:"), 2 | 32);
+
+        id parts = MSG_O((id)objc_getClass("NSMutableArray"), sel_getUid("array"));
+        objc_setAssociatedObject(bar, &kr_status_parts_key, parts, 1);
+
+        // Default: one part stretching the bar's full width.
+        KRRect pr = {{ 6, 4 }, { cf.size.width - 12, (double)(bar_h - 8) }};
+        id tf = kr_status_make_part(pr);
+        MSG_V_O(bar, sel_getUid("addSubview:"), tf);
+        MSG_V_O(parts, sel_getUid("addObject:"), tf);
+
+        MSG_V_O(container, sel_getUid("addSubview:"), bar);
+        return kr_handle(bar);
+    }
+
+    char* krGuiStatusParts(char* bar_str, char* widths) {
+        id bar = kr_obj_from(bar_str);
+        if (!bar) return (char*)"0";
+        id parts = (id)objc_getAssociatedObject(bar, &kr_status_parts_key);
+        if (!parts) return (char*)"0";
+
+        long n_old = MSG_L(parts, sel_getUid("count"));
+        for (long i = 0; i < n_old; i++) {
+            id tf = ((id(*)(id,SEL,long))objc_msgSend)(parts, sel_getUid("objectAtIndex:"), i);
+            MSG_V(tf, sel_getUid("removeFromSuperview"));
+        }
+        MSG_V(parts, sel_getUid("removeAllObjects"));
+
+        KRRect br = ((KRRect(*)(id,SEL))objc_msgSend)(bar, sel_getUid("frame"));
+        int total_w = (int)br.size.width;
+        int total_h = (int)br.size.height;
+
+        int parsed[16]; int n = 0;
+        int fixed_w = 0;
+        int n_stars = 0;
+        char buf[256];
+        size_t wlen = strlen(widths ? widths : "");
+        if (wlen >= sizeof(buf)) wlen = sizeof(buf) - 1;
+        memcpy(buf, widths ? widths : "", wlen);
+        buf[wlen] = 0;
+
+        char* p = buf;
+        while (*p && n < 16) {
+            while (*p == ',' || *p == ' ') p++;
+            if (!*p) break;
+            if (*p == '*') {
+                parsed[n++] = -1;
+                n_stars++;
+                p++;
+            } else {
+                int w = atoi(p);
+                parsed[n++] = w;
+                fixed_w += w;
+                while (*p && *p != ',') p++;
+            }
+        }
+        if (n == 0) { parsed[0] = -1; n = 1; n_stars = 1; }
+        int star_w = (n_stars > 0) ? (total_w - fixed_w) / n_stars : 0;
+        if (star_w < 0) star_w = 0;
+
+        int cursor = 6;
+        int avail_h = total_h - 8;
+        for (int i = 0; i < n; i++) {
+            int w = (parsed[i] < 0) ? star_w : parsed[i];
+            KRRect pr = {{ (double)cursor, 4 }, { (double)(w - 4), (double)avail_h }};
+            id tf = kr_status_make_part(pr);
+            MSG_V_O(bar, sel_getUid("addSubview:"), tf);
+            MSG_V_O(parts, sel_getUid("addObject:"), tf);
+            cursor += w;
+        }
+        return (char*)"1";
+    }
+
+    char* krGuiStatusSet(char* bar_str, char* idx_str, char* text) {
+        id bar = kr_obj_from(bar_str);
+        if (!bar) return (char*)"0";
+        id parts = (id)objc_getAssociatedObject(bar, &kr_status_parts_key);
+        if (!parts) return (char*)"0";
+        long idx = atol(idx_str ? idx_str : "0");
+        long n = MSG_L(parts, sel_getUid("count"));
+        if (idx < 0 || idx >= n) return (char*)"0";
+        id tf = ((id(*)(id,SEL,long))objc_msgSend)(parts, sel_getUid("objectAtIndex:"), idx);
+        MSG_V_O(tf, sel_getUid("setStringValue:"), kr_ns_str(text ? text : ""));
+        return (char*)"1";
+    }
+
+    char* krGuiStatusGet(char* bar_str, char* idx_str) {
+        id bar = kr_obj_from(bar_str);
+        if (!bar) return (char*)"";
+        id parts = (id)objc_getAssociatedObject(bar, &kr_status_parts_key);
+        if (!parts) return (char*)"";
+        long idx = atol(idx_str ? idx_str : "0");
+        long n = MSG_L(parts, sel_getUid("count"));
+        if (idx < 0 || idx >= n) return (char*)"";
+        id tf = ((id(*)(id,SEL,long))objc_msgSend)(parts, sel_getUid("objectAtIndex:"), idx);
+        return kr_ns_to_c(MSG_O(tf, sel_getUid("stringValue")));
+    }
+
+    // Cocoa NSTextField doesn't carry a system-icon slot like the Win32
+    // status bar's ICON column, and there's no good cross-platform mapping
+    // for "info" / "warning" / "error" names. Leave as a no-op for now.
+    char* krGuiStatusIcon(char* bar_str, char* idx_str, char* iconName) {
+        (void)bar_str; (void)idx_str; (void)iconName;
+        return (char*)"0";
+    }
+
+    char* krGuiStatusBgColor(char* bar_str, char* hex) {
+        id bar = kr_obj_from(bar_str);
+        if (!bar) return (char*)"0";
+
+        const char* p = hex ? hex : "";
+        if (*p == '#') p++;
+        if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) p += 2;
+        unsigned int v = 0;
+        sscanf(p, "%x", &v);
+        double r = ((v >> 16) & 0xFF) / 255.0;
+        double g = ((v >> 8)  & 0xFF) / 255.0;
+        double b = ( v        & 0xFF) / 255.0;
+
+        // CALayer background needs the view to be layer-backed.
+        MSG_V_C(bar, sel_getUid("setWantsLayer:"), 1);
+        id layer = MSG_O(bar, sel_getUid("layer"));
+        if (!layer) return (char*)"0";
+
+        id color = ((id(*)(id,SEL,double,double,double,double))objc_msgSend)(
+            (id)objc_getClass("NSColor"),
+            sel_getUid("colorWithRed:green:blue:alpha:"),
+            r, g, b, 1.0);
+        // -[NSColor CGColor] returns a CGColorRef, which is toll-free
+        // bridged to id for CALayer's setBackgroundColor:.
+        id cgColor = MSG_O(color, sel_getUid("CGColor"));
+        MSG_V_O(layer, sel_getUid("setBackgroundColor:"), cgColor);
+        return (char*)"1";
+    }
+
+    // ── Toolbar (top-pinned NSView with horizontal NSButton row) ──
+    //
+    // Win32's TOOLBARCLASSNAMEW is just a strip of buttons; Cocoa has
+    // a fully-fledged NSToolbar with delegate-driven item identifiers,
+    // but for parity with the Win32 contract the simpler "buttons in a
+    // bar" approach is what user code actually expects from
+    // guiToolbar / guiToolButton. NSToolbar can come later.
+    static char kr_toolbar_cursor_key;
+
+    static int kr_tb_cursor(id bar) {
+        id num = (id)objc_getAssociatedObject(bar, &kr_toolbar_cursor_key);
+        if (!num) return 4;
+        return (int)MSG_L(num, sel_getUid("longValue"));
+    }
+
+    static void kr_tb_set_cursor(id bar, int x) {
+        id num = ((id(*)(id,SEL,long))objc_msgSend)(
+            (id)objc_getClass("NSNumber"),
+            sel_getUid("numberWithLong:"),
+            (long)x);
+        objc_setAssociatedObject(bar, &kr_toolbar_cursor_key, num, 1);
+    }
+
+    char* krGuiToolbar(char* window_str) {
+        kr_gui_bootstrap();
+        id win = kr_obj_from(window_str);
+        if (!win) win = g_main_window;
+        if (!win) return (char*)"";
+        id container = MSG_O(win, sel_getUid("contentView"));
+        if (!container) return (char*)"";
+
+        KRRect cf = ((KRRect(*)(id,SEL))objc_msgSend)(container, sel_getUid("frame"));
+        const int bar_h = 32;
+        KRRect br = {{ 0, 0 }, { cf.size.width, (double)bar_h }};
+
+        Class viewCls = (Class)objc_getClass("KrFlippedView");
+        if (!viewCls) viewCls = (Class)objc_getClass("NSView");
+        id bar = MSG_O((id)viewCls, sel_getUid("alloc"));
+        bar = ((id(*)(id,SEL,KRRect))objc_msgSend)(bar, sel_getUid("initWithFrame:"), br);
+        MSG_V_L(bar, sel_getUid("setAutoresizingMask:"), 2);   // NSViewWidthSizable
+
+        // Subtle gray tint so the bar reads as chrome, not content.
+        MSG_V_C(bar, sel_getUid("setWantsLayer:"), 1);
+        id layer = MSG_O(bar, sel_getUid("layer"));
+        if (layer) {
+            id color = ((id(*)(id,SEL,double,double,double,double))objc_msgSend)(
+                (id)objc_getClass("NSColor"),
+                sel_getUid("colorWithRed:green:blue:alpha:"),
+                0.92, 0.92, 0.92, 1.0);
+            MSG_V_O(layer, sel_getUid("setBackgroundColor:"),
+                    MSG_O(color, sel_getUid("CGColor")));
+        }
+
+        kr_tb_set_cursor(bar, 4);
+        MSG_V_O(container, sel_getUid("addSubview:"), bar);
+        return kr_handle(bar);
+    }
+
+    char* krGuiToolButton(char* tb_str, char* label, char* iconName) {
+        (void)iconName;     // Win32 standard-icon names don't map to Cocoa
+        id bar = kr_obj_from(tb_str);
+        if (!bar) return (char*)"";
+        int cursor = kr_tb_cursor(bar);
+
+        // Rough sizing: 8px/char + 28px padding, 60px floor. Good enough
+        // to match the auto-sized Win32 BTNS_AUTOSIZE behavior.
+        int w = (int)strlen(label ? label : "") * 8 + 28;
+        if (w < 60) w = 60;
+
+        KRRect r = {{ (double)cursor, 4 }, { (double)w, 24 }};
+        id btn = MSG_O((id)objc_getClass("NSButton"), sel_getUid("alloc"));
+        btn = ((id(*)(id,SEL,KRRect))objc_msgSend)(btn, sel_getUid("initWithFrame:"), r);
+        MSG_V_O(btn, sel_getUid("setTitle:"), kr_ns_str(label ? label : ""));
+        MSG_V_L(btn, sel_getUid("setBezelStyle:"), 1);    // NSBezelStyleRounded
+        MSG_V_O(btn, sel_getUid("setTarget:"), g_target);
+        MSG_V_SEL(btn, sel_getUid("setAction:"), sel_getUid("krAction:"));
+
+        int id_int = kr_register_cb_slot();
+        kr_set_widget_tag(btn, id_int);
+        MSG_V_O(bar, sel_getUid("addSubview:"), btn);
+
+        kr_tb_set_cursor(bar, cursor + w + 4);
+
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", id_int);
+        return kr_gui_dup(buf);
+    }
+
+    char* krGuiToolSep(char* tb_str) {
+        id bar = kr_obj_from(tb_str);
+        if (!bar) return (char*)"0";
+        // Just leave a 12px gap. A vertical line would be nicer but
+        // the visual delta in a flat toolbar is small.
+        kr_tb_set_cursor(bar, kr_tb_cursor(bar) + 12);
+        return (char*)"1";
+    }
+
+    char* krGuiToolbarHeight(char* tb_str) {
+        (void)tb_str;
+        return kr_gui_dup("32");
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Round 6 widgets — dock manager, color picker, scrollbar.
+    // ──────────────────────────────────────────────────────────────────
+
+    // ── Dock layout (top/bottom/left/right/fill, edge-eating) ────
+    //
+    // Returns a hex pointer to a kr_dock_state. The user calls
+    // guiDockTop / Bottom / Left / Right / Fill to register kids,
+    // then guiDockApply to do the initial layout. After that the
+    // dock listens for NSWindowDidResizeNotification and reflows
+    // automatically — the krDockResize: selector wired in bootstrap
+    // handles dispatch.
+    char* krGuiDock(char* window_str) {
+        kr_gui_bootstrap();
+        id win = kr_obj_from(window_str);
+        if (!win) win = g_main_window;
+        if (!win) return (char*)"";
+        if (g_n_docks >= KR_GUI_MAX_DOCKS) return (char*)"";
+
+        kr_dock_state* d = (kr_dock_state*)calloc(1, sizeof(*d));
+        if (!d) return (char*)"";
+        d->window  = win;
+        d->content = MSG_O(win, sel_getUid("contentView"));
+        g_docks[g_n_docks++] = d;
+
+        // One-shot per-window observer. Adding it more than once is
+        // harmless (NSNotificationCenter dedupes (target, sel, name)
+        // tuples it has seen) but cheaper to gate on first dock.
+        id center = MSG_O((id)objc_getClass("NSNotificationCenter"),
+                          sel_getUid("defaultCenter"));
+        ((void(*)(id,SEL,id,SEL,id,id))objc_msgSend)(
+            center, sel_getUid("addObserver:selector:name:object:"),
+            g_target,
+            sel_getUid("krDockResize:"),
+            kr_ns_str("NSWindowDidResizeNotification"),
+            win);
+
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%p", (void*)d);
+        return kr_gui_dup(buf);
+    }
+
+    static kr_dock_state* kr_dock_resolve(const char* h) {
+        if (!h || h[0] != '0' || h[1] != 'x') return NULL;
+        void* p = NULL;
+        if (sscanf(h, "%p", &p) != 1) return NULL;
+        return (kr_dock_state*)p;
+    }
+
+    // Resolve a child handle that may be either a hex pointer (text
+    // area, scroll view, image, etc.) or a decimal id (button-style
+    // tag — sliders, tree views, splitters). The dock layout calls
+    // -setFrame: on the resolved view, so we go through the same
+    // tag-aware lookup the rest of the API uses.
+    static id kr_dock_resolve_child(const char* h) {
+        if (!h) return NULL;
+        if (h[0] == '0' && h[1] == 'x') return kr_obj_from(h);
+        // Treat as decimal tag — walk the contentView's full subview
+        // tree. Most listbox/textarea/treeview handles are NSScrollView
+        // pointers (hex), but slider-style decimal-tag handles need
+        // tag-walk. kr_resolve_control already does shallow walks; we
+        // want recursive in case the widget lives inside a container.
+        long want = atol(h);
+        if (want < 1000) return NULL;
+        if (!g_main_window) return NULL;
+        id content = MSG_O(g_main_window, sel_getUid("contentView"));
+        if (!content) return NULL;
+        // BFS-ish walk via subviews
+        id arr = MSG_O(content, sel_getUid("subviews"));
+        long n = MSG_L(arr, sel_getUid("count"));
+        for (long i = 0; i < n; i++) {
+            id v = ((id(*)(id,SEL,long))objc_msgSend)(arr, sel_getUid("objectAtIndex:"), i);
+            if (kr_get_widget_tag(v) == want) return v;
+        }
+        return NULL;
+    }
+
+    static char* kr_dock_add(char* dock_str, char* h_str, int side, int size) {
+        kr_dock_state* d = kr_dock_resolve(dock_str);
+        if (!d || d->n_kids >= 64) return (char*)"0";
+        id v = kr_dock_resolve_child(h_str);
+        if (!v) return (char*)"0";
+        d->kids[d->n_kids].view = v;
+        d->kids[d->n_kids].side = side;
+        d->kids[d->n_kids].size = size;
+        d->n_kids++;
+        return (char*)"1";
+    }
+
+    char* krGuiDockTop(char* d, char* h, char* s)    { return kr_dock_add(d, h, 0, atoi(s ? s : "0")); }
+    char* krGuiDockBottom(char* d, char* h, char* s) { return kr_dock_add(d, h, 1, atoi(s ? s : "0")); }
+    char* krGuiDockLeft(char* d, char* h, char* s)   { return kr_dock_add(d, h, 2, atoi(s ? s : "0")); }
+    char* krGuiDockRight(char* d, char* h, char* s)  { return kr_dock_add(d, h, 3, atoi(s ? s : "0")); }
+    char* krGuiDockFill(char* d, char* h)            { return kr_dock_add(d, h, 4, 0); }
+
+    char* krGuiDockApply(char* d_str) {
+        kr_dock_state* d = kr_dock_resolve(d_str);
+        if (!d) return (char*)"0";
+        kr_dock_layout(d);
+        return (char*)"1";
+    }
+
+    // ── Color picker (NSAlert + NSColorWell accessory) ──────────
+    //
+    // ChooseColorW is a fully modal blocking dialog on Win32. Cocoa's
+    // NSColorPanel is an async floating utility, so to keep the same
+    // synchronous "open → return" contract we wrap an NSColorWell in
+    // an NSAlert: the user clicks the well to open the system picker,
+    // adjusts, then clicks OK or Cancel on the alert.
+    char* krGuiColorPicker(char* initialHex) {
+        kr_gui_bootstrap();
+
+        unsigned int v = 0;
+        if (initialHex && *initialHex) {
+            const char* p = initialHex;
+            if (*p == '#') p++;
+            if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) p += 2;
+            sscanf(p, "%x", &v);
+        }
+        double r = ((v >> 16) & 0xFF) / 255.0;
+        double g = ((v >> 8)  & 0xFF) / 255.0;
+        double b = ( v        & 0xFF) / 255.0;
+
+        KRRect well_r = {{ 0, 0 }, { 220, 80 }};
+        id well = MSG_O((id)objc_getClass("NSColorWell"), sel_getUid("alloc"));
+        well = ((id(*)(id,SEL,KRRect))objc_msgSend)(well, sel_getUid("initWithFrame:"), well_r);
+        id init_color = ((id(*)(id,SEL,double,double,double,double))objc_msgSend)(
+            (id)objc_getClass("NSColor"),
+            sel_getUid("colorWithRed:green:blue:alpha:"),
+            r, g, b, 1.0);
+        MSG_V_O(well, sel_getUid("setColor:"), init_color);
+
+        id alert = MSG_O((id)objc_getClass("NSAlert"), sel_getUid("alloc"));
+        alert = MSG_O(alert, sel_getUid("init"));
+        MSG_V_O(alert, sel_getUid("setMessageText:"),     kr_ns_str("Pick a color"));
+        MSG_V_O(alert, sel_getUid("setInformativeText:"), kr_ns_str("Click the swatch to open the color picker."));
+        MSG_V_O(alert, sel_getUid("setAccessoryView:"),   well);
+        MSG_V_O(alert, sel_getUid("addButtonWithTitle:"), kr_ns_str("OK"));
+        MSG_V_O(alert, sel_getUid("addButtonWithTitle:"), kr_ns_str("Cancel"));
+        long resp = ((long(*)(id,SEL))objc_msgSend)(alert, sel_getUid("runModal"));
+        if (resp != 1000) return (char*)"";   // NSAlertFirstButtonReturn = 1000
+
+        // Coerce to sRGB so component reads return 0..1 floats reliably.
+        id color = MSG_O(well, sel_getUid("color"));
+        id rgb = ((id(*)(id,SEL,id))objc_msgSend)(
+            color, sel_getUid("colorUsingColorSpace:"),
+            MSG_O((id)objc_getClass("NSColorSpace"), sel_getUid("sRGBColorSpace")));
+        if (!rgb) rgb = color;
+
+        double red   = ((double(*)(id,SEL))objc_msgSend)(rgb, sel_getUid("redComponent"));
+        double green = ((double(*)(id,SEL))objc_msgSend)(rgb, sel_getUid("greenComponent"));
+        double blue  = ((double(*)(id,SEL))objc_msgSend)(rgb, sel_getUid("blueComponent"));
+        int R = (int)(red   * 255 + 0.5); if (R < 0) R = 0; if (R > 255) R = 255;
+        int G = (int)(green * 255 + 0.5); if (G < 0) G = 0; if (G > 255) G = 255;
+        int B = (int)(blue  * 255 + 0.5); if (B < 0) B = 0; if (B > 255) B = 255;
+
+        char out[16];
+        snprintf(out, sizeof(out), "0x%02X%02X%02X", R, G, B);
+        return kr_gui_dup(out);
+    }
+
+    // ── Scrollbar (NSScroller, value/range mapping) ─────────────
+    //
+    // NSScroller's natural API speaks 0..1 floatValue + knobProportion.
+    // The Win32 SCROLLBAR contract is integer (lo, hi, page, value), so
+    // we cache range state on each scroller via an associated struct
+    // and translate at the boundary.
+    typedef struct {
+        int lo, hi, page;
+        int value;
+    } kr_scrollbar_state;
+    static char kr_scrollbar_state_key;
+
+    static void kr_scrollbar_apply(id sc, kr_scrollbar_state* s) {
+        int total = s->hi - s->lo;
+        double prop = (total > 0) ? (double)s->page / (double)total : 0.0;
+        if (prop < 0.05) prop = 0.05;
+        if (prop > 1.0)  prop = 1.0;
+        int span = total - s->page;
+        double frac = (span > 0) ? (double)(s->value - s->lo) / (double)span : 0.0;
+        if (frac < 0) frac = 0;
+        if (frac > 1) frac = 1;
+        ((void(*)(id,SEL,double,double))objc_msgSend)(
+            sc, sel_getUid("setFloatValue:knobProportion:"), frac, prop);
+    }
+
+    char* krGuiScrollbar(char* parent, char* x_str, char* y_str, char* w_str, char* h_str, char* vert_str) {
+        (void)vert_str;   // NSScroller picks orientation from frame aspect
+        id container = kr_resolve_container(parent);
+        if (!container) return (char*)"";
+        KRRect r = {{ (double)atoi(x_str), (double)atoi(y_str) },
+                    { (double)atoi(w_str), (double)atoi(h_str) }};
+
+        id sc = MSG_O((id)objc_getClass("NSScroller"), sel_getUid("alloc"));
+        sc = ((id(*)(id,SEL,KRRect))objc_msgSend)(sc, sel_getUid("initWithFrame:"), r);
+        MSG_V_C(sc, sel_getUid("setEnabled:"), 1);
+        // Modern macOS scrollers default to overlay style; force the
+        // legacy always-visible style so a standalone bar is actually
+        // visible without scrolling content underneath it.
+        MSG_V_L(sc, sel_getUid("setScrollerStyle:"), 0);   // NSScrollerStyleLegacy
+
+        kr_scrollbar_state* s = (kr_scrollbar_state*)malloc(sizeof(*s));
+        s->lo = 0; s->hi = 100; s->page = 10; s->value = 0;
+        objc_setAssociatedObject(sc, &kr_scrollbar_state_key, (id)s, 0);  // ASSIGN
+        kr_scrollbar_apply(sc, s);
+
+        MSG_V_O(sc, sel_getUid("setTarget:"), g_target);
+        MSG_V_SEL(sc, sel_getUid("setAction:"), sel_getUid("krAction:"));
+
+        int slot_id = kr_register_cb_slot();
+        kr_set_widget_tag(sc, slot_id);
+        MSG_V_O(container, sel_getUid("addSubview:"), sc);
+
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", slot_id);
+        return kr_gui_dup(buf);
+    }
+
+    char* krGuiScrollbarRange(char* sb_str, char* lo_str, char* hi_str, char* page_str) {
+        id sc = kr_resolve_control(sb_str);
+        if (!sc) return (char*)"0";
+        kr_scrollbar_state* s = (kr_scrollbar_state*)objc_getAssociatedObject(
+            sc, &kr_scrollbar_state_key);
+        if (!s) return (char*)"0";
+        s->lo   = atoi(lo_str   ? lo_str   : "0");
+        s->hi   = atoi(hi_str   ? hi_str   : "100");
+        s->page = atoi(page_str ? page_str : "10");
+        kr_scrollbar_apply(sc, s);
+        return (char*)"1";
+    }
+
+    char* krGuiScrollbarValue(char* sb_str) {
+        id sc = kr_resolve_control(sb_str);
+        if (!sc) return (char*)"0";
+        kr_scrollbar_state* s = (kr_scrollbar_state*)objc_getAssociatedObject(
+            sc, &kr_scrollbar_state_key);
+        if (!s) return (char*)"0";
+        // Pull the live floatValue back through and convert to an int,
+        // so a drag is reflected even between explicit Set calls.
+        double frac = ((double(*)(id,SEL))objc_msgSend)(sc, sel_getUid("doubleValue"));
+        int span = s->hi - s->lo - s->page;
+        if (span < 0) span = 0;
+        s->value = s->lo + (int)(frac * (double)span + 0.5);
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", s->value);
+        return kr_gui_dup(buf);
+    }
+
+    char* krGuiScrollbarSet(char* sb_str, char* v_str) {
+        id sc = kr_resolve_control(sb_str);
+        if (!sc) return (char*)"0";
+        kr_scrollbar_state* s = (kr_scrollbar_state*)objc_getAssociatedObject(
+            sc, &kr_scrollbar_state_key);
+        if (!s) return (char*)"0";
+        s->value = atoi(v_str ? v_str : "0");
+        kr_scrollbar_apply(sc, s);
+        return (char*)"1";
+    }
+
+    #undef KR_STUB_S
+    #undef KR_STUB_0
+
+#else
+    // ──────────────────────────────────────────────────────────────────
+    // Fallback (Linux etc.) — every entry point is a no-op stub so the
+    // module at least links. A native GTK / X11 backend can replace
+    // this block when someone gets to it.
+    // ──────────────────────────────────────────────────────────────────
+
+    char* krGuiInit(void)                                                                          { return (char*)"0"; }
+    char* krGuiWindow(char* t, char* w, char* h)                                                   { (void)t;(void)w;(void)h; return (char*)""; }
+    char* krGuiShow(char* h)                                                                       { (void)h; return (char*)"0"; }
+    char* krGuiButton(char* p, char* l, char* x, char* y, char* w, char* h)                       { (void)p;(void)l;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
+    char* krGuiLabel(char* p, char* t, char* x, char* y, char* w, char* h)                       { (void)p;(void)t;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
+    char* krGuiTextInput(char* p, char* x, char* y, char* w, char* h)                             { (void)p;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
+    char* krGuiTextArea(char* p, char* x, char* y, char* w, char* h)                              { (void)p;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
+    char* krGuiCheckbox(char* p, char* l, char* x, char* y, char* w, char* h)                    { (void)p;(void)l;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
+    char* krGuiIsChecked(char* h)                                                                 { (void)h; return (char*)"0"; }
+    char* krGuiSetChecked(char* h, char* o)                                                       { (void)h;(void)o; return (char*)"0"; }
+    char* krGuiListbox(char* p, char* x, char* y, char* w, char* h)                              { (void)p;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
+    char* krGuiListAdd(char* h, char* i)                                                          { (void)h;(void)i; return (char*)"0"; }
+    char* krGuiListClear(char* h)                                                                 { (void)h; return (char*)"0"; }
+    char* krGuiListSelected(char* h)                                                              { (void)h; return (char*)""; }
+    char* krGuiProgress(char* p, char* x, char* y, char* w, char* h)                             { (void)p;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
+    char* krGuiProgressSet(char* h, char* p)                                                      { (void)h;(void)p; return (char*)"0"; }
+    char* krGuiTreeView(char* p, char* x, char* y, char* w, char* h)                             { (void)p;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
+    char* krGuiTreeAdd(char* t, char* pi, char* l)                                                { (void)t;(void)pi;(void)l; return (char*)""; }
+    char* krGuiTreeClear(char* t)                                                                 { (void)t; return (char*)"0"; }
+    char* krGuiTreeSelected(char* t)                                                              { (void)t; return (char*)""; }
+    char* krGuiTabs(char* p, char* x, char* y, char* w, char* h)                                 { (void)p;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
+    char* krGuiTabAdd(char* t, char* l)                                                           { (void)t;(void)l; return (char*)""; }
+    char* krGuiTabSelected(char* t)                                                               { (void)t; return (char*)""; }
+    char* krGuiOnChange(char* h, char* s)                                                         { (void)h;(void)s; return (char*)"0"; }
+    char* krGuiMenuBegin(char* w)                                                                 { (void)w; return (char*)""; }
+    char* krGuiMenu(char* mb, char* l)                                                            { (void)mb;(void)l; return (char*)""; }
+    char* krGuiMenuItem(char* p, char* l)                                                         { (void)p;(void)l; return (char*)""; }
+    char* krGuiMenuSeparator(char* p)                                                             { (void)p; return (char*)"0"; }
+    char* krGuiMenuAdd(char* m, char* l)                                                          { (void)m;(void)l; return (char*)""; }
+    char* krGuiStatusBar(char* w)                                                                 { (void)w; return (char*)""; }
+    char* krGuiStatusParts(char* b, char* c)                                                      { (void)b;(void)c; return (char*)"0"; }
+    char* krGuiStatusSet(char* b, char* i, char* t)                                               { (void)b;(void)i;(void)t; return (char*)"0"; }
+    char* krGuiStatusGet(char* b, char* i)                                                        { (void)b;(void)i; return (char*)""; }
+    char* krGuiStatusIcon(char* b, char* i, char* n)                                              { (void)b;(void)i;(void)n; return (char*)"0"; }
+    char* krGuiStatusBgColor(char* b, char* h)                                                    { (void)b;(void)h; return (char*)"0"; }
+    char* krGuiMove(char* h, char* x, char* y, char* w, char* hh)                                 { (void)h;(void)x;(void)y;(void)w;(void)hh; return (char*)"0"; }
+    char* krGuiDock(char* w)                                                                      { (void)w; return (char*)""; }
+    char* krGuiDockTop(char* d, char* h, char* s)                                                 { (void)d;(void)h;(void)s; return (char*)"0"; }
+    char* krGuiDockBottom(char* d, char* h, char* s)                                              { (void)d;(void)h;(void)s; return (char*)"0"; }
+    char* krGuiDockLeft(char* d, char* h, char* s)                                                { (void)d;(void)h;(void)s; return (char*)"0"; }
+    char* krGuiDockRight(char* d, char* h, char* s)                                               { (void)d;(void)h;(void)s; return (char*)"0"; }
+    char* krGuiDockFill(char* d, char* h)                                                         { (void)d;(void)h; return (char*)"0"; }
+    char* krGuiDockApply(char* d)                                                                 { (void)d; return (char*)"0"; }
+    char* krGuiSplitter(char* p, char* x, char* y, char* w, char* h, char* o)                    { (void)p;(void)x;(void)y;(void)w;(void)h;(void)o; return (char*)""; }
+    char* krGuiSplitterPos(char* s)                                                               { (void)s; return (char*)""; }
+    char* krGuiCombo(char* p, char* x, char* y, char* w, char* h)                                { (void)p;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
+    char* krGuiComboAdd(char* c, char* i)                                                         { (void)c;(void)i; return (char*)"0"; }
+    char* krGuiComboClear(char* c)                                                                { (void)c; return (char*)"0"; }
+    char* krGuiComboSelected(char* c)                                                             { (void)c; return (char*)""; }
+    char* krGuiComboSet(char* c, char* i)                                                         { (void)c;(void)i; return (char*)"0"; }
+    char* krGuiColorPicker(char* h)                                                               { (void)h; return (char*)""; }
+    char* krGuiDatePicker(char* p, char* x, char* y, char* w, char* h)                           { (void)p;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
+    char* krGuiDateGet(char* p)                                                                   { (void)p; return (char*)""; }
+    char* krGuiDateSet(char* p, char* y)                                                          { (void)p;(void)y; return (char*)"0"; }
+    char* krGuiScrollbar(char* p, char* x, char* y, char* w, char* h, char* v)                   { (void)p;(void)x;(void)y;(void)w;(void)h;(void)v; return (char*)""; }
+    char* krGuiScrollbarRange(char* s, char* lo, char* hi, char* pg)                              { (void)s;(void)lo;(void)hi;(void)pg; return (char*)"0"; }
+    char* krGuiScrollbarValue(char* s)                                                            { (void)s; return (char*)""; }
+    char* krGuiScrollbarSet(char* s, char* v)                                                     { (void)s;(void)v; return (char*)"0"; }
+    char* krGuiVStack(char* p, char* x, char* y, char* w, char* g)                                { (void)p;(void)x;(void)y;(void)w;(void)g; return (char*)""; }
+    char* krGuiHStack(char* p, char* x, char* y, char* h, char* g)                                { (void)p;(void)x;(void)y;(void)h;(void)g; return (char*)""; }
+    char* krGuiVNext(char* s, char* h)                                                            { (void)s;(void)h; return (char*)""; }
+    char* krGuiHNext(char* s, char* w)                                                            { (void)s;(void)w; return (char*)""; }
+    char* krGuiStackParent(char* s)                                                               { (void)s; return (char*)""; }
+    char* krGuiStackX(char* s)                                                                    { (void)s; return (char*)"0"; }
+    char* krGuiStackY(char* s)                                                                    { (void)s; return (char*)"0"; }
+    char* krGuiStackW(char* s)                                                                    { (void)s; return (char*)"0"; }
+    char* krGuiStackH(char* s)                                                                    { (void)s; return (char*)"0"; }
+    char* krGuiStackGap(char* s)                                                                  { (void)s; return (char*)"0"; }
+    char* krGuiStackGapAdd(char* s, char* p)                                                      { (void)s;(void)p; return (char*)"0"; }
+    char* krGuiImage(char* p, char* pa, char* x, char* y, char* w, char* h)                      { (void)p;(void)pa;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
+    char* krGuiImageSet(char* i, char* p)                                                         { (void)i;(void)p; return (char*)"0"; }
+    char* krGuiSlider(char* p, char* x, char* y, char* w, char* h)                               { (void)p;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
+    char* krGuiSliderRange(char* s, char* lo, char* hi)                                           { (void)s;(void)lo;(void)hi; return (char*)"0"; }
+    char* krGuiSliderSet(char* s, char* v)                                                        { (void)s;(void)v; return (char*)"0"; }
+    char* krGuiSliderValue(char* s)                                                               { (void)s; return (char*)"0"; }
+    char* krGuiSpinbox(char* p, char* x, char* y, char* w, char* h)                              { (void)p;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
+    char* krGuiSpinboxRange(char* s, char* lo, char* hi)                                          { (void)s;(void)lo;(void)hi; return (char*)"0"; }
+    char* krGuiSpinboxSet(char* s, char* v)                                                       { (void)s;(void)v; return (char*)"0"; }
+    char* krGuiSpinboxValue(char* s)                                                              { (void)s; return (char*)"0"; }
+    char* krGuiToolbar(char* w)                                                                   { (void)w; return (char*)""; }
+    char* krGuiToolButton(char* tb, char* l, char* i)                                             { (void)tb;(void)l;(void)i; return (char*)""; }
+    char* krGuiToolSep(char* tb)                                                                  { (void)tb; return (char*)"0"; }
+    char* krGuiToolbarHeight(char* tb)                                                            { (void)tb; return (char*)"0"; }
+    char* krGuiOpenFile(char* t, char* f)                                                         { (void)t;(void)f; return (char*)""; }
+    char* krGuiSaveFile(char* t, char* f, char* d)                                                { (void)t;(void)f;(void)d; return (char*)""; }
+    char* krGuiPickFolder(char* t)                                                                { (void)t; return (char*)""; }
+    char* krGuiSetText(char* h, char* t)                                                          { (void)h;(void)t; return (char*)"0"; }
+    char* krGuiGetText(char* h)                                                                   { (void)h; return (char*)""; }
+    char* krGuiOnClick(char* h, char* s)                                                          { (void)h;(void)s; return (char*)"0"; }
+    char* krGuiMessageBox(char* t, char* m)                                                       { (void)t;(void)m; return (char*)"0"; }
+    char* krGuiRun(void)                                                                          { return (char*)"0"; }
+    char* krGuiQuit(void)                                                                         { return (char*)"0"; }
+
+#endif
 }
 
 
