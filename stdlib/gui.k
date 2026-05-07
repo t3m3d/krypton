@@ -70,6 +70,9 @@ jxt {
     func krGuiStatusGet(bar, idx)              -> char_ptr
     func krGuiStatusIcon(bar, idx, iconName)
     func krGuiStatusBgColor(bar, hex)
+    func krGuiMove(handle, x, y, w, h)
+    func krGuiSplitter(parent, x, y, w, h, orientation) -> char_ptr
+    func krGuiSplitterPos(splitter)            -> char_ptr
     func krGuiCombo(parent, x, y, w, h)        -> char_ptr
     func krGuiComboAdd(combo, item)
     func krGuiComboClear(combo)
@@ -866,6 +869,159 @@ cfunc {
         if (!pop) return (char*)"0";
         AppendMenuW(pop, MF_SEPARATOR, 0, NULL);
         return (char*)"1";
+    }
+
+    // ── Reposition any widget by handle ────────────────────────
+    char* krGuiMove(char* h, char* xs, char* ys, char* ws, char* hs) {
+        HWND ctl = kr_gui_resolve(h);
+        if (!ctl) return (char*)"0";
+        SetWindowPos(ctl, NULL, atoi(xs), atoi(ys), atoi(ws), atoi(hs),
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+        return (char*)"1";
+    }
+
+    // ── Splitter (drag-to-resize bar) ──────────────────────────
+    //
+    //   guiSplitter(parent, x, y, w, h, "horizontal")
+    //     A wide-thin bar — user drags up/down. Use to split a window
+    //     into top + bottom panels.
+    //   guiSplitter(parent, x, y, w, h, "vertical")
+    //     A thin-tall bar — user drags left/right. Use to split into
+    //     left + right panels.
+    //
+    //   guiOnChange(splitter, fn)   fires on drag — your callback
+    //                               reads guiSplitterPos and moves
+    //                               your panel widgets.
+    //   guiSplitterPos(splitter)   current pixel position relative
+    //                               to parent's client area.
+    //
+    // The splitter only moves itself; you reposition the panels in
+    // your onChange callback. Splitter is a thin colored STATIC with
+    // a custom WindowProc that handles mouse capture.
+
+    typedef struct {
+        HWND hwnd;
+        int  orient;       // 0 = horizontal bar (drag y), 1 = vertical bar (drag x)
+        int  dragging;
+        POINT drag_start;  // mouse pos at WM_LBUTTONDOWN, in client coords
+        int   pos;         // current top (h) or left (v) in parent client coords
+    } kr_gui_splitter;
+
+    #define KR_GUI_MAX_SPLITTERS 16
+    static kr_gui_splitter g_splitters[KR_GUI_MAX_SPLITTERS];
+    static int g_n_splitters = 0;
+
+    static kr_gui_splitter* kr_gui_splitter_find(HWND h) {
+        for (int i = 0; i < g_n_splitters; i++) {
+            if (g_splitters[i].hwnd == h) return &g_splitters[i];
+        }
+        return NULL;
+    }
+
+    static LRESULT CALLBACK kr_gui_splitter_proc(HWND hwnd, UINT msg,
+                                                 WPARAM wp, LPARAM lp,
+                                                 UINT_PTR sub_id, DWORD_PTR data) {
+        (void)sub_id; (void)data;
+        kr_gui_splitter* sp = kr_gui_splitter_find(hwnd);
+        if (!sp) return DefSubclassProc(hwnd, msg, wp, lp);
+
+        if (msg == WM_LBUTTONDOWN) {
+            SetCapture(hwnd);
+            sp->dragging = 1;
+            POINT pt = { (SHORT)LOWORD(lp), (SHORT)HIWORD(lp) };
+            ClientToScreen(hwnd, &pt);
+            ScreenToClient(GetParent(hwnd), &pt);
+            sp->drag_start = pt;
+            return 0;
+        }
+        if (msg == WM_LBUTTONUP) {
+            sp->dragging = 0;
+            ReleaseCapture();
+            return 0;
+        }
+        if (msg == WM_MOUSEMOVE && sp->dragging) {
+            POINT pt = { (SHORT)LOWORD(lp), (SHORT)HIWORD(lp) };
+            ClientToScreen(hwnd, &pt);
+            ScreenToClient(GetParent(hwnd), &pt);
+            int dx = pt.x - sp->drag_start.x;
+            int dy = pt.y - sp->drag_start.y;
+            sp->drag_start = pt;
+
+            RECT r;
+            GetWindowRect(hwnd, &r);
+            POINT origin = { r.left, r.top };
+            ScreenToClient(GetParent(hwnd), &origin);
+            int new_x = origin.x + (sp->orient == 1 ? dx : 0);
+            int new_y = origin.y + (sp->orient == 0 ? dy : 0);
+            SetWindowPos(hwnd, NULL, new_x, new_y, 0, 0,
+                         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            sp->pos = (sp->orient == 0) ? new_y : new_x;
+
+            // Fire onChange.
+            int id = GetDlgCtrlID(hwnd);
+            int slot = id - 1000;
+            if (slot >= 0 && slot < KR_GUI_MAX_CB && g_change_cb[slot]) {
+                g_change_cb[slot]();
+            }
+            return 0;
+        }
+        if (msg == WM_SETCURSOR) {
+            SetCursor(LoadCursorW(NULL,
+                sp->orient == 0 ? IDC_SIZENS : IDC_SIZEWE));
+            return TRUE;
+        }
+        if (msg == WM_ERASEBKGND) {
+            // Paint a 1-tone gray bar so it's visibly draggable.
+            HDC dc = (HDC)wp;
+            RECT r;
+            GetClientRect(hwnd, &r);
+            HBRUSH br = CreateSolidBrush(g_dark ? RGB(0x3a, 0x3a, 0x3a)
+                                                : RGB(0xd0, 0xd0, 0xd0));
+            FillRect(dc, &r, br);
+            DeleteObject(br);
+            return 1;
+        }
+        return DefSubclassProc(hwnd, msg, wp, lp);
+    }
+
+    char* krGuiSplitter(char* parent_str, char* xs, char* ys, char* ws, char* hs,
+                        char* orient_str) {
+        HWND parent = NULL;
+        sscanf(parent_str, "%p", (void**)&parent);
+        if (!parent) return (char*)"0";
+        int orient = 0;       // default: horizontal bar
+        if (orient_str && (orient_str[0] == 'v' || orient_str[0] == 'V')) orient = 1;
+
+        int id = kr_gui_register_id();
+        HWND ctl = CreateWindowExW(
+            0, L"STATIC", L"",
+            WS_CHILD | WS_VISIBLE | SS_NOTIFY | SS_OWNERDRAW,
+            atoi(xs), atoi(ys), atoi(ws), atoi(hs),
+            parent, (HMENU)(LONG_PTR)id, GetModuleHandleA(NULL), NULL);
+        if (!ctl) return (char*)"0";
+
+        if (g_n_splitters < KR_GUI_MAX_SPLITTERS) {
+            kr_gui_splitter* sp = &g_splitters[g_n_splitters++];
+            sp->hwnd     = ctl;
+            sp->orient   = orient;
+            sp->dragging = 0;
+            sp->pos      = (orient == 0) ? atoi(ys) : atoi(xs);
+        }
+        SetWindowSubclass(ctl, kr_gui_splitter_proc, 1, 0);
+
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%d", id);
+        return kr_gui_dup(buf);
+    }
+
+    char* krGuiSplitterPos(char* sp_str) {
+        HWND ctl = kr_gui_resolve(sp_str);
+        if (!ctl) return (char*)"0";
+        kr_gui_splitter* sp = kr_gui_splitter_find(ctl);
+        if (!sp) return (char*)"0";
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", sp->pos);
+        return kr_gui_dup(buf);
     }
 
     // ── Combo box (dropdown list) ──────────────────────────────
@@ -2061,6 +2217,9 @@ func guiImageSet(image, path)                    { emit krGuiImageSet(image, pat
 // cursor position. Each returns the same handle/id as its non-stack
 // counterpart so guiOnClick / guiGetText / etc. work normally.
 
+func guiMove(handle, x, y, w, h)                 { emit krGuiMove(handle, x + "", y + "", w + "", h + "") }
+func guiSplitter(parent, x, y, w, h, orientation) { emit krGuiSplitter(parent, x + "", y + "", w + "", h + "", orientation) }
+func guiSplitterPos(splitter)                    { emit krGuiSplitterPos(splitter) }
 func guiCombo(parent, x, y, w, h)                { emit krGuiCombo(parent, x + "", y + "", w + "", h + "") }
 func guiComboAdd(combo, item)                    { emit krGuiComboAdd(combo, item) }
 func guiComboClear(combo)                        { emit krGuiComboClear(combo) }
