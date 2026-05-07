@@ -3,6 +3,7 @@
 // Walks the token stream from lex.k and emits a JSON array of LSP
 // DocumentSymbol objects, one per top-level declaration. We catch:
 //   - func / fn / callback   → SymbolKind.Function (12)
+//   - just / go ENTRYPOINT   → SymbolKind.Method   (6)
 //   - struct                 → SymbolKind.Struct   (23)
 //   - module                 → SymbolKind.Module   (2)
 //   - const / let (top-level only) → SymbolKind.Variable (13)
@@ -16,6 +17,7 @@
 module symbols
 
 func smKindFunc()    { emit "12" }
+func smKindMethod()  { emit "6" }
 func smKindStruct()  { emit "23" }
 func smKindModule()  { emit "2" }
 func smKindVar()     { emit "13" }
@@ -50,11 +52,12 @@ func collectSymbols(toks) {
         // we don't catch local lets / nested types.
         if depth == 0 && typ == "KW" {
             let isFn      = (val == "func" || val == "fn" || val == "callback")
+            let isEntry   = (val == "just" || val == "go")
             let isStruct  = (val == "struct")
             let isModule  = (val == "module")
             let isVar     = (val == "const" || val == "let")
 
-            if isFn || isStruct || isModule || isVar {
+            if isFn || isEntry || isStruct || isModule || isVar {
                 if i + 1 < nLines {
                     let nxt = getLine(toks, i + 1)
                     if lxType(nxt) == "ID" {
@@ -63,9 +66,14 @@ func collectSymbols(toks) {
                         let nCol = lxCol(nxt)
                         let kind = smKindVar()
                         if isFn     { kind = smKindFunc() }
+                        if isEntry  { kind = smKindMethod() }
                         if isStruct { kind = smKindStruct() }
                         if isModule { kind = smKindModule() }
-                        let frag = smDocSymbol(name, kind, nLn, nCol, len(name))
+                        // For just/go, prefix the name so it reads as
+                        // "just run" not just "run" in the picker.
+                        let displayName = name
+                        if isEntry { displayName = val + " " + name }
+                        let frag = smDocSymbol(displayName, kind, nLn, nCol, len(name))
                         if parts == "" { parts = frag }
                         else           { parts = parts + "\t" + frag }
                     }
