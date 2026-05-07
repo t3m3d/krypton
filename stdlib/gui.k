@@ -71,6 +71,13 @@ jxt {
     func krGuiStatusIcon(bar, idx, iconName)
     func krGuiStatusBgColor(bar, hex)
     func krGuiMove(handle, x, y, w, h)
+    func krGuiDock(window)                     -> char_ptr
+    func krGuiDockTop(dock, hwnd, size)
+    func krGuiDockBottom(dock, hwnd, size)
+    func krGuiDockLeft(dock, hwnd, size)
+    func krGuiDockRight(dock, hwnd, size)
+    func krGuiDockFill(dock, hwnd)
+    func krGuiDockApply(dock)
     func krGuiSplitter(parent, x, y, w, h, orientation) -> char_ptr
     func krGuiSplitterPos(splitter)            -> char_ptr
     func krGuiCombo(parent, x, y, w, h)        -> char_ptr
@@ -517,9 +524,13 @@ cfunc {
     }
 
     char* krGuiLabel(char* parent_str, char* text, char* xs, char* ys, char* ws, char* hs) {
-        kr_gui_create_child_w(L"STATIC", text, SS_LEFT,
-                              parent_str, atoi(xs), atoi(ys), atoi(ws), atoi(hs), 0);
-        return (char*)"1";
+        HWND ctl = kr_gui_create_child_w(
+            L"STATIC", text, SS_LEFT,
+            parent_str, atoi(xs), atoi(ys), atoi(ws), atoi(hs), 0);
+        if (!ctl) return (char*)"0";
+        char buf[32];
+        snprintf(buf, sizeof(buf), "0x%llx", (unsigned long long)(ULONG_PTR)ctl);
+        return kr_gui_dup(buf);
     }
 
     char* krGuiTextInput(char* parent_str, char* xs, char* ys, char* ws, char* hs) {
