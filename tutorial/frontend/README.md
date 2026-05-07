@@ -13,9 +13,16 @@ file builds on the previous; copy and run them in order.
 07_progress.k         Progress bar — guiProgress / guiProgressSet
 08_treeview.k         Hierarchy with triangles — guiTreeView + guiTreeAdd
 09_tabs.k             Multi-page UI — guiTabs / guiTabAdd / guiOnChange
-10_menu.k             Top menu bar — guiMenuBegin / guiMenuAdd
+10_menu.k             Top menu bar with proper dropdowns — guiMenu / guiMenuItem
 11_status_bar.k       Bottom strip — guiStatusBar with parts/icons/tints
 12_putting_together.k Full tiny app combining everything above
+13_toolbar.k          Top toolbar with bitmap buttons — guiToolbar
+14_slider_spin.k      Numeric input — guiSlider + guiSpinbox
+15_image.k            Display BMP/ICO/PNG/JPEG/GIF — guiImage + guiImageSet
+16_extras.k           guiCombo / guiColorPicker / guiDatePicker / guiScrollbar
+17_splitter.k         Drag-to-resize bar — guiSplitter + guiMove
+18_dock.k             VS-style dock layout — guiDock + guiDockTop/Left/Fill
+19_layout_stacks.k    Auto-layout — guiVStack / guiVLabel / guiVInput / etc.
 ```
 
 ---
