@@ -14,6 +14,8 @@ import "stdlib/gui.k"
 let g_left  = ""
 let g_right = ""
 let g_split = ""
+let g_diag  = ""
+let g_drags = 0
 
 let WIN_W = 720
 let WIN_H = 460
@@ -24,15 +26,16 @@ let BOTTOM  = 380
 
 
 func onSplit() {
+    g_drags = g_drags + 1
     let xs = guiSplitterPos(g_split)
     let x = toInt(xs)
     if x < 80               { x = 80 }
     if x > WIN_W - 100      { x = WIN_W - 100 }
-    // Re-layout the panels around the new splitter position.
     guiMove(g_left,  MARGIN, TOP, x - MARGIN - 2,                BOTTOM)
     guiMove(g_split, x,      TOP, SPLIT_W,                       BOTTOM)
     guiMove(g_right, x + SPLIT_W + 2, TOP,
             WIN_W - x - SPLIT_W - 2 - MARGIN,                    BOTTOM)
+    guiSetText(g_diag, "drags=" + g_drags + "  pos=" + xs + "  clamped=" + x)
 }
 
 
@@ -54,8 +57,8 @@ just run {
     guiListAdd(g_right, "result two")
     guiListAdd(g_right, "result three")
 
-    guiLabel(win, "Drag the gray vertical bar to resize.",
-             MARGIN, 404, WIN_W - 2 * MARGIN, 22)
+    g_diag = guiLabel(win, "Drag the gray vertical bar to resize.",
+                      MARGIN, 404, WIN_W - 2 * MARGIN, 22)
 
     guiShow(win)
     guiRun()
