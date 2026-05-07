@@ -4107,6 +4107,17 @@ just run {
                         fullPath = hdPath
                     }
                 }
+                // Krypton install layout: <root>/headers/ + <root>/stdlib/.
+                // For `import "stdlib/foo.k"` we need a parent-of-headers
+                // search so stdlib auto-resolves the same way .krh files do.
+                let testSrc4 = readFile(fullPath)
+                if len(testSrc4) == 0 {
+                    let stdPath = headersDir + "/../" + importPath
+                    let testSrc5 = readFile(stdPath)
+                    if len(testSrc5) > 0 {
+                        fullPath = stdPath
+                    }
+                }
             }
             // check cache - skip if already imported
             if !contains(imported, fullPath + "|") {

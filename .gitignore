@@ -98,3 +98,5 @@ assets/
 build_v140.bat
 M1_SETUP.md
 bootstrap/REBUILD_SEED.md
+tests/.kcode_build/trash.c
+tests/.kcode_build/trash.exe
