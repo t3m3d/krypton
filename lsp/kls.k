@@ -16,9 +16,9 @@ import "lex.k"
 import "validate.k"
 import "symbols.k"
 import "complete.k"
-import "json_parse.k"
-import "json_emit.k"
-import "jsonrpc.k"
+import "stdlib/json_parse.k"
+import "stdlib/json_emit.k"
+import "stdlib/jsonrpc.k"
 
 // ── Document table (URI → buffer text) ──────────────────────────
 //
