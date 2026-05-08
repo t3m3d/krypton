@@ -3783,8 +3783,10 @@ func irWhileIR(tokens, pos, ntoks, lc, inFunc) {
     // Resolve loose BREAKs in this loop's body to a JUMP to its end label.
     // Bottom-up processing: any nested loop will have already replaced its
     // own BREAKs with its own JUMP-to-its-end-label, so only this loop's
-    // direct breaks remain as bare "BREAK\n" lines.
+    // direct breaks remain as bare "BREAK\n" lines. Same idea for CONTINUE
+    // → JUMP to this loop's top label (where the cond gets re-tested).
     bodyCode = replace(bodyCode, "BREAK\n", "JUMP " + endLabel + "\n")
+    bodyCode = replace(bodyCode, "CONTINUE\n", "JUMP " + loopLabel + "\n")
     emit "LABEL " + loopLabel + "\n" + condCode + "JUMPIFNOT " + endLabel + "\n" + bodyCode + "JUMP " + loopLabel + "\n" + "LABEL " + endLabel + "\n," + p
 }
 
@@ -3803,8 +3805,12 @@ func irForIR(tokens, pos, ntoks, lc, inFunc) {
     let bp = irBlockIR(tokens, p, ntoks, nlc, inFunc)
     let bodyCode = pairVal(bp)
     p = pairPos(bp)
-    // Same break-resolution as irWhileIR — see comment there.
+    // Same break-resolution as irWhileIR — see comment there. CONTINUE
+    // jumps to a label placed RIGHT BEFORE the increment step, so the
+    // for-loop's iteration variable still advances on continue.
+    let contLabel = irLabel("_fcont", pos)
     bodyCode = replace(bodyCode, "BREAK\n", "JUMP " + endLabel + "\n")
+    bodyCode = replace(bodyCode, "CONTINUE\n", "JUMP " + contLabel + "\n")
     let code = collCode + "LOCAL " + colVar + "\n" + "STORE " + colVar + "\n"
     code = code + "LOCAL " + idxVar + "\n" + "PUSH 0\n" + "STORE " + idxVar + "\n"
     code = code + "LOCAL " + cntVar + "\n" + "LOAD " + colVar + "\n" + "BUILTIN length 1\n" + "STORE " + cntVar + "\n"
@@ -3814,6 +3820,7 @@ func irForIR(tokens, pos, ntoks, lc, inFunc) {
     code = code + "LOCAL " + varName + "\n"
     code = code + "LOAD " + colVar + "\n" + "LOAD " + idxVar + "\n" + "BUILTIN split 2\n" + "STORE " + varName + "\n"
     code = code + bodyCode
+    code = code + "LABEL " + contLabel + "\n"
     code = code + "LOAD " + idxVar + "\n" + "PUSH 1\n" + "ADD\n" + "STORE " + idxVar + "\n"
     code = code + "JUMP " + loopLabel + "\n"
     code = code + "LABEL " + endLabel + "\n"
