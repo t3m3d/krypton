@@ -3479,6 +3479,27 @@ func irStructLiteralIR(tokens, pos, ntoks, lc) {
 
 func irCall(tokens, pos, ntoks, lc) {
     let fname = tokVal(tokAt(tokens, pos))
+
+    // Special case: funcptr(IDENT) — emit a FUNCPTR <name> opcode
+    // that pushes the address of the named function onto the value
+    // stack. The native backend turns this into
+    //   lea rax, [rip + funcOffset(name)]
+    //   mov [rsp + vstack_slot], rax
+    // Without this, irCall would evaluate `IDENT` as a regular
+    // expression — which emits LOAD <name>, treating the name as
+    // a local variable. That works in the C-emit path (where
+    // `(char*)IDENT` decays to a function pointer in C) but
+    // crashes in native because there's no local of that name.
+    // Argument must be a bare identifier; anything else falls
+    // through to normal arg evaluation (and is broken anyway).
+    if fname == "funcptr" {
+        let argTok = tokAt(tokens, pos + 2)
+        if tokType(argTok) == "ID" && tokAt(tokens, pos + 3) == "RPAREN" {
+            let funcName = tokVal(argTok)
+            emit "FUNCPTR " + funcName + "\n," + (pos + 4)
+        }
+    }
+
     let p = pos + 2
     let code = ""
     let argc = 0

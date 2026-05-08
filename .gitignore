@@ -89,6 +89,7 @@ test*
 !runtime/krypton_rt.dll
 !runtime/ckrypton_gui.dll
 !runtime/ckrypton_proc.dll
+!runtime/ckrypton_fs.dll
 *.obj
 *.lib
 *.txt
