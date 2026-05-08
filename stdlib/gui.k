@@ -54,6 +54,10 @@ jxt {
     func krGuiRichAppend(rich, text, hexColor, bold)
     func krGuiRichReadOnly(rich, on)
     func krGuiRichSetMonoFont(rich, family, ptSize)
+    func krGuiRichSetBg(rich, hexColor)
+    func krGuiRichSetFgDefault(rich, hexColor)
+    func krGuiRichBeginUpdate(rich)
+    func krGuiRichEndUpdate(rich)
     func krGuiCheckbox(parent, label, x, y, w, h) -> char_ptr
     func krGuiIsChecked(hwnd)                  -> char_ptr
     func krGuiSetChecked(hwnd, on)
@@ -65,8 +69,11 @@ jxt {
     func krGuiProgressSet(hwnd, percent)
     func krGuiTreeView(parent, x, y, w, h)     -> char_ptr
     func krGuiTreeAdd(tree, parent_item, label) -> char_ptr
+    func krGuiTreeAddDir(tree, parent_item, label) -> char_ptr
     func krGuiTreeClear(tree)
+    func krGuiTreeExpand(tree, item)
     func krGuiTreeSelected(tree)               -> char_ptr
+    func krGuiTreeSelectedHandle(tree)         -> char_ptr
     func krGuiTabs(parent, x, y, w, h)         -> char_ptr
     func krGuiTabAdd(tabs, label)              -> char_ptr
     func krGuiTabSelected(tabs)                -> char_ptr
@@ -139,6 +146,13 @@ jxt {
     func krGuiMessageBox(title, msg)
     func krGuiRun()
     func krGuiQuit()
+    // App-level shared state (string -> string), backed by a C-side
+    // static map. See note in cfunc body.
+    func krGuiStateSet(key, value)
+    func krGuiStateGet(key)              -> char_ptr
+    // Repeating timers — `cb` is a function pointer (use funcptr).
+    func krGuiSetTimer(ms, cb)           -> char_ptr
+    func krGuiKillTimer(tid)
 }
 
 
@@ -202,6 +216,31 @@ cfunc {
     static HWND  g_toolbar    = NULL;     // tracked so WM_SIZE auto-sizes it
     static HFONT g_ui_font   = NULL;     // Segoe UI 10pt — applied to every control
     static int   g_dark      = 0;        // toggled in krGuiWindow per OS theme
+
+    // Tiny string→string map for app-level state. Lets Krypton-side
+    // event handlers share state across calls (Krypton has no
+    // mutable module globals; this is the workaround). 256 slots is
+    // plenty for the IDE's open-file path, dirty flag, etc. Linear
+    // search; replaces existing values; "" means unset.
+    typedef struct kr_gui_kv { char* k; char* v; } kr_gui_kv;
+    // 8192 slots — IDE projects easily stash 1k+ entries (file-tree
+    // path/kind per node, plus assorted IDE state). 256 was too low
+    // and silently dropped writes once full, which manifested as
+    // "tree items in some directories don't open" when their adds
+    // happened after the table was already full.
+    #define KR_GUI_KV_MAX 8192
+    static kr_gui_kv g_kv[KR_GUI_KV_MAX];
+    static int       g_kv_count = 0;
+
+    // Repeating-timer callbacks. Registered via krGuiSetTimer; fired
+    // by WM_TIMER inside kr_gui_proc. The timer ID itself is the
+    // index into g_timer_cb. Win32 reserves 0 as "use any free id"
+    // when the hwnd is non-NULL — we pre-assign explicit ids
+    // starting at 1 to avoid collisions with control message IDs.
+    typedef void (*kr_gui_timer_cb)(void);
+    #define KR_GUI_TIMER_MAX 16
+    static kr_gui_timer_cb g_timer_cb[KR_GUI_TIMER_MAX];
+    static int             g_timer_count = 0;
 
     // Forward decls — defined later but called from kr_gui_proc on WM_SIZE.
     static void kr_gui_apply_parts(void);
@@ -323,6 +362,16 @@ cfunc {
             kr_gui_reflow_all(cw, ch);
             // Re-layout any dock manager attached to this window.
             kr_gui_docks_relayout_for(hwnd);
+        }
+        if (msg == WM_TIMER) {
+            // Win32 routes timer ticks to whoever owns the hwnd.
+            // wParam is the timer id; we used 1..KR_GUI_TIMER_MAX
+            // when registering. Fire the matching callback.
+            int tid = (int)wp;
+            if (tid >= 1 && tid <= KR_GUI_TIMER_MAX && g_timer_cb[tid - 1]) {
+                g_timer_cb[tid - 1]();
+                return 0;
+            }
         }
         if (msg == WM_COMMAND) {
             int id = (int)LOWORD(wp);
@@ -713,6 +762,57 @@ cfunc {
         return (char*)"1";
     }
 
+    // Suppress redraws on a control while bulk operations run.
+    // Pair every BeginUpdate with an EndUpdate. Used by the syntax
+    // highlighter to avoid the visible scroll-flicker that comes
+    // from EM_EXSETSEL repeatedly moving the caret during many
+    // formatting passes.
+    char* krGuiRichBeginUpdate(char* h) {
+        HWND ctl = kr_gui_resolve(h);
+        if (!ctl) return (char*)"0";
+        SendMessageW(ctl, WM_SETREDRAW, FALSE, 0);
+        SendMessageW(ctl, EM_HIDESELECTION, TRUE, 0);
+        return (char*)"1";
+    }
+
+    char* krGuiRichEndUpdate(char* h) {
+        HWND ctl = kr_gui_resolve(h);
+        if (!ctl) return (char*)"0";
+        SendMessageW(ctl, EM_HIDESELECTION, FALSE, 0);
+        SendMessageW(ctl, WM_SETREDRAW, TRUE, 0);
+        InvalidateRect(ctl, NULL, TRUE);
+        return (char*)"1";
+    }
+
+    // Background color for a RichEdit (theme support). hex is RRGGBB.
+    char* krGuiRichSetBg(char* h, char* hex) {
+        HWND ctl = kr_gui_resolve(h);
+        if (!ctl) return (char*)"0";
+        COLORREF c = kr_parse_hex_color(hex);
+        SendMessageW(ctl, EM_SETBKGNDCOLOR, 0, (LPARAM)c);
+        return (char*)"1";
+    }
+
+    // Default text color for a RichEdit (the color used when no
+    // explicit run formatting is set). Sets the empty-line color
+    // and applies via CHARFORMAT to the whole document.
+    char* krGuiRichSetFgDefault(char* h, char* hex) {
+        HWND ctl = kr_gui_resolve(h);
+        if (!ctl) return (char*)"0";
+        CHARRANGE saved;
+        SendMessageW(ctl, EM_EXGETSEL, 0, (LPARAM)&saved);
+        CHARRANGE all; all.cpMin = 0; all.cpMax = -1;
+        SendMessageW(ctl, EM_EXSETSEL, 0, (LPARAM)&all);
+        CHARFORMAT2W cf;
+        memset(&cf, 0, sizeof(cf));
+        cf.cbSize  = sizeof(cf);
+        cf.dwMask  = CFM_COLOR;
+        cf.crTextColor = kr_parse_hex_color(hex);
+        SendMessageW(ctl, EM_SETCHARFORMAT, SCF_DEFAULT, (LPARAM)&cf);
+        SendMessageW(ctl, EM_EXSETSEL, 0, (LPARAM)&saved);
+        return (char*)"1";
+    }
+
     char* krGuiRichSetMonoFont(char* h, char* family, char* pt_str) {
         HWND ctl = kr_gui_resolve(h);
         if (!ctl) return (char*)"0";
@@ -890,10 +990,50 @@ cfunc {
         return kr_gui_dup(buf);
     }
 
+    // Like krGuiTreeAdd but flags the item as a directory — sets
+    // cChildren=1 so Win32 always renders the expand triangle, even
+    // if the IDE hasn't pre-populated children yet (or has filtered
+    // them out). Caller is responsible for adding real children
+    // later if expansion should reveal anything.
+    char* krGuiTreeAddDir(char* tree_str, char* parent_item_str, char* label) {
+        HWND ctl = kr_gui_resolve(tree_str);
+        if (!ctl) return (char*)"0";
+        HTREEITEM parent_item = TVI_ROOT;
+        if (parent_item_str && parent_item_str[0] == '0' && parent_item_str[1] == 'x') {
+            sscanf(parent_item_str, "0x%llx", (unsigned long long*)&parent_item);
+        }
+        TVINSERTSTRUCTW ins;
+        memset(&ins, 0, sizeof(ins));
+        ins.hParent      = parent_item;
+        ins.hInsertAfter = TVI_LAST;
+        ins.item.mask    = TVIF_TEXT | TVIF_CHILDREN;
+        ins.item.pszText = kr_gui_to_w(label ? label : "");
+        ins.item.cChildren = 1;
+        HTREEITEM h = (HTREEITEM)SendMessageW(ctl, TVM_INSERTITEMW, 0, (LPARAM)&ins);
+        char buf[32];
+        snprintf(buf, sizeof(buf), "0x%llx", (unsigned long long)(ULONG_PTR)h);
+        return kr_gui_dup(buf);
+    }
+
     char* krGuiTreeClear(char* tree_str) {
         HWND ctl = kr_gui_resolve(tree_str);
         if (!ctl) return (char*)"0";
         SendMessageW(ctl, TVM_DELETEITEM, 0, (LPARAM)TVI_ROOT);
+        return (char*)"1";
+    }
+
+    // Programmatically expand the given tree item (revealing its
+    // children). Used by the IDE for lazy-populated subdirs so the
+    // user sees them immediately on first click.
+    char* krGuiTreeExpand(char* tree_str, char* item_str) {
+        HWND ctl = kr_gui_resolve(tree_str);
+        if (!ctl) return (char*)"0";
+        HTREEITEM it = NULL;
+        if (item_str && item_str[0] == '0' && item_str[1] == 'x') {
+            sscanf(item_str, "0x%llx", (unsigned long long*)&it);
+        }
+        if (!it) return (char*)"0";
+        SendMessageW(ctl, TVM_EXPAND, TVE_EXPAND, (LPARAM)it);
         return (char*)"1";
     }
 
@@ -911,6 +1051,20 @@ cfunc {
         it.cchTextMax = sizeof(buf) / sizeof(wchar_t);
         SendMessageW(ctl, TVM_GETITEMW, 0, (LPARAM)&it);
         return kr_gui_to_u(buf);
+    }
+
+    // The HTREEITEM of the currently-selected item, encoded as a hex
+    // string. Useful when the IDE needs to look up per-item state
+    // (e.g. full path) keyed by the unique handle, since the label
+    // alone collides between siblings with the same name.
+    char* krGuiTreeSelectedHandle(char* tree_str) {
+        HWND ctl = kr_gui_resolve(tree_str);
+        if (!ctl) return (char*)"";
+        HTREEITEM sel = (HTREEITEM)SendMessageW(ctl, TVM_GETNEXTITEM, TVGN_CARET, 0);
+        if (!sel) return (char*)"";
+        char buf[32];
+        snprintf(buf, sizeof(buf), "0x%llx", (unsigned long long)(ULONG_PTR)sel);
+        return kr_gui_dup(buf);
     }
 
     // ── Tab control ────────────────────────────────────────────
@@ -2454,6 +2608,74 @@ cfunc {
 
     char* krGuiQuit(void) {
         PostQuitMessage(0);
+        return (char*)"1";
+    }
+
+    // App-level shared state. Krypton-side event handlers can stash
+    // strings — and env pointers, which are not NUL-terminated — here
+    // keyed by name and read them back from another handler.
+    //
+    // We store the raw pointer (no strdup) because env values are
+    // not NUL-terminated, so strdup would walk past the end. The
+    // Krypton arena keeps allocated strings alive for the whole
+    // program (no GC reclaim yet), so the pointer remains valid.
+    // Keys ARE strdup'd because they're typically string literals
+    // and we need to compare by value across calls.
+    char* krGuiStateSet(char* key, char* value) {
+        if (!key) return (char*)"0";
+        for (int i = 0; i < g_kv_count; i++) {
+            if (strcmp(g_kv[i].k, key) == 0) {
+                g_kv[i].v = value;
+                return (char*)"1";
+            }
+        }
+        if (g_kv_count >= KR_GUI_KV_MAX) return (char*)"0";
+        g_kv[g_kv_count].k = strdup(key);
+        g_kv[g_kv_count].v = value;
+        g_kv_count++;
+        return (char*)"1";
+    }
+
+    char* krGuiStateGet(char* key) {
+        if (!key) return (char*)"";
+        for (int i = 0; i < g_kv_count; i++) {
+            if (strcmp(g_kv[i].k, key) == 0) {
+                return g_kv[i].v ? g_kv[i].v : (char*)"";
+            }
+        }
+        return (char*)"";
+    }
+
+    // Register a no-arg Krypton callback to fire every `ms`
+    // milliseconds. Uses Win32 SetTimer with the main window so the
+    // tick rides the existing message pump. Returns the timer id as
+    // a string ("1", "2", ...) so the caller can later kill it. "0"
+    // if the table is full or the main window doesn't exist yet.
+    char* krGuiSetTimer(char* msStr, char* cbPtr) {
+        if (!g_main_hwnd) return (char*)"0";
+        if (g_timer_count >= KR_GUI_TIMER_MAX) return (char*)"0";
+        int ms = atoi(msStr ? msStr : "0");
+        if (ms <= 0) ms = 50;
+        int tid = g_timer_count + 1;
+        g_timer_cb[g_timer_count] = (kr_gui_timer_cb)cbPtr;
+        g_timer_count++;
+        if (!SetTimer(g_main_hwnd, tid, (UINT)ms, NULL)) {
+            return (char*)"0";
+        }
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", tid);
+        return kr_gui_dup(buf);
+    }
+
+    // Stop a previously-registered timer. Best-effort — safe to call
+    // with an unknown id.
+    char* krGuiKillTimer(char* tidStr) {
+        if (!g_main_hwnd) return (char*)"0";
+        int tid = atoi(tidStr ? tidStr : "0");
+        if (tid >= 1 && tid <= KR_GUI_TIMER_MAX) {
+            g_timer_cb[tid - 1] = NULL;
+        }
+        KillTimer(g_main_hwnd, tid);
         return (char*)"1";
     }
 
@@ -4254,6 +4476,15 @@ cfunc {
         return kr_handle(node);
     }
 
+    // macOS NSOutlineView shows a disclosure triangle whenever the
+    // outlineView:isItemExpandable: data-source method returns YES;
+    // our implementation already says yes when the node has a
+    // `children` array (which we always create). So tree-add-dir
+    // and tree-add are functionally identical here.
+    char* krGuiTreeAddDir(char* tree_str, char* parent_item_str, char* label) {
+        return krGuiTreeAdd(tree_str, parent_item_str, label);
+    }
+
     char* krGuiTreeClear(char* tree_str) {
         id tv = kr_resolve_control(tree_str);
         if (!tv) return (char*)"0";
@@ -4262,6 +4493,12 @@ cfunc {
         MSG_V(root, sel_getUid("removeAllObjects"));
         MSG_V(tv, sel_getUid("reloadData"));
         return (char*)"1";
+    }
+
+    char* krGuiTreeExpand(char* tree_str, char* item_str) {
+        // macOS: NSOutlineView's expandItem: does this. Stub for now.
+        (void)tree_str; (void)item_str;
+        return (char*)"0";
     }
 
     char* krGuiTreeSelected(char* tree_str) {
@@ -4275,6 +4512,18 @@ cfunc {
             kr_ns_str("label"));
         if (!label) return (char*)"";
         return kr_ns_to_c(label);
+    }
+
+    char* krGuiTreeSelectedHandle(char* tree_str) {
+        // macOS: return the row index as a stand-in handle; the IDE's
+        // path map can key off it just as well.
+        id tv = kr_resolve_control(tree_str);
+        if (!tv) return (char*)"";
+        long row = MSG_L(tv, sel_getUid("selectedRow"));
+        if (row < 0) return (char*)"";
+        char buf[32];
+        snprintf(buf, sizeof(buf), "row%ld", row);
+        return kr_gui_dup(buf);
     }
 
     // ── Status bar (faked: bottom-pinned NSView + NSTextField row) ─
@@ -4819,6 +5068,14 @@ cfunc {
     char* krGuiRichAppend(char* r, char* t, char* c, char* b)               { (void)r;(void)t;(void)c;(void)b; return (char*)"0"; }
     char* krGuiRichReadOnly(char* r, char* o)                               { (void)r;(void)o; return (char*)"0"; }
     char* krGuiRichSetMonoFont(char* r, char* f, char* p)                   { (void)r;(void)f;(void)p; return (char*)"0"; }
+    char* krGuiRichSetBg(char* r, char* h)                                  { (void)r;(void)h; return (char*)"0"; }
+    char* krGuiRichSetFgDefault(char* r, char* h)                           { (void)r;(void)h; return (char*)"0"; }
+    char* krGuiRichBeginUpdate(char* r)                                     { (void)r; return (char*)"0"; }
+    char* krGuiRichEndUpdate(char* r)                                       { (void)r; return (char*)"0"; }
+    char* krGuiStateSet(char* k, char* v)                                   { (void)k;(void)v; return (char*)"0"; }
+    char* krGuiStateGet(char* k)                                            { (void)k; return (char*)""; }
+    char* krGuiSetTimer(char* m, char* c)                                   { (void)m;(void)c; return (char*)"0"; }
+    char* krGuiKillTimer(char* t)                                           { (void)t; return (char*)"0"; }
 
     #undef KR_STUB_S
     #undef KR_STUB_0
@@ -4843,6 +5100,10 @@ cfunc {
     char* krGuiRichAppend(char* r, char* t, char* c, char* b)                                     { (void)r;(void)t;(void)c;(void)b; return (char*)"0"; }
     char* krGuiRichReadOnly(char* r, char* o)                                                     { (void)r;(void)o; return (char*)"0"; }
     char* krGuiRichSetMonoFont(char* r, char* f, char* p)                                         { (void)r;(void)f;(void)p; return (char*)"0"; }
+    char* krGuiRichSetBg(char* r, char* h)                                                        { (void)r;(void)h; return (char*)"0"; }
+    char* krGuiRichSetFgDefault(char* r, char* h)                                                 { (void)r;(void)h; return (char*)"0"; }
+    char* krGuiRichBeginUpdate(char* r)                                                           { (void)r; return (char*)"0"; }
+    char* krGuiRichEndUpdate(char* r)                                                             { (void)r; return (char*)"0"; }
     char* krGuiCheckbox(char* p, char* l, char* x, char* y, char* w, char* h)                    { (void)p;(void)l;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
     char* krGuiIsChecked(char* h)                                                                 { (void)h; return (char*)"0"; }
     char* krGuiSetChecked(char* h, char* o)                                                       { (void)h;(void)o; return (char*)"0"; }
@@ -4854,8 +5115,11 @@ cfunc {
     char* krGuiProgressSet(char* h, char* p)                                                      { (void)h;(void)p; return (char*)"0"; }
     char* krGuiTreeView(char* p, char* x, char* y, char* w, char* h)                             { (void)p;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
     char* krGuiTreeAdd(char* t, char* pi, char* l)                                                { (void)t;(void)pi;(void)l; return (char*)""; }
+    char* krGuiTreeAddDir(char* t, char* pi, char* l)                                             { (void)t;(void)pi;(void)l; return (char*)""; }
     char* krGuiTreeClear(char* t)                                                                 { (void)t; return (char*)"0"; }
+    char* krGuiTreeExpand(char* t, char* i)                                                       { (void)t;(void)i; return (char*)"0"; }
     char* krGuiTreeSelected(char* t)                                                              { (void)t; return (char*)""; }
+    char* krGuiTreeSelectedHandle(char* t)                                                        { (void)t; return (char*)""; }
     char* krGuiTabs(char* p, char* x, char* y, char* w, char* h)                                 { (void)p;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
     char* krGuiTabAdd(char* t, char* l)                                                           { (void)t;(void)l; return (char*)""; }
     char* krGuiTabSelected(char* t)                                                               { (void)t; return (char*)""; }
@@ -4928,6 +5192,10 @@ cfunc {
     char* krGuiMessageBox(char* t, char* m)                                                       { (void)t;(void)m; return (char*)"0"; }
     char* krGuiRun(void)                                                                          { return (char*)"0"; }
     char* krGuiQuit(void)                                                                         { return (char*)"0"; }
+    char* krGuiStateSet(char* k, char* v)                                                         { (void)k;(void)v; return (char*)"0"; }
+    char* krGuiStateGet(char* k)                                                                  { (void)k; return (char*)""; }
+    char* krGuiSetTimer(char* m, char* c)                                                         { (void)m;(void)c; return (char*)"0"; }
+    char* krGuiKillTimer(char* t)                                                                 { (void)t; return (char*)"0"; }
 
 #endif
 }
@@ -4948,6 +5216,10 @@ func guiRichClearFmt(rich)                       { emit krGuiRichClearFmt(rich) 
 func guiRichAppend(rich, text, hexColor, bold)   { emit krGuiRichAppend(rich, text, hexColor, bold + "") }
 func guiRichReadOnly(rich, on)                   { emit krGuiRichReadOnly(rich, on + "") }
 func guiRichSetMonoFont(rich, family, ptSize)    { emit krGuiRichSetMonoFont(rich, family, ptSize + "") }
+func guiRichSetBg(rich, hexColor)                { emit krGuiRichSetBg(rich, hexColor) }
+func guiRichSetFgDefault(rich, hexColor)         { emit krGuiRichSetFgDefault(rich, hexColor) }
+func guiRichBeginUpdate(rich)                    { emit krGuiRichBeginUpdate(rich) }
+func guiRichEndUpdate(rich)                      { emit krGuiRichEndUpdate(rich) }
 func guiCheckbox(parent, label, x, y, w, h)      { emit krGuiCheckbox(parent, label, x + "", y + "", w + "", h + "") }
 func guiIsChecked(hwnd)                          { emit krGuiIsChecked(hwnd) }
 func guiSetChecked(hwnd, on)                     { emit krGuiSetChecked(hwnd, on + "") }
@@ -4959,8 +5231,11 @@ func guiProgress(parent, x, y, w, h)             { emit krGuiProgress(parent, x 
 func guiProgressSet(hwnd, percent)               { emit krGuiProgressSet(hwnd, percent + "") }
 func guiTreeView(parent, x, y, w, h)             { emit krGuiTreeView(parent, x + "", y + "", w + "", h + "") }
 func guiTreeAdd(tree, parent_item, label)        { emit krGuiTreeAdd(tree, parent_item, label) }
+func guiTreeAddDir(tree, parent_item, label)     { emit krGuiTreeAddDir(tree, parent_item, label) }
 func guiTreeClear(tree)                          { emit krGuiTreeClear(tree) }
+func guiTreeExpand(tree, item)                   { emit krGuiTreeExpand(tree, item) }
 func guiTreeSelected(tree)                       { emit krGuiTreeSelected(tree) }
+func guiTreeSelectedHandle(tree)                 { emit krGuiTreeSelectedHandle(tree) }
 func guiTabs(parent, x, y, w, h)                 { emit krGuiTabs(parent, x + "", y + "", w + "", h + "") }
 func guiTabAdd(tabs, label)                      { emit krGuiTabAdd(tabs, label) }
 func guiTabSelected(tabs)                        { emit krGuiTabSelected(tabs) }
@@ -5118,3 +5393,16 @@ func guiOnClick(hwnd, sinkPtr)                   { emit krGuiOnClick(hwnd, sinkP
 func guiMessageBox(title, msg)                   { emit krGuiMessageBox(title, msg) }
 func guiRun()                                    { emit krGuiRun() }
 func guiQuit()                                   { emit krGuiQuit() }
+
+// Shared state helpers — Krypton-side event handlers can stash
+// strings here so other handlers can read them back. Since Krypton
+// has no mutable module globals across function calls, this is the
+// canonical workaround for IDE-style apps that need cross-handler
+// state (current file path, dirty flag, etc.).
+func guiStateSet(key, value)                     { emit krGuiStateSet(key, value) }
+func guiStateGet(key)                            { emit krGuiStateGet(key) }
+
+// Periodic-timer helpers. `cb` must be a 0-arg Krypton function
+// passed via funcptr(). Returns a timer-id string (use to kill).
+func guiSetTimer(ms, cb)                         { emit krGuiSetTimer(ms + "", cb) }
+func guiKillTimer(tid)                           { emit krGuiKillTimer(tid + "") }

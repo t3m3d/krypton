@@ -31,6 +31,7 @@ jxt {
     func krProcReadAvail(handle, maxBytes) -> char_ptr
     func krProcAlive(handle)            -> char_ptr
     func krProcClose(handle)            -> char_ptr
+    func krProcSleep(ms)                -> char_ptr
 }
 
 
@@ -80,11 +81,16 @@ cfunc {
         HANDLE hOutRead = NULL, hOutWrite = NULL;
         HANDLE hInRead = NULL, hInWrite = NULL;
 
-        if (!CreatePipe(&hOutRead, &hOutWrite, &sa, 0)) return (char*)"0";
+        // 1 MB pipe buffer — Windows default is ~4 KB, which is
+        // smaller than a typical didOpen body and stalls our
+        // WriteFile until the child reads. UI freezes during that
+        // wait.
+        DWORD pipeSize = 1024 * 1024;
+        if (!CreatePipe(&hOutRead, &hOutWrite, &sa, pipeSize)) return (char*)"0";
         // Read end (parent side) must NOT be inherited.
         SetHandleInformation(hOutRead, HANDLE_FLAG_INHERIT, 0);
 
-        if (!CreatePipe(&hInRead, &hInWrite, &sa, 0)) {
+        if (!CreatePipe(&hInRead, &hInWrite, &sa, pipeSize)) {
             CloseHandle(hOutRead); CloseHandle(hOutWrite);
             return (char*)"0";
         }
@@ -170,10 +176,10 @@ cfunc {
         DWORD wrote = 0;
         BOOL ok = WriteFile(st->hChildStdinWrite, data, len, &wrote, NULL);
         if (!ok || wrote != len) return (char*)"0";
-        // Flush so the child sees the bytes immediately. Pipes are
-        // unbuffered on Windows, so this is a no-op, but it doesn't
-        // hurt and keeps semantics explicit.
-        FlushFileBuffers(st->hChildStdinWrite);
+        // No FlushFileBuffers — Windows pipes deliver data
+        // immediately, and the flush BLOCKS until the reader
+        // (kls.exe etc.) has consumed everything. That stalled the
+        // IDE's UI thread on every didOpen/didChange.
         return (char*)"1";
     }
 
@@ -225,6 +231,16 @@ cfunc {
         return dup;
     }
 
+    // Sleep for `ms` milliseconds. Wrapper because direct
+    // `import "process.krh"; Sleep(n)` from Krypton doesn't marshal
+    // ints to Win32 yet — Win64 ABI gets a string pointer in RCX.
+    __declspec(dllexport) char* krProcSleep(char* msStr) {
+        int ms = atoi(msStr ? msStr : "0");
+        if (ms < 0) ms = 0;
+        Sleep((DWORD)ms);
+        return (char*)"1";
+    }
+
     // "1" if the child is still running, "0" if it has exited or
     // failed. Doesn't reap — call procClose to free resources.
     __declspec(dllexport) char* krProcAlive(char* h) {
@@ -263,6 +279,7 @@ cfunc {
     __declspec(dllexport) char* krProcReadAvail(char* h, char* m)     { (void)h;(void)m; return (char*)""; }
     __declspec(dllexport) char* krProcAlive(char* h)                  { (void)h; return (char*)"0"; }
     __declspec(dllexport) char* krProcClose(char* h)                  { (void)h; return (char*)"1"; }
+    __declspec(dllexport) char* krProcSleep(char* m)                  { (void)m; return (char*)"1"; }
 
 #endif
 }
@@ -276,3 +293,4 @@ func procRead(handle, maxBytes)   { emit krProcRead(handle, maxBytes + "") }
 func procReadAvail(handle, maxBytes) { emit krProcReadAvail(handle, maxBytes + "") }
 func procAlive(handle)            { emit krProcAlive(handle) }
 func procClose(handle)            { emit krProcClose(handle) }
+func procSleep(ms)                { emit krProcSleep(ms + "") }
