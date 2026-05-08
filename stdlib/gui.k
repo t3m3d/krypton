@@ -76,6 +76,8 @@ jxt {
     func krGuiTreeSelectedHandle(tree)         -> char_ptr
     func krGuiTabs(parent, x, y, w, h)         -> char_ptr
     func krGuiTabAdd(tabs, label)              -> char_ptr
+    func krGuiTabSelect(tabs, idx)             -> char_ptr
+    func krGuiTabFind(tabs, label)             -> char_ptr
     func krGuiTabSelected(tabs)                -> char_ptr
     func krGuiOnChange(hwnd, sinkPtr)
     func krGuiMenuBegin(window)                -> char_ptr
@@ -153,6 +155,16 @@ jxt {
     // Repeating timers — `cb` is a function pointer (use funcptr).
     func krGuiSetTimer(ms, cb)           -> char_ptr
     func krGuiKillTimer(tid)
+    // Theme uplift — flip system widgets to dark + reset UI font.
+    func krGuiEnableDarkMode()           -> char_ptr
+    func krGuiSetUiFont(family, ptSize)  -> char_ptr
+    func krGuiSetWindowBg(hexColor)      -> char_ptr
+    func krGuiSetUiTextColor(hexColor)   -> char_ptr
+    func krGuiTreeSetColors(tree, bgHex, fgHex) -> char_ptr
+    func krGuiStatusTextColor(bar, hexColor)    -> char_ptr
+    func krGuiLineNumberArea(parent, x, y, w, h, rich) -> char_ptr
+    func krGuiLineNumberRefresh(gutter)
+    func krGuiTabsSetActiveBg(tabs, hexColor)   -> char_ptr
 }
 
 
@@ -267,10 +279,158 @@ cfunc {
         return TRUE;
     }
 
-    // Forward — apply our UI font to a freshly-created control.
+    // Forward — apply our UI font to a freshly-created control,
+    // and (when dark mode is active) opt the control into the dark
+    // visual style. The L"DarkMode_Explorer" theme name is the
+    // documented opt-in for native widgets in Win10 1809+; on older
+    // builds SetWindowTheme silently fails and the control just
+    // stays in classic styling.
     static void kr_gui_skin(HWND ctl) {
         if (!ctl) return;
         if (g_ui_font) SendMessageW(ctl, WM_SETFONT, (WPARAM)g_ui_font, MAKELPARAM(TRUE, 0));
+        if (g_dark) {
+            HMODULE u = LoadLibraryA("uxtheme.dll");
+            if (u) {
+                typedef HRESULT (WINAPI *SetWindowTheme_t)(HWND, LPCWSTR, LPCWSTR);
+                SetWindowTheme_t pSet = (SetWindowTheme_t)GetProcAddress(u, "SetWindowTheme");
+                if (pSet) pSet(ctl, L"DarkMode_Explorer", NULL);
+            }
+        }
+    }
+
+    // Force the entire app into "AllowDark" mode so system widgets
+    // (menu bar, scrollbars, dropdown frames) honour dark styling.
+    // Uses the undocumented uxtheme ordinal-135 export added in
+    // Win10 1903; degrades gracefully on older builds.
+    typedef enum { kr_PAM_Default = 0, kr_PAM_AllowDark = 1,
+                   kr_PAM_ForceDark = 2, kr_PAM_ForceLight = 3 } kr_pref_app_mode;
+    typedef int (WINAPI *kr_SetPreferredAppMode_t)(kr_pref_app_mode);
+    typedef BOOL (WINAPI *kr_AllowDarkModeForWindow_t)(HWND, BOOL);
+
+    static int g_force_dark = 0;
+
+    // App-wide window background — used by WM_ERASEBKGND in
+    // kr_gui_proc and by WM_CTLCOLOR* fall-throughs. Defaults to
+    // the OS window color; krGuiSetWindowBg flips it to whatever
+    // the theme requests.
+    static COLORREF g_app_bg = 0;
+    static int      g_app_bg_set = 0;
+    static HBRUSH   g_app_bg_brush = NULL;
+    static COLORREF g_app_fg = RGB(0xe0, 0xe1, 0xdd);
+
+    // Status bar owner-draw state. Per-part text is stashed here
+    // because SB_SETTEXT with SBT_OWNERDRAW carries a 32-bit user
+    // value rather than a text pointer; the WM_DRAWITEM handler
+    // reads from these slots when the bar asks us to paint.
+    #define KR_STATUS_PARTS_MAX 8
+    static char* g_status_text[KR_STATUS_PARTS_MAX];
+    static COLORREF g_status_fg = 0;
+    static int      g_status_fg_set = 0;
+    static COLORREF g_status_bg = (COLORREF)-1;       // -1 = system default
+    static char     g_status_spec[256] = "";           // user's part-widths spec, re-applied on every WM_SIZE
+
+    // Line-number gutter: a small custom-painted child window
+    // bound to a RichEdit. Each pump tick (or any explicit refresh
+    // call) invalidates it so the numbers stay in sync with scroll
+    // / edit state.
+    typedef struct kr_linenum {
+        HWND hwnd;
+        HWND rich;
+    } kr_linenum;
+    #define KR_LINENUM_MAX 8
+    static kr_linenum g_linenums[KR_LINENUM_MAX];
+    static int        g_linenum_count = 0;
+
+    // Forward decls — these helpers are defined later in the file
+    // but get called from the new theme funcs / WM_DRAWITEM in
+    // kr_gui_proc immediately below.
+    static COLORREF kr_parse_hex_color(const char* hex);
+    static void kr_paint_tab_item(DRAWITEMSTRUCT* dis);
+
+    static BOOL CALLBACK kr_apply_dark_proc(HWND child, LPARAM lp) {
+        (void)lp;
+        HMODULE u = LoadLibraryA("uxtheme.dll");
+        if (u) {
+            typedef HRESULT (WINAPI *SetWindowTheme_t)(HWND, LPCWSTR, LPCWSTR);
+            SetWindowTheme_t pSet = (SetWindowTheme_t)GetProcAddress(u, "SetWindowTheme");
+            if (pSet) pSet(child, L"DarkMode_Explorer", NULL);
+        }
+        return TRUE;
+    }
+
+    char* krGuiEnableDarkMode(void) {
+        g_dark = 1;
+        g_force_dark = 1;
+        HMODULE u = LoadLibraryA("uxtheme.dll");
+        if (u) {
+            // Ordinal 135 = SetPreferredAppMode (1903+). Earlier
+            // builds had ordinal 135 = AllowDarkModeForApp(BOOL);
+            // both accept "1" (truthy / AllowDark) so we can call
+            // either signature with arg 1 and rely on the right
+            // thing happening.
+            kr_SetPreferredAppMode_t pSetMode =
+                (kr_SetPreferredAppMode_t)GetProcAddress(u, MAKEINTRESOURCEA(135));
+            if (pSetMode) pSetMode(kr_PAM_ForceDark);
+        }
+        if (g_main_hwnd) {
+            EnumChildWindows(g_main_hwnd, kr_apply_dark_proc, 0);
+        }
+        return (char*)"1";
+    }
+
+    // Replace the global UI font (g_ui_font), then re-apply WM_SETFONT
+    // to every existing child window of the main hwnd. Lets the caller
+    // pick a theme font (e.g. Cascadia Code) once at startup and have
+    // everything tracked controls use it.
+    static BOOL CALLBACK kr_apply_font_proc(HWND child, LPARAM fontHandle) {
+        SendMessageW(child, WM_SETFONT, (WPARAM)fontHandle, MAKELPARAM(TRUE, 0));
+        return TRUE;
+    }
+
+    char* krGuiSetWindowBg(char* hex) {
+        if (!hex || !*hex) return (char*)"0";
+        g_app_bg = kr_parse_hex_color(hex);
+        g_app_bg_set = 1;
+        if (g_app_bg_brush) DeleteObject(g_app_bg_brush);
+        g_app_bg_brush = CreateSolidBrush(g_app_bg);
+        if (g_main_hwnd) InvalidateRect(g_main_hwnd, NULL, TRUE);
+        return (char*)"1";
+    }
+
+    char* krGuiSetUiTextColor(char* hex) {
+        if (!hex || !*hex) return (char*)"0";
+        g_app_fg = kr_parse_hex_color(hex);
+        if (g_main_hwnd) InvalidateRect(g_main_hwnd, NULL, TRUE);
+        return (char*)"1";
+    }
+
+    char* krGuiTreeSetColors(char* tree_str, char* bg_hex, char* fg_hex) {
+        HWND ctl = kr_gui_resolve(tree_str);
+        if (!ctl) return (char*)"0";
+        SendMessageW(ctl, TVM_SETBKCOLOR,   0, (LPARAM)kr_parse_hex_color(bg_hex));
+        SendMessageW(ctl, TVM_SETTEXTCOLOR, 0, (LPARAM)kr_parse_hex_color(fg_hex));
+        return (char*)"1";
+    }
+
+    char* krGuiSetUiFont(char* family, char* ptStr) {
+        if (!family || !*family) family = "Segoe UI";
+        int pt = atoi(ptStr ? ptStr : "10");
+        if (pt < 6) pt = 6;
+        if (pt > 72) pt = 72;
+        HFONT hf = CreateFontA(
+            -(pt * 96 / 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, family);
+        if (!hf) return (char*)"0";
+        // Replace the global; existing controls will pick up via the
+        // explicit WM_SETFONT broadcast below. (We intentionally
+        // leak the previous g_ui_font — controls still reference it
+        // until the redraw lands; safer than freeing too early.)
+        g_ui_font = hf;
+        if (g_main_hwnd) {
+            EnumChildWindows(g_main_hwnd, kr_apply_font_proc, (LPARAM)hf);
+        }
+        return (char*)"1";
     }
 
     // Per-call duplicated buffer — used everywhere we return a
@@ -343,6 +503,63 @@ cfunc {
         if (msg == WM_DESTROY) {
             PostQuitMessage(0);
             return 0;
+        }
+        // App background — paint with the theme color. Without
+        // this Win32 falls back to COLOR_WINDOW (system white in
+        // light mode), leaving big light strips behind the toolbar
+        // / between widgets.
+        if (msg == WM_ERASEBKGND && g_app_bg_set) {
+            if (!g_app_bg_brush) g_app_bg_brush = CreateSolidBrush(g_app_bg);
+            HDC dc = (HDC)wp;
+            RECT r;
+            GetClientRect(hwnd, &r);
+            FillRect(dc, &r, g_app_bg_brush);
+            return 1;
+        }
+        // Match the BG behind labels, group boxes, and other
+        // STATIC controls so they don't pop out as light squares
+        // when the rest of the app is dark.
+        if ((msg == WM_CTLCOLORSTATIC || msg == WM_CTLCOLORBTN) && g_app_bg_set) {
+            HDC dc = (HDC)wp;
+            SetTextColor(dc, g_app_fg);
+            SetBkColor(dc, g_app_bg);
+            if (!g_app_bg_brush) g_app_bg_brush = CreateSolidBrush(g_app_bg);
+            return (LRESULT)g_app_bg_brush;
+        }
+        // Owner-draw a status bar part. Win32 status bar parts that
+        // were set with SBT_OWNERDRAW route their paint through
+        // WM_DRAWITEM on the parent. We fill the part rect with the
+        // configured bg, then draw the stored text in the configured
+        // fg with a 4-px left padding (matches the system insets).
+        if (msg == WM_DRAWITEM) {
+            DRAWITEMSTRUCT* dis = (DRAWITEMSTRUCT*)lp;
+            if (dis && dis->CtlType == ODT_TAB) {
+                kr_paint_tab_item(dis);
+                return TRUE;
+            }
+        }
+        if (msg == WM_DRAWITEM && g_status_bar) {
+            DRAWITEMSTRUCT* dis = (DRAWITEMSTRUCT*)lp;
+            if (dis && dis->hwndItem == g_status_bar) {
+                int part = (int)dis->itemID;
+                COLORREF bg = (g_status_bg != (COLORREF)-1)
+                              ? g_status_bg : RGB(0x3d, 0x5a, 0x80);
+                COLORREF fg = g_status_fg_set ? g_status_fg : RGB(0xff, 0xff, 0xff);
+                HBRUSH br = CreateSolidBrush(bg);
+                FillRect(dis->hDC, &dis->rcItem, br);
+                DeleteObject(br);
+                if (part >= 0 && part < KR_STATUS_PARTS_MAX && g_status_text[part]) {
+                    SetBkMode(dis->hDC, TRANSPARENT);
+                    SetTextColor(dis->hDC, fg);
+                    if (g_ui_font) SelectObject(dis->hDC, g_ui_font);
+                    RECT r = dis->rcItem;
+                    r.left += 6;
+                    wchar_t* w = kr_gui_to_w(g_status_text[part]);
+                    DrawTextW(dis->hDC, w, -1, &r,
+                              DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_NOPREFIX);
+                }
+                return TRUE;
+            }
         }
         if (msg == WM_SIZE) {
             // Forward resize to chrome bars so they span their edges
@@ -670,13 +887,28 @@ cfunc {
         sscanf(parent_str, "%p", (void**)&parent);
         if (!parent) return (char*)"0";
         int id = kr_gui_register_id();
+        // Flat (no WS_EX_CLIENTEDGE) so the editor sits clean against
+        // an adjacent line-number gutter or splitter without a
+        // sunken bevel forming a visible separator.
         HWND ctl = CreateWindowExW(
-            WS_EX_CLIENTEDGE, L"RICHEDIT50W", L"",
+            0, L"RICHEDIT50W", L"",
             WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL |
             ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL |
             ES_NOHIDESEL | ES_WANTRETURN,
             atoi(xs), atoi(ys), atoi(ws), atoi(hs),
             parent, (HMENU)(LONG_PTR)id, GetModuleHandleA(NULL), NULL);
+        // Opt the RichEdit's non-client area (scrollbars, edges)
+        // into Win10/11 dark theming so they render in the same
+        // navy as the editor body. Requires SetPreferredAppMode to
+        // already have been called — guiInit/themeApply do that.
+        if (ctl && g_dark) {
+            HMODULE u = LoadLibraryA("uxtheme.dll");
+            if (u) {
+                typedef HRESULT (WINAPI *SetWindowTheme_t)(HWND, LPCWSTR, LPCWSTR);
+                SetWindowTheme_t pSet = (SetWindowTheme_t)GetProcAddress(u, "SetWindowTheme");
+                if (pSet) pSet(ctl, L"DarkMode_Explorer", NULL);
+            }
+        }
         if (!ctl) return (char*)"0";
         // RichEdit doesn't honour the global Segoe UI font well — set
         // a sensible monospaced default so it looks like a code editor
@@ -700,10 +932,10 @@ cfunc {
         int s = atoi(s_str ? s_str : "0");
         int e = atoi(e_str ? e_str : "0");
         int bold = atoi(bold_str ? bold_str : "0");
-        // Save and restore the user's selection so format-runs from
-        // syntax-highlight passes don't yank the cursor around.
-        CHARRANGE saved;
-        SendMessageW(ctl, EM_EXGETSEL, 0, (LPARAM)&saved);
+        // Selection save/restore lifted out to BeginUpdate/EndUpdate so a
+        // single colorize pass costs O(1) rather than O(N) sel-shuffles.
+        // Without that hoist the highlighter's per-token EM_EXGETSEL +
+        // restore was 50% of the SendMessageW traffic on big files.
         CHARRANGE cr; cr.cpMin = s; cr.cpMax = e;
         SendMessageW(ctl, EM_EXSETSEL, 0, (LPARAM)&cr);
         CHARFORMAT2W cf;
@@ -713,15 +945,14 @@ cfunc {
         cf.crTextColor = kr_parse_hex_color(hex);
         cf.dwEffects   = bold ? CFE_BOLD : 0;
         SendMessageW(ctl, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
-        SendMessageW(ctl, EM_EXSETSEL, 0, (LPARAM)&saved);
         return (char*)"1";
     }
 
     char* krGuiRichClearFmt(char* h) {
         HWND ctl = kr_gui_resolve(h);
         if (!ctl) return (char*)"0";
-        CHARRANGE saved;
-        SendMessageW(ctl, EM_EXGETSEL, 0, (LPARAM)&saved);
+        // Same hoist rationale as krGuiRichSetFmt: caller wraps in
+        // BeginUpdate/EndUpdate which now handles selection save/restore.
         CHARRANGE all; all.cpMin = 0; all.cpMax = -1;
         SendMessageW(ctl, EM_EXSETSEL, 0, (LPARAM)&all);
         CHARFORMAT2W cf;
@@ -731,7 +962,6 @@ cfunc {
         cf.crTextColor = RGB(0xd4, 0xd4, 0xd4);
         cf.dwEffects   = 0;
         SendMessageW(ctl, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
-        SendMessageW(ctl, EM_EXSETSEL, 0, (LPARAM)&saved);
         return (char*)"1";
     }
 
@@ -766,18 +996,36 @@ cfunc {
     // Pair every BeginUpdate with an EndUpdate. Used by the syntax
     // highlighter to avoid the visible scroll-flicker that comes
     // from EM_EXSETSEL repeatedly moving the caret during many
-    // formatting passes.
+    // formatting passes. BeginUpdate ALSO snapshots the current
+    // selection into a window prop ("krSavedSel") so EndUpdate can
+    // restore it once at the end — this lets SetFmt/ClearFmt skip
+    // their per-call save/restore and roughly halves SendMessageW
+    // traffic during a colorize pass.
     char* krGuiRichBeginUpdate(char* h) {
         HWND ctl = kr_gui_resolve(h);
         if (!ctl) return (char*)"0";
         SendMessageW(ctl, WM_SETREDRAW, FALSE, 0);
         SendMessageW(ctl, EM_HIDESELECTION, TRUE, 0);
+        CHARRANGE* saved = (CHARRANGE*)malloc(sizeof(CHARRANGE));
+        if (saved) {
+            SendMessageW(ctl, EM_EXGETSEL, 0, (LPARAM)saved);
+            // Free any lingering snapshot from a mismatched begin/end.
+            CHARRANGE* prev = (CHARRANGE*)GetPropW(ctl, L"krSavedSel");
+            if (prev) free(prev);
+            SetPropW(ctl, L"krSavedSel", (HANDLE)saved);
+        }
         return (char*)"1";
     }
 
     char* krGuiRichEndUpdate(char* h) {
         HWND ctl = kr_gui_resolve(h);
         if (!ctl) return (char*)"0";
+        CHARRANGE* saved = (CHARRANGE*)GetPropW(ctl, L"krSavedSel");
+        if (saved) {
+            SendMessageW(ctl, EM_EXSETSEL, 0, (LPARAM)saved);
+            RemovePropW(ctl, L"krSavedSel");
+            free(saved);
+        }
         SendMessageW(ctl, EM_HIDESELECTION, FALSE, 0);
         SendMessageW(ctl, WM_SETREDRAW, TRUE, 0);
         InvalidateRect(ctl, NULL, TRUE);
@@ -785,11 +1033,18 @@ cfunc {
     }
 
     // Background color for a RichEdit (theme support). hex is RRGGBB.
+    // Win32 RichEdit doesn't expose EM_GETBKGNDCOLOR, so we stash the
+    // value as a window property keyed "krBg". Linked controls (like
+    // the line-number gutter) read it back via GetProp to keep their
+    // backgrounds in lockstep with the editor.
     char* krGuiRichSetBg(char* h, char* hex) {
         HWND ctl = kr_gui_resolve(h);
         if (!ctl) return (char*)"0";
         COLORREF c = kr_parse_hex_color(hex);
         SendMessageW(ctl, EM_SETBKGNDCOLOR, 0, (LPARAM)c);
+        // SetPropW takes a HANDLE; encode the COLORREF + 1 to keep
+        // it non-zero (zero is the "property not set" sentinel).
+        SetPropW(ctl, L"krBg", (HANDLE)(ULONG_PTR)(c + 1));
         return (char*)"1";
     }
 
@@ -947,19 +1202,23 @@ cfunc {
         // lines disappear and you get clean triangle markers; without
         // it you fall back to classic [+]/[-] boxes with dotted lines.
         HWND ctl = CreateWindowExW(
-            WS_EX_CLIENTEDGE, WC_TREEVIEWW, L"",
+            0, WC_TREEVIEWW, L"",
             WS_CHILD | WS_VISIBLE | TVS_HASBUTTONS | TVS_HASLINES |
             TVS_LINESATROOT | TVS_SHOWSELALWAYS,
             atoi(xs), atoi(ys), atoi(ws), atoi(hs),
             parent, (HMENU)(LONG_PTR)id, GetModuleHandleA(NULL), NULL);
         if (!ctl) return (char*)"0";
         kr_gui_skin(ctl);
+        // Pick the modern Explorer-style triangle markers — and pick
+        // the DARK variant when dark mode is active so the
+        // scrollbar / track / triangle markers all render in step
+        // with the surrounding navy.
         HMODULE uxtheme_mod = LoadLibraryA("uxtheme.dll");
         if (uxtheme_mod) {
             typedef HRESULT (WINAPI *SetWindowTheme_t)(HWND, LPCWSTR, LPCWSTR);
             SetWindowTheme_t pSet = (SetWindowTheme_t)
                 GetProcAddress(uxtheme_mod, "SetWindowTheme");
-            if (pSet) pSet(ctl, L"Explorer", NULL);
+            if (pSet) pSet(ctl, g_dark ? L"DarkMode_Explorer" : L"Explorer", NULL);
         }
         SendMessageW(ctl, TVM_SETEXTENDEDSTYLE,
                      TVS_EX_DOUBLEBUFFER | TVS_EX_FADEINOUTEXPANDOS,
@@ -1070,20 +1329,136 @@ cfunc {
     // ── Tab control ────────────────────────────────────────────
     // Just the strip — caller manages page contents (show/hide their
     // own widgets in the on-change callback).
+    // Owner-drawn tab item painter. Called by kr_gui_proc when a
+    // WM_DRAWITEM with CtlType=ODT_TAB arrives. We fill the tab
+    // rect with a navy bg (slightly lighter for the selected tab),
+    // then draw the label centered.
+    static void kr_paint_tab_item(DRAWITEMSTRUCT* dis) {
+        if (!dis || !dis->hwndItem) return;
+        BOOL selected = (dis->itemState & ODS_SELECTED) != 0;
+        COLORREF bg = g_app_bg_set ? g_app_bg : RGB(0x14, 0x21, 0x3d);
+        // Active-tab color comes from a window prop the IDE sets
+        // via krGuiTabsSetActiveBg — typically the editor's own bg
+        // so the selected tab merges into the editor below.
+        COLORREF bgSel = RGB(
+            (GetRValue(bg) + 32 < 255 ? GetRValue(bg) + 32 : 255),
+            (GetGValue(bg) + 32 < 255 ? GetGValue(bg) + 32 : 255),
+            (GetBValue(bg) + 40 < 255 ? GetBValue(bg) + 40 : 255));
+        ULONG_PTR ap = (ULONG_PTR)GetPropW(dis->hwndItem, L"krActiveBg");
+        if (ap != 0) bgSel = (COLORREF)(ap - 1);
+        // Round the TOP corners only — bottom abuts the editor and
+        // should remain flat. For the SELECTED tab, also extend
+        // the rect's bottom to the strip's client bottom so it
+        // merges visually with the editor below (no seam).
+        const int corner = 6;
+        RECT r = dis->rcItem;
+        if (selected) {
+            RECT cr;
+            GetClientRect(dis->hwndItem, &cr);
+            r.bottom = cr.bottom;
+        }
+        HRGN topRgn = CreateRoundRectRgn(
+            r.left, r.top, r.right + 1, r.top + 2 * corner + 1,
+            2 * corner, 2 * corner);
+        HRGN botRgn = CreateRectRgn(
+            r.left, r.top + corner, r.right, r.bottom);
+        HRGN tabRgn = CreateRectRgn(0, 0, 0, 0);
+        CombineRgn(tabRgn, topRgn, botRgn, RGN_OR);
+        DeleteObject(topRgn);
+        DeleteObject(botRgn);
+        HBRUSH br = CreateSolidBrush(selected ? bgSel : bg);
+        FillRgn(dis->hDC, tabRgn, br);
+        DeleteObject(br);
+        DeleteObject(tabRgn);
+        // Read label
+        wchar_t buf[256];
+        TCITEMW it;
+        memset(&it, 0, sizeof(it));
+        it.mask       = TCIF_TEXT;
+        it.pszText    = buf;
+        it.cchTextMax = 256;
+        SendMessageW(dis->hwndItem, TCM_GETITEMW, dis->itemID, (LPARAM)&it);
+        SetBkMode(dis->hDC, TRANSPARENT);
+        SetTextColor(dis->hDC, selected ? RGB(0xff,0xff,0xff)
+                                        : (g_app_bg_set ? g_app_fg : RGB(0xc0,0xc0,0xc0)));
+        if (g_ui_font) SelectObject(dis->hDC, g_ui_font);
+        DrawTextW(dis->hDC, buf, -1, &dis->rcItem,
+                  DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    }
+
+    static LRESULT CALLBACK kr_tabs_subclass(
+            HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
+            UINT_PTR id, DWORD_PTR data) {
+        (void)id; (void)data;
+        if (msg == WM_ERASEBKGND) {
+            return 1;   // we paint everything in WM_PAINT
+        }
+        if (msg == WM_PAINT) {
+            // Take complete control of painting so the system's
+            // default tab outlines / separator line never get drawn.
+            // We fill the strip bg + paint each tab item; nothing
+            // else.
+            PAINTSTRUCT ps;
+            HDC dc = BeginPaint(hwnd, &ps);
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+            COLORREF bg = g_app_bg_set ? g_app_bg : RGB(0x14, 0x21, 0x3d);
+            HBRUSH br = CreateSolidBrush(bg);
+            FillRect(dc, &rc, br);
+            DeleteObject(br);
+
+            int n   = (int)SendMessageW(hwnd, TCM_GETITEMCOUNT, 0, 0);
+            int sel = (int)SendMessageW(hwnd, TCM_GETCURSEL, 0, 0);
+            for (int i = 0; i < n; i++) {
+                RECT tr;
+                SendMessageW(hwnd, TCM_GETITEMRECT, i, (LPARAM)&tr);
+                DRAWITEMSTRUCT dis;
+                memset(&dis, 0, sizeof(dis));
+                dis.CtlType   = ODT_TAB;
+                dis.itemID    = (UINT)i;
+                dis.itemState = (i == sel) ? ODS_SELECTED : 0;
+                dis.hwndItem  = hwnd;
+                dis.hDC       = dc;
+                dis.rcItem    = tr;
+                kr_paint_tab_item(&dis);
+            }
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        return DefSubclassProc(hwnd, msg, wp, lp);
+    }
+
     char* krGuiTabs(char* parent_str, char* xs, char* ys, char* ws, char* hs) {
         int id = kr_gui_register_id();
         HWND parent = NULL;
         sscanf(parent_str, "%p", (void**)&parent);
         HWND ctl = CreateWindowExW(
             0, WC_TABCONTROLW, L"",
-            WS_CHILD | WS_VISIBLE,
+            WS_CHILD | WS_VISIBLE | TCS_OWNERDRAWFIXED,
             atoi(xs), atoi(ys), atoi(ws), atoi(hs),
             parent, (HMENU)(LONG_PTR)id, GetModuleHandleA(NULL), NULL);
         if (!ctl) return (char*)"0";
         kr_gui_skin(ctl);
+        // Subclass so we can paint our own bg behind the tabs (the
+        // default tab control draws a light system color in any
+        // strip area not covered by tab items).
+        SetWindowSubclass(ctl, kr_tabs_subclass, 0, 0);
         char buf[32];
         snprintf(buf, sizeof(buf), "%d", id);
         return kr_gui_dup(buf);
+    }
+
+    // Set the bg color used for the SELECTED tab. Pair this with
+    // the editor's bg color so the active tab visually melds with
+    // the editor below it. Stash on the control via a window prop
+    // that kr_paint_tab_item reads on each draw.
+    char* krGuiTabsSetActiveBg(char* tabs_str, char* hex) {
+        HWND ctl = kr_gui_resolve(tabs_str);
+        if (!ctl) return (char*)"0";
+        COLORREF c = kr_parse_hex_color(hex);
+        SetPropW(ctl, L"krActiveBg", (HANDLE)(ULONG_PTR)(c + 1));
+        InvalidateRect(ctl, NULL, FALSE);
+        return (char*)"1";
     }
 
     char* krGuiTabAdd(char* tabs_str, char* label) {
@@ -1101,13 +1476,63 @@ cfunc {
         return kr_gui_dup(buf);
     }
 
-    char* krGuiTabSelected(char* tabs_str) {
+    // Set the active tab to `idx`. Doesn't fire a TCN_SELCHANGE
+    // (those only flow from user input), so the caller can set the
+    // selection programmatically without re-entering its own
+    // change handler.
+    char* krGuiTabSelect(char* tabs_str, char* idx_str) {
+        HWND ctl = kr_gui_resolve(tabs_str);
+        if (!ctl) return (char*)"0";
+        int idx = atoi(idx_str ? idx_str : "0");
+        if (idx < 0) return (char*)"0";
+        SendMessageW(ctl, TCM_SETCURSEL, idx, 0);
+        InvalidateRect(ctl, NULL, FALSE);
+        return (char*)"1";
+    }
+
+    // Find a tab by label. Returns the 0-based index as a decimal
+    // string, or "-1" if not found.
+    char* krGuiTabFind(char* tabs_str, char* label) {
         HWND ctl = kr_gui_resolve(tabs_str);
         if (!ctl) return (char*)"-1";
+        if (!label) return (char*)"-1";
+        wchar_t* needle = kr_gui_to_w(label);
+        int n = (int)SendMessageW(ctl, TCM_GETITEMCOUNT, 0, 0);
+        wchar_t buf[256];
+        TCITEMW it;
+        for (int i = 0; i < n; i++) {
+            memset(&it, 0, sizeof(it));
+            it.mask       = TCIF_TEXT;
+            it.pszText    = buf;
+            it.cchTextMax = 256;
+            SendMessageW(ctl, TCM_GETITEMW, i, (LPARAM)&it);
+            if (wcscmp(buf, needle) == 0) {
+                char out[16];
+                snprintf(out, sizeof(out), "%d", i);
+                return kr_gui_dup(out);
+            }
+        }
+        return (char*)"-1";
+    }
+
+    // Return the LABEL of the currently-selected tab, or "" if no
+    // tab is selected. Callers that need the index can use
+    // krGuiTabFind(tabs, label) to map back, or read TCM_GETCURSEL
+    // directly. The label-based API matches how tree / list
+    // controls report their selection.
+    char* krGuiTabSelected(char* tabs_str) {
+        HWND ctl = kr_gui_resolve(tabs_str);
+        if (!ctl) return (char*)"";
         int idx = (int)SendMessageW(ctl, TCM_GETCURSEL, 0, 0);
-        char buf[16];
-        snprintf(buf, sizeof(buf), "%d", idx);
-        return kr_gui_dup(buf);
+        if (idx < 0) return (char*)"";
+        wchar_t buf[256];
+        TCITEMW it;
+        memset(&it, 0, sizeof(it));
+        it.mask       = TCIF_TEXT;
+        it.pszText    = buf;
+        it.cchTextMax = 256;
+        SendMessageW(ctl, TCM_GETITEMW, idx, (LPARAM)&it);
+        return kr_gui_to_u(buf);
     }
 
     char* krGuiOnChange(char* id_str, char* sinkPtr) {
@@ -1458,6 +1883,121 @@ cfunc {
         char buf[32];
         snprintf(buf, sizeof(buf), "%d", id);
         return kr_gui_dup(buf);
+    }
+
+    // ── Line-number gutter ─────────────────────────────────────
+    static LRESULT CALLBACK kr_linenum_proc(
+            HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
+            UINT_PTR id, DWORD_PTR data) {
+        (void)id;
+        kr_linenum* ln = (kr_linenum*)data;
+        if (msg == WM_PAINT) {
+            PAINTSTRUCT ps;
+            HDC dc = BeginPaint(hwnd, &ps);
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+            // Match the bound RichEdit's background so the gutter
+            // reads as the editor's left margin rather than a
+            // separate column. krGuiRichSetBg stashes the latest
+            // bg as a "krBg" window prop (offset by +1 so 0 means
+            // "not set").
+            COLORREF bg = g_app_bg_set ? g_app_bg : RGB(0x14, 0x21, 0x3d);
+            if (ln && ln->rich && IsWindow(ln->rich)) {
+                ULONG_PTR p = (ULONG_PTR)GetPropW(ln->rich, L"krBg");
+                if (p != 0) bg = (COLORREF)(p - 1);
+            }
+            COLORREF fg = RGB(0x60, 0x73, 0x8a);
+            HBRUSH br = CreateSolidBrush(bg);
+            FillRect(dc, &rc, br);
+            DeleteObject(br);
+            // Faint divider — a single column of pixels on the
+            // right edge, slightly darker than the gutter bg so it
+            // reads as a quiet edge rather than a hard rule.
+            COLORREF div = RGB(
+                GetRValue(bg) > 18 ? GetRValue(bg) - 18 : 0,
+                GetGValue(bg) > 18 ? GetGValue(bg) - 18 : 0,
+                GetBValue(bg) > 18 ? GetBValue(bg) - 18 : 0);
+            HBRUSH dbr = CreateSolidBrush(div);
+            RECT divRc = { rc.right - 1, rc.top, rc.right, rc.bottom };
+            FillRect(dc, &divRc, dbr);
+            DeleteObject(dbr);
+            if (ln && ln->rich && IsWindow(ln->rich)) {
+                int firstLine = (int)SendMessageW(ln->rich, EM_GETFIRSTVISIBLELINE, 0, 0);
+                int lineCount = (int)SendMessageW(ln->rich, EM_GETLINECOUNT, 0, 0);
+                int charIdx   = (int)SendMessageW(ln->rich, EM_LINEINDEX, firstLine, 0);
+                LRESULT pos   = SendMessageW(ln->rich, EM_POSFROMCHAR, charIdx, 0);
+                int yTop      = (short)HIWORD(pos);
+
+                HFONT richFont = (HFONT)SendMessageW(ln->rich, WM_GETFONT, 0, 0);
+                HDC mdc = GetDC(ln->rich);
+                HGDIOBJ old = richFont ? SelectObject(mdc, richFont) : NULL;
+                TEXTMETRICW tm;
+                GetTextMetricsW(mdc, &tm);
+                if (old) SelectObject(mdc, old);
+                ReleaseDC(ln->rich, mdc);
+                int lineH = tm.tmHeight;
+                if (lineH < 1) lineH = 16;
+
+                SetBkMode(dc, TRANSPARENT);
+                SetTextColor(dc, fg);
+                HGDIOBJ oldFont = richFont ? SelectObject(dc, richFont) : NULL;
+
+                int y = yTop;
+                int line = firstLine;
+                while (y < rc.bottom && line < lineCount) {
+                    wchar_t buf[16];
+                    int n = swprintf(buf, 16, L"%d", line + 1);
+                    if (n < 0) n = 0;
+                    RECT lr = { 0, y, rc.right - 6, y + lineH };
+                    DrawTextW(dc, buf, n, &lr,
+                              DT_RIGHT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX);
+                    line++;
+                    y += lineH;
+                }
+                if (oldFont) SelectObject(dc, oldFont);
+            }
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        if (msg == WM_ERASEBKGND) {
+            return 1;
+        }
+        return DefSubclassProc(hwnd, msg, wp, lp);
+    }
+
+    char* krGuiLineNumberArea(char* parent_str, char* xs, char* ys,
+                               char* ws, char* hs, char* rich_str) {
+        HWND parent = NULL;
+        sscanf(parent_str, "%p", (void**)&parent);
+        if (!parent) return (char*)"0";
+        HWND ctl = CreateWindowExW(
+            0, L"STATIC", L"",
+            WS_CHILD | WS_VISIBLE,
+            atoi(xs), atoi(ys), atoi(ws), atoi(hs),
+            parent, NULL, GetModuleHandleA(NULL), NULL);
+        if (!ctl) return (char*)"0";
+        if (g_linenum_count < KR_LINENUM_MAX) {
+            kr_linenum* ln = &g_linenums[g_linenum_count++];
+            ln->hwnd = ctl;
+            ln->rich = NULL;
+            if (rich_str && rich_str[0] == '0' && rich_str[1] == 'x') {
+                sscanf(rich_str, "0x%llx", (unsigned long long*)&ln->rich);
+            }
+            SetWindowSubclass(ctl, kr_linenum_proc, 0, (DWORD_PTR)ln);
+        }
+        char buf[32];
+        snprintf(buf, sizeof(buf), "0x%llx", (unsigned long long)(ULONG_PTR)ctl);
+        return kr_gui_dup(buf);
+    }
+
+    char* krGuiLineNumberRefresh(char* gutter_str) {
+        HWND ctl = NULL;
+        if (gutter_str && gutter_str[0] == '0' && gutter_str[1] == 'x') {
+            sscanf(gutter_str, "0x%llx", (unsigned long long*)&ctl);
+        }
+        if (!ctl) return (char*)"0";
+        InvalidateRect(ctl, NULL, FALSE);
+        return (char*)"1";
     }
 
     char* krGuiSplitterPos(char* sp_str) {
@@ -2268,8 +2808,10 @@ cfunc {
     // The status bar carries an HICON per part so the icon API doesn't
     // need extra plumbing.
 
-    static COLORREF g_status_bg = (COLORREF)-1;       // -1 = system default
-    static char     g_status_spec[256] = "";           // user's part-widths spec, re-applied on every WM_SIZE
+    // (g_status_bg / g_status_spec moved up near the other static
+    // theme state — they're declared near the top of the cfunc
+    // block now so kr_gui_proc can reference g_status_bg from
+    // WM_DRAWITEM.)
 
     // Re-apply g_status_spec against the bar's CURRENT client width.
     // Spec syntax (comma-separated cells):
@@ -2384,8 +2926,43 @@ cfunc {
         HWND ctl = kr_gui_resolve(bar_str);
         if (!ctl) return (char*)"0";
         int idx = atoi(idx_str ? idx_str : "0");
-        wchar_t* w = kr_gui_to_w(text ? text : "");
+        const char* t = text ? text : "";
+        // If a custom text color is configured, store our own copy
+        // and route the draw via SBT_OWNERDRAW so kr_gui_proc's
+        // WM_DRAWITEM can paint with the chosen fg/bg. Otherwise
+        // fall back to the simple SB_SETTEXTW path.
+        if (g_status_fg_set && idx >= 0 && idx < KR_STATUS_PARTS_MAX) {
+            free(g_status_text[idx]);
+            g_status_text[idx] = strdup(t);
+            // wParam packs (part, type) — type=SBT_OWNERDRAW (0x1000)
+            // requests owner-draw. lParam carries a 32-bit user value
+            // we don't use; pass 0.
+            WPARAM wp = (WPARAM)((idx & 0xFF) | 0x1000);
+            SendMessageW(ctl, SB_SETTEXTW, wp, 0);
+            InvalidateRect(ctl, NULL, FALSE);
+            return (char*)"1";
+        }
+        wchar_t* w = kr_gui_to_w(t);
         SendMessageW(ctl, SB_SETTEXTW, idx, (LPARAM)w);
+        return (char*)"1";
+    }
+
+    // Set the text color used when the status bar paints itself
+    // (owner-draw mode). Each call also re-applies any text already
+    // set via krGuiStatusSet so the new color is visible immediately.
+    char* krGuiStatusTextColor(char* bar_str, char* hex) {
+        HWND ctl = kr_gui_resolve(bar_str);
+        if (!ctl) return (char*)"0";
+        g_status_fg = kr_parse_hex_color(hex);
+        g_status_fg_set = 1;
+        // Re-issue every part as owner-draw so the new color sticks.
+        for (int i = 0; i < KR_STATUS_PARTS_MAX; i++) {
+            if (g_status_text[i]) {
+                WPARAM wp = (WPARAM)((i & 0xFF) | 0x1000);
+                SendMessageW(ctl, SB_SETTEXTW, wp, 0);
+            }
+        }
+        InvalidateRect(ctl, NULL, FALSE);
         return (char*)"1";
     }
 
@@ -4319,6 +4896,17 @@ cfunc {
         return kr_gui_dup(buf);
     }
 
+    // macOS NSTabView analogues — quick stubs for now; can be made
+    // proper later with selectTabViewItemAtIndex: / iteration.
+    char* krGuiTabSelect(char* tabs_str, char* idx_str) {
+        (void)tabs_str; (void)idx_str;
+        return (char*)"0";
+    }
+    char* krGuiTabFind(char* tabs_str, char* label) {
+        (void)tabs_str; (void)label;
+        return (char*)"-1";
+    }
+
     // ── Date picker (NSDatePicker, textual style + stepper) ──────
     char* krGuiDatePicker(char* parent, char* x_str, char* y_str, char* w_str, char* h_str) {
         id container = kr_resolve_container(parent);
@@ -5076,6 +5664,15 @@ cfunc {
     char* krGuiStateGet(char* k)                                            { (void)k; return (char*)""; }
     char* krGuiSetTimer(char* m, char* c)                                   { (void)m;(void)c; return (char*)"0"; }
     char* krGuiKillTimer(char* t)                                           { (void)t; return (char*)"0"; }
+    char* krGuiEnableDarkMode(void)                                         { return (char*)"0"; }
+    char* krGuiSetUiFont(char* f, char* p)                                  { (void)f;(void)p; return (char*)"0"; }
+    char* krGuiSetWindowBg(char* h)                                         { (void)h; return (char*)"0"; }
+    char* krGuiSetUiTextColor(char* h)                                      { (void)h; return (char*)"0"; }
+    char* krGuiTreeSetColors(char* t, char* b, char* f)                     { (void)t;(void)b;(void)f; return (char*)"0"; }
+    char* krGuiStatusTextColor(char* b, char* h)                            { (void)b;(void)h; return (char*)"0"; }
+    char* krGuiLineNumberArea(char* p, char* x, char* y, char* w, char* h, char* r) { (void)p;(void)x;(void)y;(void)w;(void)h;(void)r; return (char*)""; }
+    char* krGuiLineNumberRefresh(char* g)                                   { (void)g; return (char*)"0"; }
+    char* krGuiTabsSetActiveBg(char* t, char* h)                            { (void)t;(void)h; return (char*)"0"; }
 
     #undef KR_STUB_S
     #undef KR_STUB_0
@@ -5122,6 +5719,8 @@ cfunc {
     char* krGuiTreeSelectedHandle(char* t)                                                        { (void)t; return (char*)""; }
     char* krGuiTabs(char* p, char* x, char* y, char* w, char* h)                                 { (void)p;(void)x;(void)y;(void)w;(void)h; return (char*)""; }
     char* krGuiTabAdd(char* t, char* l)                                                           { (void)t;(void)l; return (char*)""; }
+    char* krGuiTabSelect(char* t, char* i)                                                        { (void)t;(void)i; return (char*)"0"; }
+    char* krGuiTabFind(char* t, char* l)                                                          { (void)t;(void)l; return (char*)"-1"; }
     char* krGuiTabSelected(char* t)                                                               { (void)t; return (char*)""; }
     char* krGuiOnChange(char* h, char* s)                                                         { (void)h;(void)s; return (char*)"0"; }
     char* krGuiMenuBegin(char* w)                                                                 { (void)w; return (char*)""; }
@@ -5196,6 +5795,15 @@ cfunc {
     char* krGuiStateGet(char* k)                                                                  { (void)k; return (char*)""; }
     char* krGuiSetTimer(char* m, char* c)                                                         { (void)m;(void)c; return (char*)"0"; }
     char* krGuiKillTimer(char* t)                                                                 { (void)t; return (char*)"0"; }
+    char* krGuiEnableDarkMode(void)                                                               { return (char*)"0"; }
+    char* krGuiSetUiFont(char* f, char* p)                                                        { (void)f;(void)p; return (char*)"0"; }
+    char* krGuiSetWindowBg(char* h)                                                               { (void)h; return (char*)"0"; }
+    char* krGuiSetUiTextColor(char* h)                                                            { (void)h; return (char*)"0"; }
+    char* krGuiTreeSetColors(char* t, char* b, char* f)                                           { (void)t;(void)b;(void)f; return (char*)"0"; }
+    char* krGuiStatusTextColor(char* b, char* h)                                                  { (void)b;(void)h; return (char*)"0"; }
+    char* krGuiLineNumberArea(char* p, char* x, char* y, char* w, char* h, char* r)               { (void)p;(void)x;(void)y;(void)w;(void)h;(void)r; return (char*)""; }
+    char* krGuiLineNumberRefresh(char* g)                                                         { (void)g; return (char*)"0"; }
+    char* krGuiTabsSetActiveBg(char* t, char* h)                                                  { (void)t;(void)h; return (char*)"0"; }
 
 #endif
 }
@@ -5238,6 +5846,8 @@ func guiTreeSelected(tree)                       { emit krGuiTreeSelected(tree) 
 func guiTreeSelectedHandle(tree)                 { emit krGuiTreeSelectedHandle(tree) }
 func guiTabs(parent, x, y, w, h)                 { emit krGuiTabs(parent, x + "", y + "", w + "", h + "") }
 func guiTabAdd(tabs, label)                      { emit krGuiTabAdd(tabs, label) }
+func guiTabSelect(tabs, idx)                     { emit krGuiTabSelect(tabs, idx + "") }
+func guiTabFind(tabs, label)                     { emit krGuiTabFind(tabs, label) }
 func guiTabSelected(tabs)                        { emit krGuiTabSelected(tabs) }
 func guiOnChange(hwnd, sinkPtr)                  { emit krGuiOnChange(hwnd, sinkPtr) }
 func guiMenuBegin(window)                        { emit krGuiMenuBegin(window) }
@@ -5406,3 +6016,34 @@ func guiStateGet(key)                            { emit krGuiStateGet(key) }
 // passed via funcptr(). Returns a timer-id string (use to kill).
 func guiSetTimer(ms, cb)                         { emit krGuiSetTimer(ms + "", cb) }
 func guiKillTimer(tid)                           { emit krGuiKillTimer(tid + "") }
+
+// Force dark mode for all current + future widgets in this app.
+// Calls SetPreferredAppMode (uxtheme.dll ordinal 135) so system
+// chrome (menu bar, scrollbars, drop-down popups) renders dark
+// alongside our control colors.
+func guiEnableDarkMode()                         { emit krGuiEnableDarkMode() }
+
+// Replace the UI font (Segoe UI 10pt by default) with the caller's
+// choice and propagate it to every existing child window.
+func guiSetUiFont(family, ptSize)                { emit krGuiSetUiFont(family, ptSize + "") }
+
+// Direct color overrides — for when the OS-level dark mode flip
+// can't be relied on (older Win10, OS in light mode globally).
+// SetWindowBg paints behind the whole window via WM_ERASEBKGND;
+// SetUiTextColor controls the text color used in WM_CTLCOLORSTATIC
+// fall-throughs; TreeSetColors directly sets a TreeView's bg/fg.
+func guiSetWindowBg(hexColor)                    { emit krGuiSetWindowBg(hexColor) }
+func guiSetUiTextColor(hexColor)                 { emit krGuiSetUiTextColor(hexColor) }
+func guiTreeSetColors(tree, bgHex, fgHex)        { emit krGuiTreeSetColors(tree, bgHex, fgHex) }
+func guiStatusTextColor(bar, hexColor)           { emit krGuiStatusTextColor(bar, hexColor) }
+
+// Line-number gutter — a small column to the left of a RichEdit
+// that paints 1-based numbers for every visible line. The bound
+// RichEdit handle is the control whose lines we count. After text
+// changes or scrolls, call guiLineNumberRefresh(gutter) so the
+// numbers redraw.
+func guiLineNumberArea(parent, x, y, w, h, rich) {
+    emit krGuiLineNumberArea(parent, x + "", y + "", w + "", h + "", rich)
+}
+func guiLineNumberRefresh(gutter)                { emit krGuiLineNumberRefresh(gutter) }
+func guiTabsSetActiveBg(tabs, hexColor)          { emit krGuiTabsSetActiveBg(tabs, hexColor) }
