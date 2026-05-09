@@ -1,8 +1,7 @@
 // 2.0-alpha-3 closures: free vars captured at creation site, snapshot
-// semantics. Limitation: closures CANNOT be passed to functions that
-// declare params typed `cb: fp` (e.g., stdlib/fp.k receivers) — those
-// expect raw function pointers and will crash when given an env-wrapped
-// closure value. Direct invocation `f(args)` works.
+// semantics. Unification (2.0-alpha-3): ALL lambdas are closures
+// (env-wrapped), so they pass to k:fp receivers cleanly. Per-call
+// overhead is below noise (see examples/bench_closures.k).
 
 just run {
     // Single int capture
