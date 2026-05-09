@@ -31,7 +31,15 @@ jxt {
     func krProcReadAvail(handle, maxBytes) -> char_ptr
     func krProcAlive(handle)            -> char_ptr
     func krProcClose(handle)            -> char_ptr
+    // krProcSleep retained in ckrypton_proc.dll for backward compat with
+    // older binaries; new code routes procSleep through direct Win32 Sleep
+    // (see win32IntArgs in compiler/windows_x86/x64.k).
     func krProcSleep(ms)                -> char_ptr
+
+    // Direct Win32 Sleep — IAT-imported from kernel32.dll. x64.k atoi's
+    // the ms arg via win32IntArgs marshalling.
+    c "windows.h"
+    func Sleep(ms)
 }
 
 
@@ -293,4 +301,6 @@ func procRead(handle, maxBytes)   { emit krProcRead(handle, maxBytes + "") }
 func procReadAvail(handle, maxBytes) { emit krProcReadAvail(handle, maxBytes + "") }
 func procAlive(handle)            { emit krProcAlive(handle) }
 func procClose(handle)            { emit krProcClose(handle) }
-func procSleep(ms)                { emit krProcSleep(ms + "") }
+// Direct Sleep call — the cfunc krProcSleep wrapper is no longer needed
+// because x64.k now atoi's int args at known Win32 call sites.
+func procSleep(ms)                { Sleep(ms)  emit "1" }
