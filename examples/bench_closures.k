@@ -1,16 +1,13 @@
 // 2.0-alpha-3 benchmark: closure call overhead vs raw fp call.
 // Uses the new rdtsc() builtin to measure cycles.
-//
-// Krypton gotcha (pre-existing): upper-case variable names in
-// while/if/for conditions misparse as struct literals when followed
-// by `{`. Use lowercase. (See feedback_uppercase_var_brace.md.)
 
 func plain(x) {
     emit toInt(x) * 2
 }
 
 just run {
-    let n = 10000
+    let N = 10000
+    let n = N
     print("=== closure vs raw fp (n=" + n + " calls) ===")
 
     // Warm up
