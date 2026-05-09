@@ -10,7 +10,7 @@
 // CSV like "Krypton (*.k)|*.k,All Files|*.*" — pipe separates label
 // from pattern, comma separates entries.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_label = ""

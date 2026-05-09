@@ -9,7 +9,7 @@
 // Smallest possible GUI program in Krypton. No window class, no message pump,
 // no WindowProc — MessageBoxA blocks until the user clicks OK.
 
-import "user32.krh"
+import "head:user32"
 
 just run {
     // MB_OK | MB_ICONINFORMATION = 0 | 0x40 = 64

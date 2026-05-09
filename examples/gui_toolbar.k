@@ -12,7 +12,7 @@
 // Available icon names: new, open, save, cut, copy, paste, undo, redo,
 // delete, print, find, replace, help, props. Pass "" for text-only.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_status = ""

@@ -9,7 +9,7 @@
 // arrow buttons increment/decrement; Read button shows the current
 // value.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_slider = ""

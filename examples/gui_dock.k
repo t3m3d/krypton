@@ -6,7 +6,7 @@
 //   gcc tmp.c -o gui_dock.exe -luser32 -lgdi32 -lcomctl32 -lcomdlg32 \
 //       -lole32 -lshell32 -ldwmapi -luxtheme -ladvapi32 -lm -w
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 just run {

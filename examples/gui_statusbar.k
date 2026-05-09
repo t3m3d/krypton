@@ -9,7 +9,7 @@
 //   [info icon | message]  [Ln/Col]   [encoding]
 // Buttons mutate each part to demonstrate guiStatusSet / guiStatusIcon.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_bar = ""

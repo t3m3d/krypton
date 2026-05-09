@@ -8,7 +8,7 @@
 //
 // Each item id wires the same way as a button — guiOnClick.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 func onNew()  { guiMessageBox("Menu", "File: New") }

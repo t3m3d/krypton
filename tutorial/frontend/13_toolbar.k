@@ -7,7 +7,7 @@
 // Available icons: new, open, save, cut, copy, paste, undo, redo,
 // delete, print, find, replace, help, props.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_label = ""

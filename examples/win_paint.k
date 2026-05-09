@@ -17,9 +17,9 @@
 //     don't wipe the canvas
 //   - GDI: CreatePen + CreateSolidBrush + LineTo / FillRect
 
-import "windows.krh"
-import "user32.krh"
-import "gdi32.krh"
+import "head:windows"
+import "head:user32"
+import "head:gdi32"
 
 jxt {
     func krPaintSetup(title)

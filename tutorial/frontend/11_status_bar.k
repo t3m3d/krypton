@@ -13,7 +13,7 @@
 // guiStatusIcon adds a system icon (info / warning / error / ok / question).
 // guiStatusBgColor tints the whole bar (turns off the modern theme).
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_bar   = ""

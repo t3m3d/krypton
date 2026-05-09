@@ -16,9 +16,9 @@
 // callbacks would let it move to Krypton). The Krypton side is the
 // message pump driver — same pattern as win_hello.k.
 
-import "windows.krh"
-import "user32.krh"
-import "gdi32.krh"
+import "head:windows"
+import "head:user32"
+import "head:gdi32"
 
 jxt {
     func krCounterSetup(title)

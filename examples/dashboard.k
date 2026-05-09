@@ -24,8 +24,8 @@
 // Best viewed in Windows Terminal, PowerShell 7, or modern cmd.exe.
 // Press Ctrl+C to exit.
 
-import "windows.krh"
-import "process.krh"
+import "head:windows"
+import "head:process"
 
 // ── ANSI helpers ──────────────────────────────────────────────────
 

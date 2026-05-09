@@ -4,7 +4,7 @@
 // inserts a node — pass "0" for top-level, or another item handle to
 // nest. Selection changes fire guiOnChange.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_tree  = ""

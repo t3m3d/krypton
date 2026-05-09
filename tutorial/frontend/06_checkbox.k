@@ -3,7 +3,7 @@
 // guiCheckbox returns a handle. guiIsChecked returns "1" / "0".
 // guiSetChecked(handle, 1) checks programmatically.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_check = ""

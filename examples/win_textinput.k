@@ -12,9 +12,9 @@
 // the WindowProc; the message pump is pure Krypton (same pattern as
 // win_hello / win_counter).
 
-import "windows.krh"
-import "user32.krh"
-import "gdi32.krh"
+import "head:windows"
+import "head:user32"
+import "head:gdi32"
 
 jxt {
     func krInputSetup(title)
