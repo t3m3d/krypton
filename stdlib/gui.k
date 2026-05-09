@@ -44,6 +44,7 @@ jxt {
     func krGuiInit()
     func krGuiWindow(title, w, h)             -> char_ptr
     func krGuiShow(hwnd)
+    func krGuiHide(hwnd)
     func krGuiButton(parent, label, x, y, w, h) -> char_ptr
     func krGuiLabel(parent, text, x, y, w, h)  -> char_ptr
     func krGuiTextInput(parent, x, y, w, h)    -> char_ptr
@@ -773,6 +774,17 @@ cfunc {
         if (!hwnd) return (char*)"0";
         ShowWindow(hwnd, SW_SHOW);
         UpdateWindow(hwnd);
+        return (char*)"1";
+    }
+
+    // Hide a window — used by the IDE's per-tab RichEdit design so tab
+    // switches just toggle visibility instead of re-loading text + re-
+    // applying syntax-highlight runs.
+    char* krGuiHide(char* hwnd_str) {
+        HWND hwnd = NULL;
+        sscanf(hwnd_str, "%p", (void**)&hwnd);
+        if (!hwnd) return (char*)"0";
+        ShowWindow(hwnd, SW_HIDE);
         return (char*)"1";
     }
 
@@ -5814,6 +5826,7 @@ cfunc {
 func guiInit()                                   { emit krGuiInit() }
 func guiWindow(title, w, h)                      { emit krGuiWindow(title, w + "", h + "") }
 func guiShow(hwnd)                               { emit krGuiShow(hwnd) }
+func guiHide(hwnd)                               { emit krGuiHide(hwnd) }
 func guiButton(parent, label, x, y, w, h)        { emit krGuiButton(parent, label, x + "", y + "", w + "", h + "") }
 func guiLabel(parent, text, x, y, w, h)          { emit krGuiLabel(parent, text, x + "", y + "", w + "", h + "") }
 func guiTextInput(parent, x, y, w, h)            { emit krGuiTextInput(parent, x + "", y + "", w + "", h + "") }
