@@ -8,7 +8,7 @@
 // The splitter only moves itself. Your onChange callback uses
 // guiSplitterPos + guiMove to reposition the panels around it.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_left  = ""

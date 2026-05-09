@@ -4,7 +4,7 @@
 // guiGetText(handle). Storing the handle in a module-level global lets
 // the click callback see it.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_input = ""

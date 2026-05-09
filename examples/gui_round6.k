@@ -2,7 +2,7 @@
 // + scrollbar. Drag the scrollbar; the label updates with the latest
 // reading. Click the button to open the color picker.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_label = ""

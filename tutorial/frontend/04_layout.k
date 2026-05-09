@@ -6,7 +6,7 @@
 //
 // In a future tier, guiVStack / guiHStack will handle this for you.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_first  = ""

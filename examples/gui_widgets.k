@@ -11,7 +11,7 @@
 // drive, plus a menu bar with File / Edit / Help that all fire
 // callbacks. Stresses every widget in the library.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_input  = ""

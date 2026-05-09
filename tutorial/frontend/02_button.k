@@ -3,7 +3,7 @@
 // guiButton returns a handle. Wire a callback with guiOnClick passing
 // funcptr(name). The callback is a normal no-arg func.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 func onClick() {

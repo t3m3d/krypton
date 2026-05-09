@@ -17,10 +17,10 @@
 // scrollbars; menu commands route through the standard edit-control
 // messages (WM_CUT / WM_COPY / WM_PASTE / EM_SETSEL).
 
-import "windows.krh"
-import "user32.krh"
-import "gdi32.krh"
-import "comdlg32.krh"
+import "head:windows"
+import "head:user32"
+import "head:gdi32"
+import "head:comdlg32"
 
 jxt {
     func krNotepadSetup(title)

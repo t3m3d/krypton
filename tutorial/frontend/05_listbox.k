@@ -3,7 +3,7 @@
 // guiListbox returns a handle. Add / clear / read selection via
 // guiListAdd / guiListClear / guiListSelected.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_input = ""

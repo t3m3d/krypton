@@ -11,7 +11,7 @@
 // .tiff (GDI+ via runtime LoadLibrary). No extra link flag needed —
 // gdiplus.dll is resolved on first use.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_image = ""

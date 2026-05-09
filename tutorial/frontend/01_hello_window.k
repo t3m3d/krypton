@@ -5,7 +5,7 @@
 //   guiWindow(...) — make a window
 //   guiShow(...) + guiRun() — display it and run the event loop
 
-import "stdlib/gui.k"
+import "k:gui"
 
 just run {
     guiInit()

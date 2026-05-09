@@ -18,10 +18,10 @@
 // WindowProc + class registration + setup live in cfunc; the message
 // pump is pure Krypton.
 
-import "windows.krh"
-import "user32.krh"
-import "gdi32.krh"
-import "comctl32.krh"
+import "head:windows"
+import "head:user32"
+import "head:gdi32"
+import "head:comctl32"
 
 jxt {
     func krLvSetup(title)

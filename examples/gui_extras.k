@@ -5,7 +5,7 @@
 //   gcc tmp.c -o gui_extras.exe -luser32 -lgdi32 -lcomctl32 -lcomdlg32 \
 //       -lole32 -lshell32 -ldwmapi -luxtheme -ladvapi32 -lm -w
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_combo  = ""
