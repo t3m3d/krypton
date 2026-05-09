@@ -320,6 +320,10 @@ export func kr_bufsetbyte(buf, off, val) {
     emit bufSetByte(buf, off, val)
 }
 
+export func kr_bufgetbyte(buf, off) {
+    emit bufGetByte(buf, off)
+}
+
 // ── Struct builtins ───────────────────────────────────────────────
 
 export func kr_structnew(name) {
