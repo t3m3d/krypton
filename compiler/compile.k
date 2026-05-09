@@ -3305,36 +3305,87 @@ func irPostfix(tokens, pos, ntoks, lc, types) {
     let pair = irPrimary(tokens, pos, ntoks, lc, types)
     let code = pairVal(pair)
     let p = pairPos(pair)
+    // 1.8.10: deferred-offset state for nested-struct chains.
+    // When we walk `outer.inner.field`, the outer LOAD goes onto the
+    // value stack once, then we accumulate (innerOff + fieldOff) into
+    // `accumOff` without emitting any intermediate buf reads. Only the
+    // final primitive field flushes a single buf read with the combined
+    // offset. The current "deferred type" is tracked separately from
+    // the IR-comment tag because the comment is inert — it never
+    // reaches codegen — so we can drop/replace it without re-emitting
+    // it during chain traversal.
+    let accumOff = 0
+    let deferredType = ""    // "*Vec3" etc. while building a chain
+    // Seed deferredType from the trailing TYPE comment that irPrimary
+    // may have emitted on the LOAD line.
+    let nLines0 = lineCount(code)
+    if nLines0 > 0 {
+        let last0 = getLine(code, nLines0 - 1)
+        if startsWith(last0, "; TYPE ") == "1" {
+            deferredType = substring(last0, 7, len(last0))
+        }
+    }
     while tokAt(tokens, p) == "LBRACK" || tokAt(tokens, p) == "DOT" {
         if tokAt(tokens, p) == "LBRACK" {
             let idxp = irExpr(tokens, p + 1, ntoks, lc, types)
             let idxcode = pairVal(idxp)
             p = pairPos(idxp) + 1
-            // Phase C: if irPrimary tagged the base with a typed-pointer
-            // hint, lower `[i]` to a direct typed-width buf read instead
-            // of the slow generic INDEX → kr_idx (which allocates a
-            // 1-char string per access).
-            //   *u8  → bufGetByte (1 byte)
-            //   *u16 → bufGetWord — note: kr_bufgetword takes ptr only,
-            //          NO offset, so *u16 stays on INDEX for now.
-            //   *u32 / *i32 → bufGetDwordAt (4 bytes)
-            //   *u64 / *i64 → bufGetQwordAt (8 bytes)
-            let nLines = lineCount(code)
-            let lastLine = ""
-            if nLines > 0 { lastLine = getLine(code, nLines - 1) }
-            if lastLine == "; TYPE *u8" {
-                code = code + idxcode + "BUILTIN bufGetByte 2\n"
-            } else if lastLine == "; TYPE *u32" || lastLine == "; TYPE *i32" {
-                code = code + idxcode + "BUILTIN bufGetDwordAt 2\n"
-            } else if lastLine == "; TYPE *u64" || lastLine == "; TYPE *i64" {
-                code = code + idxcode + "BUILTIN bufGetQwordAt 2\n"
+            // If we have an accumulated nested offset waiting, fold it
+            // into the index expression (idx*N + accumOff) before the
+            // BUILTIN call.
+            let addAcc = ""
+            if accumOff != 0 { addAcc = "PUSH " + accumOff + "\nADD\n" }
+            if deferredType == "*u8" {
+                code = code + idxcode + addAcc + "BUILTIN bufGetByte 2\n"
+            } else if deferredType == "*u16" || deferredType == "*i16" {
+                code = code + idxcode + "PUSH 2\nMUL\n" + addAcc + "BUILTIN bufGetWordAt 2\n"
+            } else if deferredType == "*u32" || deferredType == "*i32" {
+                code = code + idxcode + "PUSH 4\nMUL\n" + addAcc + "BUILTIN bufGetDwordAt 2\n"
+            } else if deferredType == "*u64" || deferredType == "*i64" {
+                code = code + idxcode + "PUSH 8\nMUL\n" + addAcc + "BUILTIN bufGetQwordAt 2\n"
             } else {
                 code = code + idxcode + "INDEX\n"
             }
+            accumOff = 0
+            deferredType = ""
         } else {
             let field = tokVal(tokAt(tokens, p + 1))
             p = p + 2
-            code = code + "GETFIELD " + field + "\n"
+            let didTypedField = 0
+            if startsWith(deferredType, "*") == "1" {
+                let sname = substring(deferredType, 1, len(deferredType))
+                let info = irTypeOf(types, sname + "." + field)
+                if len(info) > 0 {
+                    let pipe1 = indexOf(info, "|")
+                    let offStr = substring(info, 0, pipe1)
+                    let ftype  = substring(info, pipe1 + 1, len(info))
+                    let fOff = toInt(offStr)
+                    if startsWith(ftype, "*") == "1" {
+                        // Nested struct field — defer further; just
+                        // accumulate the offset and re-tag the type.
+                        accumOff = accumOff + fOff
+                        deferredType = ftype
+                        didTypedField = 1
+                    } else {
+                        let fop = ""
+                        if ftype == "u8"  || ftype == "i8"  { fop = "BUILTIN bufGetByte 2\n" }
+                        if ftype == "u16" || ftype == "i16" { fop = "BUILTIN bufGetWordAt 2\n" }
+                        if ftype == "u32" || ftype == "i32" { fop = "BUILTIN bufGetDwordAt 2\n" }
+                        if ftype == "u64" || ftype == "i64" { fop = "BUILTIN bufGetQwordAt 2\n" }
+                        if len(fop) > 0 {
+                            code = code + "PUSH " + (accumOff + fOff) + "\n" + fop
+                            didTypedField = 1
+                            accumOff = 0
+                            deferredType = ""
+                        }
+                    }
+                }
+            }
+            if didTypedField == 0 {
+                code = code + "GETFIELD " + field + "\n"
+                deferredType = ""
+                accumOff = 0
+            }
         }
     }
     emit code + "," + p
@@ -3655,18 +3706,78 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
         emit "," + p
     }
 
-    // field assignment: ID DOT ID ASSIGN
+    // field assignment: ID DOT ID (DOT ID)* ASSIGN
+    // 1.8.10: nested struct LHS supported via the same deferred-offset
+    // accumulation that irPostfix uses for reads. Walk the DOT chain,
+    // accumulate nested struct offsets, then emit a single typed write
+    // at the leaf primitive field.
     if tt == "ID" {
         if tokAt(tokens, pos + 1) == "DOT" {
             if tokType(tokAt(tokens, pos + 2)) == "ID" {
-                if tokAt(tokens, pos + 3) == "ASSIGN" {
+                // Walk the chain to find the ASSIGN.
+                let chainEnd = pos + 2
+                while tokAt(tokens, chainEnd + 1) == "DOT" && tokType(tokAt(tokens, chainEnd + 2)) == "ID" {
+                    chainEnd = chainEnd + 2
+                }
+                if tokAt(tokens, chainEnd + 1) == "ASSIGN" {
                     let objName = tokVal(tok)
-                    let field = tokVal(tokAt(tokens, pos + 2))
-                    let pair = irExpr(tokens, pos + 4, ntoks, lc, types)
-                    let code = pairVal(pair)
-                    let p = pairPos(pair)
-                    if tokAt(tokens, p) == "SEMI" { p += 1 }
-                    emit "LOAD " + objName + "\n" + code + "SETFIELD " + field + "\nSTORE " + objName + "\n," + p
+                    let objType = irTypeOf(types, objName)
+                    let didTypedWrite = 0
+                    if startsWith(objType, "*") == "1" && len(objType) > 1 {
+                        // Walk fields, accumulate offset, find leaf type.
+                        let curType = objType    // "*Outer"
+                        let acc = 0
+                        let fpos = pos + 2
+                        let walkOK = 1
+                        let leafType = ""
+                        while fpos <= chainEnd && walkOK == 1 {
+                            let fname = tokVal(tokAt(tokens, fpos))
+                            let sname = substring(curType, 1, len(curType))
+                            let info  = irTypeOf(types, sname + "." + fname)
+                            if len(info) == 0 { walkOK = 0 }
+                            if walkOK == 1 {
+                                let pipe1 = indexOf(info, "|")
+                                let off   = toInt(substring(info, 0, pipe1))
+                                let ft    = substring(info, pipe1 + 1, len(info))
+                                acc = acc + off
+                                if fpos == chainEnd {
+                                    leafType = ft
+                                } else {
+                                    if startsWith(ft, "*") == "1" {
+                                        curType = ft
+                                    } else {
+                                        // Tried to chain through a primitive — bail.
+                                        walkOK = 0
+                                    }
+                                }
+                            }
+                            fpos = fpos + 2
+                        }
+                        if walkOK == 1 {
+                            let setOp = ""
+                            if leafType == "u8"  || leafType == "i8"  { setOp = "BUILTIN bufSetByte 3\n" }
+                            if leafType == "u16" || leafType == "i16" { setOp = "BUILTIN bufSetWordAt 3\n" }
+                            if leafType == "u32" || leafType == "i32" { setOp = "BUILTIN bufSetDwordAt 3\n" }
+                            if leafType == "u64" || leafType == "i64" { setOp = "BUILTIN bufSetQwordAt 3\n" }
+                            if len(setOp) > 0 {
+                                let valp = irExpr(tokens, chainEnd + 2, ntoks, lc, types)
+                                let p2 = pairPos(valp)
+                                if tokAt(tokens, p2) == "SEMI" { p2 += 1 }
+                                emit "LOAD " + objName + "\nPUSH " + acc + "\n" +
+                                     pairVal(valp) + setOp + "POP\n," + p2
+                                didTypedWrite = 1
+                            }
+                        }
+                    }
+                    if didTypedWrite == 0 && tokAt(tokens, pos + 3) == "ASSIGN" {
+                        // Fall back to the legacy single-level env-style write.
+                        let field = tokVal(tokAt(tokens, pos + 2))
+                        let pair = irExpr(tokens, pos + 4, ntoks, lc, types)
+                        let code = pairVal(pair)
+                        let p = pairPos(pair)
+                        if tokAt(tokens, p) == "SEMI" { p += 1 }
+                        emit "LOAD " + objName + "\n" + code + "SETFIELD " + field + "\nSTORE " + objName + "\n," + p
+                    }
                 }
             }
         }
@@ -3711,6 +3822,52 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
         let op = "ADD\n"
         if tok == "MINUSMINUS" { op = "SUB\n" }
         emit "LOAD " + name + "\nPUSH 1\n" + op + "STORE " + name + "\n," + p
+    }
+
+    // Phase C 1.8.7: typed-pointer subscript assignment `p[i] = v`.
+    // Lowers to BUILTIN bufSet*At with proper sizeof(T) byte-offset
+    // scaling, mirroring the read-side specialization in irPostfix.
+    // Only fires when `name` has a recognised typed-pointer annotation;
+    // untyped `p[i] = v` falls through to whatever existing handler
+    // catches it (today: nothing — that's a future enhancement).
+    if tt == "ID" && tokAt(tokens, pos + 1) == "LBRACK" {
+        let name = tokVal(tok)
+        let varType = irTypeOf(types, name)
+        if len(varType) > 0 {
+            // Find the matching RBRACK and check for an ASSIGN after.
+            let depth = 1
+            let pB = pos + 2
+            while pB < ntoks && depth > 0 {
+                let tk = tokAt(tokens, pB)
+                if tk == "LBRACK" { depth += 1 }
+                if tk == "RBRACK" { depth -= 1 }
+                if depth > 0 { pB += 1 }
+            }
+            if tokAt(tokens, pB) == "RBRACK" && tokAt(tokens, pB + 1) == "ASSIGN" {
+                let setOp = ""
+                let scaleOp = ""
+                if varType == "*u8" {
+                    setOp = "BUILTIN bufSetByte 3\n"
+                } else if varType == "*u16" || varType == "*i16" {
+                    setOp = "BUILTIN bufSetWordAt 3\n"
+                    scaleOp = "PUSH 2\nMUL\n"
+                } else if varType == "*u32" || varType == "*i32" {
+                    setOp = "BUILTIN bufSetDwordAt 3\n"
+                    scaleOp = "PUSH 4\nMUL\n"
+                } else if varType == "*u64" || varType == "*i64" {
+                    setOp = "BUILTIN bufSetQwordAt 3\n"
+                    scaleOp = "PUSH 8\nMUL\n"
+                }
+                if len(setOp) > 0 {
+                    let idxp = irExpr(tokens, pos + 2, ntoks, lc, types)
+                    let valp = irExpr(tokens, pB + 2, ntoks, lc, types)
+                    let p = pairPos(valp)
+                    if tokAt(tokens, p) == "SEMI" { p += 1 }
+                    emit "LOAD " + name + "\n" + pairVal(idxp) + scaleOp +
+                         pairVal(valp) + setOp + "POP\n," + p
+                }
+            }
+        }
     }
 
     // plain assignment
@@ -3767,6 +3924,44 @@ func irTypeOf(types, name) {
     emit ""
 }
 
+// Phase C 1.8.9: total size in bytes of a struct, derived from the
+// pre-scanned `<sname>.<field>|<offset>|<type>` lines. Returns the
+// byte offset of the highest field plus its width — i.e. the
+// sequential-layout total size, no padding/alignment.
+func irStructSizeOf(types, sname) {
+    // Prefer the explicit padded total recorded as `__size__.<sname>`
+    // — written at the end of irScanStructTypesOnce after natural
+    // alignment is applied. Fall back to scanning fields for older
+    // type tables that don't carry the sentinel.
+    let sizeKey = "__size__." + sname
+    let sizeRec = irTypeOf(types, sizeKey)
+    if len(sizeRec) > 0 { emit toInt(sizeRec) }
+
+    let n = lineCount(types)
+    let i = 0
+    let prefix = sname + "."
+    let totalSize = 0
+    while i < n {
+        let line = getLine(types, i)
+        if startsWith(line, prefix) == "1" {
+            let pipe1 = indexOf(line, "|")
+            let rest  = substring(line, pipe1 + 1, len(line))
+            let pipe2 = indexOf(rest, "|")
+            let off   = toInt(substring(rest, 0, pipe2))
+            let ft    = substring(rest, pipe2 + 1, len(rest))
+            let fsize = 4
+            if ft == "u8"  || ft == "i8"  { fsize = 1 }
+            if ft == "u16" || ft == "i16" { fsize = 2 }
+            if ft == "u32" || ft == "i32" { fsize = 4 }
+            if ft == "u64" || ft == "i64" { fsize = 8 }
+            let endOff = off + fsize
+            if endOff > totalSize { totalSize = endOff }
+        }
+        i += 1
+    }
+    emit totalSize
+}
+
 // Phase B: type-annotation parser. Eats `(*)* base` where base is
 // either an IDENT/KW or a bracketed `[type]`. Recurses for nested
 // `[*Vec3]`-style forms. Returns the position AFTER the type body
@@ -3794,6 +3989,63 @@ func irSkipTypeAnnotation(tokens, pos) {
 
 func irLetIR(tokens, pos, ntoks, lc, inFunc, types) {
     let name = tokVal(tokAt(tokens, pos))
+    // Phase C 1.8.9: `let local TYPE name` — heap-allocate sizeof(TYPE)
+    // bytes via bufNew and store the pointer in `name`. Same memory
+    // model as a heap struct, but the syntax matches what true stack
+    // allocation will look like once the x64.k frame layout supports
+    // it. The pre-scan in irScanFuncTypes already recorded `name|*TYPE`
+    // so reads/writes via `name.field` lower to typed buf calls.
+    if name == "local" {
+        let typeTk = tokAt(tokens, pos + 1)
+        let varTk  = tokAt(tokens, pos + 2)
+        if startsWith(typeTk, "ID:") == "1" && startsWith(varTk, "ID:") == "1" {
+            let typeName = substring(typeTk, 3, len(typeTk))
+            let varName  = substring(varTk, 3, len(varTk))
+            let structSize = irStructSizeOf(types, typeName)
+            if structSize > 0 {
+                let p = pos + 3
+                if tokAt(tokens, p) == "SEMI" { p += 1 }
+                let baseCode = "LOCAL " + varName + "\nPUSH " + structSize +
+                               "\nBUILTIN bufNew 1\nSTORE " + varName + "\n"
+                // Emit default-value field initializers captured at
+                // struct-scan time. Walk types table for
+                // `__default__.<typeName>.<fname>|val` lines and emit
+                // a typed write for each, using the field's offset/type
+                // looked up in the same table.
+                let initCode = ""
+                let dpfx = "__default__." + typeName + "."
+                let dn = lineCount(types)
+                let di = 0
+                while di < dn {
+                    let dline = getLine(types, di)
+                    if startsWith(dline, dpfx) == "1" {
+                        let dpipe = indexOf(dline, "|")
+                        let dfname = substring(dline, len(dpfx), dpipe)
+                        let dval = substring(dline, dpipe + 1, len(dline))
+                        let finfo = irTypeOf(types, typeName + "." + dfname)
+                        if len(finfo) > 0 {
+                            let fpipe = indexOf(finfo, "|")
+                            let foff = substring(finfo, 0, fpipe)
+                            let ft = substring(finfo, fpipe + 1, len(finfo))
+                            let setOp = ""
+                            if ft == "u8"  || ft == "i8"  { setOp = "BUILTIN bufSetByte 3\n" }
+                            if ft == "u16" || ft == "i16" { setOp = "BUILTIN bufSetWordAt 3\n" }
+                            if ft == "u32" || ft == "i32" { setOp = "BUILTIN bufSetDwordAt 3\n" }
+                            if ft == "u64" || ft == "i64" { setOp = "BUILTIN bufSetQwordAt 3\n" }
+                            if len(setOp) > 0 {
+                                initCode = initCode + "LOAD " + varName +
+                                           "\nPUSH " + foff +
+                                           "\nPUSH " + dval +
+                                           "\n" + setOp + "POP\n"
+                            }
+                        }
+                    }
+                    di += 1
+                }
+                emit baseCode + initCode + "," + p
+            }
+        }
+    }
     let p = irSkipTypeAnnotation(tokens, pos + 1)
     // skip ASSIGN
     p += 1
@@ -3962,6 +4214,124 @@ func irTryIR(tokens, pos, ntoks, lc, inFunc, types) {
     emit "TRY " + catchLabel + "\n" + bodyCode + "ENDTRY\n" + "LABEL " + catchLabel + "\n" + "LABEL " + endLabel + "\n," + p
 }
 
+// Phase C 1.8.8: pre-scan the entire token stream for struct definitions
+// and emit field-offset entries the lookup table can find. Each struct
+// produces lines of the form `StructName.field|byteOffset|fieldType`.
+// Primitive widths (u8/i8/u16/i16/u32/i32/u64/i64) get exact sizes.
+// 1.8.10: a nested struct field (type matches a struct already declared
+// earlier in the file) gets sized from the previously-recorded fields,
+// and is recorded as `*StructName` so later field-chain access (`a.b.c`)
+// can resolve `a.b` to a typed pointer to the nested region.
+// Multi-pass struct scan: each pass resolves one more level of nested
+// struct sizing using the previous pass's output as size hints. Iterate
+// until output stabilizes (or hard cap at 16 — that's 16 levels of
+// struct nesting, plenty for any practical schema). Eliminates the
+// lexical-ordering requirement; structs can reference each other in
+// any declaration order.
+func irScanStructTypes(tokens, ntoks) {
+    let prev = ""
+    let curr = irScanStructTypesOnce(tokens, ntoks, "")
+    let iters = 0
+    while curr != prev && iters < 16 {
+        prev = curr
+        curr = irScanStructTypesOnce(tokens, ntoks, curr)
+        iters = iters + 1
+    }
+    emit curr
+}
+
+func irScanStructTypesOnce(tokens, ntoks, sizeHints) {
+    let sb = sbNew()
+    let i = 0
+    while i < ntoks {
+        let tk = tokAt(tokens, i)
+        if tk == "KW:struct" || tk == "KW:class" || tk == "KW:type" {
+            let snameTk = tokAt(tokens, i + 1)
+            if startsWith(snameTk, "ID:") == "1" && tokAt(tokens, i + 2) == "LBRACE" {
+                let sname = substring(snameTk, 3, len(snameTk))
+                let p = i + 3
+                let off = 0
+                let maxAlign = 1
+                while p < ntoks && tokAt(tokens, p) != "RBRACE" {
+                    if tokAt(tokens, p) == "KW:let" {
+                        let fnameTk = tokAt(tokens, p + 1)
+                        if startsWith(fnameTk, "ID:") == "1" {
+                            let fname = substring(fnameTk, 3, len(fnameTk))
+                            let ftype = "u32"      // default if no annotation
+                            let fsize = 4
+                            let falign = 4
+                            let q = p + 2
+                            if tokAt(tokens, q) == "COLON" {
+                                let typeStart = q + 1
+                                let typeEnd = irSkipTypeBody(tokens, typeStart)
+                                ftype = irTypeStr(tokens, typeStart, typeEnd)
+                                if ftype == "u8"  || ftype == "i8"  { fsize = 1  falign = 1 }
+                                if ftype == "u16" || ftype == "i16" { fsize = 2  falign = 2 }
+                                if ftype == "u32" || ftype == "i32" { fsize = 4  falign = 4 }
+                                if ftype == "u64" || ftype == "i64" { fsize = 8  falign = 8 }
+                                // Nested struct: ftype names a struct.
+                                // Look up size + alignment in pass-1
+                                // hints. Empty on first pass → falls
+                                // back to fsize=4, falign=4.
+                                let nestedSize = irStructSizeOf(sizeHints, ftype)
+                                if nestedSize > 0 {
+                                    fsize = nestedSize
+                                    let nalignRec = irTypeOf(sizeHints, "__align__." + ftype)
+                                    if len(nalignRec) > 0 {
+                                        falign = toInt(nalignRec)
+                                    } else {
+                                        falign = 4    // safe default
+                                    }
+                                    ftype = "*" + ftype
+                                }
+                                q = typeEnd
+                            }
+                            // Natural alignment: round off up to falign
+                            // before placing this field.
+                            if off % falign != 0 {
+                                off = off + (falign - off % falign)
+                            }
+                            if falign > maxAlign { maxAlign = falign }
+                            sb = sbAppend(sb, sname + "." + fname + "|" + off + "|" + ftype + "\n")
+                            off = off + fsize
+                            // Capture int-literal default if present
+                            // (`field: u32 = 42`). Stored under the
+                            // separate `__default__.` prefix so it
+                            // doesn't pollute irTypeOf lookups.
+                            if tokAt(tokens, q) == "ASSIGN" {
+                                let dvTk = tokAt(tokens, q + 1)
+                                if tokType(dvTk) == "INT" {
+                                    sb = sbAppend(sb, "__default__." + sname + "." + fname + "|" + tokVal(dvTk) + "\n")
+                                }
+                                while q < ntoks && tokAt(tokens, q) != "SEMI" && tokAt(tokens, q) != "KW:let" && tokAt(tokens, q) != "RBRACE" {
+                                    q += 1
+                                }
+                            }
+                            p = q
+                            continue
+                        }
+                    }
+                    p += 1
+                }
+                // Pad struct total size up to maxAlign so arrays of
+                // this struct stay properly aligned. Recorded under
+                // `__size__.<sname>` so irStructSizeOf can prefer it.
+                // `__align__.<sname>` exposes the chosen alignment so
+                // outer structs that contain this one can place it
+                // tightly instead of padding to a worst-case 8.
+                let totalSize = off
+                if totalSize % maxAlign != 0 {
+                    totalSize = totalSize + (maxAlign - totalSize % maxAlign)
+                }
+                sb = sbAppend(sb, "__size__." + sname + "|" + totalSize + "\n")
+                sb = sbAppend(sb, "__align__." + sname + "|" + maxAlign + "\n")
+            }
+        }
+        i += 1
+    }
+    emit sbToString(sb)
+}
+
 // Phase C: pre-scan the function body for `let X: TYPE` patterns and
 // build a `name|type\n...` table the IR generator can consult when
 // emitting LOADs/INDEXes. Only LEXICAL scope is captured — names are
@@ -3980,11 +4350,23 @@ func irScanFuncTypes(tokens, bodyStart) {
         if tk == "KW:let" || tk == "KW:const" {
             let nameTk = tokAt(tokens, p + 1)
             if startsWith(nameTk, "ID:") == "1" {
+                let nameStr = substring(nameTk, 3, len(nameTk))
+                // Phase C 1.8.9: `let local TYPE name` — record name as `*TYPE`.
+                if nameStr == "local" {
+                    let typeTk = tokAt(tokens, p + 2)
+                    let varTk  = tokAt(tokens, p + 3)
+                    if startsWith(typeTk, "ID:") == "1" && startsWith(varTk, "ID:") == "1" {
+                        let typeName = substring(typeTk, 3, len(typeTk))
+                        let varName  = substring(varTk, 3, len(varTk))
+                        sb = sbAppend(sb, varName + "|*" + typeName + "\n")
+                        p = p + 4
+                        continue
+                    }
+                }
                 if tokAt(tokens, p + 2) == "COLON" {
-                    let name = substring(nameTk, 3, len(nameTk))
                     let typeStart = p + 3
                     let typeEnd = irSkipTypeBody(tokens, typeStart)
-                    sb = sbAppend(sb, name + "|" + irTypeStr(tokens, typeStart, typeEnd) + "\n")
+                    sb = sbAppend(sb, nameStr + "|" + irTypeStr(tokens, typeStart, typeEnd) + "\n")
                     p = typeEnd
                     continue
                 }
@@ -4022,8 +4404,10 @@ func irFuncIR(tokens, pos, ntoks) {
     if tokAt(tokens, p) == "ARROW" { p = p + 2 }
     // Phase C: pre-scan body for `let X: TYPE` so irPrimary can tag
     // LOADs with type hints and irPostfix can specialize INDEX into
-    // typed-pointer reads.
-    let funcTypes = irScanFuncTypes(tokens, p)
+    // typed-pointer reads. Also scan struct definitions across the
+    // whole token stream so `*Vec3.field` lowers to a typed offset
+    // read.
+    let funcTypes = irScanStructTypes(tokens, ntoks) + irScanFuncTypes(tokens, p)
     let bp = irBlockIR(tokens, p, ntoks, 0, "1", funcTypes)
     let bodyCode = pairVal(bp)
     p = pairPos(bp)
@@ -5131,7 +5515,7 @@ just run {
 
         let irEntry = findEntry(tokens, ntoks)
         if irEntry >= 0 {
-            let mainTypes = irScanFuncTypes(tokens, irEntry)
+            let mainTypes = irScanStructTypes(tokens, ntoks) + irScanFuncTypes(tokens, irEntry)
             let ep = irBlockIR(tokens, irEntry, ntoks, 0, "0", mainTypes)
             sbIR = sbAppend(sbIR, "FUNC __main__ 0\n" + sbToString(sbGlobInit) + pairVal(ep) + "END\n")
         }
