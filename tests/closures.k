@@ -34,10 +34,5 @@ just run {
     let h2 = func(x) { emit x + m }
     print("h2(0) with m=100  = " + h2(0) + " (expect 100)")
 
-    // Multiple closures, independent envs
-    let make = func(base) { emit base }   // returns its capture
-    // Wait — can't return values across closure boundary easily yet.
-    // Skip for now.
-
     print("done")
 }
