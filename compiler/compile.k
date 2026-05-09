@@ -1066,11 +1066,19 @@ func compilePrimary(tokens, pos, ntoks) {
             emit compileCall(tokens, pos, ntoks)
         }
         // check for struct literal: Name { field: val, ... }
-        // Only trigger if name starts with uppercase (struct convention)
+        // 2.0-alpha-3: tightened — require uppercase ID + LBRACE +
+        // `<ID>: ...` field syntax. Without the inner check, patterns
+        // like `while i < N { ... }` would attempt struct-literal parse.
         if tokAt(tokens, pos + 1) == "LBRACE" {
             let firstChar = name[0]
             if firstChar >= "A" && firstChar <= "Z" {
-                emit compileStructLiteral(tokens, pos, ntoks)
+                let inner1c = tokAt(tokens, pos + 2)
+                let inner2c = tokAt(tokens, pos + 3)
+                if startsWith(inner1c, "ID:") == "1" {
+                    if inner2c == "COLON" {
+                        emit compileStructLiteral(tokens, pos, ntoks)
+                    }
+                }
             }
         }
         emit cIdent(name) + "," + (pos + 1)
@@ -4906,7 +4914,6 @@ just run {
         }
         lsi += 1
     }
-
     let ii = 0
     while ii < ntoks {
         let itok = tokAt(tokens, ii)
@@ -5466,7 +5473,6 @@ just run {
             ii += 1
         }
     }
-
     // Emit import forward declarations
     if len(importFwdDecls) > 0 {
         sb = sbAppend(sb, importFwdDecls)
