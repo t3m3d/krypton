@@ -3446,15 +3446,48 @@ func irPrimary(tokens, pos, ntoks, lc, types) {
 
     // 2.0-alpha: lambda expression `func(params) { body }` — pre-scan
     // hoists the body to a top-level `FUNC _krlam<pos> N` ahead of
-    // time, so here we just push its address. No closures (captures
-    // are a 2.1 problem — invocation must pass captured values as args
-    // or use callPtr).
+    // time. If the body has free vars (closure), emit env-construction
+    // IR before the FUNCPTR so the result is a closure value (env head)
+    // instead of a raw fp. irScanFuncTypes tags such locals as
+    // `closure`; irCall dispatches them via env-extracting call.
     if (tok == "KW:func" || tok == "KW:fn") && tokAt(tokens, pos + 1) == "LPAREN" {
         let lp = pos + 2
-        while tokAt(tokens, lp) != "RPAREN" { lp += 1 }
+        let lpc = ""    // user param csv
+        while tokAt(tokens, lp) != "RPAREN" {
+            let lpt = tokAt(tokens, lp)
+            if tokType(lpt) == "ID" {
+                if len(lpc) > 0 { lpc = lpc + "," }
+                lpc = lpc + tokVal(lpt)
+            }
+            lp = lp + 1
+        }
         lp += 1   // past RPAREN
         if tokAt(tokens, lp) == "ARROW" { lp = lp + 2 }
         let lpEnd = skipBlock(tokens, lp)
+
+        let lFree = findFreeVars(tokens, lp, lpEnd, lpc)
+        if len(lFree) > 0 {
+            // Build env: envNew → for each free var: envSet(env, "name", val)
+            //          → envSet(env, "__fp__", FUNCPTR _krlam<pos>)
+            // The result on vstack is the closure value (env head).
+            let envCode = "BUILTIN envNew 0\n"
+            let lfc = count(lFree)
+            let lfi = 0
+            while lfi < lfc {
+                let lfname = split(lFree, lfi)
+                envCode = envCode +
+                    "PUSH \"" + lfname + "\"\n" +
+                    "LOAD " + lfname + "\n" +
+                    "BUILTIN envSet 3\n"
+                lfi = lfi + 1
+            }
+            envCode = envCode +
+                "PUSH \"__fp__\"\n" +
+                "FUNCPTR _krlam" + pos + "\n" +
+                "BUILTIN envSet 3\n"
+            emit envCode + "," + lpEnd
+        }
+
         emit "FUNCPTR _krlam" + pos + "\n," + lpEnd
     }
 
@@ -3477,6 +3510,14 @@ func irPrimary(tokens, pos, ntoks, lc, types) {
         // pointer read. Comment is stripped by x64.k's IR cleanup.
         let varType = irTypeOf(types, tv)
         if len(varType) > 0 {
+            // 2.0-alpha-3: closure capture — `__cap__:<name>` type
+            // means `tv` is a captured free var; rewrite the load as
+            // `LOAD __env; PUSH "<name>"; envGet 2`. The lambda body
+            // has __env as its first PARAM (added by irLambdaIR).
+            if startsWith(varType, "__cap__:") == "1" {
+                let capName = substring(varType, 8, len(varType))
+                emit "LOAD __env\nPUSH \"" + capName + "\"\nBUILTIN envGet 2\n," + (pos + 1)
+            }
             emit "LOAD " + tv + "\n; TYPE " + varType + "\n," + (pos + 1)
         }
         emit "LOAD " + tv + "\n," + (pos + 1)
@@ -3613,6 +3654,17 @@ func irCall(tokens, pos, ntoks, lc, types) {
     // already maps argc → kr_callptr1..4.
     if irTypeOf(types, fname) == "fp" {
         emit "LOAD " + fname + "\n" + code + "BUILTIN callPtr " + (argc + 1) + "\n," + (p + 1)
+    }
+
+    // 2.0-alpha-3: closure dispatch. The local is a closure value
+    // (env head with "__fp__" key + capture entries). Extract fp
+    // from env, then call fp(env, user_args...). callPtr's first
+    // arg is fp itself; the rest are passed to fp; argc = 1(fp) +
+    // 1(env) + N(user args).
+    if irTypeOf(types, fname) == "closure" {
+        let fpExtract = "LOAD " + fname + "\nPUSH \"__fp__\"\nBUILTIN envGet 2\n"
+        let envPush = "LOAD " + fname + "\n"
+        emit fpExtract + envPush + code + "BUILTIN callPtr " + (argc + 2) + "\n," + (p + 1)
     }
 
     // builtins vs user functions.
@@ -4399,17 +4451,47 @@ func irScanFuncTypes(tokens, bodyStart) {
                 // `f(args)` calls route through callPtr at irCall time.
                 // Match `let name = func(...)` / `let name = fn(...)` /
                 // `let name = funcptr(IDENT)`.
+                // 2.0-alpha-3: lambdas with free-var captures get tagged
+                // as "closure" instead of "fp" — irCall dispatches to a
+                // env-passing call (LOAD env; envGet __fp__; call fp(env, args)).
                 if tokAt(tokens, p + 2) == "ASSIGN" {
                     let rhsTk = tokAt(tokens, p + 3)
                     let isLam = "0"
+                    let isLamWithCaptures = "0"
                     if rhsTk == "KW:func" || rhsTk == "KW:fn" {
-                        if tokAt(tokens, p + 4) == "LPAREN" { isLam = "1" }
+                        if tokAt(tokens, p + 4) == "LPAREN" {
+                            isLam = "1"
+                            // Walk to RPAREN to find the body LBRACE,
+                            // then findFreeVars over the body.
+                            let lscan = p + 5
+                            let lparams = ""
+                            while tokAt(tokens, lscan) != "RPAREN" {
+                                let lpt = tokAt(tokens, lscan)
+                                if startsWith(lpt, "ID:") == "1" {
+                                    if len(lparams) > 0 { lparams = lparams + "," }
+                                    lparams = lparams + substring(lpt, 3, len(lpt))
+                                }
+                                lscan = lscan + 1
+                            }
+                            lscan = lscan + 1   // past RPAREN
+                            if tokAt(tokens, lscan) == "ARROW" { lscan = lscan + 2 }
+                            // lscan should now be at LBRACE
+                            if tokAt(tokens, lscan) == "LBRACE" {
+                                let lbodyEnd = skipBlock(tokens, lscan)
+                                let lfree = findFreeVars(tokens, lscan, lbodyEnd, lparams)
+                                if len(lfree) > 0 { isLamWithCaptures = "1" }
+                            }
+                        }
                     }
                     if rhsTk == "ID:funcptr" {
                         if tokAt(tokens, p + 4) == "LPAREN" { isLam = "1" }
                     }
-                    if isLam == "1" {
-                        sb = sbAppend(sb, nameStr + "|fp\n")
+                    if isLamWithCaptures == "1" {
+                        sb = sbAppend(sb, nameStr + "|closure\n")
+                    } else {
+                        if isLam == "1" {
+                            sb = sbAppend(sb, nameStr + "|fp\n")
+                        }
                     }
                 }
             }
@@ -4422,20 +4504,28 @@ func irScanFuncTypes(tokens, bodyStart) {
 // 2.0-alpha: lambda lowering. KW:func at pos with LPAREN immediately
 // after (no name). Emits a top-level FUNC <synthName> N IR with the
 // lambda body so a sibling FUNCPTR <synthName> can take its address.
-// Captures NOT supported (no closures in 1.x semantics — captures are
-// a 2.1 problem per docs/v20_plan.md). See project_v20_alpha2_continued.md
-// for the design sketch (env-via-struct passing).
+//
+// 2.0-alpha-3: closure support via env passing. When the lambda body
+// has free vars, prepend a hidden `__env` first param. Free vars in
+// the body get tagged as `__cap__:<name>` so irPrimary's ID handler
+// rewrites `LOAD <freeVar>` to `LOAD __env; PUSH "<name>"; envGet 2`.
+// Lambda creation site builds the env (envSet for each capture +
+// "__fp__" entry); irCall dispatches closure-typed locals through the
+// env-extracting call sequence.
 func irLambdaIR(tokens, pos, ntoks, lambdaName) {
     // pos is at KW:func; pos+1 is LPAREN.
     let p = pos + 2
-    let params = ""
+    let userParams = ""
     let paramTypes = ""
     let pc = 0
+    let paramCsv = ""
     while tokAt(tokens, p) != "RPAREN" {
         let pt = tokAt(tokens, p)
         if tokType(pt) == "ID" {
             let pname = tokVal(pt)
-            params = params + "PARAM " + pname + "\n"
+            userParams = userParams + "PARAM " + pname + "\n"
+            if len(paramCsv) > 0 { paramCsv = paramCsv + "," }
+            paramCsv = paramCsv + pname
             pc += 1
             if tokAt(tokens, p + 1) == "COLON" {
                 let typeStart = p + 2
@@ -4449,11 +4539,30 @@ func irLambdaIR(tokens, pos, ntoks, lambdaName) {
     }
     p += 1   // past RPAREN
     if tokAt(tokens, p) == "ARROW" { p = p + 2 }
-    let funcTypes = irScanStructTypes(tokens, ntoks) + irScanFuncTypes(tokens, p) + paramTypes
+
+    // Detect free vars; if any, prepend __env hidden first param and
+    // tag each free var so irPrimary rewrites it as envGet.
+    let bodyEnd = skipBlock(tokens, p)
+    let freeVars = findFreeVars(tokens, p, bodyEnd, paramCsv)
+    let captureTypes = ""
+    let allParams = userParams
+    if len(freeVars) > 0 {
+        allParams = "PARAM __env\n" + userParams
+        pc = pc + 1
+        let fcount = count(freeVars)
+        let fi = 0
+        while fi < fcount {
+            let fname = split(freeVars, fi)
+            captureTypes = captureTypes + fname + "|__cap__:" + fname + "\n"
+            fi = fi + 1
+        }
+    }
+
+    let funcTypes = irScanStructTypes(tokens, ntoks) + irScanFuncTypes(tokens, p) + paramTypes + captureTypes
     let bp = irBlockIR(tokens, p, ntoks, 0, "1", funcTypes)
     let bodyCode = pairVal(bp)
     p = pairPos(bp)
-    emit "FUNC " + lambdaName + " " + pc + "\n" + params + bodyCode + "RETURN\nEND\n\n," + p
+    emit "FUNC " + lambdaName + " " + pc + "\n" + allParams + bodyCode + "RETURN\nEND\n\n," + p
 }
 
 func irFuncIR(tokens, pos, ntoks) {
