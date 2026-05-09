@@ -4423,7 +4423,8 @@ func irScanFuncTypes(tokens, bodyStart) {
 // after (no name). Emits a top-level FUNC <synthName> N IR with the
 // lambda body so a sibling FUNCPTR <synthName> can take its address.
 // Captures NOT supported (no closures in 1.x semantics — captures are
-// a 2.1 problem per docs/v20_plan.md).
+// a 2.1 problem per docs/v20_plan.md). See project_v20_alpha2_continued.md
+// for the design sketch (env-via-struct passing).
 func irLambdaIR(tokens, pos, ntoks, lambdaName) {
     // pos is at KW:func; pos+1 is LPAREN.
     let p = pos + 2
@@ -4543,14 +4544,122 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
 }
 
 
+// 2.0-alpha-3: --port-1to2 migration scanner. Walks tokens, flags
+// patterns that are valid in 1.x but need attention before 2.0 ships.
+// Output goes to stderr; no code generated; caller exits 0.
+func emitPortWarnings(tokens, ntoks, fname) {
+    let warnings = 0
+    let i = 0
+    let topLevelLets = ""    // names declared at file scope
+
+    // Pre-pass: collect file-scope `let X = ...` names
+    let pp = 0
+    let ppDepth = 0
+    while pp < ntoks {
+        let pt = tokAt(tokens, pp)
+        if pt == "LBRACE" { ppDepth = ppDepth + 1 }
+        if pt == "RBRACE" { ppDepth = ppDepth - 1 }
+        if ppDepth == 0 && (pt == "KW:let" || pt == "KW:const") {
+            let nameTk = tokAt(tokens, pp + 1)
+            if startsWith(nameTk, "ID:") == "1" {
+                let nm = substring(nameTk, 3, len(nameTk))
+                if len(topLevelLets) > 0 { topLevelLets = topLevelLets + "," }
+                topLevelLets = topLevelLets + nm
+            }
+        }
+        pp = pp + 1
+    }
+
+    // Main pass
+    while i < ntoks {
+        let tok = tokAt(tokens, i)
+
+        // bufNew / rawAlloc / rawFree — manual heap
+        if tok == "ID:bufNew" && tokAt(tokens, i + 1) == "LPAREN" {
+            printErr(fname + ": warning [port-1to2]: bufNew() — manual heap allocation. In 2.0, prefer typed `let local TYPE name` (stack alloc) or wait for GC reclamation.")
+            warnings = warnings + 1
+        }
+        if tok == "ID:rawAlloc" && tokAt(tokens, i + 1) == "LPAREN" {
+            printErr(fname + ": warning [port-1to2]: rawAlloc() — escapes GC; 2.0 will require explicit `unsafe` block or paired rawFree.")
+            warnings = warnings + 1
+        }
+        if tok == "ID:rawFree" && tokAt(tokens, i + 1) == "LPAREN" {
+            printErr(fname + ": warning [port-1to2]: rawFree() — only needed for rawAlloc'd memory under 2.0 GC.")
+            warnings = warnings + 1
+        }
+
+        // Raw pointer arithmetic
+        if tok == "ID:ptrAdd" && tokAt(tokens, i + 1) == "LPAREN" {
+            printErr(fname + ": warning [port-1to2]: ptrAdd() — raw pointer arithmetic. Prefer typed `*u8 + n` syntax in 2.0.")
+            warnings = warnings + 1
+        }
+        if tok == "ID:ptrToInt" && tokAt(tokens, i + 1) == "LPAREN" {
+            printErr(fname + ": warning [port-1to2]: ptrToInt() — converts pointer to int. Loses GC-tracking under 2.0.")
+            warnings = warnings + 1
+        }
+
+        // Raw memory access
+        if tok == "ID:rawReadByte" || tok == "ID:rawReadWord" || tok == "ID:rawReadQword" {
+            if tokAt(tokens, i + 1) == "LPAREN" {
+                let fn = substring(tok, 3, len(tok))
+                printErr(fname + ": warning [port-1to2]: " + fn + "() — raw memory read. Prefer typed pointer indexing (`p[i]` with `let p: *u8 = ...`) for 2.0 safety.")
+                warnings = warnings + 1
+            }
+        }
+        if tok == "ID:rawWriteWord" || tok == "ID:rawWriteQword" {
+            if tokAt(tokens, i + 1) == "LPAREN" {
+                let fn = substring(tok, 3, len(tok))
+                printErr(fname + ": warning [port-1to2]: " + fn + "() — raw memory write. Prefer typed pointer assignment in 2.0.")
+                warnings = warnings + 1
+            }
+        }
+
+        // cfunc { } block — emitted as a single CBLOCK token by the
+        // tokenizer (compile.k:219), not KW:cfunc.
+        if tokType(tok) == "CBLOCK" {
+            printErr(fname + ": warning [port-1to2]: `cfunc { }` block — C-language body. 2.0 prefers pure-Krypton implementations once Win32 ABI marshalling lands.")
+            warnings = warnings + 1
+        }
+
+        // Mutable file-scope global: name from topLevelLets reassigned
+        // outside its own let.
+        if tokType(tok) == "ID" {
+            let nm2 = tokVal(tok)
+            if contains("," + topLevelLets + ",", "," + nm2 + ",") {
+                let nextTok = tokAt(tokens, i + 1)
+                if nextTok == "ASSIGN" {
+                    let prev = ""
+                    if i > 0 { prev = tokAt(tokens, i - 1) }
+                    if prev != "KW:let" && prev != "KW:const" {
+                        printErr(fname + ": warning [port-1to2]: file-scope `" + nm2 + "` reassigned — mutable module globals are broken in the native pipeline. Confine state to function scope or pass explicitly.")
+                        warnings = warnings + 1
+                    }
+                }
+            }
+        }
+
+        i = i + 1
+    }
+
+    if warnings == 0 {
+        printErr(fname + ": port-1to2 clean — no 2.0 migration concerns flagged.")
+    } else {
+        printErr(fname + ": port-1to2 done — " + warnings + " warning(s).")
+    }
+}
+
+
 just run {
     let kccVer = "1.8.0"
 
-    // Parse flags: --version, --ir, -o OUTFILE
+    // Parse flags: --version, --ir, -o OUTFILE, --port-1to2
     // 1.8.4: removed --headers. Install root is fixed at C:\krypton;
     // stdlib lives at <root>/stdlib and C bindings at <root>/headers.
     // The new `k:` / `c:` import prefixes resolve under those.
+    // 2.0-alpha-3: --port-1to2 is a diagnostic-only mode that scans
+    // source for patterns needing attention before a 2.0 upgrade.
     let irMode = 0
+    let portMode = 0
     let installRoot = "C:\\krypton"
     let headersDir  = installRoot + "\\headers"   // legacy var, kept for bin-dir derivation
     let outFile = ""
@@ -4564,11 +4673,11 @@ just run {
 
     if argCount() == 0 {
         printErr("kcc: no input file")
-        printErr("usage: kcc [-o out.exe] source.k")
+        printErr("usage: kcc [-o out.exe] [--port-1to2] source.k")
         emit 1
     }
 
-    while file == "--ir" || file == "-o" {
+    while file == "--ir" || file == "-o" || file == "--port-1to2" {
         if file == "--ir" {
             irMode = 1
             argIdx += 1
@@ -4576,6 +4685,10 @@ just run {
         if file == "-o" {
             argIdx += 1
             outFile = arg(argIdx + "")
+            argIdx += 1
+        }
+        if file == "--port-1to2" {
+            portMode = 1
             argIdx += 1
         }
         file = arg(argIdx + "")
@@ -4592,6 +4705,20 @@ just run {
     }
     let tokens = tokenize(source)
     let ntoks = lineCount(tokens)
+
+    // 2.0-alpha-3: --port-1to2 diagnostic mode. Scans source for
+    // patterns that need attention before a 2.0 upgrade and exits.
+    // No code generation. Patterns flagged:
+    //   - bufNew/rawAlloc/rawFree         — manual heap (lifetime cliff under future GC)
+    //   - rawReadByte/Word/Qword          — raw memory access (boundary check absent)
+    //   - rawWriteWord/Qword              — raw memory writes
+    //   - ptrAdd/ptrToInt/ptrIndex/ptrDeref — raw pointer arithmetic
+    //   - cfunc { }                       — C body (won't survive native pipeline; rewrite)
+    //   - top-level `let X = ...` followed by `X = ...` — mutable module global (broken in native)
+    if portMode == 1 {
+        emitPortWarnings(tokens, ntoks, file)
+        emit 0
+    }
 
     // Resolve base directory for relative imports
     let baseDir = ""
