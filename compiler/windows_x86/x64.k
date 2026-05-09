@@ -445,7 +445,7 @@ func emitStringTable(strs) {
 // ── Import table builder ──────────────────────────────────────────
 // Eight DLLs: kernel32.dll + krypton_rt.dll + advapi32.dll + pdh.dll + user32.dll + ckrypton_gui.dll + ckrypton_proc.dll + ckrypton_fs.dll
 
-let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA"
+let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,GetCurrentThreadId,GetLastError,SetLastError,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA,WaitForSingleObject,TerminateProcess,OpenProcess"
 let KRUSER_FUNCS = "GetSystemMetrics,MessageBoxA"
 let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword,kr_envnew,kr_envset,kr_envget,kr_hasfield,kr_structfields,kr_repeat,kr_padleft,kr_padright,kr_reverse,kr_abs,kr_min,kr_max,kr_endswith,kr_bin,kr_pow,kr_gc_allocated,kr_gc_limit,kr_gc_set_limit,kr_gc_collect,kr_arena_reset,kr_gc_checkpoint,kr_gc_restore,kr_gc_slab_count,kr_gc_slab_bytes,kr_bufgetbyte,kr_bufgetwordat,kr_bufsetwordat,kr_bufsetqwordat,kr_bufgetwordatbe,kr_bufgetdwordatbe,kr_bufgetqwordatbe,kr_gc_alloc_count,kr_gc_shadow_count,kr_gc_shadow_pop_n,kr_gc_shadow_push,kr_gc_walk_allocs,kr_rdtsc"
 let KRADV_FUNCS = "RegOpenKeyExA,RegQueryValueExA,RegEnumKeyExA,RegCloseKey,GetUserNameA"
@@ -556,12 +556,38 @@ func userItoaHelperSize() { emit 93 }
 // Only register-passed args (positions 0-3) supported today; stack args
 // (5+) are str-typed in every Win32 fn we care about.
 func win32IntArgs(name) {
-    if name == "Sleep"               { emit "0" }
-    if name == "ExitProcess"         { emit "0" }
-    if name == "WaitForSingleObject" { emit "1" }
-    if name == "TerminateProcess"    { emit "1" }
-    if name == "CloseHandle"         { emit "" }
-    if name == "OpenProcess"         { emit "0,1,2" }
+    // Sleep / process control
+    if name == "Sleep"                       { emit "0" }
+    if name == "ExitProcess"                 { emit "0" }
+    if name == "WaitForSingleObject"         { emit "0,1" }    // handle, ms
+    if name == "TerminateProcess"            { emit "0,1" }    // handle, code
+    if name == "OpenProcess"                 { emit "0,1,2" }
+    if name == "CloseHandle"                 { emit "0" }      // handle
+    // Console
+    if name == "GetStdHandle"                { emit "0" }      // nStdHandle
+    if name == "SetConsoleOutputCP"          { emit "0" }
+    if name == "GetConsoleMode"              { emit "0" }      // handle (lpMode is OUT-ptr)
+    if name == "SetConsoleMode"              { emit "0,1" }
+    if name == "GetConsoleScreenBufferInfo"  { emit "0" }      // handle (info is OUT-ptr)
+    // Toolhelp / snapshot
+    if name == "CreateToolhelp32Snapshot"    { emit "0,1" }
+    if name == "Process32First"              { emit "0" }      // handle
+    if name == "Process32Next"               { emit "0" }      // handle
+    // File I/O
+    if name == "WriteFile"                   { emit "0,2" }    // handle, nBytesToWrite
+    if name == "ReadFile"                    { emit "0,2" }    // handle, nBytesToRead
+    if name == "GetFileSizeEx"               { emit "0" }      // handle (size is OUT-ptr)
+    if name == "GetFileAttributesA"          { emit "" }       // str arg
+    // Heap
+    if name == "HeapFree"                    { emit "0,1" }    // handle, flags
+    if name == "GetProcessHeap"              { emit "" }       // no args (returns HANDLE)
+    // Module / library
+    if name == "FreeLibrary"                 { emit "0" }      // hModule
+    // Thread
+    if name == "GetCurrentProcessId"         { emit "" }       // no args
+    if name == "GetCurrentThreadId"          { emit "" }
+    if name == "GetLastError"                { emit "" }
+    if name == "SetLastError"                { emit "0" }      // dwErrCode
     emit ""
 }
 
@@ -571,13 +597,47 @@ func win32IntArgs(name) {
 // stores the raw int as if it were a char* pointer → segfault on next use.
 // The conversion is a 5-byte CALL __user_rt_itoa right after the IAT call.
 func win32IntReturns(name) {
-    if name == "GetTickCount"        { emit "1" }
-    if name == "GetTickCount64"      { emit "1" }
-    if name == "GetCurrentProcessId" { emit "1" }
-    if name == "GetCurrentThreadId"  { emit "1" }
-    if name == "GetLastError"        { emit "1" }
-    if name == "GetExitCodeProcess"  { emit "" }   // returns BOOL but writes int via OUT-ptr
-    if name == "WaitForSingleObject" { emit "1" }   // DWORD return
+    // Tick / time
+    if name == "GetTickCount"               { emit "1" }
+    if name == "GetTickCount64"             { emit "1" }
+    // Process / thread IDs
+    if name == "GetCurrentProcessId"        { emit "1" }
+    if name == "GetCurrentThreadId"         { emit "1" }
+    if name == "GetLastError"               { emit "1" }
+    // Sync
+    if name == "WaitForSingleObject"        { emit "1" }   // DWORD return
+    // Console / handles (HANDLE is opaque 64-bit; itoa so it can round-trip
+    // back as an int arg to other Win32 fns)
+    if name == "GetStdHandle"               { emit "1" }   // HANDLE
+    if name == "GetProcessHeap"             { emit "1" }   // HANDLE
+    if name == "CreateToolhelp32Snapshot"   { emit "1" }   // HANDLE
+    // BOOL returns — most Win32 fns return BOOL (DWORD). Marshal to "1"/"0"
+    // so user code can write `if CloseHandle(h) { ... }`.
+    if name == "CloseHandle"                { emit "1" }
+    if name == "TerminateProcess"           { emit "1" }
+    if name == "SetConsoleMode"             { emit "1" }
+    if name == "GetConsoleMode"             { emit "1" }
+    if name == "SetConsoleOutputCP"         { emit "1" }
+    if name == "GetConsoleScreenBufferInfo" { emit "1" }
+    if name == "Process32First"             { emit "1" }
+    if name == "Process32Next"              { emit "1" }
+    if name == "WriteFile"                  { emit "1" }
+    if name == "ReadFile"                   { emit "1" }
+    if name == "GetFileSizeEx"              { emit "1" }
+    if name == "FreeLibrary"                { emit "1" }
+    if name == "HeapFree"                   { emit "1" }
+    if name == "GlobalMemoryStatusEx"       { emit "1" }
+    if name == "GetSystemPowerStatus"       { emit "1" }
+    if name == "GetDiskFreeSpaceExA"        { emit "1" }
+    // DWORD returns
+    if name == "GetLogicalDrives"           { emit "1" }
+    if name == "GetFileAttributesA"         { emit "1" }
+    // Excluded (returns ptr or special):
+    //   GetExitCodeProcess    — BOOL but writes int via OUT-ptr; user reads OUT
+    //   HeapAlloc             — returns LPVOID (opaque pointer; treat as char*)
+    //   LoadLibraryA          — returns HMODULE (also a pointer; treat as char*)
+    //   GetProcAddress        — returns FARPROC (function pointer)
+    //   GetCommandLineA       — returns LPSTR (already a string)
     emit ""
 }
 
