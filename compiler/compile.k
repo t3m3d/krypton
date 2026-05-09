@@ -3131,12 +3131,12 @@ func irLabel(prefix, n) {
 }
 
 // IR emitter for expressions - returns IR text + new label counter
-func irExpr(tokens, pos, ntoks, lc) {
-    emit irTernary(tokens, pos, ntoks, lc)
+func irExpr(tokens, pos, ntoks, lc, types) {
+    emit irTernary(tokens, pos, ntoks, lc, types)
 }
 
-func irTernary(tokens, pos, ntoks, lc) {
-    let pair = irOr(tokens, pos, ntoks, lc)
+func irTernary(tokens, pos, ntoks, lc, types) {
+    let pair = irOr(tokens, pos, ntoks, lc, types)
     let code = pairVal(pair)
     let p = pairPos(pair)
     let nlc = lc
@@ -3144,13 +3144,13 @@ func irTernary(tokens, pos, ntoks, lc) {
         let trueLabel = irLabel("_tern_t", p)
         let endLabel = irLabel("_tern_e", p)
         nlc = nlc + 1
-        let tp = irExpr(tokens, p + 1, ntoks, nlc)
+        let tp = irExpr(tokens, p + 1, ntoks, nlc, types)
         let tcode = pairVal(tp)
         p = pairPos(tp)
         nlc = nlc + 1
         // skip COLON
         p = p + 1
-        let fp = irExpr(tokens, p, ntoks, nlc)
+        let fp = irExpr(tokens, p, ntoks, nlc, types)
         let fcode = pairVal(fp)
         p = pairPos(fp)
         nlc = nlc + 1
@@ -3160,8 +3160,8 @@ func irTernary(tokens, pos, ntoks, lc) {
     emit code + "," + p
 }
 
-func irOr(tokens, pos, ntoks, lc) {
-    let pair = irAnd(tokens, pos, ntoks, lc)
+func irOr(tokens, pos, ntoks, lc, types) {
+    let pair = irAnd(tokens, pos, ntoks, lc, types)
     let code = pairVal(pair)
     let p = pairPos(pair)
     let nlc = lc
@@ -3169,7 +3169,7 @@ func irOr(tokens, pos, ntoks, lc) {
         let shortLabel = irLabel("_or", p)
         let endLabel = irLabel("_orend", p)
         nlc = nlc + 1
-        let rp = irAnd(tokens, p + 1, ntoks, nlc)
+        let rp = irAnd(tokens, p + 1, ntoks, nlc, types)
         let rcode = pairVal(rp)
         p = pairPos(rp)
         // Stack-balanced short-circuit OR. JUMPIF pops left and jumps if
@@ -3185,8 +3185,8 @@ func irOr(tokens, pos, ntoks, lc) {
     emit code + "," + p
 }
 
-func irAnd(tokens, pos, ntoks, lc) {
-    let pair = irEquality(tokens, pos, ntoks, lc)
+func irAnd(tokens, pos, ntoks, lc, types) {
+    let pair = irEquality(tokens, pos, ntoks, lc, types)
     let code = pairVal(pair)
     let p = pairPos(pair)
     let nlc = lc
@@ -3194,7 +3194,7 @@ func irAnd(tokens, pos, ntoks, lc) {
         let shortLabel = irLabel("_and", p)
         let endLabel = irLabel("_andend", p)
         nlc = nlc + 1
-        let rp = irEquality(tokens, p + 1, ntoks, nlc)
+        let rp = irEquality(tokens, p + 1, ntoks, nlc, types)
         let rcode = pairVal(rp)
         p = pairPos(rp)
         // Stack-balanced short-circuit AND. Mirror of irOr.
@@ -3207,13 +3207,13 @@ func irAnd(tokens, pos, ntoks, lc) {
     emit code + "," + p
 }
 
-func irEquality(tokens, pos, ntoks, lc) {
-    let pair = irRelational(tokens, pos, ntoks, lc)
+func irEquality(tokens, pos, ntoks, lc, types) {
+    let pair = irRelational(tokens, pos, ntoks, lc, types)
     let code = pairVal(pair)
     let p = pairPos(pair)
     while tokAt(tokens, p) == "EQ" || tokAt(tokens, p) == "NEQ" {
         let op = tokAt(tokens, p)
-        let rp = irRelational(tokens, p + 1, ntoks, lc)
+        let rp = irRelational(tokens, p + 1, ntoks, lc, types)
         let rcode = pairVal(rp)
         p = pairPos(rp)
         if op == "EQ" { code = code + rcode + "EQ\n" }
@@ -3222,13 +3222,13 @@ func irEquality(tokens, pos, ntoks, lc) {
     emit code + "," + p
 }
 
-func irRelational(tokens, pos, ntoks, lc) {
-    let pair = irAdditive(tokens, pos, ntoks, lc)
+func irRelational(tokens, pos, ntoks, lc, types) {
+    let pair = irAdditive(tokens, pos, ntoks, lc, types)
     let code = pairVal(pair)
     let p = pairPos(pair)
     while tokAt(tokens, p) == "LT" || tokAt(tokens, p) == "GT" || tokAt(tokens, p) == "LTE" || tokAt(tokens, p) == "GTE" {
         let op = tokAt(tokens, p)
-        let rp = irAdditive(tokens, p + 1, ntoks, lc)
+        let rp = irAdditive(tokens, p + 1, ntoks, lc, types)
         let rcode = pairVal(rp)
         p = pairPos(rp)
         if op == "LT" { code = code + rcode + "LT\n" }
@@ -3239,13 +3239,13 @@ func irRelational(tokens, pos, ntoks, lc) {
     emit code + "," + p
 }
 
-func irAdditive(tokens, pos, ntoks, lc) {
-    let pair = irMultiplicative(tokens, pos, ntoks, lc)
+func irAdditive(tokens, pos, ntoks, lc, types) {
+    let pair = irMultiplicative(tokens, pos, ntoks, lc, types)
     let code = pairVal(pair)
     let p = pairPos(pair)
     while tokAt(tokens, p) == "PLUS" || tokAt(tokens, p) == "MINUS" {
         let op = tokAt(tokens, p)
-        let rp = irMultiplicative(tokens, p + 1, ntoks, lc)
+        let rp = irMultiplicative(tokens, p + 1, ntoks, lc, types)
         let rcode = pairVal(rp)
         p = pairPos(rp)
         if op == "PLUS" { code = code + rcode + "ADD\n" }
@@ -3254,13 +3254,13 @@ func irAdditive(tokens, pos, ntoks, lc) {
     emit code + "," + p
 }
 
-func irMultiplicative(tokens, pos, ntoks, lc) {
-    let pair = irPow(tokens, pos, ntoks, lc)
+func irMultiplicative(tokens, pos, ntoks, lc, types) {
+    let pair = irPow(tokens, pos, ntoks, lc, types)
     let code = pairVal(pair)
     let p = pairPos(pair)
     while tokAt(tokens, p) == "STAR" || tokAt(tokens, p) == "SLASH" || tokAt(tokens, p) == "MOD" {
         let op = tokAt(tokens, p)
-        let rp = irPow(tokens, p + 1, ntoks, lc)
+        let rp = irPow(tokens, p + 1, ntoks, lc, types)
         let rcode = pairVal(rp)
         p = pairPos(rp)
         if op == "STAR" { code = code + rcode + "MUL\n" }
@@ -3271,12 +3271,12 @@ func irMultiplicative(tokens, pos, ntoks, lc) {
 }
 
 // Right-associative ** — `a ** b ** c` is `a ** (b ** c)`.
-func irPow(tokens, pos, ntoks, lc) {
-    let pair = irUnary(tokens, pos, ntoks, lc)
+func irPow(tokens, pos, ntoks, lc, types) {
+    let pair = irUnary(tokens, pos, ntoks, lc, types)
     let code = pairVal(pair)
     let p = pairPos(pair)
     if tokAt(tokens, p) == "STARSTAR" {
-        let rp = irPow(tokens, p + 1, ntoks, lc)
+        let rp = irPow(tokens, p + 1, ntoks, lc, types)
         let rcode = pairVal(rp)
         p = pairPos(rp)
         code = code + rcode + "BUILTIN pow 2\n"
@@ -3284,33 +3284,44 @@ func irPow(tokens, pos, ntoks, lc) {
     emit code + "," + p
 }
 
-func irUnary(tokens, pos, ntoks, lc) {
+func irUnary(tokens, pos, ntoks, lc, types) {
     let tok = tokAt(tokens, pos)
     if tok == "MINUS" {
-        let pair = irUnary(tokens, pos + 1, ntoks, lc)
+        let pair = irUnary(tokens, pos + 1, ntoks, lc, types)
         let code = pairVal(pair)
         let p = pairPos(pair)
         emit code + "NEG\n," + p
     }
     if tok == "BANG" {
-        let pair = irUnary(tokens, pos + 1, ntoks, lc)
+        let pair = irUnary(tokens, pos + 1, ntoks, lc, types)
         let code = pairVal(pair)
         let p = pairPos(pair)
         emit code + "NOT\n," + p
     }
-    emit irPostfix(tokens, pos, ntoks, lc)
+    emit irPostfix(tokens, pos, ntoks, lc, types)
 }
 
-func irPostfix(tokens, pos, ntoks, lc) {
-    let pair = irPrimary(tokens, pos, ntoks, lc)
+func irPostfix(tokens, pos, ntoks, lc, types) {
+    let pair = irPrimary(tokens, pos, ntoks, lc, types)
     let code = pairVal(pair)
     let p = pairPos(pair)
     while tokAt(tokens, p) == "LBRACK" || tokAt(tokens, p) == "DOT" {
         if tokAt(tokens, p) == "LBRACK" {
-            let idxp = irExpr(tokens, p + 1, ntoks, lc)
+            let idxp = irExpr(tokens, p + 1, ntoks, lc, types)
             let idxcode = pairVal(idxp)
             p = pairPos(idxp) + 1
-            code = code + idxcode + "INDEX\n"
+            // Phase C: if irPrimary tagged the base with `; TYPE *u8`,
+            // lower `[i]` to a direct bufGetByte call instead of the
+            // slow generic INDEX → kr_idx (which allocates a 1-char
+            // string per byte read).
+            let nLines = lineCount(code)
+            let lastLine = ""
+            if nLines > 0 { lastLine = getLine(code, nLines - 1) }
+            if lastLine == "; TYPE *u8" {
+                code = code + idxcode + "BUILTIN bufGetByte 2\n"
+            } else {
+                code = code + idxcode + "INDEX\n"
+            }
         } else {
             let field = tokVal(tokAt(tokens, p + 1))
             p = p + 2
@@ -3320,7 +3331,7 @@ func irPostfix(tokens, pos, ntoks, lc) {
     emit code + "," + p
 }
 
-func irPrimary(tokens, pos, ntoks, lc) {
+func irPrimary(tokens, pos, ntoks, lc, types) {
     let tok = tokAt(tokens, pos)
     let tt = tokType(tok)
     let tv = tokVal(tok)
@@ -3344,7 +3355,7 @@ func irPrimary(tokens, pos, ntoks, lc) {
 
     // Backtick interpolation - emit as PUSH + CAT chain
     if tt == "INTERP" {
-        emit irInterpToIR(tv, pos, lc) + "," + (pos + 1)
+        emit irInterpToIR(tv, pos, lc, types) + "," + (pos + 1)
     }
 
     // Boolean literals — store as the strings "true"/"false" so kp(true)
@@ -3362,7 +3373,7 @@ func irPrimary(tokens, pos, ntoks, lc) {
 
     // Grouped expression
     if tok == "LPAREN" {
-        let pair = irExpr(tokens, pos + 1, ntoks, lc)
+        let pair = irExpr(tokens, pos + 1, ntoks, lc, types)
         let code = pairVal(pair)
         let p = pairPos(pair)
         emit code + "," + (p + 1)
@@ -3370,30 +3381,37 @@ func irPrimary(tokens, pos, ntoks, lc) {
 
     // List literal [a, b, c]
     if tok == "LBRACK" {
-        emit irListLiteralIR(tokens, pos, ntoks, lc)
+        emit irListLiteralIR(tokens, pos, ntoks, lc, types)
     }
 
     // Identifier - function call or variable
     if tt == "ID" {
         let nextTok = tokAt(tokens, pos + 1)
         if nextTok == "LPAREN" {
-            emit irCall(tokens, pos, ntoks, lc)
+            emit irCall(tokens, pos, ntoks, lc, types)
         }
         // Struct literal: Name { field: val }
         let firstChar = tv[0]
         if nextTok == "LBRACE" {
             if firstChar >= "A" && firstChar <= "Z" {
-                emit irStructLiteralIR(tokens, pos, ntoks, lc)
+                emit irStructLiteralIR(tokens, pos, ntoks, lc, types)
             }
         }
-        // Plain variable load
+        // Plain variable load. Phase C: if `tv` was declared with a
+        // type annotation, emit a `; TYPE *u8` comment alongside so
+        // irPostfix can specialize a following `[i]` into a typed
+        // pointer read. Comment is stripped by x64.k's IR cleanup.
+        let varType = irTypeOf(types, tv)
+        if len(varType) > 0 {
+            emit "LOAD " + tv + "\n; TYPE " + varType + "\n," + (pos + 1)
+        }
         emit "LOAD " + tv + "\n," + (pos + 1)
     }
 
     emit "PUSH \"\"\n," + (pos + 1)
 }
 
-func irInterpToIR(s, pos, lc) {
+func irInterpToIR(s, pos, lc, types) {
     let code = ""
     let i = 0
     let seg = ""
@@ -3418,7 +3436,7 @@ func irInterpToIR(s, pos, lc) {
             let exprToks = tokenize(expr)
             let exprNtoks = lineCount(exprToks)
             if exprNtoks > 0 {
-                let ep = irExpr(exprToks, 0, exprNtoks, lc)
+                let ep = irExpr(exprToks, 0, exprNtoks, lc, types)
                 code = code + pairVal(ep)
             } else {
                 code = code + "PUSH \"\"\n"
@@ -3439,7 +3457,7 @@ func irInterpToIR(s, pos, lc) {
     emit code
 }
 
-func irListLiteralIR(tokens, pos, ntoks, lc) {
+func irListLiteralIR(tokens, pos, ntoks, lc, types) {
     let p = pos + 1
     if tokAt(tokens, p) == "RBRACK" {
         emit "PUSH \"\"\n," + (p + 1)
@@ -3448,7 +3466,7 @@ func irListLiteralIR(tokens, pos, ntoks, lc) {
     let ec = 0
     while tokAt(tokens, p) != "RBRACK" {
         if ec > 0 { p = p + 1 }
-        let ep = irExpr(tokens, p, ntoks, lc)
+        let ep = irExpr(tokens, p, ntoks, lc, types)
         let ecode = pairVal(ep)
         p = pairPos(ep)
         if ec > 0 {
@@ -3461,7 +3479,7 @@ func irListLiteralIR(tokens, pos, ntoks, lc) {
     emit code + "," + (p + 1)
 }
 
-func irStructLiteralIR(tokens, pos, ntoks, lc) {
+func irStructLiteralIR(tokens, pos, ntoks, lc, types) {
     let name = tokVal(tokAt(tokens, pos))
     let p = pos + 2
     let code = "STRUCTNEW\n"
@@ -3469,7 +3487,7 @@ func irStructLiteralIR(tokens, pos, ntoks, lc) {
         if tokType(tokAt(tokens, p)) == "ID" {
             let fname = tokVal(tokAt(tokens, p))
             p = p + 2
-            let ep = irExpr(tokens, p, ntoks, lc)
+            let ep = irExpr(tokens, p, ntoks, lc, types)
             let ecode = pairVal(ep)
             p = pairPos(ep)
             if tokAt(tokens, p) == "COMMA" { p += 1 }
@@ -3479,7 +3497,7 @@ func irStructLiteralIR(tokens, pos, ntoks, lc) {
     emit code + "," + (p + 1)
 }
 
-func irCall(tokens, pos, ntoks, lc) {
+func irCall(tokens, pos, ntoks, lc, types) {
     let fname = tokVal(tokAt(tokens, pos))
 
     // Special case: funcptr(IDENT) — emit a FUNCPTR <name> opcode
@@ -3507,7 +3525,7 @@ func irCall(tokens, pos, ntoks, lc) {
     let argc = 0
     while tokAt(tokens, p) != "RPAREN" {
         if argc > 0 { p += 1 }
-        let ap = irExpr(tokens, p, ntoks, lc)
+        let ap = irExpr(tokens, p, ntoks, lc, types)
         code = code + pairVal(ap)
         p = pairPos(ap)
         argc += 1
@@ -3527,18 +3545,18 @@ func irCall(tokens, pos, ntoks, lc) {
 }
 
 // IR statement emitter
-func irStmt(tokens, pos, ntoks, lc, inFunc) {
+func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
     let tok = tokAt(tokens, pos)
     let tt = tokType(tok)
 
     // let/const declaration
     if tok == "KW:let" || tok == "KW:const" {
-        emit irLetIR(tokens, pos + 1, ntoks, lc, inFunc)
+        emit irLetIR(tokens, pos + 1, ntoks, lc, inFunc, types)
     }
 
     // emit/return
     if tok == "KW:emit" || tok == "KW:return" {
-        let pair = irExpr(tokens, pos + 1, ntoks, lc)
+        let pair = irExpr(tokens, pos + 1, ntoks, lc, types)
         let code = pairVal(pair)
         let p = pairPos(pair)
         if tokAt(tokens, p) == "SEMI" { p += 1 }
@@ -3547,22 +3565,22 @@ func irStmt(tokens, pos, ntoks, lc, inFunc) {
 
     // if statement
     if tok == "KW:if" {
-        emit irIfIR(tokens, pos + 1, ntoks, lc, inFunc)
+        emit irIfIR(tokens, pos + 1, ntoks, lc, inFunc, types)
     }
 
     // while loop
     if tok == "KW:while" {
-        emit irWhileIR(tokens, pos + 1, ntoks, lc, inFunc)
+        emit irWhileIR(tokens, pos + 1, ntoks, lc, inFunc, types)
     }
 
     // for-in loop
     if tok == "KW:for" {
-        emit irForIR(tokens, pos + 1, ntoks, lc, inFunc)
+        emit irForIR(tokens, pos + 1, ntoks, lc, inFunc, types)
     }
 
     // match
     if tok == "KW:match" {
-        emit irMatchIR(tokens, pos + 1, ntoks, lc, inFunc)
+        emit irMatchIR(tokens, pos + 1, ntoks, lc, inFunc, types)
     }
 
     // break
@@ -3581,7 +3599,7 @@ func irStmt(tokens, pos, ntoks, lc, inFunc) {
 
     // try/catch/throw
     if tok == "KW:throw" {
-        let pair = irExpr(tokens, pos + 1, ntoks, lc)
+        let pair = irExpr(tokens, pos + 1, ntoks, lc, types)
         let code = pairVal(pair)
         let p = pairPos(pair)
         if tokAt(tokens, p) == "SEMI" { p += 1 }
@@ -3589,7 +3607,7 @@ func irStmt(tokens, pos, ntoks, lc, inFunc) {
     }
 
     if tok == "KW:try" {
-        emit irTryIR(tokens, pos + 1, ntoks, lc, inFunc)
+        emit irTryIR(tokens, pos + 1, ntoks, lc, inFunc, types)
     }
 
     // Nested func declaration inside a block (e.g. `func helper(...) {...}`
@@ -3635,7 +3653,7 @@ func irStmt(tokens, pos, ntoks, lc, inFunc) {
                 if tokAt(tokens, pos + 3) == "ASSIGN" {
                     let objName = tokVal(tok)
                     let field = tokVal(tokAt(tokens, pos + 2))
-                    let pair = irExpr(tokens, pos + 4, ntoks, lc)
+                    let pair = irExpr(tokens, pos + 4, ntoks, lc, types)
                     let code = pairVal(pair)
                     let p = pairPos(pair)
                     if tokAt(tokens, p) == "SEMI" { p += 1 }
@@ -3650,7 +3668,7 @@ func irStmt(tokens, pos, ntoks, lc, inFunc) {
         let nt = tokAt(tokens, pos + 1)
         if nt == "PLUSEQ" || nt == "MINUSEQ" || nt == "STAREQ" || nt == "SLASHEQ" || nt == "MODEQ" {
             let name = tokVal(tok)
-            let pair = irExpr(tokens, pos + 2, ntoks, lc)
+            let pair = irExpr(tokens, pos + 2, ntoks, lc, types)
             let rcode = pairVal(pair)
             let p = pairPos(pair)
             if tokAt(tokens, p) == "SEMI" { p += 1 }
@@ -3689,7 +3707,7 @@ func irStmt(tokens, pos, ntoks, lc, inFunc) {
     // plain assignment
     if tt == "ID" && tokAt(tokens, pos + 1) == "ASSIGN" {
         let name = tokVal(tok)
-        let pair = irExpr(tokens, pos + 2, ntoks, lc)
+        let pair = irExpr(tokens, pos + 2, ntoks, lc, types)
         let code = pairVal(pair)
         let p = pairPos(pair)
         if tokAt(tokens, p) == "SEMI" { p += 1 }
@@ -3697,41 +3715,93 @@ func irStmt(tokens, pos, ntoks, lc, inFunc) {
     }
 
     // expression statement (function call)
-    let pair = irExpr(tokens, pos, ntoks, lc)
+    let pair = irExpr(tokens, pos, ntoks, lc, types)
     let code = pairVal(pair)
     let p = pairPos(pair)
     if tokAt(tokens, p) == "SEMI" { p += 1 }
     emit code + "POP\n," + p
 }
 
-func irLetIR(tokens, pos, ntoks, lc, inFunc) {
-    let name = tokVal(tokAt(tokens, pos))
-    let p = pos + 1
-    // skip optional type annotation
-    if tokAt(tokens, p) == "COLON" {
-        p = p + 2
-        if tokAt(tokens, p) == "LBRACK" {
-            p += 1
-            while tokAt(tokens, p) != "RBRACK" { p += 1 }
-            p += 1
-        }
+// Phase C: serialize a type-token range to a compact string so it
+// can be stored in the per-function types table. `*u8` → "*u8",
+// `[*Vec3]` → "[*Vec3]". Mirrors the grammar of irSkipTypeBody.
+func irTypeStr(tokens, start, end) {
+    let p = start
+    let sb = sbNew()
+    while p < end {
+        let tk = tokAt(tokens, p)
+        if tk == "STAR"   { sb = sbAppend(sb, "*") }
+        if tk == "LBRACK" { sb = sbAppend(sb, "[") }
+        if tk == "RBRACK" { sb = sbAppend(sb, "]") }
+        if startsWith(tk, "ID:") == "1" { sb = sbAppend(sb, substring(tk, 3, len(tk))) }
+        if startsWith(tk, "KW:") == "1" { sb = sbAppend(sb, substring(tk, 3, len(tk))) }
+        p += 1
     }
+    emit sbToString(sb)
+}
+
+// Look up a name's type in the per-function types table.
+// Each line is "name|type". Returns "" if not found.
+func irTypeOf(types, name) {
+    let n = lineCount(types)
+    let i = 0
+    while i < n {
+        let line = getLine(types, i)
+        let pipePos = indexOf(line, "|")
+        if pipePos > 0 {
+            if substring(line, 0, pipePos) == name {
+                emit substring(line, pipePos + 1, len(line))
+            }
+        }
+        i += 1
+    }
+    emit ""
+}
+
+// Phase B: type-annotation parser. Eats `(*)* base` where base is
+// either an IDENT/KW or a bracketed `[type]`. Recurses for nested
+// `[*Vec3]`-style forms. Returns the position AFTER the type body
+// (NOT the `:` itself — caller advances past `:` first).
+func irSkipTypeBody(tokens, pos) {
+    let p = pos
+    while tokAt(tokens, p) == "STAR" { p += 1 }
+    if tokAt(tokens, p) == "LBRACK" {
+        p += 1
+        p = irSkipTypeBody(tokens, p)
+        if tokAt(tokens, p) == "RBRACK" { p += 1 }
+        emit p
+    }
+    let tk = tokAt(tokens, p)
+    if startsWith(tk, "ID:") == "1" || startsWith(tk, "KW:") == "1" { p += 1 }
+    emit p
+}
+
+// Eat `: TYPE` if present. Returns position after the annotation
+// (or the original position if none was present).
+func irSkipTypeAnnotation(tokens, pos) {
+    if tokAt(tokens, pos) != "COLON" { emit pos }
+    emit irSkipTypeBody(tokens, pos + 1)
+}
+
+func irLetIR(tokens, pos, ntoks, lc, inFunc, types) {
+    let name = tokVal(tokAt(tokens, pos))
+    let p = irSkipTypeAnnotation(tokens, pos + 1)
     // skip ASSIGN
     p += 1
-    let pair = irExpr(tokens, p, ntoks, lc)
+    let pair = irExpr(tokens, p, ntoks, lc, types)
     let code = pairVal(pair)
     p = pairPos(pair)
     if tokAt(tokens, p) == "SEMI" { p += 1 }
     emit "LOCAL " + name + "\n" + code + "STORE " + name + "\n," + p
 }
 
-func irBlockIR(tokens, pos, ntoks, lc, inFunc) {
+func irBlockIR(tokens, pos, ntoks, lc, inFunc, types) {
     // pos is at LBRACE
     let p = pos + 1
     let sbBlock = sbNew()
     let nlc = lc
     while tokAt(tokens, p) != "RBRACE" {
-        let sp = irStmt(tokens, p, ntoks, nlc, inFunc)
+        let sp = irStmt(tokens, p, ntoks, nlc, inFunc, types)
         sbBlock = sbAppend(sbBlock, pairVal(sp))
         p = pairPos(sp)
         nlc = nlc + 1
@@ -3739,8 +3809,8 @@ func irBlockIR(tokens, pos, ntoks, lc, inFunc) {
     emit sbToString(sbBlock) + "," + (p + 1)
 }
 
-func irIfIR(tokens, pos, ntoks, lc, inFunc) {
-    let pair = irExpr(tokens, pos, ntoks, lc)
+func irIfIR(tokens, pos, ntoks, lc, inFunc, types) {
+    let pair = irExpr(tokens, pos, ntoks, lc, types)
     // Wrap the condition in BUILTIN isTruthy so JUMPIFNOT sees a 0/1
     // instead of testing raw pointer non-zero. Empty string ("") is a
     // valid string pointer (non-zero) but should be FALSY per Krypton's
@@ -3751,18 +3821,18 @@ func irIfIR(tokens, pos, ntoks, lc, inFunc) {
     let elseLabel = irLabel("_else", pos)
     let endLabel = irLabel("_endif", pos)
     let nlc = lc + 1
-    let bp = irBlockIR(tokens, p, ntoks, nlc, inFunc)
+    let bp = irBlockIR(tokens, p, ntoks, nlc, inFunc, types)
     let bodyCode = pairVal(bp)
     p = pairPos(bp)
     nlc = nlc + 1
     if tokAt(tokens, p) == "KW:else" {
         if tokAt(tokens, p + 1) == "KW:if" {
-            let ep = irIfIR(tokens, p + 2, ntoks, nlc, inFunc)
+            let ep = irIfIR(tokens, p + 2, ntoks, nlc, inFunc, types)
             let elseCode = pairVal(ep)
             p = pairPos(ep)
             emit condCode + "JUMPIFNOT " + elseLabel + "\n" + bodyCode + "JUMP " + endLabel + "\n" + "LABEL " + elseLabel + "\n" + elseCode + "LABEL " + endLabel + "\n," + p
         } else {
-            let ep = irBlockIR(tokens, p + 1, ntoks, nlc, inFunc)
+            let ep = irBlockIR(tokens, p + 1, ntoks, nlc, inFunc, types)
             let elseCode = pairVal(ep)
             p = pairPos(ep)
             emit condCode + "JUMPIFNOT " + elseLabel + "\n" + bodyCode + "JUMP " + endLabel + "\n" + "LABEL " + elseLabel + "\n" + elseCode + "LABEL " + endLabel + "\n," + p
@@ -3771,15 +3841,15 @@ func irIfIR(tokens, pos, ntoks, lc, inFunc) {
     emit condCode + "JUMPIFNOT " + endLabel + "\n" + bodyCode + "LABEL " + endLabel + "\n," + p
 }
 
-func irWhileIR(tokens, pos, ntoks, lc, inFunc) {
+func irWhileIR(tokens, pos, ntoks, lc, inFunc, types) {
     let loopLabel = irLabel("_wloop", pos)
     let endLabel = irLabel("_wend", pos)
     let nlc = lc + 1
-    let pair = irExpr(tokens, pos, ntoks, nlc)
+    let pair = irExpr(tokens, pos, ntoks, nlc, types)
     // Wrap condition in BUILTIN isTruthy — see irIfIR for rationale.
     let condCode = pairVal(pair) + "BUILTIN isTruthy 1\n"
     let p = pairPos(pair)
-    let bp = irBlockIR(tokens, p, ntoks, nlc, inFunc)
+    let bp = irBlockIR(tokens, p, ntoks, nlc, inFunc, types)
     let bodyCode = pairVal(bp)
     p = pairPos(bp)
     // Resolve loose BREAKs in this loop's body to a JUMP to its end label.
@@ -3792,10 +3862,10 @@ func irWhileIR(tokens, pos, ntoks, lc, inFunc) {
     emit "LABEL " + loopLabel + "\n" + condCode + "JUMPIFNOT " + endLabel + "\n" + bodyCode + "JUMP " + loopLabel + "\n" + "LABEL " + endLabel + "\n," + p
 }
 
-func irForIR(tokens, pos, ntoks, lc, inFunc) {
+func irForIR(tokens, pos, ntoks, lc, inFunc, types) {
     let varName = tokVal(tokAt(tokens, pos))
     let p = pos + 2
-    let pair = irExpr(tokens, p, ntoks, lc)
+    let pair = irExpr(tokens, p, ntoks, lc, types)
     let collCode = pairVal(pair)
     p = pairPos(pair)
     let loopLabel = irLabel("_floop", pos)
@@ -3804,7 +3874,7 @@ func irForIR(tokens, pos, ntoks, lc, inFunc) {
     let cntVar = "_for_cnt_" + pos
     let colVar = "_for_col_" + pos
     let nlc = lc + 1
-    let bp = irBlockIR(tokens, p, ntoks, nlc, inFunc)
+    let bp = irBlockIR(tokens, p, ntoks, nlc, inFunc, types)
     let bodyCode = pairVal(bp)
     p = pairPos(bp)
     // Same break-resolution as irWhileIR — see comment there. CONTINUE
@@ -3829,8 +3899,8 @@ func irForIR(tokens, pos, ntoks, lc, inFunc) {
     emit code + "," + p
 }
 
-func irMatchIR(tokens, pos, ntoks, lc, inFunc) {
-    let pair = irExpr(tokens, pos, ntoks, lc)
+func irMatchIR(tokens, pos, ntoks, lc, inFunc, types) {
+    let pair = irExpr(tokens, pos, ntoks, lc, types)
     let matchCode = pairVal(pair)
     let p = pairPos(pair) + 1
     let endLabel = irLabel("_mend", pos)
@@ -3843,14 +3913,14 @@ func irMatchIR(tokens, pos, ntoks, lc, inFunc) {
         nlc = nlc + 1
         if tokAt(tokens, p) == "KW:else" {
             p += 1
-            let bp = irBlockIR(tokens, p, ntoks, nlc, inFunc)
+            let bp = irBlockIR(tokens, p, ntoks, nlc, inFunc, types)
             code = code + pairVal(bp)
             p = pairPos(bp)
         } else {
-            let cp = irExpr(tokens, p, ntoks, nlc)
+            let cp = irExpr(tokens, p, ntoks, nlc, types)
             let caseCode = pairVal(cp)
             p = pairPos(cp)
-            let bp = irBlockIR(tokens, p, ntoks, nlc, inFunc)
+            let bp = irBlockIR(tokens, p, ntoks, nlc, inFunc, types)
             let bodyCode = pairVal(bp)
             p = pairPos(bp)
             code = code + "LOAD " + matchVar + "\n" + caseCode + "EQ\n" + "JUMPIFNOT " + nextLabel + "\n" + bodyCode + "JUMP " + endLabel + "\n" + "LABEL " + nextLabel + "\n"
@@ -3861,11 +3931,11 @@ func irMatchIR(tokens, pos, ntoks, lc, inFunc) {
     emit code + "LABEL " + endLabel + "\n," + p
 }
 
-func irTryIR(tokens, pos, ntoks, lc, inFunc) {
+func irTryIR(tokens, pos, ntoks, lc, inFunc, types) {
     let catchLabel = irLabel("_catch", pos)
     let endLabel = irLabel("_tryend", pos)
     let nlc = lc + 1
-    let bp = irBlockIR(tokens, pos, ntoks, nlc, inFunc)
+    let bp = irBlockIR(tokens, pos, ntoks, nlc, inFunc, types)
     let bodyCode = pairVal(bp)
     let p = pairPos(bp)
     if tokAt(tokens, p) == "KW:catch" {
@@ -3875,12 +3945,45 @@ func irTryIR(tokens, pos, ntoks, lc, inFunc) {
             catchVar = tokVal(tokAt(tokens, p))
             p += 1
         }
-        let cp = irBlockIR(tokens, p, ntoks, nlc, inFunc)
+        let cp = irBlockIR(tokens, p, ntoks, nlc, inFunc, types)
         let catchCode = pairVal(cp)
         p = pairPos(cp)
         emit "TRY " + catchLabel + "\n" + bodyCode + "ENDTRY\n" + "JUMP " + endLabel + "\n" + "LABEL " + catchLabel + "\n" + "LOCAL " + catchVar + "\n" + "STORE " + catchVar + "\n" + catchCode + "LABEL " + endLabel + "\n," + p
     }
     emit "TRY " + catchLabel + "\n" + bodyCode + "ENDTRY\n" + "LABEL " + catchLabel + "\n" + "LABEL " + endLabel + "\n," + p
+}
+
+// Phase C: pre-scan the function body for `let X: TYPE` patterns and
+// build a `name|type\n...` table the IR generator can consult when
+// emitting LOADs/INDEXes. Only LEXICAL scope is captured — names are
+// added regardless of nesting (good enough for typed-pointer lowering;
+// shadowing / scope-precise tracking is future work).
+func irScanFuncTypes(tokens, bodyStart) {
+    if tokAt(tokens, bodyStart) != "LBRACE" { emit "" }
+    let p = bodyStart + 1
+    let depth = 1
+    let nTok = lineCount(tokens)
+    let sb = sbNew()
+    while p < nTok && depth > 0 {
+        let tk = tokAt(tokens, p)
+        if tk == "LBRACE" { depth += 1  p += 1  continue }
+        if tk == "RBRACE" { depth -= 1  p += 1  continue }
+        if tk == "KW:let" || tk == "KW:const" {
+            let nameTk = tokAt(tokens, p + 1)
+            if startsWith(nameTk, "ID:") == "1" {
+                if tokAt(tokens, p + 2) == "COLON" {
+                    let name = substring(nameTk, 3, len(nameTk))
+                    let typeStart = p + 3
+                    let typeEnd = irSkipTypeBody(tokens, typeStart)
+                    sb = sbAppend(sb, name + "|" + irTypeStr(tokens, typeStart, typeEnd) + "\n")
+                    p = typeEnd
+                    continue
+                }
+            }
+        }
+        p += 1
+    }
+    emit sbToString(sb)
 }
 
 func irFuncIR(tokens, pos, ntoks) {
@@ -3908,7 +4011,11 @@ func irFuncIR(tokens, pos, ntoks) {
     p += 1
     // skip -> return type
     if tokAt(tokens, p) == "ARROW" { p = p + 2 }
-    let bp = irBlockIR(tokens, p, ntoks, 0, "1")
+    // Phase C: pre-scan body for `let X: TYPE` so irPrimary can tag
+    // LOADs with type hints and irPostfix can specialize INDEX into
+    // typed-pointer reads.
+    let funcTypes = irScanFuncTypes(tokens, p)
+    let bp = irBlockIR(tokens, p, ntoks, 0, "1", funcTypes)
     let bodyCode = pairVal(bp)
     p = pairPos(bp)
     // 1.7.9 — auto-emit gcCheckpoint/gcRestore around functions whose name
@@ -3966,9 +4073,13 @@ func findFreeVars(tokens, bodyStart, bodyEnd, params) {
 just run {
     let kccVer = "1.8.0"
 
-    // Parse flags: --version, --ir, --headers PATH, -o OUTFILE
+    // Parse flags: --version, --ir, -o OUTFILE
+    // 1.8.4: removed --headers. Install root is fixed at C:\krypton;
+    // stdlib lives at <root>/stdlib and C bindings at <root>/headers.
+    // The new `k:` / `c:` import prefixes resolve under those.
     let irMode = 0
-    let headersDir = ""
+    let installRoot = "C:\\krypton"
+    let headersDir  = installRoot + "\\headers"   // legacy var, kept for bin-dir derivation
     let outFile = ""
     let file = arg("0")
     let argIdx = 0
@@ -3980,18 +4091,13 @@ just run {
 
     if argCount() == 0 {
         printErr("kcc: no input file")
-        printErr("usage: kcc [-o out.exe] [--headers dir] source.k")
+        printErr("usage: kcc [-o out.exe] source.k")
         emit 1
     }
 
-    while file == "--ir" || file == "--headers" || file == "-o" {
+    while file == "--ir" || file == "-o" {
         if file == "--ir" {
             irMode = 1
-            argIdx += 1
-        }
-        if file == "--headers" {
-            argIdx += 1
-            headersDir = arg(argIdx + "")
             argIdx += 1
         }
         if file == "-o" {
@@ -4004,9 +4110,6 @@ just run {
 
     // When -o is given, force IR mode internally (pipeline handles the rest)
     if len(outFile) > 0 { irMode = 1 }
-
-    // Default to system headers if --headers not specified
-    if headersDir == "" { headersDir = "C:\\krypton\\headers" }
 
     let source = readFile(file)
 
@@ -4111,42 +4214,50 @@ just run {
         let itok = tokAt(tokens, ii)
         if itok == "KW:import" {
             let importPath = tokVal(tokAt(tokens, ii + 1))
-            // resolve relative path
-            // Try 1: relative to source file directory
-            // Try 2: as-is (relative to working directory)
             let fullPath = importPath
+            // 1.8.4: Odin-style `prefix:name` imports — extension implied
+            // by the prefix. Resolves under <install root>:
+            //   k:foo    / core:foo    → <root>/stdlib/foo.k
+            //   head:foo / headers:foo → <root>/headers/foo.krh
+            let colonAt = indexOf(importPath, ":")
+            if colonAt > 0 && colonAt < 8 {
+                let prefix = substring(importPath, 0, colonAt)
+                let sub    = substring(importPath, colonAt + 1, len(importPath))
+                if prefix == "k"       { fullPath = installRoot + "/stdlib/"  + sub + ".k"   }
+                if prefix == "core"    { fullPath = installRoot + "/stdlib/"  + sub + ".k"   }
+                if prefix == "head"    { fullPath = installRoot + "/headers/" + sub + ".krh" }
+                if prefix == "headers" { fullPath = installRoot + "/headers/" + sub + ".krh" }
+            }
+            // Backwards compat: legacy "stdlib/foo.k" / "windows.krh" forms.
+            // resolve relative path: source-relative, then cwd, then install.
             if len(baseDir) > 0 {
                 if !startsWith(importPath, "/") {
                     if !startsWith(importPath, "C:") {
-                        let relPath = baseDir + importPath
-                        let testSrc = readFile(relPath)
-                        if len(testSrc) > 0 {
-                            fullPath = relPath
+                        if !startsWith(fullPath, installRoot) {
+                            let relPath = baseDir + importPath
+                            let testSrc = readFile(relPath)
+                            if len(testSrc) > 0 {
+                                fullPath = relPath
+                            }
                         }
-                        // else: fall back to importPath as-is (cwd-relative)
                     }
                 }
             }
-            // Try headersDir if still not found
-            if len(headersDir) > 0 {
-                let testSrc2 = readFile(fullPath)
-                if len(testSrc2) == 0 {
-                    let hdPath = headersDir + "/" + importPath
-                    let testSrc3 = readFile(hdPath)
-                    if len(testSrc3) > 0 {
-                        fullPath = hdPath
-                    }
+            // Try install root for legacy unprefixed paths.
+            let testSrc2 = readFile(fullPath)
+            if len(testSrc2) == 0 {
+                let hdPath = installRoot + "/headers/" + importPath
+                let testSrc3 = readFile(hdPath)
+                if len(testSrc3) > 0 {
+                    fullPath = hdPath
                 }
-                // Krypton install layout: <root>/headers/ + <root>/stdlib/.
-                // For `import "stdlib/foo.k"` we need a parent-of-headers
-                // search so stdlib auto-resolves the same way .krh files do.
-                let testSrc4 = readFile(fullPath)
-                if len(testSrc4) == 0 {
-                    let stdPath = headersDir + "/../" + importPath
-                    let testSrc5 = readFile(stdPath)
-                    if len(testSrc5) > 0 {
-                        fullPath = stdPath
-                    }
+            }
+            let testSrc4 = readFile(fullPath)
+            if len(testSrc4) == 0 {
+                let stdPath = installRoot + "/" + importPath
+                let testSrc5 = readFile(stdPath)
+                if len(testSrc5) > 0 {
+                    fullPath = stdPath
                 }
             }
             // check cache - skip if already imported
@@ -5001,7 +5112,7 @@ just run {
                 }
                 iri = entryP
             } else if irtok == "KW:let" || irtok == "KW:const" {
-                let glp = irLetIR(tokens, iri + 1, ntoks, 0, "0")
+                let glp = irLetIR(tokens, iri + 1, ntoks, 0, "0", "")
                 sbGlobInit = sbAppend(sbGlobInit, pairVal(glp))
                 iri = pairPos(glp)
             } else {
@@ -5011,7 +5122,8 @@ just run {
 
         let irEntry = findEntry(tokens, ntoks)
         if irEntry >= 0 {
-            let ep = irBlockIR(tokens, irEntry, ntoks, 0, "0")
+            let mainTypes = irScanFuncTypes(tokens, irEntry)
+            let ep = irBlockIR(tokens, irEntry, ntoks, 0, "0", mainTypes)
             sbIR = sbAppend(sbIR, "FUNC __main__ 0\n" + sbToString(sbGlobInit) + pairVal(ep) + "END\n")
         }
 
