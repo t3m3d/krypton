@@ -1,4 +1,4 @@
-just main {
+just run {
     let s = "ABCD"
     print("before call")
     let n = 0
