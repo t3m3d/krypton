@@ -1,12 +1,12 @@
-// 2.0-alpha: typed `cb: fp` param enables direct `cb(args)` invocation
+// 2.0-alpha: typed `cb: closure` param enables direct `cb(args)` invocation
 // inside the receiver — irScanFuncTypes captures param types and irCall
 // routes fp-tagged calls through callPtr automatically.
 
-func apply(cb: fp, x) {
+func apply(cb: closure, x) {
     emit cb(x)            // direct invocation, no explicit callPtr
 }
 
-func compose(f: fp, g: fp, x) {
+func compose(f: closure, g: closure, x) {
     emit f(g(x))          // chained direct calls
 }
 

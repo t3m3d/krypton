@@ -1,15 +1,15 @@
-// Higher-order: pass a lambda to a function that calls it via callPtr.
-// Direct `fp(args)` syntax inside the receiving function only works
-// if `fp` is tagged in irScanFuncTypes — params aren't tracked yet,
-// so receivers must use explicit `callPtr(fp, args...)`.
+// Higher-order: pass a lambda to a function that calls it.
+// 2.0-alpha-3 unification: ALL lambdas are closures (env-wrapped),
+// so receivers tag params as `cb: closure` and direct `cb(x)`
+// dispatches via env extraction.
 
-func apply(fp, x) {
-    emit callPtr(fp, x)
+func apply(cb: closure, x) {
+    emit cb(x)
 }
 
-func twice(fp, x) {
-    let once = callPtr(fp, x)
-    emit callPtr(fp, once)
+func twice(cb: closure, x) {
+    let once = cb(x)
+    emit cb(once)
 }
 
 just run {
@@ -17,7 +17,6 @@ just run {
     print("apply(sq, 5)  = " + apply(sq, 5)  + "  (expect 25)")
     print("twice(sq, 3)  = " + twice(sq, 3)  + "  (expect 81)")
 
-    // Lambda stored, passed by name.
     let inc = func(n) { emit n + 1 }
     print("apply(inc, 9) = " + apply(inc, 9) + "  (expect 10)")
 }

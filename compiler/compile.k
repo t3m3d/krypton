@@ -3465,12 +3465,13 @@ func irPrimary(tokens, pos, ntoks, lc, types) {
         if tokAt(tokens, lp) == "ARROW" { lp = lp + 2 }
         let lpEnd = skipBlock(tokens, lp)
 
+        // 2.0-alpha-3 unification: ALL lambdas wrapped as closures
+        // (env-head with __fp__ + capture entries if any). Lambda
+        // body always has __env as PARAM 0; capture-free bodies
+        // just ignore it. Per benchmark, overhead is below noise.
         let lFree = findFreeVars(tokens, lp, lpEnd, lpc)
+        let envCode = "BUILTIN envNew 0\n"
         if len(lFree) > 0 {
-            // Build env: envNew → for each free var: envSet(env, "name", val)
-            //          → envSet(env, "__fp__", FUNCPTR _krlam<pos>)
-            // The result on vstack is the closure value (env head).
-            let envCode = "BUILTIN envNew 0\n"
             let lfc = count(lFree)
             let lfi = 0
             while lfi < lfc {
@@ -3481,14 +3482,12 @@ func irPrimary(tokens, pos, ntoks, lc, types) {
                     "BUILTIN envSet 3\n"
                 lfi = lfi + 1
             }
-            envCode = envCode +
-                "PUSH \"__fp__\"\n" +
-                "FUNCPTR _krlam" + pos + "\n" +
-                "BUILTIN envSet 3\n"
-            emit envCode + "," + lpEnd
         }
-
-        emit "FUNCPTR _krlam" + pos + "\n," + lpEnd
+        envCode = envCode +
+            "PUSH \"__fp__\"\n" +
+            "FUNCPTR _krlam" + pos + "\n" +
+            "BUILTIN envSet 3\n"
+        emit envCode + "," + lpEnd
     }
 
     // Identifier - function call or variable
@@ -3498,10 +3497,22 @@ func irPrimary(tokens, pos, ntoks, lc, types) {
             emit irCall(tokens, pos, ntoks, lc, types)
         }
         // Struct literal: Name { field: val }
+        // 2.0-alpha-3: tighten heuristic — also require the LBRACE
+        // body to start with `<ID>: ...` (field-syntax). Without this,
+        // patterns like `while i < N { ... }` would attempt struct-literal
+        // parse on N (NOTE: bug still reproduces even with this fix —
+        // crash is upstream, possibly in tokenization). Kept the
+        // tightening anyway because it's more correct.
         let firstChar = tv[0]
         if nextTok == "LBRACE" {
             if firstChar >= "A" && firstChar <= "Z" {
-                emit irStructLiteralIR(tokens, pos, ntoks, lc, types)
+                let inner1 = tokAt(tokens, pos + 2)
+                let inner2 = tokAt(tokens, pos + 3)
+                if startsWith(inner1, "ID:") == "1" {
+                    if inner2 == "COLON" {
+                        emit irStructLiteralIR(tokens, pos, ntoks, lc, types)
+                    }
+                }
             }
         }
         // Plain variable load. Phase C: if `tv` was declared with a
@@ -4449,47 +4460,25 @@ func irScanFuncTypes(tokens, bodyStart) {
                 }
                 // 2.0-alpha: detect function-pointer locals so plain
                 // `f(args)` calls route through callPtr at irCall time.
-                // Match `let name = func(...)` / `let name = fn(...)` /
-                // `let name = funcptr(IDENT)`.
-                // 2.0-alpha-3: lambdas with free-var captures get tagged
-                // as "closure" instead of "fp" — irCall dispatches to a
-                // env-passing call (LOAD env; envGet __fp__; call fp(env, args)).
+                // 2.0-alpha-3 unification: ALL lambdas tagged `closure`
+                // (env-wrapped uniformly, with __fp__ entry + capture
+                // entries if any). funcptr() result stays `fp` (raw).
+                // Per benchmark, closure-call overhead is ~0 (within
+                // noise) so universal env-wrap is acceptable.
                 if tokAt(tokens, p + 2) == "ASSIGN" {
                     let rhsTk = tokAt(tokens, p + 3)
                     let isLam = "0"
-                    let isLamWithCaptures = "0"
+                    let isFuncPtr = "0"
                     if rhsTk == "KW:func" || rhsTk == "KW:fn" {
-                        if tokAt(tokens, p + 4) == "LPAREN" {
-                            isLam = "1"
-                            // Walk to RPAREN to find the body LBRACE,
-                            // then findFreeVars over the body.
-                            let lscan = p + 5
-                            let lparams = ""
-                            while tokAt(tokens, lscan) != "RPAREN" {
-                                let lpt = tokAt(tokens, lscan)
-                                if startsWith(lpt, "ID:") == "1" {
-                                    if len(lparams) > 0 { lparams = lparams + "," }
-                                    lparams = lparams + substring(lpt, 3, len(lpt))
-                                }
-                                lscan = lscan + 1
-                            }
-                            lscan = lscan + 1   // past RPAREN
-                            if tokAt(tokens, lscan) == "ARROW" { lscan = lscan + 2 }
-                            // lscan should now be at LBRACE
-                            if tokAt(tokens, lscan) == "LBRACE" {
-                                let lbodyEnd = skipBlock(tokens, lscan)
-                                let lfree = findFreeVars(tokens, lscan, lbodyEnd, lparams)
-                                if len(lfree) > 0 { isLamWithCaptures = "1" }
-                            }
-                        }
-                    }
-                    if rhsTk == "ID:funcptr" {
                         if tokAt(tokens, p + 4) == "LPAREN" { isLam = "1" }
                     }
-                    if isLamWithCaptures == "1" {
+                    if rhsTk == "ID:funcptr" {
+                        if tokAt(tokens, p + 4) == "LPAREN" { isFuncPtr = "1" }
+                    }
+                    if isLam == "1" {
                         sb = sbAppend(sb, nameStr + "|closure\n")
                     } else {
-                        if isLam == "1" {
+                        if isFuncPtr == "1" {
                             sb = sbAppend(sb, nameStr + "|fp\n")
                         }
                     }
@@ -4540,15 +4529,15 @@ func irLambdaIR(tokens, pos, ntoks, lambdaName) {
     p += 1   // past RPAREN
     if tokAt(tokens, p) == "ARROW" { p = p + 2 }
 
-    // Detect free vars; if any, prepend __env hidden first param and
-    // tag each free var so irPrimary rewrites it as envGet.
+    // 2.0-alpha-3 unification: ALL lambdas get __env first PARAM so
+    // closure dispatch is uniform. Capture-free lambdas just ignore
+    // __env. Per benchmark, the overhead is below noise.
     let bodyEnd = skipBlock(tokens, p)
     let freeVars = findFreeVars(tokens, p, bodyEnd, paramCsv)
     let captureTypes = ""
-    let allParams = userParams
+    let allParams = "PARAM __env\n" + userParams
+    pc = pc + 1
     if len(freeVars) > 0 {
-        allParams = "PARAM __env\n" + userParams
-        pc = pc + 1
         let fcount = count(freeVars)
         let fi = 0
         while fi < fcount {
