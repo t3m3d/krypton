@@ -3444,6 +3444,20 @@ func irPrimary(tokens, pos, ntoks, lc, types) {
         emit irListLiteralIR(tokens, pos, ntoks, lc, types)
     }
 
+    // 2.0-alpha: lambda expression `func(params) { body }` — pre-scan
+    // hoists the body to a top-level `FUNC _krlam<pos> N` ahead of
+    // time, so here we just push its address. No closures (captures
+    // are a 2.1 problem — invocation must pass captured values as args
+    // or use callPtr).
+    if (tok == "KW:func" || tok == "KW:fn") && tokAt(tokens, pos + 1) == "LPAREN" {
+        let lp = pos + 2
+        while tokAt(tokens, lp) != "RPAREN" { lp += 1 }
+        lp += 1   // past RPAREN
+        if tokAt(tokens, lp) == "ARROW" { lp = lp + 2 }
+        let lpEnd = skipBlock(tokens, lp)
+        emit "FUNCPTR _krlam" + pos + "\n," + lpEnd
+    }
+
     // Identifier - function call or variable
     if tt == "ID" {
         let nextTok = tokAt(tokens, pos + 1)
@@ -3590,6 +3604,17 @@ func irCall(tokens, pos, ntoks, lc, types) {
         p = pairPos(ap)
         argc += 1
     }
+
+    // 2.0-alpha: if fname is a local tagged "fp" (function-pointer
+    // local — assigned a `func(...)` lambda or a `funcptr(IDENT)`),
+    // route through `BUILTIN callPtr <argc+1>`. The fp gets pushed
+    // first (LOAD fname), then args follow, mirroring how an explicit
+    // `callPtr(fp, a, b)` would compile. x64.k's callPtr handler
+    // already maps argc → kr_callptr1..4.
+    if irTypeOf(types, fname) == "fp" {
+        emit "LOAD " + fname + "\n" + code + "BUILTIN callPtr " + (argc + 1) + "\n," + (p + 1)
+    }
+
     // builtins vs user functions.
     //
     // ⚠ Token-bounded match (NOT substring). Wrapping both sides with commas
@@ -3597,7 +3622,7 @@ func irCall(tokens, pos, ntoks, lc, types) {
     // The previous substring-only check silently routed user functions named
     // add/sub/mul/div/pos/etc. through the BUILTIN path → backends emitted
     // UNSUPPORTED markers → stack corruption at runtime. Bug found 2026-05-03.
-    let builtins = "print,kp,printErr,readLine,input,readFile,writeFile,arg,argCount,len,count,substring,charAt,indexOf,contains,startsWith,endsWith,replace,trim,lstrip,rstrip,center,toLower,toUpper,repeat,padLeft,padRight,charCode,fromCharCode,splitBy,format,strReverse,isAlpha,isDigit,isSpace,toInt,parseInt,abs,min,max,pow,sqrt,sign,clamp,hex,bin,floor,ceil,round,split,length,first,last,head,tail,append,join,reverse,sort,unique,fill,zip,slice,listIndexOf,every,some,countOf,sumList,maxList,minList,range,words,lines,keys,values,hasKey,structNew,getField,setField,hasField,structFields,random,timestamp,environ,exit,assert,type,isTruthy,toStr,throw,mapGet,mapSet,mapDel,fadd,fsub,fmul,fdiv,fsqrt,ffloor,fceil,fround,fformat,flt,fgt,feq,sbNew,sbAppend,sbToString,bufNew,bufStr,bufGetDword,bufSetDword,bufGetWord,bufGetQword,bufGetDwordAt,bufGetQwordAt,bufSetByte,bufGetByte,bufSetDwordAt,handleOut,handleGet,handleInt,toHandle,ptrDeref,ptrIndex,callPtr,getLine,lineCount,envNew,envSet,envGet,makeResult,getResultTag,getResultVal,getResultEnv,getResultPos,gcAllocated,gcLimit,gcSetLimit,gcCollect,gcReset,gcCheckpoint,gcRestore,gcSlabCount,gcSlabBytes"
+    let builtins = "print,kp,printErr,readLine,input,readFile,writeFile,arg,argCount,len,count,substring,charAt,indexOf,contains,startsWith,endsWith,replace,trim,lstrip,rstrip,center,toLower,toUpper,repeat,padLeft,padRight,charCode,fromCharCode,splitBy,format,strReverse,isAlpha,isDigit,isSpace,toInt,parseInt,abs,min,max,pow,sqrt,sign,clamp,hex,bin,floor,ceil,round,split,length,first,last,head,tail,append,join,reverse,sort,unique,fill,zip,slice,listIndexOf,every,some,countOf,sumList,maxList,minList,range,words,lines,keys,values,hasKey,structNew,getField,setField,hasField,structFields,random,timestamp,environ,exit,assert,type,isTruthy,toStr,throw,mapGet,mapSet,mapDel,fadd,fsub,fmul,fdiv,fsqrt,ffloor,fceil,fround,fformat,flt,fgt,feq,sbNew,sbAppend,sbToString,bufNew,bufStr,bufGetDword,bufSetDword,bufGetWord,bufGetQword,bufGetDwordAt,bufGetQwordAt,bufSetByte,bufGetByte,bufSetDwordAt,bufSetQwordAt,bufGetWordAt,bufSetWordAt,bufGetWordAtBE,bufGetDwordAtBE,bufGetQwordAtBE,handleOut,handleGet,handleInt,toHandle,ptrDeref,ptrIndex,callPtr,getLine,lineCount,envNew,envSet,envGet,makeResult,getResultTag,getResultVal,getResultEnv,getResultPos,gcAllocated,gcAllocCount,gcShadowCount,gcShadowPop,gcShadowPush,gcLimit,gcSetLimit,gcCollect,gcReset,gcCheckpoint,gcRestore,gcSlabCount,gcSlabBytes"
     if contains("," + builtins + ",", "," + fname + ",") {
         emit code + "BUILTIN " + fname + " " + argc + "\n," + (p + 1)
     }
@@ -4370,6 +4395,23 @@ func irScanFuncTypes(tokens, bodyStart) {
                     p = typeEnd
                     continue
                 }
+                // 2.0-alpha: detect function-pointer locals so plain
+                // `f(args)` calls route through callPtr at irCall time.
+                // Match `let name = func(...)` / `let name = fn(...)` /
+                // `let name = funcptr(IDENT)`.
+                if tokAt(tokens, p + 2) == "ASSIGN" {
+                    let rhsTk = tokAt(tokens, p + 3)
+                    let isLam = "0"
+                    if rhsTk == "KW:func" || rhsTk == "KW:fn" {
+                        if tokAt(tokens, p + 4) == "LPAREN" { isLam = "1" }
+                    }
+                    if rhsTk == "ID:funcptr" {
+                        if tokAt(tokens, p + 4) == "LPAREN" { isLam = "1" }
+                    }
+                    if isLam == "1" {
+                        sb = sbAppend(sb, nameStr + "|fp\n")
+                    }
+                }
             }
         }
         p += 1
@@ -4377,24 +4419,61 @@ func irScanFuncTypes(tokens, bodyStart) {
     emit sbToString(sb)
 }
 
+// 2.0-alpha: lambda lowering. KW:func at pos with LPAREN immediately
+// after (no name). Emits a top-level FUNC <synthName> N IR with the
+// lambda body so a sibling FUNCPTR <synthName> can take its address.
+// Captures NOT supported (no closures in 1.x semantics — captures are
+// a 2.1 problem per docs/v20_plan.md).
+func irLambdaIR(tokens, pos, ntoks, lambdaName) {
+    // pos is at KW:func; pos+1 is LPAREN.
+    let p = pos + 2
+    let params = ""
+    let paramTypes = ""
+    let pc = 0
+    while tokAt(tokens, p) != "RPAREN" {
+        let pt = tokAt(tokens, p)
+        if tokType(pt) == "ID" {
+            let pname = tokVal(pt)
+            params = params + "PARAM " + pname + "\n"
+            pc += 1
+            if tokAt(tokens, p + 1) == "COLON" {
+                let typeStart = p + 2
+                let typeEnd = irSkipTypeBody(tokens, typeStart)
+                let ptype = irTypeStr(tokens, typeStart, typeEnd)
+                paramTypes = paramTypes + pname + "|" + ptype + "\n"
+                p = typeEnd
+                if tokAt(tokens, p) == "COMMA" { p += 1 }
+            } else { p += 1 }
+        } else { p += 1 }
+    }
+    p += 1   // past RPAREN
+    if tokAt(tokens, p) == "ARROW" { p = p + 2 }
+    let funcTypes = irScanStructTypes(tokens, ntoks) + irScanFuncTypes(tokens, p) + paramTypes
+    let bp = irBlockIR(tokens, p, ntoks, 0, "1", funcTypes)
+    let bodyCode = pairVal(bp)
+    p = pairPos(bp)
+    emit "FUNC " + lambdaName + " " + pc + "\n" + params + bodyCode + "RETURN\nEND\n\n," + p
+}
+
 func irFuncIR(tokens, pos, ntoks) {
     // pos is at KW:func
     let fname = tokVal(tokAt(tokens, pos + 1))
     let p = pos + 3
     let params = ""
+    let paramTypes = ""
     let pc = 0
     while tokAt(tokens, p) != "RPAREN" {
         let pt = tokAt(tokens, p)
         if tokType(pt) == "ID" {
-            params = params + "PARAM " + tokVal(pt) + "\n"
+            let pname = tokVal(pt)
+            params = params + "PARAM " + pname + "\n"
             pc += 1
             if tokAt(tokens, p + 1) == "COLON" {
-                p = p + 3
-                if tokAt(tokens, p) == "LBRACK" {
-                    p += 1
-                    while tokAt(tokens, p) != "RBRACK" { p += 1 }
-                    p += 1
-                }
+                let typeStart = p + 2
+                let typeEnd = irSkipTypeBody(tokens, typeStart)
+                let ptype = irTypeStr(tokens, typeStart, typeEnd)
+                paramTypes = paramTypes + pname + "|" + ptype + "\n"
+                p = typeEnd
                 if tokAt(tokens, p) == "COMMA" { p += 1 }
             } else { p += 1 }
         } else { p += 1 }
@@ -4406,8 +4485,9 @@ func irFuncIR(tokens, pos, ntoks) {
     // LOADs with type hints and irPostfix can specialize INDEX into
     // typed-pointer reads. Also scan struct definitions across the
     // whole token stream so `*Vec3.field` lowers to a typed offset
-    // read.
-    let funcTypes = irScanStructTypes(tokens, ntoks) + irScanFuncTypes(tokens, p)
+    // read. paramTypes appended last so typed params (e.g. `cb: fp`)
+    // route through callPtr in irCall.
+    let funcTypes = irScanStructTypes(tokens, ntoks) + irScanFuncTypes(tokens, p) + paramTypes
     let bp = irBlockIR(tokens, p, ntoks, 0, "1", funcTypes)
     let bodyCode = pairVal(bp)
     p = pairPos(bp)
@@ -5510,6 +5590,23 @@ just run {
                 iri = pairPos(glp)
             } else {
                 iri += 1
+            }
+        }
+
+        // 2.0-alpha: lambda hoisting. Walk the whole token stream, find
+        // every `func(...)` / `fn(...)` expression (KW:func followed
+        // immediately by LPAREN — no name), and emit a top-level FUNC
+        // _krlam<pos> N for it. irPrimary's lambda branch later just
+        // pushes FUNCPTR _krlam<pos>.
+        let lamI = 0
+        while lamI < ntoks {
+            let lamTok = tokAt(tokens, lamI)
+            if (lamTok == "KW:func" || lamTok == "KW:fn") && tokAt(tokens, lamI + 1) == "LPAREN" {
+                let lampair = irLambdaIR(tokens, lamI, ntoks, "_krlam" + lamI)
+                sbIR = sbAppend(sbIR, pairVal(lampair))
+                lamI = pairPos(lampair)
+            } else {
+                lamI += 1
             }
         }
 
