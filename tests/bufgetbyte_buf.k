@@ -1,4 +1,4 @@
-just main {
+just run {
     let b = bufNew(16)
     bufSetByte(b, 0, 65)   // 'A'
     bufSetByte(b, 1, 66)   // 'B'
