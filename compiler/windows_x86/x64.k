@@ -461,6 +461,61 @@ let KRPROC_FUNCS = "krProcAlive,krProcClose,krProcRead,krProcReadAvail,krProcSle
 // from stdlib/fs.k cfunc body.
 let KRFS_FUNCS = "krFsFileExists,krFsHexDump,krFsIsDir,krFsListDir,krFsLooksBinary,krFsMkdir"
 
+// __user_rt_atoi: 69-byte ASCII-decimal-to-int64 helper, RCX=str → RAX=int64.
+// Same machine code as the bootstrap helper at offset 197 in the helper block.
+// User binaries don't include the helper block, so we emit this at the start
+// of the user .text section so each Win32 marshalling site can CALL it.
+// Fixed-size, no IAT calls, no shadow space needed by callees.
+func userAtoiHelper() {
+    let sb = sbNew()
+    sb = sbAppend(sb, hexByte(0x4C)+hexByte(0x8B)+hexByte(0xC1))               // MOV R8,RCX
+    sb = sbAppend(sb, hexByte(0x33)+hexByte(0xC0))                              // XOR EAX,EAX
+    sb = sbAppend(sb, hexByte(0x45)+hexByte(0x33)+hexByte(0xC9))               // XOR R9D,R9D
+    sb = sbAppend(sb, hexByte(0x41)+hexByte(0x80)+hexByte(0x38)+hexByte(0x00)) // CMP BYTE[R8],0
+    sb = sbAppend(sb, hexByte(0x74)+hexByte(0x2E))                              // JZ .done (+46)
+    sb = sbAppend(sb, hexByte(0x41)+hexByte(0x80)+hexByte(0x38)+hexByte(0x2D)) // CMP BYTE[R8],'-'
+    sb = sbAppend(sb, hexByte(0x75)+hexByte(0x09))                              // JNZ .digits (+9)
+    sb = sbAppend(sb, hexByte(0x41)+hexByte(0xB9)+hexDword(1))                 // MOV R9D,1
+    sb = sbAppend(sb, hexByte(0x49)+hexByte(0xFF)+hexByte(0xC0))               // INC R8
+    sb = sbAppend(sb, hexByte(0x41)+hexByte(0x80)+hexByte(0x38)+hexByte(0x30)) // CMP BYTE[R8],'0'
+    sb = sbAppend(sb, hexByte(0x7C)+hexByte(0x19))                              // JL .done (+25)
+    sb = sbAppend(sb, hexByte(0x41)+hexByte(0x80)+hexByte(0x38)+hexByte(0x39)) // CMP BYTE[R8],'9'
+    sb = sbAppend(sb, hexByte(0x7F)+hexByte(0x13))                              // JG .done (+19)
+    sb = sbAppend(sb, hexByte(0x41)+hexByte(0x0F)+hexByte(0xB6)+hexByte(0x08)) // MOVZX ECX,BYTE[R8]
+    sb = sbAppend(sb, hexByte(0x83)+hexByte(0xE9)+hexByte(0x30))               // SUB ECX,48
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x6B)+hexByte(0xC0)+hexByte(0x0A)) // IMUL RAX,RAX,10
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x03)+hexByte(0xC1))               // ADD RAX,RCX
+    sb = sbAppend(sb, hexByte(0x49)+hexByte(0xFF)+hexByte(0xC0))               // INC R8
+    sb = sbAppend(sb, hexByte(0xEB)+hexByte(0xE1))                              // JMP .digits (-31)
+    sb = sbAppend(sb, hexByte(0x45)+hexByte(0x85)+hexByte(0xC9))               // TEST R9D,R9D
+    sb = sbAppend(sb, hexByte(0x74)+hexByte(0x03))                              // JZ .ret (+3)
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0xF7)+hexByte(0xD8))               // NEG RAX
+    sb = sbAppend(sb, hexByte(0xC3))                                             // RET
+    emit sbToString(sb)
+}
+func userAtoiHelperSize() { emit 69 }
+
+// Win32 int-arg marshalling table.
+// Returns CSV of arg indices (0-based) that must be atoi'd before the
+// Win32 call site loads them into RCX/RDX/R8/R9. Krypton represents all
+// values as char* (the smart-int convention), so a literal `500` arrives
+// as a string pointer. Win32 reads RCX as a DWORD/HANDLE, getting a huge
+// number → hang/crash. We atoi in-place at the call site so user code
+// can write `Sleep(500)` directly without a krProc-style cfunc wrapper.
+//
+// Empty string = no conversion (all args stay as char*).
+// Only register-passed args (positions 0-3) supported today; stack args
+// (5+) are str-typed in every Win32 fn we care about.
+func win32IntArgs(name) {
+    if name == "Sleep"               { emit "0" }
+    if name == "ExitProcess"         { emit "0" }
+    if name == "WaitForSingleObject" { emit "1" }
+    if name == "TerminateProcess"    { emit "1" }
+    if name == "CloseHandle"         { emit "" }
+    if name == "OpenProcess"         { emit "0,1,2" }
+    emit ""
+}
+
 // Map IR builtin names to krypton_rt.dll function names
 func resolveBuiltin(name) {
     if name == "kp"             { emit "kr_print" }
@@ -757,7 +812,15 @@ func instrSize(op, a1, a2) {
         }
         let idxStr = iatIndexOf(resolved)
         if idxStr == "none" { callSz = 5 }
-        emit loads * 8 + extraArgSz + callSz + 8
+        // Win32 int marshalling: each int-typed arg costs 21 bytes
+        // (movRcxFromRsp 8 + CALL atoi 5 + movRspFromRax 8) before the
+        // standard load block. See win32IntArgs for the table.
+        let convSz = 0
+        let intArgs = win32IntArgs(a1)
+        if len(intArgs) > 0 {
+            convSz = countFuncs(intArgs) * 21
+        }
+        emit convSz + loads * 8 + extraArgSz + callSz + 8
     }
     if op == "LABEL"     { emit 0 }
     if op == "JUMP"      { emit 5 }          // E9 + disp32
@@ -1466,7 +1529,30 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
             // Load args from vstack: first arg at vsp-argc2, last at vsp-1
             // RCX=arg[0], RDX=arg[1], R8=arg[2], R9=arg[3]
             let argc2 = toInt(a2)
-            let loadSz = 0
+            // Win32 int marshalling: for each int-typed arg position p, atoi
+            // the vstack slot in place. Done BEFORE the standard load block
+            // so when MOV RCX/RDX/R8/R9 runs below, it picks up the int
+            // already stored back in the slot. Each conversion is 21 bytes:
+            // movRcxFromRsp(8) + CALL __rt_atoi(5) + movRspFromRax(8).
+            let convSz0 = 0
+            let intArgsList = win32IntArgs(a1)
+            if len(intArgsList) > 0 {
+                let nia = countFuncs(intArgsList)
+                let atoiOff = toInt(funcOffsetLookup(allFuncOffsets, "__user_rt_atoi"))
+                let atoiRva = PE_TEXT_RVA + atoiOff
+                let iai = 0
+                while iai < nia {
+                    let pi2 = toInt(funcAt(intArgsList, iai))
+                    let slotOff = vstBase + (vsp - argc2 + pi2) * 8
+                    sbOut = sbAppend(sbOut, movRcxFromRsp(slotOff))                          // 8
+                    let atoiDisp = atoiRva - (funcBaseRva + pos + convSz0 + 8 + 5)
+                    sbOut = sbAppend(sbOut, hexByte(0xE8) + hexDword(atoiDisp))             // 5
+                    sbOut = sbAppend(sbOut, movRspFromRax(slotOff))                          // 8
+                    convSz0 += 21
+                    iai += 1
+                }
+            }
+            let loadSz = convSz0
             if argc2 >= 1 { sbOut = sbAppend(sbOut,movRcxFromRsp(vstBase + (vsp - argc2) * 8))       loadSz += 8 }
             if argc2 >= 2 { sbOut = sbAppend(sbOut,movRdxFromRsp(vstBase + (vsp - argc2 + 1) * 8))   loadSz += 8 }
             if argc2 >= 3 { sbOut = sbAppend(sbOut,movR8FromRsp(vstBase + (vsp - argc2 + 2) * 8))    loadSz += 8 }
@@ -6940,6 +7026,12 @@ just run {
     let afoFirst = "1"
     let totalFuncBytes = 0
 
+    // Reserve __user_rt_atoi as the FIRST entry (offset 0). Win32 marshalling
+    // sites reference it by name. 69 bytes shifts every user function by 69.
+    allFuncOffsetsSb = sbAppend(allFuncOffsetsSb, "__user_rt_atoi:" + totalFuncBytes)
+    afoFirst = "0"
+    totalFuncBytes += userAtoiHelperSize()
+
     let fi = 0
     while fi < funcCount {
         let entry2 = getLine(funcTable, fi)
@@ -7007,6 +7099,10 @@ just run {
     // ── Pass 2: code generation with real addresses ───────────────────
     let sbCode = sbNew()
     let realTextSize = 0
+
+    // Emit __user_rt_atoi first (matches pass-1 layout: offset 0, 69 bytes).
+    sbCode = sbAppend(sbCode, userAtoiHelper())
+    realTextSize += userAtoiHelperSize()
 
     let fi2 = 0
     while fi2 < funcCount {
