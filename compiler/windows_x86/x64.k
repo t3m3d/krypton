@@ -495,6 +495,55 @@ func userAtoiHelper() {
 }
 func userAtoiHelperSize() { emit 69 }
 
+// __user_rt_itoa: 93-byte int64-to-string helper, RAX=int → RAX=char*.
+// itoa's the int onto a 24-byte stack buffer then calls kr_str via the
+// IAT to obtain a Krypton-managed copy. Lives at offset 69 (right after
+// __user_rt_atoi). CALL kr_str disp depends on krStrIatRva, computed at
+// pass-2 emit time.
+func userItoaHelper(itoaBaseRva, krStrIatRva) {
+    let sb = sbNew()
+    sb = sbAppend(sb, hexByte(0x53))                                             // [0]  PUSH RBX
+    sb = sbAppend(sb, hexByte(0x56))                                             // [1]  PUSH RSI
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x38)) // [2]  SUB RSP,56
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))                // [6]  MOV RBX,RAX
+    sb = sbAppend(sb, hexByte(0x45)+hexByte(0x33)+hexByte(0xC0))                // [9]  XOR R8D,R8D
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x85)+hexByte(0xDB))                // [12] TEST RBX,RBX
+    sb = sbAppend(sb, hexByte(0x79)+hexByte(0x09))                              // [15] JNS .pos (+9)
+    sb = sbAppend(sb, hexByte(0x41)+hexByte(0xB8)+hexDword(1))                 // [17] MOV R8D,1
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0xF7)+hexByte(0xDB))                // [23] NEG RBX
+    // .pos (offset 26):
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x8D)+hexByte(0x74)+hexByte(0x24)+hexByte(0x38)) // [26] LEA RSI,[RSP+56]
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0xFF)+hexByte(0xCE))                // [31] DEC RSI
+    sb = sbAppend(sb, hexByte(0xC6)+hexByte(0x06)+hexByte(0x00))                // [34] MOV BYTE[RSI],0
+    sb = sbAppend(sb, hexByte(0xB9)+hexDword(10))                               // [37] MOV ECX,10
+    // .dig_loop (offset 42):
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xD8))                // [42] MOV RAX,RBX
+    sb = sbAppend(sb, hexByte(0x33)+hexByte(0xD2))                              // [45] XOR EDX,EDX
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0xF7)+hexByte(0xF1))                // [47] DIV RCX
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))                // [50] MOV RBX,RAX
+    sb = sbAppend(sb, hexByte(0x80)+hexByte(0xC2)+hexByte(0x30))                // [53] ADD DL,'0'
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0xFF)+hexByte(0xCE))                // [56] DEC RSI
+    sb = sbAppend(sb, hexByte(0x88)+hexByte(0x16))                              // [59] MOV [RSI],DL
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x85)+hexByte(0xDB))                // [61] TEST RBX,RBX
+    sb = sbAppend(sb, hexByte(0x75)+hexByte(0xE8))                              // [64] JNZ .dig_loop (-24)
+    // .done_digs (offset 66):
+    sb = sbAppend(sb, hexByte(0x45)+hexByte(0x85)+hexByte(0xC0))                // [66] TEST R8D,R8D
+    sb = sbAppend(sb, hexByte(0x74)+hexByte(0x06))                              // [69] JZ .call_kr_str (+6)
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0xFF)+hexByte(0xCE))                // [71] DEC RSI
+    sb = sbAppend(sb, hexByte(0xC6)+hexByte(0x06)+hexByte(0x2D))                // [74] MOV BYTE[RSI],'-'
+    // .call_kr_str (offset 77):
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xF1))                // [77] MOV RCX,RSI
+    let krStrDisp = krStrIatRva - (itoaBaseRva + 80 + 6)
+    sb = sbAppend(sb, hexByte(0xFF)+hexByte(0x15)+hexDword(krStrDisp))           // [80] CALL [kr_str]
+    // Epilogue (offset 86):
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x38)) // [86] ADD RSP,56
+    sb = sbAppend(sb, hexByte(0x5E))                                             // [90] POP RSI
+    sb = sbAppend(sb, hexByte(0x5B))                                             // [91] POP RBX
+    sb = sbAppend(sb, hexByte(0xC3))                                             // [92] RET
+    emit sbToString(sb)
+}
+func userItoaHelperSize() { emit 93 }
+
 // Win32 int-arg marshalling table.
 // Returns CSV of arg indices (0-based) that must be atoi'd before the
 // Win32 call site loads them into RCX/RDX/R8/R9. Krypton represents all
@@ -513,6 +562,22 @@ func win32IntArgs(name) {
     if name == "TerminateProcess"    { emit "1" }
     if name == "CloseHandle"         { emit "" }
     if name == "OpenProcess"         { emit "0,1,2" }
+    emit ""
+}
+
+// Win32 int-RETURN marshalling table. "1" if the function returns an int
+// (DWORD/BOOL/LONG) that must be itoa'd to a Krypton string before being
+// stored in the result vstack slot. Without this, `let t = GetTickCount()`
+// stores the raw int as if it were a char* pointer → segfault on next use.
+// The conversion is a 5-byte CALL __user_rt_itoa right after the IAT call.
+func win32IntReturns(name) {
+    if name == "GetTickCount"        { emit "1" }
+    if name == "GetTickCount64"      { emit "1" }
+    if name == "GetCurrentProcessId" { emit "1" }
+    if name == "GetCurrentThreadId"  { emit "1" }
+    if name == "GetLastError"        { emit "1" }
+    if name == "GetExitCodeProcess"  { emit "" }   // returns BOOL but writes int via OUT-ptr
+    if name == "WaitForSingleObject" { emit "1" }   // DWORD return
     emit ""
 }
 
@@ -820,7 +885,12 @@ func instrSize(op, a1, a2) {
         if len(intArgs) > 0 {
             convSz = countFuncs(intArgs) * 21
         }
-        emit convSz + loads * 8 + extraArgSz + callSz + 8
+        // Int-return marshalling: 5-byte CALL __user_rt_itoa after IAT call.
+        let retSz = 0
+        if win32IntReturns(a1) == "1" {
+            retSz = 5
+        }
+        emit convSz + loads * 8 + extraArgSz + callSz + retSz + 8
     }
     if op == "LABEL"     { emit 0 }
     if op == "JUMP"      { emit 5 }          // E9 + disp32
@@ -1651,9 +1721,20 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
                 callSz = 5
             }
             sbOut = sbAppend(sbOut,callCode)
+            // Int-return marshalling: convert raw int RAX → Krypton char*
+            // by calling __user_rt_itoa via E8+rel32 (5 bytes). Only for
+            // Win32 fns whose return value is an int (DWORD/BOOL/LONG).
+            let retSz0 = 0
+            if win32IntReturns(a1) == "1" {
+                let itoaOff = toInt(funcOffsetLookup(allFuncOffsets, "__user_rt_itoa"))
+                let itoaRva = PE_TEXT_RVA + itoaOff
+                let itoaDisp = itoaRva - (funcBaseRva + pos + loadSz + callSz + 5)
+                sbOut = sbAppend(sbOut, hexByte(0xE8) + hexDword(itoaDisp))           // 5
+                retSz0 = 5
+            }
             sbOut = sbAppend(sbOut,movRspFromRax(vstBase + vsp * 8))   // store result  (8)
             vsp += 1
-            pos += loadSz + callSz + 8
+            pos += loadSz + callSz + retSz0 + 8
         }
 
         if op == "LABEL" {
@@ -7026,11 +7107,14 @@ just run {
     let afoFirst = "1"
     let totalFuncBytes = 0
 
-    // Reserve __user_rt_atoi as the FIRST entry (offset 0). Win32 marshalling
-    // sites reference it by name. 69 bytes shifts every user function by 69.
+    // Reserve __user_rt_atoi (69 bytes) and __user_rt_itoa (93 bytes) as the
+    // FIRST entries. Win32 marshalling sites reference them by name.
+    // Total 162 bytes shift for every user function.
     allFuncOffsetsSb = sbAppend(allFuncOffsetsSb, "__user_rt_atoi:" + totalFuncBytes)
     afoFirst = "0"
     totalFuncBytes += userAtoiHelperSize()
+    allFuncOffsetsSb = sbAppend(allFuncOffsetsSb, "\n__user_rt_itoa:" + totalFuncBytes)
+    totalFuncBytes += userItoaHelperSize()
 
     let fi = 0
     while fi < funcCount {
@@ -7100,9 +7184,13 @@ just run {
     let sbCode = sbNew()
     let realTextSize = 0
 
-    // Emit __user_rt_atoi first (matches pass-1 layout: offset 0, 69 bytes).
+    // Emit __user_rt_atoi first (offset 0, 69 bytes), then __user_rt_itoa
+    // (offset 69, 93 bytes). Layout matches pass-1 reservations.
     sbCode = sbAppend(sbCode, userAtoiHelper())
     realTextSize += userAtoiHelperSize()
+    let itoaBaseRva0 = PE_TEXT_RVA2 + realTextSize
+    sbCode = sbAppend(sbCode, userItoaHelper(itoaBaseRva0, realIatRtRva))
+    realTextSize += userItoaHelperSize()
 
     let fi2 = 0
     while fi2 < funcCount {
