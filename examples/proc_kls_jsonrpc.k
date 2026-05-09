@@ -5,7 +5,7 @@
 // framing), reads the response from stdout. Confirms the
 // bidirectional pipe API works end-to-end against a real LSP server.
 
-import "stdlib/proc.k"
+import "k:proc"
 
 func makeFrame(body) {
     // LSP framing: Content-Length: N\r\n\r\n<body>

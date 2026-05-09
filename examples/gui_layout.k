@@ -9,7 +9,7 @@
 // then every guiVLabel/guiVInput/guiVButton call drops the next
 // widget at the right place.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_first = ""

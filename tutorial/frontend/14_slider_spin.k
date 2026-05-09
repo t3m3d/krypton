@@ -4,7 +4,7 @@
 // Spinbox is an EDIT + UpDown buddy; arrow buttons increment by 1,
 // or you can type a number directly.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_slider = ""

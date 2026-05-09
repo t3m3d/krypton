@@ -23,9 +23,9 @@
 // callbacks directly, the cfunc block gets smaller and more lives in
 // Krypton proper.
 
-import "windows.krh"
-import "user32.krh"
-import "gdi32.krh"
+import "head:windows"
+import "head:user32"
+import "head:gdi32"
 
 jxt {
     func krWinSetup(title)

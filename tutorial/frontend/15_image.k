@@ -6,7 +6,7 @@
 //
 // Pair with guiOpenFile to make a "browse for image" flow.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_image = ""

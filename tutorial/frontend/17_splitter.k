@@ -8,7 +8,7 @@
 //   "vertical"   thin tall bar — drag left/right
 //   "horizontal" wide thin bar — drag up/down
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_left  = ""

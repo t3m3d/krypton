@@ -13,10 +13,10 @@
 // OPENFILENAMEA struct and returns a clean string — much easier than
 // declaring all 24 fields as a Krypton-typed struct.
 
-import "windows.krh"
-import "user32.krh"
-import "gdi32.krh"
-import "comdlg32.krh"
+import "head:windows"
+import "head:user32"
+import "head:gdi32"
+import "head:comdlg32"
 
 jxt {
     func krFdSetup(title)

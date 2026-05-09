@@ -1,4 +1,4 @@
-import "stdlib/native_extras.k"
+import "k:native_extras"
 
 // Word frequency analyzer
 // Demonstrates: for-in, compound assignment (+=), keys, values, hasKey,

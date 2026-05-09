@@ -4,7 +4,7 @@
 // index. guiOnChange fires when the user clicks a different tab —
 // guiTabSelected returns the active index.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_tabs  = ""

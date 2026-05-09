@@ -3,7 +3,7 @@
 // A toy "task list" with: menu bar, text input, list, checkbox,
 // progress, status bar. Keep it under ~80 lines.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_input = ""

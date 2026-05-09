@@ -1,7 +1,7 @@
 // gui_richedit.k — smoke test for the RichEdit widget added for the
 // kcode-win → Krypton port. Shows a few colored, bold runs.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 just run {
     guiInit()

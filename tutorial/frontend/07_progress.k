@@ -3,7 +3,7 @@
 // guiProgressSet takes 0..100. We hold the current percent in a
 // module-level global so both buttons can mutate it.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_prog = ""

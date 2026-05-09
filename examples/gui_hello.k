@@ -12,7 +12,7 @@
 //   - Segoe UI 10pt on every control
 //   - Click callback that reads input and pops a MessageBox
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 // Module-level so the button callback can read it.

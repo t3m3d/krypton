@@ -2,8 +2,8 @@
 
 module hello
 
-import "stdlib/math_utils.k"
-import "stdlib/string_utils.k"
+import "k:math_utils"
+import "k:string_utils"
 
 just run {
     kp("=== Hello Modules ===")
