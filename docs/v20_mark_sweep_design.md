@@ -142,11 +142,12 @@ Cost: 8 bytes extra for composites; flag bit stolen from header.
 
 ## Staging — concrete sessions
 
-| # | Stage | Lines changed | Risk | Behavior change |
-|---|-------|---------------|------|-----------------|
-| 1 | Inline header on every alloc; alloc-count slot in gcGlobals; `gcAllocCount()` builtin | x64.k __rt_alloc_v2 +30 lines, 1 new helper | Low | None visible (just header overhead) |
-| 2 | Shadow-stack region allocated at process start; `gcShadowSp` slot in gcGlobals; `gcShadowPush(ptr)` / `gcShadowPop(n)` builtins | x64.k +2 helpers, ~80 lines | Low | None — only used if compiler emits |
-| 3 | Compile.k emits gcShadowPush after STOREs of pointer-typed locals; gcShadowPop at function exits | compile.k irLetIR + irBlockIR + irFuncIR | High | Every Krypton function changes; binary size grows ~5% |
+| # | Stage | Lines changed | Risk | Status |
+|---|-------|---------------|------|--------|
+| 1 | alloc-count slot in gcGlobals + `gcAllocCount()` builtin (header itself deferred) | x64.k +21B helper, 7B INC in __rt_alloc_v2, +1 hardcoded const bump | Low | **SHIPPED 2026-05-09** |
+| 2 | Shadow-stack region (lazy 64KB HeapAlloc) + `gcShadowPush` / `gcShadowPop` / `gcShadowCount` builtins. gcGlobals 48→64 bytes (+shadow_base, +shadow_sp). | x64.k +159B helpers, +5 hardcoded refs to bump | Low | **SHIPPED 2026-05-09** |
+| 1.5 | Inline 16B header on every alloc + linked list head in gcGlobals | x64.k __rt_alloc_v2 +30 lines, +5 disp formula bumps, gcGlobals expand 64→72 | Medium | NOT YET — pre-req for stages 4-5 |
+| 3 | Compile.k emits gcShadowPush after STOREs of pointer-typed locals; gcShadowPop at function exits (with safe per-function save/restore via dynamic count to handle early returns) | compile.k irLetIR + irBlockIR + irFuncIR + new helper kr_gc_shadow_count_raw + kr_gc_shadow_set_sp_raw | High | NOT YET — adds runtime overhead with no benefit until 4-5 |
 | 4 | Mark walker: walks shadow stack, sets mark bits in headers; conservative within-payload scan | x64.k 1 new helper, ~150 lines | Medium | None — invoked only by gcCollect (existing builtin, currently no-op) |
 | 5 | Sweep walker: walks alloc list, frees unmarked, builds per-slab free list | x64.k 1 new helper, ~200 lines | High | First real free; bugs corrupt heap |
 | 6 | `__rt_alloc_v2` checks free list first; triggers gcCollect on threshold (e.g., 2× live size) | x64.k __rt_alloc_v2 +50 lines | High | Memory now actually reclaims; allocator perf may regress 5-15% |
