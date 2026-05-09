@@ -3310,15 +3310,24 @@ func irPostfix(tokens, pos, ntoks, lc, types) {
             let idxp = irExpr(tokens, p + 1, ntoks, lc, types)
             let idxcode = pairVal(idxp)
             p = pairPos(idxp) + 1
-            // Phase C: if irPrimary tagged the base with `; TYPE *u8`,
-            // lower `[i]` to a direct bufGetByte call instead of the
-            // slow generic INDEX → kr_idx (which allocates a 1-char
-            // string per byte read).
+            // Phase C: if irPrimary tagged the base with a typed-pointer
+            // hint, lower `[i]` to a direct typed-width buf read instead
+            // of the slow generic INDEX → kr_idx (which allocates a
+            // 1-char string per access).
+            //   *u8  → bufGetByte (1 byte)
+            //   *u16 → bufGetWord — note: kr_bufgetword takes ptr only,
+            //          NO offset, so *u16 stays on INDEX for now.
+            //   *u32 / *i32 → bufGetDwordAt (4 bytes)
+            //   *u64 / *i64 → bufGetQwordAt (8 bytes)
             let nLines = lineCount(code)
             let lastLine = ""
             if nLines > 0 { lastLine = getLine(code, nLines - 1) }
             if lastLine == "; TYPE *u8" {
                 code = code + idxcode + "BUILTIN bufGetByte 2\n"
+            } else if lastLine == "; TYPE *u32" || lastLine == "; TYPE *i32" {
+                code = code + idxcode + "BUILTIN bufGetDwordAt 2\n"
+            } else if lastLine == "; TYPE *u64" || lastLine == "; TYPE *i64" {
+                code = code + idxcode + "BUILTIN bufGetQwordAt 2\n"
             } else {
                 code = code + idxcode + "INDEX\n"
             }
