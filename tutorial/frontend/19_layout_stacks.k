@@ -7,7 +7,7 @@
 // guiHStack is the horizontal counterpart — pin y + height, walk
 // widgets across.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_first = ""

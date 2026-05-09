@@ -13,7 +13,7 @@
 // glyphs render as mojibake. A future tier of stdlib/gui.k can switch
 // to the W APIs + UTF-8 conversion to fix this properly.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_tree   = ""

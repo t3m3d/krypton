@@ -7,7 +7,7 @@
 //
 // On every WM_SIZE the dock recomputes positions automatically.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 just run {

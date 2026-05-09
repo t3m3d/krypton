@@ -5,7 +5,7 @@
 // date picker is a calendar dropdown, scrollbar is a standalone bar
 // you can use as a numeric range input.
 
-import "stdlib/gui.k"
+import "k:gui"
 
 
 let g_combo  = ""

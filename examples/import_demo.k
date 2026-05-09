@@ -2,9 +2,9 @@
 
 module main
 
-import "stdlib/result.k"
-import "stdlib/math_utils.k"
-import "stdlib/json.k"
+import "k:result"
+import "k:math_utils"
+import "k:json"
 
 func safeSqrt(n) {
     if n < 0 {
