@@ -4,7 +4,7 @@
 // Pass a lambda that takes the element string; convert inside if you
 // need a numeric.
 //
-// Receiver params declared `cb: fp` so Krypton's native pipeline routes
+// Receiver params declared `cb: closure` so Krypton's native pipeline routes
 // `cb(args)` through callPtr automatically — no explicit callPtr at the
 // call site.
 //
@@ -18,7 +18,7 @@
 module fp
 
 
-func fpMap(list, cb: fp) {
+func fpMap(list, cb: closure) {
     let n = count(list)
     let result = ""
     let i = 0
@@ -35,7 +35,7 @@ func fpMap(list, cb: fp) {
 }
 
 
-func fpFilter(list, pred: fp) {
+func fpFilter(list, pred: closure) {
     let n = count(list)
     let result = ""
     let i = 0
@@ -54,7 +54,7 @@ func fpFilter(list, pred: fp) {
 }
 
 
-func fpReduce(list, initial, cb: fp) {
+func fpReduce(list, initial, cb: closure) {
     let n = count(list)
     let acc = initial
     let i = 0
@@ -66,7 +66,7 @@ func fpReduce(list, initial, cb: fp) {
 }
 
 
-func fpEach(list, cb: fp) {
+func fpEach(list, cb: closure) {
     let n = count(list)
     let i = 0
     while i < n {
@@ -76,7 +76,7 @@ func fpEach(list, cb: fp) {
 }
 
 
-func fpFind(list, pred: fp) {
+func fpFind(list, pred: closure) {
     let n = count(list)
     let i = 0
     while i < n {
@@ -88,7 +88,7 @@ func fpFind(list, pred: fp) {
 }
 
 
-func fpAny(list, pred: fp) {
+func fpAny(list, pred: closure) {
     let n = count(list)
     let i = 0
     while i < n {
@@ -99,7 +99,7 @@ func fpAny(list, pred: fp) {
 }
 
 
-func fpAll(list, pred: fp) {
+func fpAll(list, pred: closure) {
     let n = count(list)
     let i = 0
     while i < n {
@@ -187,7 +187,7 @@ func fpDrop(list, n) {
 
 
 // fpCount(list, predicate): how many elements match.
-func fpCount(list, pred: fp) {
+func fpCount(list, pred: closure) {
     let n = count(list)
     let c = 0
     let i = 0
