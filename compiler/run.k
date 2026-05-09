@@ -1683,20 +1683,31 @@ func execStmt(tokens, pos, env, ftable) {
     emit execExprStmt(tokens, pos, env, ftable)
 }
 
+// Phase B: skip a `: TYPE` annotation. Mirror of irSkipTypeAnnotation
+// in compile.k — see comments there.
+func execSkipTypeBody(tokens, pos) {
+    let p = pos
+    while tokAt(tokens, p) == "STAR" { p += 1 }
+    if tokAt(tokens, p) == "LBRACK" {
+        p += 1
+        p = execSkipTypeBody(tokens, p)
+        if tokAt(tokens, p) == "RBRACK" { p += 1 }
+        emit p
+    }
+    let tk = tokAt(tokens, p)
+    if startsWith(tk, "ID:") == "1" || startsWith(tk, "KW:") == "1" { p += 1 }
+    emit p
+}
+
+func execSkipTypeAnnotation(tokens, pos) {
+    if tokAt(tokens, pos) != "COLON" { emit pos }
+    emit execSkipTypeBody(tokens, pos + 1)
+}
+
 func execLet(tokens, pos, env, ftable) {
     // pos is at the identifier after 'let'
     let name = tokVal(tokAt(tokens, pos))
-    let p = pos + 1
-    // skip optional type annotation: let name: type
-    if tokAt(tokens, p) == "COLON" {
-        p = p + 2
-        // skip compound type [int]
-        if tokAt(tokens, p) == "LBRACK" {
-            p += 1
-            while tokAt(tokens, p) != "RBRACK" { p += 1 }
-            p += 1
-        }
-    }
+    let p = execSkipTypeAnnotation(tokens, pos + 1)
     // skip ASSIGN
     p += 1
     let pair = evalExpr(tokens, p, env, ftable)
