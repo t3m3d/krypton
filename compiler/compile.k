@@ -1519,6 +1519,7 @@ func compileCall(tokens, pos, ntoks) {
     if fname == "bufGetDwordAt"  { emit "kr_bufgetdwordat(" + args + ")," + p }
     if fname == "bufGetQwordAt"  { emit "kr_bufgetqwordat(" + args + ")," + p }
     if fname == "bufSetByte"     { emit "kr_bufsetbyte(" + args + ")," + p }
+    if fname == "bufGetByte"     { emit "kr_bufgetbyte(" + args + ")," + p }
     if fname == "bufSetDwordAt"  { emit "kr_bufsetdwordat(" + args + ")," + p }
     if fname == "handleOut"      { emit "((char*)_alloc(sizeof(void*)))," + p }
     if fname == "handleGet"      { emit "kr_handleget(" + args + ")," + p }
@@ -2959,6 +2960,7 @@ func cRuntime() {
     r = sbAppend(r, "static char* kr_bufgetdwordat(char* buf,const char* off){unsigned int v=*(unsigned int*)(buf+atoi(off));return kr_itoa((int)v);}\n")
     r = sbAppend(r, "static char* kr_bufgetqwordat(char* buf,const char* off){unsigned long long v=*(unsigned long long*)(buf+atoi(off));char s[32];snprintf(s,32,\"%llu\",v);return kr_str(s);}\n")
     r = sbAppend(r, "static char* kr_bufsetbyte(char* buf,const char* off,const char* val){buf[atoi(off)]=(unsigned char)atoi(val);return _K_EMPTY;}\n")
+    r = sbAppend(r, "static char* kr_bufgetbyte(char* buf,const char* off){return kr_itoa((int)(unsigned char)buf[atoi(off)]);}\n")
     r = sbAppend(r, "static char* kr_bufsetdwordat(char* buf,const char* off,const char* val){*(unsigned int*)(buf+atoi(off))=(unsigned int)atoll(val);return _K_EMPTY;}\n")
     r = sbAppend(r, "static char* kr_handleget(char* buf){return *(char**)buf;}\n")
     r = sbAppend(r, "static char* kr_handleint(char* ptr){char s[32];snprintf(s,32,\"%d\",(int)(intptr_t)ptr);return kr_str(s);}\n")
@@ -3517,7 +3519,7 @@ func irCall(tokens, pos, ntoks, lc) {
     // The previous substring-only check silently routed user functions named
     // add/sub/mul/div/pos/etc. through the BUILTIN path → backends emitted
     // UNSUPPORTED markers → stack corruption at runtime. Bug found 2026-05-03.
-    let builtins = "print,kp,printErr,readLine,input,readFile,writeFile,arg,argCount,len,count,substring,charAt,indexOf,contains,startsWith,endsWith,replace,trim,lstrip,rstrip,center,toLower,toUpper,repeat,padLeft,padRight,charCode,fromCharCode,splitBy,format,strReverse,isAlpha,isDigit,isSpace,toInt,parseInt,abs,min,max,pow,sqrt,sign,clamp,hex,bin,floor,ceil,round,split,length,first,last,head,tail,append,join,reverse,sort,unique,fill,zip,slice,listIndexOf,every,some,countOf,sumList,maxList,minList,range,words,lines,keys,values,hasKey,structNew,getField,setField,hasField,structFields,random,timestamp,environ,exit,assert,type,isTruthy,toStr,throw,mapGet,mapSet,mapDel,fadd,fsub,fmul,fdiv,fsqrt,ffloor,fceil,fround,fformat,flt,fgt,feq,sbNew,sbAppend,sbToString,bufNew,bufStr,bufGetDword,bufSetDword,bufGetWord,bufGetQword,bufGetDwordAt,bufGetQwordAt,bufSetByte,bufSetDwordAt,handleOut,handleGet,handleInt,toHandle,ptrDeref,ptrIndex,callPtr,getLine,lineCount,envNew,envSet,envGet,makeResult,getResultTag,getResultVal,getResultEnv,getResultPos,gcAllocated,gcLimit,gcSetLimit,gcCollect,gcReset,gcCheckpoint,gcRestore,gcSlabCount,gcSlabBytes"
+    let builtins = "print,kp,printErr,readLine,input,readFile,writeFile,arg,argCount,len,count,substring,charAt,indexOf,contains,startsWith,endsWith,replace,trim,lstrip,rstrip,center,toLower,toUpper,repeat,padLeft,padRight,charCode,fromCharCode,splitBy,format,strReverse,isAlpha,isDigit,isSpace,toInt,parseInt,abs,min,max,pow,sqrt,sign,clamp,hex,bin,floor,ceil,round,split,length,first,last,head,tail,append,join,reverse,sort,unique,fill,zip,slice,listIndexOf,every,some,countOf,sumList,maxList,minList,range,words,lines,keys,values,hasKey,structNew,getField,setField,hasField,structFields,random,timestamp,environ,exit,assert,type,isTruthy,toStr,throw,mapGet,mapSet,mapDel,fadd,fsub,fmul,fdiv,fsqrt,ffloor,fceil,fround,fformat,flt,fgt,feq,sbNew,sbAppend,sbToString,bufNew,bufStr,bufGetDword,bufSetDword,bufGetWord,bufGetQword,bufGetDwordAt,bufGetQwordAt,bufSetByte,bufGetByte,bufSetDwordAt,handleOut,handleGet,handleInt,toHandle,ptrDeref,ptrIndex,callPtr,getLine,lineCount,envNew,envSet,envGet,makeResult,getResultTag,getResultVal,getResultEnv,getResultPos,gcAllocated,gcLimit,gcSetLimit,gcCollect,gcReset,gcCheckpoint,gcRestore,gcSlabCount,gcSlabBytes"
     if contains("," + builtins + ",", "," + fname + ",") {
         emit code + "BUILTIN " + fname + " " + argc + "\n," + (p + 1)
     }
