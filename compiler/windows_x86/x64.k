@@ -2021,7 +2021,7 @@ func emitSectionHeader(name, virtSize, virtAddr, rawSize, rawOffset, characteris
 //   OFF_ARGP=3407   OFF_ARGC=3607  OFF_ARG=3657
 //   TOTAL=3737
 
-func bsHelperBlockSize() { emit 8506 }   // 1.8.1: +44 kr_bufgetbyte. 1.7.8: kr_gc_checkpoint 52→62 (warmup fix). 1.8.0: +35 kr_gc_slab_count + 21 kr_gc_slab_bytes   // 5681 → 5803 (kr_print/'\n' + kr_environ) → 5845 (+42 kr_count_commas) → 5888 (+43 __rt_truthy_int_v2) → 6037 (+149 kr_split_commas) → 6093 (+56 kr_linecount_smart) → 6210 (+3 kr_envnew + 45 kr_envset + 69 kr_envget) → 6322 (+86 kr_hasfield + 26 kr_structfields stub) → 6775 (+66 kr_reverse + 111 kr_repeat + 137 kr_padleft + 139 kr_padright) → 7025 (+32 kr_abs + 48 kr_min + 48 kr_max + 122 kr_endswith) → 7137 (+112 kr_bin) → 7201 (+64 kr_pow) → 7368 (1.7.5: +76 __rt_alloc_v2 + 21 kr_gc_allocated + 21 kr_gc_limit + 23 kr_gc_set_limit + 26 kr_gc_collect) → 7485 (1.7.6: __rt_alloc_v2 grew 76→172 = +96, +21 kr_arena_reset) → 7666 (1.7.7: __rt_alloc_v2 grew 172→277 = +105, kr_arena_reset grew 21→97 = +76) → 7874 (1.8.0) → 7918 (1.8.1)
+func bsHelperBlockSize() { emit 8517 }   // 1.8.1: +44 kr_bufgetbyte. 1.7.8: kr_gc_checkpoint 52→62 (warmup fix). 1.8.0: +35 kr_gc_slab_count + 21 kr_gc_slab_bytes   // 5681 → 5803 (kr_print/'\n' + kr_environ) → 5845 (+42 kr_count_commas) → 5888 (+43 __rt_truthy_int_v2) → 6037 (+149 kr_split_commas) → 6093 (+56 kr_linecount_smart) → 6210 (+3 kr_envnew + 45 kr_envset + 69 kr_envget) → 6322 (+86 kr_hasfield + 26 kr_structfields stub) → 6775 (+66 kr_reverse + 111 kr_repeat + 137 kr_padleft + 139 kr_padright) → 7025 (+32 kr_abs + 48 kr_min + 48 kr_max + 122 kr_endswith) → 7137 (+112 kr_bin) → 7201 (+64 kr_pow) → 7368 (1.7.5: +76 __rt_alloc_v2 + 21 kr_gc_allocated + 21 kr_gc_limit + 23 kr_gc_set_limit + 26 kr_gc_collect) → 7485 (1.7.6: __rt_alloc_v2 grew 76→172 = +96, +21 kr_arena_reset) → 7666 (1.7.7: __rt_alloc_v2 grew 172→277 = +105, kr_arena_reset grew 21→97 = +76) → 7874 (1.8.0) → 7918 (1.8.1)
 
 // Export offset lookup for bootstrap mode: returns "kr_name:offset\n..." table
 func bootstrapExportOffsets() {
@@ -3927,7 +3927,9 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     // 277 to 284 bytes (INC alloc_count). All subsequent helpers shifted.
     // 2.0-alpha-3 stage 1.5: +29 more (4-byte size inflation +
     // 25-byte header-write block), v2 now 313 bytes. 7925 → 7954.
-    let bufsetbyte_real_impl = 7954
+    // 2.0-alpha-3 stage 1.5b: arena_reset grew 97 → 108 (+11 for
+    // gcAllocsHead clear). 7954 → 7965.
+    let bufsetbyte_real_impl = 7965
     let bufgetqword_v2_impl = stub_impl_base + 1183     // 20 bytes — load qword + itoa (string return)
     let sizeof_v2_impl = stub_impl_base + 1203          // 108 bytes — 5 structs supported
     let structnew_v2_impl = stub_impl_base + 1311       // 108 bytes — 5 structs supported
@@ -5771,9 +5773,15 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     let kar_curr_store   = (gcGlobalsRva + 24) - (textRva + pos + 67)
     let kar_off_store    = (gcGlobalsRva + 32) - (textRva + pos + 78)
     let kar_total_store  = (gcGlobalsRva + 0)  - (textRva + pos + 85)
+    // 2.0-alpha-3 stage 1.5: clear gcAllocsHead so the per-alloc
+    // linked list (built by stage-1.5 header writes) doesn't outlive
+    // the arena reset. Otherwise stage-4 mark walker would walk into
+    // freed memory. 11-byte MOV qword imm32 inserted before the
+    // tail-jump; subsequent disps bumped accordingly.
+    let kar_allocs_clear = (gcGlobalsRva + 64) - (textRva + pos + 92 + 11)
     // kr_gc_collect was emitted 26 bytes before kr_arena_reset
     let kar_jmp_target   = pos - 26
-    let kar_jmp_disp     = kar_jmp_target - (pos + 97)
+    let kar_jmp_disp     = kar_jmp_target - (pos + 108)
     sb2 = sbAppend(sb2, hexByte(0x53))                                                        // [0]     PUSH RBX
     sb2 = sbAppend(sb2, hexByte(0x56))                                                        // [1]     PUSH RSI
     sb2 = sbAppend(sb2, hexByte(0x57))                                                        // [2]     PUSH RDI
@@ -5804,8 +5812,9 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     sb2 = sbAppend(sb2, hexByte(0x5F))                                                        // [89]    POP RDI
     sb2 = sbAppend(sb2, hexByte(0x5E))                                                        // [90]    POP RSI
     sb2 = sbAppend(sb2, hexByte(0x5B))                                                        // [91]    POP RBX
-    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(kar_jmp_disp))                                 // [92-96] JMP kr_gc_collect (tail-call, returns "0")
-    pos = pos + 97
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xC7)+hexByte(0x05)+hexDword(kar_allocs_clear)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00))   // [92-102] MOV qword [RIP+gcAllocsHead], 0
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(kar_jmp_disp))                                 // [103-107] JMP kr_gc_collect (tail-call, returns "0")
+    pos = pos + 108
 
     // ── kr_gc_checkpoint() → token int-string ──────────────────────
     // 1.7.8: save the current arena state so user code can later
