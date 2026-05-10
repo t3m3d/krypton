@@ -2,12 +2,29 @@
 
 **A self-hosting programming language that emits native machine code without a C compiler in the loop.**
 
-> Version 1.7.5
+> Version 2.0 (lean ship — see [`CHANGELOG.md`](CHANGELOG.md))
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.7.5-brightgreen)
+![Version](https://img.shields.io/badge/version-2.0-brightgreen)
 
-Krypton is a dynamically typed language with clean syntax, ~150 built-in functions, and a compiler written in itself. The **default** compilation pipeline produces a native executable on every supported platform — no gcc, no clang, no external toolchain at user-invocation time:
+Krypton is a dynamically typed language with clean syntax, ~150 built-in functions, and a compiler written in itself.
+
+**2.0 highlights** (see [`CHANGELOG.md`](CHANGELOG.md) for the full list):
+
+- **Mark-sweep GC** with shadow-stack rooting and freelist reuse —
+  long-running programs (LSP, servers, monitors) now stay flat in
+  memory after `gcCollect()`.
+- **Lambdas + closures** as first-class values (`stdlib/fp.k`).
+- **Typed pointers** (`*u8`, `*Vec3`) and `let local TYPE name` for
+  zero-overhead struct field access.
+- **Win32 ABI marshalling** at ~30 call sites — `Sleep(500)` and
+  `let t = GetTickCount()` work directly, no cfunc wrappers.
+- **Memory-mapped files** (`mmapFile` in `stdlib/mmap.k`) for
+  zero-copy file scanning.
+- **Inline asm primitives**: `pause()`, `mfence()`, `lfence()`,
+  `sfence()`, `rdtsc()`.
+
+The **default** compilation pipeline produces a native executable on every supported platform — no gcc, no clang, no external toolchain at user-invocation time:
 
 | Platform | Backend | Output |
 |----------|---------|--------|

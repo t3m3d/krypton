@@ -1,8 +1,13 @@
 # Krypton 2.0 — Plan
 
-Status: **draft, not committed to.** This document sketches the shape of a
-2.0 release and defends an order. Items here are candidates only; nothing
-here ships until the user signs off.
+Status: **2.0 lean ship complete (2026-05-09).** This was the planning
+document. The actual ship is documented in `CHANGELOG.md` and
+`releasenotes/RELEASE_NOTES_2.0.txt`. Lean-2.0 scope: items 1, 2, 3
+landed; items 4 (concurrency), 5 (ARM64), 6 (LSP native build) deferred
+to 2.1.
+
+For users: `docs/gc_user_guide.md` covers the runtime GC API; this
+doc is a historical record of the planning trade-offs.
 
 Primary tension Krypton hits in 1.x: the bump-only arena. Every string
 concat allocates fresh; nothing is ever reclaimed. The compiler is a
@@ -20,14 +25,14 @@ benefits from it (LSP, package manager).
 
 ## Recommended scope for 2.0
 
-| # | Item | Status | Why now |
-|---|------|--------|---------|
-| 1 | **GC** (mark-sweep) | Largest item | Unblocks every other 2.0 candidate |
-| 2 | **C-style low-level memory** | Medium | Krypton as a systems language |
-| 3 | **Lambdas in native pipeline** | Medium | Idiomatic stdlib (`map`, `filter`, etc.) |
-| 4 | **Concurrency** (`go` + channels) | Medium-large | `go` keyword already reserved |
-| 5 | **ARM64 Linux backend** | Medium | Parity with macOS arm64 |
-| 6 | **LSP server** | Medium | Editor support |
+| # | Item | Lean-2.0 status |
+|---|------|-----------------|
+| 1 | **GC** (mark-sweep) | ✓ SHIPPED — stages 1–6 phase 2 |
+| 2 | **C-style low-level memory** | ✓ SHIPPED — typed ptrs, `let local`, mmap, asm primitives |
+| 3 | **Lambdas in native pipeline** | ✓ SHIPPED — closures + closure-fp unification |
+| 4 | **Concurrency** (`go` + channels) | DEFERRED to 2.1 — depends on GC stable runtime |
+| 5 | **ARM64 Linux backend** | DEFERRED to 2.1 |
+| 6 | **LSP server** | PARTIAL — `kls.exe` works (sessions 1+2 capabilities); native build path → 2.1 |
 
 Deferred to 2.1+:
 
