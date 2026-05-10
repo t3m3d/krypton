@@ -445,9 +445,9 @@ func emitStringTable(strs) {
 // ── Import table builder ──────────────────────────────────────────
 // Eight DLLs: kernel32.dll + krypton_rt.dll + advapi32.dll + pdh.dll + user32.dll + ckrypton_gui.dll + ckrypton_proc.dll + ckrypton_fs.dll
 
-let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,GetCurrentThreadId,GetLastError,SetLastError,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA,WaitForSingleObject,TerminateProcess,OpenProcess"
+let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,GetCurrentThreadId,GetLastError,SetLastError,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA,WaitForSingleObject,TerminateProcess,OpenProcess,CreateFileMappingA,MapViewOfFile,UnmapViewOfFile"
 let KRUSER_FUNCS = "GetSystemMetrics,MessageBoxA,ShowWindow,SetTimer,KillTimer,GetForegroundWindow,SetForegroundWindow"
-let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword,kr_envnew,kr_envset,kr_envget,kr_hasfield,kr_structfields,kr_repeat,kr_padleft,kr_padright,kr_reverse,kr_abs,kr_min,kr_max,kr_endswith,kr_bin,kr_pow,kr_gc_allocated,kr_gc_limit,kr_gc_set_limit,kr_gc_collect,kr_arena_reset,kr_gc_checkpoint,kr_gc_restore,kr_gc_slab_count,kr_gc_slab_bytes,kr_bufgetbyte,kr_bufgetwordat,kr_bufsetwordat,kr_bufsetqwordat,kr_bufgetwordatbe,kr_bufgetdwordatbe,kr_bufgetqwordatbe,kr_gc_alloc_count,kr_gc_shadow_count,kr_gc_shadow_pop_n,kr_gc_shadow_push,kr_gc_walk_allocs,kr_rdtsc,kr_gc_mark"
+let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword,kr_envnew,kr_envset,kr_envget,kr_hasfield,kr_structfields,kr_repeat,kr_padleft,kr_padright,kr_reverse,kr_abs,kr_min,kr_max,kr_endswith,kr_bin,kr_pow,kr_gc_allocated,kr_gc_limit,kr_gc_set_limit,kr_gc_collect,kr_arena_reset,kr_gc_checkpoint,kr_gc_restore,kr_gc_slab_count,kr_gc_slab_bytes,kr_bufgetbyte,kr_bufgetwordat,kr_bufsetwordat,kr_bufsetqwordat,kr_bufgetwordatbe,kr_bufgetdwordatbe,kr_bufgetqwordatbe,kr_gc_alloc_count,kr_gc_shadow_count,kr_gc_shadow_pop_n,kr_gc_shadow_push,kr_gc_walk_allocs,kr_rdtsc,kr_gc_mark,kr_gc_sweep,kr_pause,kr_mfence"
 let KRADV_FUNCS = "RegOpenKeyExA,RegQueryValueExA,RegEnumKeyExA,RegCloseKey,GetUserNameA"
 let KRPDH_FUNCS = "PdhOpenQueryA,PdhAddEnglishCounterA,PdhCollectQueryData,PdhGetFormattedCounterArrayA,PdhCloseQuery"
 // ckrypton_gui.dll exports — generated by scripts/build_ckrypton_gui_dll.sh
@@ -589,7 +589,7 @@ func win32IntArgs(name) {
     if name == "GetLastError"                { emit "" }
     if name == "SetLastError"                { emit "0" }      // dwErrCode
     // File / virtual memory
-    if name == "CreateFileA"                 { emit "1,2,4,5,6" }   // access,share,creat,attr,template
+    if name == "CreateFileA"                 { emit "1,2,3,4,5,6" }   // access,share,sec=NULL,creat,attr,template=NULL
     if name == "VirtualAlloc"                { emit "0,1,2,3" }     // addr,size,type,prot
     if name == "VirtualFree"                 { emit "0,1,2" }       // addr,size,type
     if name == "HeapAlloc"                   { emit "0,1,2" }       // handle,flags,size
@@ -601,6 +601,9 @@ func win32IntArgs(name) {
     if name == "SetTimer"                    { emit "0,1,2" }       // hwnd, idTimer, ms (proc=ptr)
     if name == "KillTimer"                   { emit "0,1" }
     if name == "SetForegroundWindow"         { emit "0" }           // hwnd
+    // Memory mapping (file mapping pointers stay raw)
+    if name == "CreateFileMappingA"          { emit "0,1,2,3,4,5" } // file, sec=NULL, prot, hi, lo, name=NULL
+    if name == "MapViewOfFile"               { emit "0,1,2,3,4" }   // mapping, access, offHi, offLo, bytes
     emit ""
 }
 
@@ -656,7 +659,10 @@ func win32IntReturns(name) {
     if name == "KillTimer"                  { emit "1" }   // BOOL
     if name == "GetForegroundWindow"        { emit "1" }   // HWND (handle)
     if name == "SetForegroundWindow"        { emit "1" }   // BOOL
+    if name == "CreateFileMappingA"         { emit "1" }   // HANDLE
+    if name == "UnmapViewOfFile"            { emit "1" }   // BOOL
     // Excluded (returns ptr or special):
+    //   MapViewOfFile         — returns LPVOID (raw mmap pointer; treat as char*)
     //   GetExitCodeProcess    — BOOL but writes int via OUT-ptr; user reads OUT
     //   HeapAlloc / VirtualAlloc — returns LPVOID (opaque pointer; treat as char*)
     //   LoadLibraryA          — returns HMODULE (also a pointer; treat as char*)
@@ -779,6 +785,9 @@ func resolveBuiltin(name) {
     if name == "gcShadowPush"   { emit "kr_gc_shadow_push" }
     if name == "gcWalkAllocs"   { emit "kr_gc_walk_allocs" }
     if name == "gcMark"         { emit "kr_gc_mark" }
+    if name == "gcSweep"        { emit "kr_gc_sweep" }
+    if name == "pause"          { emit "kr_pause" }
+    if name == "mfence"         { emit "kr_mfence" }
     if name == "rdtsc"          { emit "kr_rdtsc" }
     if name == "gcLimit"        { emit "kr_gc_limit" }
     if name == "gcSetLimit"     { emit "kr_gc_set_limit" }
@@ -2274,7 +2283,7 @@ func emitSectionHeader(name, virtSize, virtAddr, rawSize, rawOffset, characteris
 //   OFF_ARGP=3407   OFF_ARGC=3607  OFF_ARG=3657
 //   TOTAL=3737
 
-func bsHelperBlockSize() { emit 8674 }   // 1.8.1: +44 kr_bufgetbyte. 1.7.8: kr_gc_checkpoint 52→62 (warmup fix). 1.8.0: +35 kr_gc_slab_count + 21 kr_gc_slab_bytes   // 5681 → 5803 (kr_print/'\n' + kr_environ) → 5845 (+42 kr_count_commas) → 5888 (+43 __rt_truthy_int_v2) → 6037 (+149 kr_split_commas) → 6093 (+56 kr_linecount_smart) → 6210 (+3 kr_envnew + 45 kr_envset + 69 kr_envget) → 6322 (+86 kr_hasfield + 26 kr_structfields stub) → 6775 (+66 kr_reverse + 111 kr_repeat + 137 kr_padleft + 139 kr_padright) → 7025 (+32 kr_abs + 48 kr_min + 48 kr_max + 122 kr_endswith) → 7137 (+112 kr_bin) → 7201 (+64 kr_pow) → 7368 (1.7.5: +76 __rt_alloc_v2 + 21 kr_gc_allocated + 21 kr_gc_limit + 23 kr_gc_set_limit + 26 kr_gc_collect) → 7485 (1.7.6: __rt_alloc_v2 grew 76→172 = +96, +21 kr_arena_reset) → 7666 (1.7.7: __rt_alloc_v2 grew 172→277 = +105, kr_arena_reset grew 21→97 = +76) → 7874 (1.8.0) → 7918 (1.8.1)
+func bsHelperBlockSize() { emit 8773 }   // 1.8.1: +44 kr_bufgetbyte. 1.7.8: kr_gc_checkpoint 52→62 (warmup fix). 1.8.0: +35 kr_gc_slab_count + 21 kr_gc_slab_bytes   // 5681 → 5803 (kr_print/'\n' + kr_environ) → 5845 (+42 kr_count_commas) → 5888 (+43 __rt_truthy_int_v2) → 6037 (+149 kr_split_commas) → 6093 (+56 kr_linecount_smart) → 6210 (+3 kr_envnew + 45 kr_envset + 69 kr_envget) → 6322 (+86 kr_hasfield + 26 kr_structfields stub) → 6775 (+66 kr_reverse + 111 kr_repeat + 137 kr_padleft + 139 kr_padright) → 7025 (+32 kr_abs + 48 kr_min + 48 kr_max + 122 kr_endswith) → 7137 (+112 kr_bin) → 7201 (+64 kr_pow) → 7368 (1.7.5: +76 __rt_alloc_v2 + 21 kr_gc_allocated + 21 kr_gc_limit + 23 kr_gc_set_limit + 26 kr_gc_collect) → 7485 (1.7.6: __rt_alloc_v2 grew 76→172 = +96, +21 kr_arena_reset) → 7666 (1.7.7: __rt_alloc_v2 grew 172→277 = +105, kr_arena_reset grew 21→97 = +76) → 7874 (1.8.0) → 7918 (1.8.1)
 
 // Export offset lookup for bootstrap mode: returns "kr_name:offset\n..." table
 func bootstrapExportOffsets() {
@@ -6563,6 +6572,76 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     sb2 = sbAppend(sb2, hexByte(0x5B))                                                        // [129]    POP RBX
     sb2 = sbAppend(sb2, hexByte(0xC3))                                                        // [130]    RET
     pos = pos + 131
+
+    // ── kr_gc_sweep() → int-string of swept (unlinked) alloc count ──
+    // 2.0-alpha-3 stage 5 (soft sweep): walks gcAllocsHead, rebuilds the
+    // chain keeping only allocs whose mark bit is set (clears the bit on
+    // survivors for the next cycle). Unmarked allocs are unlinked but the
+    // memory is NOT returned to a slab freelist — that's stage 6. Net
+    // effect: gcWalkAllocs() count drops; memory usage doesn't (yet).
+    // Caller invokes kr_gc_mark first, then kr_gc_sweep. 80 bytes.
+    offsets = offsets + "kr_gc_sweep:" + pos + "\n"
+    let gs_head_load   = (gcGlobalsRva + 64) - (textRva + pos + 21)
+    let gs_head_store  = (gcGlobalsRva + 64) - (textRva + pos + 62)
+    let gs_itoa        = 266 - (pos + 70)
+    sb2 = sbAppend(sb2, hexByte(0x53))                                                         // [0]      PUSH RBX
+    sb2 = sbAppend(sb2, hexByte(0x56))                                                         // [1]      PUSH RSI
+    sb2 = sbAppend(sb2, hexByte(0x57))                                                         // [2]      PUSH RDI
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x54))                                           // [3-4]    PUSH R12
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))               // [5-8]    SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x45)+hexByte(0x33)+hexByte(0xE4))                             // [9-11]   XOR R12D, R12D (freed_count)
+    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xDB))                                           // [12-13]  XOR EBX, EBX (new_head = NULL)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x35)+hexDword(gs_head_load))     // [14-20]  MOV RSI, [RIP+gcAllocsHead]
+    // .loop at 21
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xF6))                             // [21-23]  TEST RSI, RSI
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(0x1D))                                           // [24-25]  JZ .done +29 -> 55
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x3E))                             // [26-28]  MOV RDI, [RSI] (next = cur->next)
+    sb2 = sbAppend(sb2, hexByte(0xF6)+hexByte(0x46)+hexByte(0x08)+hexByte(0x01))               // [29-32]  TEST BYTE [RSI+8], 1 (mark bit?)
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(0x0C))                                           // [33-34]  JZ .unmarked +12 -> 47
+    // Marked: clear mark, prepend to new list
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0x66)+hexByte(0x08)+hexByte(0xFE))               // [35-38]  AND BYTE [RSI+8], 0xFE
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x1E))                             // [39-41]  MOV [RSI], RBX (cur->next = new_head)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xF3))                             // [42-44]  MOV RBX, RSI (new_head = cur)
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(0x03))                                           // [45-46]  JMP .next +3 -> 50
+    // .unmarked at 47
+    sb2 = sbAppend(sb2, hexByte(0x49)+hexByte(0xFF)+hexByte(0xC4))                             // [47-49]  INC R12 (freed_count++)
+    // .next at 50
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xFE))                             // [50-52]  MOV RSI, RDI (cur = next)
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(0xDE))                                           // [53-54]  JMP .loop -34 -> 21
+    // .done at 55
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x1D)+hexDword(gs_head_store))    // [55-61]  MOV [RIP+gcAllocsHead], RBX
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0xE1))                             // [62-64]  MOV RCX, R12
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(gs_itoa))                                       // [65-69]  CALL __rt_itoa
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))               // [70-73]  ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x5C))                                           // [74-75]  POP R12
+    sb2 = sbAppend(sb2, hexByte(0x5F))                                                         // [76]     POP RDI
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                                         // [77]     POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                                         // [78]     POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                                         // [79]     RET
+    pos = pos + 80
+
+    // ── kr_pause() → "0" (PAUSE x86 instruction) ────────────────────
+    // 2.0-alpha-3: spin-loop hint for CPU. Lowers power consumption
+    // during busy-wait and improves SMT scheduling. Returns "0" via
+    // tail-jump to __rt_return_empty. 9 bytes (PAUSE = F3 90).
+    offsets = offsets + "kr_pause:" + pos + "\n"
+    let pause_emp = emp_pos - (pos + 4 + 5)
+    sb2 = sbAppend(sb2, hexByte(0xF3)+hexByte(0x90))                                            // [0-1]   PAUSE
+    sb2 = sbAppend(sb2, hexByte(0x90))                                                          // [2]     NOP (alignment)
+    sb2 = sbAppend(sb2, hexByte(0x90))                                                          // [3]     NOP (alignment)
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(pause_emp))                                      // [4-8]   JMP __rt_return_empty
+    pos = pos + 9
+
+    // ── kr_mfence() → "0" (MFENCE x86 instruction) ──────────────────
+    // 2.0-alpha-3: full memory barrier. Useful for lockless data
+    // structure publication (writer side). 10 bytes (MFENCE = 0F AE F0).
+    offsets = offsets + "kr_mfence:" + pos + "\n"
+    let mfence_emp = emp_pos - (pos + 5 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x0F)+hexByte(0xAE)+hexByte(0xF0))                              // [0-2]   MFENCE
+    sb2 = sbAppend(sb2, hexByte(0x90))                                                          // [3]     NOP
+    sb2 = sbAppend(sb2, hexByte(0x90))                                                          // [4]     NOP
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(mfence_emp))                                     // [5-9]   JMP __rt_return_empty
+    pos = pos + 10
 
     emit sb_good + sbToString(sb2) + "\nOFFSETS\n" + offsets
 }
