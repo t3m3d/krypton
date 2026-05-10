@@ -2,6 +2,148 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [2.0-final] - 2026-05-09 (in repo, installer not yet cut)
+
+The lean 2.0 ship. Theme: **long-running programs become viable.** Mark-sweep
+GC with shadow-stack rooting and freelist reuse fully working. Lambdas,
+closures, typed pointers, Win32 ABI marshalling all done. Concurrency,
+ARM64 backend, native-build LSP server, inline `asm { }` blocks, and
+auto-trigger collection deferred to 2.1.
+
+### GC Tier 3 (mark-sweep) — complete
+
+- **Stage 1.5**: per-allocation 16-byte header (next-link + size+flags)
+  prepended to every `__rt_alloc_v2` call. `gcAllocsHead` linked list
+  rooted at `gcGlobals[64]`. New `gcWalkAllocs()` and `gcAllocCount()`
+  builtins for diagnostics.
+- **Stage 2**: shadow-stack region (lazy 64KB `HeapAlloc`'d). New
+  `gcShadowPush`/`gcShadowPop`/`gcShadowCount` builtins.
+- **Stage 3**: compile.k emits `gcShadowPush` after every `let x = expr`,
+  `x = expr` (reassignment), `x += expr` (compound assign), and at
+  function-entry for every PARAM. Per-function shadow_sp save at entry,
+  restore at exit (and before every `RETURN` op for early-return safety).
+- **Stage 4**: `kr_gc_mark` (131-byte helper) — walks the shadow stack as
+  roots, marks reachable allocations via `BTS bit 0` of `header[8]`. New
+  `gcMark()` builtin returns marked count.
+- **Stage 5**: `kr_gc_sweep` (107-byte helper) — walks `gcAllocsHead`,
+  rebuilds chain keeping marked allocs, pushes unmarked onto a global
+  free chain at `gcGlobals[72]`. New `gcSweep()` builtin returns swept
+  count. New `gcFreelistCount()` for diagnostics.
+- **Stage 6 phase 2**: `kr_gc_try_freelist` (104-byte helper) called
+  by `__rt_alloc` trampoline before falling through to bump-allocation.
+  Walks free chain looking for a chunk of sufficient size (chunk_size
+  must be ≥ `aligned(needed+7) + 16` to account for the header). On hit:
+  unlink from free chain, link onto `gcAllocsHead`, increment
+  `alloc_count`, return `chunk + 16`. **This is where memory actually
+  gets reused.**
+- **`gcCollect()` rewired** to perform mark + sweep in one call (was a
+  no-op stub). Returns sweep count.
+
+Stress test: 100-iteration alloc loop → 1010 live → mark+sweep → 718
+swept (714 onto freelist) → 100 more iters → only +7 alloc growth (707
+chunks reused from freelist).
+
+### Lambdas, closures, functional pipeline
+
+- Lambdas in native pipeline (`func(x) { x*2 }`) — pre-scan hoists to
+  `_krlam<pos>` siblings; `let f = func(...)` automatically routed.
+- Closures via env-passing — free vars captured at lambda creation site
+  via `envSet`/`envGet`. Snapshot semantics. Int + pointer captures both
+  work.
+- **Closure-fp unification**: ALL lambdas uniformly closures (env-wrapped).
+  `stdlib/fp.k` is canonical (`cb: closure` typed receivers). `fpc.k`
+  retired.
+- Per-call overhead measured at <10 cycles (below noise margin) via
+  `examples/bench_closures.k` and the new `rdtsc()` builtin.
+
+### Typed pointers + `let local TYPE`
+
+- `let p: *u8 = s; p[i]` lowers to direct `bufGetByte` (no per-call
+  string allocation). Phase C extends to `*u16`/`*u32`/`*u64`/`*i*`
+  variants, struct fields (`*Vec3.field` with offset tracking), and
+  `let local TYPE name` (heap-backed for now; syntax forward-compatible
+  with true stack alloc).
+
+### Win32 ABI marshalling
+
+- `x64.k` automatically `atoi`'s int args and `itoa`'s int returns at
+  ~30 known Win32 call sites (Sleep, ExitProcess, GetTickCount,
+  GetCurrentProcessId, CreateFileA, VirtualAlloc, GetSystemMetrics,
+  ShowWindow, MessageBoxA, etc.). User code can now write `Sleep(500)`
+  and `let t = GetTickCount()` directly — no `cfunc` wrapper needed.
+- Advapi32 registry: `RegOpenKeyExA`, `RegQueryValueExA`,
+  `RegEnumKeyExA`, `RegCloseKey`, `GetUserNameA` all marshalled.
+  `RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\...", 0, KEY_READ, phResult)`
+  works directly.
+- Two helpers prepended to every user binary: `__user_rt_atoi` (69 B,
+  offset 0) and `__user_rt_itoa` (93 B, offset 69, calls `kr_str` via IAT).
+- `stdlib/proc.k`'s `procSleep` migrated to direct `Sleep`. The
+  `krProcSleep` cfunc wrapper retained in `ckrypton_proc.dll` for
+  backward compat.
+
+### Memory-mapped files
+
+- `stdlib/mmap.k` + `headers/mmap.krh`: `mmapFile(path)` returns a
+  Krypton-env handle. `mmapPtr(m)` gives the raw `*u8` for `bufGetByte`
+  reads with zero copies into the GC heap. State stored via
+  `envSet`/`envGet` (string concat would `strlen`-truncate the raw
+  pointer at the first NUL byte).
+
+### Native stdio
+
+- `stdlib/winio.k`: `winioStdin()` / `winioStdout()` / `winioStderr()`
+  via `GetStdHandle`. `winioWrite(h, s)` / `winioWriteLine(h, s)` via
+  `WriteFile`. `winioReadByte(h)` / `winioReadBytes(h, n)` /
+  `winioReadLine(h)` via `ReadFile`. No `cfunc` body, no
+  `setvbuf`+`fread` — pure Win32 IAT calls. Forms the foundation for
+  a future LSP server native build (replacing `lsp/jsonrpc.k`'s cfunc).
+
+### Inline asm primitives
+
+- `pause()` (PAUSE, ~250 cycles for 1000 spins) — spin-loop hint for
+  busy-wait + SMT scheduling.
+- `mfence()` (MFENCE) — full memory barrier.
+- `lfence()` / `sfence()` — load / store barriers.
+- `rdtsc()` (RDTSC, 26-byte helper) — high-resolution cycle counter.
+- Full `asm { ... }` block syntax deferred to 2.1.
+
+### Compiler
+
+- `kcc -o` builds a native PE/COFF directly via `x64.k` (no per-build gcc).
+- IAT links 8 DLLs: `kernel32`, `krypton_rt`, `advapi32`, `pdh`, `user32`,
+  `ckrypton_gui`, `ckrypton_proc`, `ckrypton_fs`.
+- Odin-style `import` prefixes: `k:foo` → `<root>/stdlib/foo.k`,
+  `head:foo` → `<root>/headers/foo.krh`.
+- Uppercase-LBRACE crash fixed (`let N = 100; while i < N { ... }` no
+  longer misparses as struct literal).
+
+### Bug fixes
+
+- `findEntry` recognizes `just run` only — tests with `just main`
+  silently produced empty IR. Old `bufgetbyte_*` tests fixed.
+- `kr_bufsetbyte` was a JMP-to-empty stub before 1.8.6 — replaced with
+  real 50-byte impl appended to the helper block.
+- `continue` in while/for-in loops silently fell through (no JUMP
+  emitted) — fixed in `irWhileIR`/`irForIR`.
+
+### Tests
+
+- 84/84 native-pipeline regression — 100% pass rate.
+- New tests: `gc_mark.k`, `gc_sweep.k`, `gc_freelist.k`, `gc_collect.k`,
+  `mmap_smoke.k`.
+
+### Known 2.1 work
+
+- Auto-trigger collection from `__rt_alloc_v2` (currently explicit
+  `gcCollect()`); needs safe-point design or conservative stack scan
+  to handle vstack values not yet in shadow stack.
+- Inline `asm { mnemonic1 mnemonic2 ... }` syntax (single-instruction
+  builtins like `pause()` ship in 2.0).
+- Concurrency (`go` blocks + channels). Depends on GC.
+- ARM64 Linux backend.
+- LSP server native build (currently builds via C path because
+  `lsp/jsonrpc.k` uses `cfunc` for stdin).
+
 ## [post-1.8.0] - 2026-05-05 (in repo, no installer cut yet)
 
 ### kls — Krypton Language Server (lsp/, sessions 1–3)
