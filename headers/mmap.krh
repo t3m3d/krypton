@@ -1,0 +1,11 @@
+// mmap.krh — Krypton header for Win32 memory-mapped files.
+// Usage: import "head:mmap"
+
+jxt {
+    c "windows.h"
+
+    func CreateFileMappingA(hFile, attrs, prot, sizeHi, sizeLo, name)
+    func MapViewOfFile(hMap, access, offHi, offLo, bytes)
+    func UnmapViewOfFile(lpBase)
+    func FlushViewOfFile(lpBase, bytes)
+}
