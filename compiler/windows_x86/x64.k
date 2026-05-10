@@ -2284,7 +2284,7 @@ func emitSectionHeader(name, virtSize, virtAddr, rawSize, rawOffset, characteris
 //   OFF_ARGP=3407   OFF_ARGC=3607  OFF_ARG=3657
 //   TOTAL=3737
 
-func bsHelperBlockSize() { emit 8939 }   // 1.8.1: +44 kr_bufgetbyte. 1.7.8: kr_gc_checkpoint 52→62 (warmup fix). 1.8.0: +35 kr_gc_slab_count + 21 kr_gc_slab_bytes   // 5681 → 5803 (kr_print/'\n' + kr_environ) → 5845 (+42 kr_count_commas) → 5888 (+43 __rt_truthy_int_v2) → 6037 (+149 kr_split_commas) → 6093 (+56 kr_linecount_smart) → 6210 (+3 kr_envnew + 45 kr_envset + 69 kr_envget) → 6322 (+86 kr_hasfield + 26 kr_structfields stub) → 6775 (+66 kr_reverse + 111 kr_repeat + 137 kr_padleft + 139 kr_padright) → 7025 (+32 kr_abs + 48 kr_min + 48 kr_max + 122 kr_endswith) → 7137 (+112 kr_bin) → 7201 (+64 kr_pow) → 7368 (1.7.5: +76 __rt_alloc_v2 + 21 kr_gc_allocated + 21 kr_gc_limit + 23 kr_gc_set_limit + 26 kr_gc_collect) → 7485 (1.7.6: __rt_alloc_v2 grew 76→172 = +96, +21 kr_arena_reset) → 7666 (1.7.7: __rt_alloc_v2 grew 172→277 = +105, kr_arena_reset grew 21→97 = +76) → 7874 (1.8.0) → 7918 (1.8.1)
+func bsHelperBlockSize() { emit 8951 }   // 1.8.1: +44 kr_bufgetbyte. 1.7.8: kr_gc_checkpoint 52→62 (warmup fix). 1.8.0: +35 kr_gc_slab_count + 21 kr_gc_slab_bytes   // 5681 → 5803 (kr_print/'\n' + kr_environ) → 5845 (+42 kr_count_commas) → 5888 (+43 __rt_truthy_int_v2) → 6037 (+149 kr_split_commas) → 6093 (+56 kr_linecount_smart) → 6210 (+3 kr_envnew + 45 kr_envset + 69 kr_envget) → 6322 (+86 kr_hasfield + 26 kr_structfields stub) → 6775 (+66 kr_reverse + 111 kr_repeat + 137 kr_padleft + 139 kr_padright) → 7025 (+32 kr_abs + 48 kr_min + 48 kr_max + 122 kr_endswith) → 7137 (+112 kr_bin) → 7201 (+64 kr_pow) → 7368 (1.7.5: +76 __rt_alloc_v2 + 21 kr_gc_allocated + 21 kr_gc_limit + 23 kr_gc_set_limit + 26 kr_gc_collect) → 7485 (1.7.6: __rt_alloc_v2 grew 76→172 = +96, +21 kr_arena_reset) → 7666 (1.7.7: __rt_alloc_v2 grew 172→277 = +105, kr_arena_reset grew 21→97 = +76) → 7874 (1.8.0) → 7918 (1.8.1)
 
 // Export offset lookup for bootstrap mode: returns "kr_name:offset\n..." table
 func bootstrapExportOffsets() {
@@ -2361,18 +2361,39 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     pos = 18
 
     // ── __rt_alloc(RCX=size) → RAX=ptr ──────────────────────────
-    // 34 bytes. JMP to __rt_alloc_v2 at offset 7201. Phase 2 (try
-    // freelist first via kr_gc_try_freelist at offset 8847) attempted
-    // 2026-05-09 but a subtle reuse bug crashes after ~9 chunks are
-    // consumed. Reverted; freelist construction (phase 1) ships, real
-    // reuse needs a fresh investigation. The kr_gc_try_freelist helper
-    // is still emitted at the end of helper block so a future trampoline
-    // edit can wire it up.
-    let alloc_jmp_target = 7201
-    let alloc_jmp_disp = alloc_jmp_target - (pos + 5)
-    sb = sbAppend(sb, hexByte(0xE9)+hexDword(alloc_jmp_disp))                    // [0-4] JMP rel32 → __rt_alloc_v2
+    // 34-byte trampoline at HBO 18. 2.0-alpha-3 stage 6 phase 2: try
+    // freelist first (kr_gc_try_freelist at HBO 8847), fall back to
+    // __rt_alloc_v2 only on miss. Layout:
+    //   18-18  PUSH RBX                          (preserve caller's RBX)
+    //   19-21  MOV RBX, RCX                      (save raw needed size)
+    //   22-26  CALL kr_gc_try_freelist           (rel32 = 8847 - 27)
+    //   27-29  TEST RAX, RAX
+    //   30-31  JZ .miss (+4 -> HBO 36 within trampoline)
+    //   32-32  POP RBX
+    //   33-33  RET                               (chunk found, returned in RAX)
+    //   34-35  NOP NOP                           (alignment)
+    //   36-38  MOV RCX, RBX                      (.miss: restore RCX to raw needed)
+    //   39-39  POP RBX
+    //   40-44  JMP __rt_alloc_v2                 (rel32 = 7201 - 45)
+    //   45-51  NOP padding
+    let alloc_v2_target = 7201
+    let alloc_freelist_target = 8847
+    let alloc_call_disp = alloc_freelist_target - (pos + 4 + 5)
+    let alloc_jmp_disp  = alloc_v2_target - (pos + 22 + 5)
+    sb = sbAppend(sb, hexByte(0x53))                                                            // [0]      PUSH RBX
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xCB))                                // [1-3]    MOV RBX, RCX
+    sb = sbAppend(sb, hexByte(0xE8)+hexDword(alloc_call_disp))                                  // [4-8]    CALL kr_gc_try_freelist
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x85)+hexByte(0xC0))                                // [9-11]   TEST RAX, RAX
+    sb = sbAppend(sb, hexByte(0x74)+hexByte(0x04))                                              // [12-13]  JZ .miss +4 -> 18
+    sb = sbAppend(sb, hexByte(0x5B))                                                            // [14]     POP RBX
+    sb = sbAppend(sb, hexByte(0xC3))                                                            // [15]     RET
+    sb = sbAppend(sb, hexByte(0x90))                                                            // [16]     NOP
+    sb = sbAppend(sb, hexByte(0x90))                                                            // [17]     NOP
+    sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xD9))                                // [18-20]  .miss: MOV RCX, RBX
+    sb = sbAppend(sb, hexByte(0x5B))                                                            // [21]     POP RBX
+    sb = sbAppend(sb, hexByte(0xE9)+hexDword(alloc_jmp_disp))                                   // [22-26]  JMP __rt_alloc_v2
     let alloc_pad = 0
-    while alloc_pad < 29 { sb = sbAppend(sb, hexByte(0x90))  alloc_pad = alloc_pad + 1 }  // [5-33] NOPs
+    while alloc_pad < 7 { sb = sbAppend(sb, hexByte(0x90))  alloc_pad = alloc_pad + 1 }        // [27-33]  NOP padding
     pos = 52
 
     // ── __rt_strdup(RCX=str) → RAX=ptr ──────────────────────────
@@ -6012,17 +6033,30 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [22]    RET
     pos = pos + 23
 
-    // ── kr_gc_collect() → "0" (placeholder for Tier 3 mark-sweep) ──
-    // 26 bytes. Allocates a 2-byte buffer, writes "0\0", returns it.
+    // ── kr_gc_collect() → int-string of swept-count (mark + sweep) ──
+    // 2.0-final: real mark+sweep. Calls kr_gc_mark to mark reachable,
+    // then kr_gc_sweep to move unmarked to freelist. Returns sweep
+    // count (string). Stays 26 bytes so arena_reset/gc_restore tail
+    // jumps to "kr_gc_collect" still target the same offset.
+    // kr_gc_mark and kr_gc_sweep positions are hardcoded — keep in sync
+    // with helper-block layout (bump if helpers shift).
     offsets = offsets + "kr_gc_collect:" + pos + "\n"
-    let gcc_alloc = 18 - (pos + 14)
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [0-3]  SUB RSP, 0x28
-    sb2 = sbAppend(sb2, hexByte(0xB9)+hexDword(2))                                // [4-8]  MOV ECX, 2
-    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(gcc_alloc))                        // [9-13] CALL __rt_alloc
-    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x00)+hexByte(0x30))                // [14-16] MOV BYTE[RAX], '0'
-    sb2 = sbAppend(sb2, hexByte(0xC6)+hexByte(0x40)+hexByte(0x01)+hexByte(0x00))  // [17-20] MOV BYTE[RAX+1], 0
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [21-24] ADD RSP, 0x28
-    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [25]   RET
+    let gcc_mark_target  = 8554
+    let gcc_sweep_target = 8685
+    let gcc_mark_disp  = gcc_mark_target  - (pos + 4 + 5)
+    let gcc_sweep_disp = gcc_sweep_target - (pos + 9 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [0-3]   SUB RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(gcc_mark_disp))                    // [4-8]   CALL kr_gc_mark
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(gcc_sweep_disp))                   // [9-13]  CALL kr_gc_sweep (RAX = sweep count)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))  // [14-17] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [18]    RET
+    sb2 = sbAppend(sb2, hexByte(0x90))                                            // [19]    NOP
+    sb2 = sbAppend(sb2, hexByte(0x90))                                            // [20]    NOP
+    sb2 = sbAppend(sb2, hexByte(0x90))                                            // [21]    NOP
+    sb2 = sbAppend(sb2, hexByte(0x90))                                            // [22]    NOP
+    sb2 = sbAppend(sb2, hexByte(0x90))                                            // [23]    NOP
+    sb2 = sbAppend(sb2, hexByte(0x90))                                            // [24]    NOP
+    sb2 = sbAppend(sb2, hexByte(0x90))                                            // [25]    NOP
     pos = pos + 26
 
     // ── kr_arena_reset() → "0" ─────────────────────────────────────
@@ -6690,56 +6724,60 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(mfence_emp))                                     // [5-9]   JMP __rt_return_empty
     pos = pos + 10
 
-    // ── kr_gc_try_freelist(RCX=needed_size) → RAX=user_ptr or NULL ──
+    // ── kr_gc_try_freelist(RCX=needed_user_bytes) → RAX=user_ptr|NULL ──
     // 2.0-alpha-3 stage 6 phase 2: walk gcGlobals[72] (free_head) for a
-    // chunk whose stored size (header[8]) >= needed. On hit: unlink from
-    // free chain, link onto gcAllocsHead, increment alloc_count, return
-    // chunk+16 (user-data ptr). On miss: return NULL. The __rt_alloc
-    // trampoline at offset 18 calls this first; falls back to bumping
-    // via __rt_alloc_v2 only on miss. 92 bytes.
+    // chunk whose stored size (header[8]) >= aligned(needed+7) + 16.
+    // chunk_size in header includes the 16-byte header itself; we need
+    // chunk_size - 16 >= aligned-needed, i.e. chunk_size >= inflated.
+    // On hit: unlink from free chain, link onto gcAllocsHead, increment
+    // alloc_count, return chunk+16 (user-data ptr). On miss: return NULL.
+    // 104 bytes (was 92 before the size-inflation fix).
     offsets = offsets + "kr_gc_try_freelist:" + pos + "\n"
-    let tf_free_load   = (gcGlobalsRva + 72) - (textRva + pos + 14)
-    let tf_free_store  = (gcGlobalsRva + 72) - (textRva + pos + 56)
-    let tf_alloc_load  = (gcGlobalsRva + 64) - (textRva + pos + 63)
-    let tf_alloc_store = (gcGlobalsRva + 64) - (textRva + pos + 73)
-    let tf_count_inc   = (gcGlobalsRva + 40) - (textRva + pos + 80)
+    let tf_free_load   = (gcGlobalsRva + 72) - (textRva + pos + 26)
+    let tf_free_store  = (gcGlobalsRva + 72) - (textRva + pos + 68)
+    let tf_alloc_load  = (gcGlobalsRva + 64) - (textRva + pos + 75)
+    let tf_alloc_store = (gcGlobalsRva + 64) - (textRva + pos + 85)
+    let tf_count_inc   = (gcGlobalsRva + 40) - (textRva + pos + 92)
     sb2 = sbAppend(sb2, hexByte(0x53))                                                          // [0]     PUSH RBX
     sb2 = sbAppend(sb2, hexByte(0x56))                                                          // [1]     PUSH RSI
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCB))                              // [2-4]   MOV RBX, RCX (save needed)
-    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xF6))                                            // [5-6]   XOR ESI, ESI (prev = NULL)
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x05)+hexDword(tf_free_load))       // [7-13]  MOV RAX, [RIP+free_head]
-    // .loop at 14
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xC0))                              // [14-16] TEST RAX, RAX
-    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(0x44))                                            // [17-18] JZ .miss +68 -> 87
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x39)+hexByte(0x58)+hexByte(0x08))                // [19-22] CMP [RAX+8], RBX
-    sb2 = sbAppend(sb2, hexByte(0x73)+hexByte(0x08))                                            // [23-24] JAE .found +8 -> 33
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC6))                              // [25-27] MOV RSI, RAX (prev = cur)
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x00))                              // [28-30] MOV RAX, [RAX] (cur = next)
-    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(0xED))                                            // [31-32] JMP .loop -19 -> 14
-    // .found at 33
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xF6))                              // [33-35] TEST RSI, RSI (head?)
-    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(0x08))                                            // [36-37] JZ .unlink_head +8 -> 46
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x10))                              // [38-40] MOV RDX, [RAX] (next of cur)
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x16))                              // [41-43] MOV [RSI], RDX (prev->next = next)
-    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(0x0A))                                            // [44-45] JMP .relink +10 -> 56 (RIP-after=46)
-    // .unlink_head at 46
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x10))                              // [46-48] MOV RDX, [RAX]
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x15)+hexDword(tf_free_store))      // [49-55] MOV [RIP+free_head], RDX
-    // .relink at 56
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x15)+hexDword(tf_alloc_load))      // [56-62] MOV RDX, [RIP+gcAllocsHead]
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x10))                              // [63-65] MOV [RAX], RDX (cur->next = old head)
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x05)+hexDword(tf_alloc_store))     // [66-72] MOV [RIP+gcAllocsHead], RAX
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0x05)+hexDword(tf_count_inc))       // [73-79] INC qword [RIP+alloc_count]
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC0)+hexByte(0x10))                // [80-83] ADD RAX, 16 (return user-data ptr)
-    sb2 = sbAppend(sb2, hexByte(0x5E))                                                          // [84]    POP RSI
-    sb2 = sbAppend(sb2, hexByte(0x5B))                                                          // [85]    POP RBX
-    sb2 = sbAppend(sb2, hexByte(0xC3))                                                          // [86]    RET
-    // .miss at 87
-    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xC0))                                            // [87-88] XOR EAX, EAX
-    sb2 = sbAppend(sb2, hexByte(0x5E))                                                          // [89]    POP RSI
-    sb2 = sbAppend(sb2, hexByte(0x5B))                                                          // [90]    POP RBX
-    sb2 = sbAppend(sb2, hexByte(0xC3))                                                          // [91]    RET
-    pos = pos + 92
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC1)+hexByte(0x07))                // [2-5]   ADD RCX, 7 (round up)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xE1)+hexByte(0xF8))                // [6-9]   AND RCX, -8 (8-align)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC1)+hexByte(0x10))                // [10-13] ADD RCX, 16 (header inflation)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCB))                              // [14-16] MOV RBX, RCX (save inflated needed)
+    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xF6))                                            // [17-18] XOR ESI, ESI (prev = NULL)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x05)+hexDword(tf_free_load))       // [19-25] MOV RAX, [RIP+free_head]
+    // .loop at 26
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xC0))                              // [26-28] TEST RAX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(0x44))                                            // [29-30] JZ .miss +68 -> 99
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x39)+hexByte(0x58)+hexByte(0x08))                // [31-34] CMP [RAX+8], RBX
+    sb2 = sbAppend(sb2, hexByte(0x73)+hexByte(0x08))                                            // [35-36] JAE .found +8 -> 45
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC6))                              // [37-39] MOV RSI, RAX (prev = cur)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x00))                              // [40-42] MOV RAX, [RAX] (cur = next)
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(0xED))                                            // [43-44] JMP .loop -19 -> 26
+    // .found at 45
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xF6))                              // [45-47] TEST RSI, RSI (head?)
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(0x08))                                            // [48-49] JZ .unlink_head +8 -> 58
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x10))                              // [50-52] MOV RDX, [RAX] (next of cur)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x16))                              // [53-55] MOV [RSI], RDX (prev->next = next)
+    sb2 = sbAppend(sb2, hexByte(0xEB)+hexByte(0x0A))                                            // [56-57] JMP .relink +10 -> 68 (RIP-after=58)
+    // .unlink_head at 58
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x10))                              // [58-60] MOV RDX, [RAX]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x15)+hexDword(tf_free_store))      // [61-67] MOV [RIP+free_head], RDX
+    // .relink at 68
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x15)+hexDword(tf_alloc_load))      // [68-74] MOV RDX, [RIP+gcAllocsHead]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x10))                              // [75-77] MOV [RAX], RDX (cur->next = old head)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x05)+hexDword(tf_alloc_store))     // [78-84] MOV [RIP+gcAllocsHead], RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0x05)+hexDword(tf_count_inc))       // [85-91] INC qword [RIP+alloc_count]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC0)+hexByte(0x10))                // [92-95] ADD RAX, 16 (return user-data ptr)
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                                          // [96]    POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                                          // [97]    POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                                          // [98]    RET
+    // .miss at 99
+    sb2 = sbAppend(sb2, hexByte(0x33)+hexByte(0xC0))                                            // [99-100] XOR EAX, EAX
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                                          // [101]   POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                                          // [102]   POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                                          // [103]   RET
+    pos = pos + 104
 
     emit sb_good + sbToString(sb2) + "\nOFFSETS\n" + offsets
 }
