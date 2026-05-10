@@ -4149,7 +4149,14 @@ func irLetIR(tokens, pos, ntoks, lc, inFunc, types) {
     let code = pairVal(pair)
     p = pairPos(pair)
     if tokAt(tokens, p) == "SEMI" { p += 1 }
-    emit "LOCAL " + name + "\n" + code + "STORE " + name + "\n," + p
+    // 2.0-alpha-3 GC stage 3: push the just-stored value onto the shadow
+    // stack so the mark walker (stages 4-5) sees it as a root. The push
+    // is unconditional — if the value is a smart-int, the marker's
+    // range-check filters it out at scan time (no false retention).
+    // Lifetime is function-scoped (no per-block popping); the function
+    // prologue/epilogue saves/restores shadow_sp.
+    let pushCode = "LOAD " + name + "\nBUILTIN gcShadowPush 1\nPOP\n"
+    emit "LOCAL " + name + "\n" + code + "STORE " + name + "\n" + pushCode + "," + p
 }
 
 func irBlockIR(tokens, pos, ntoks, lc, inFunc, types) {
@@ -4606,6 +4613,17 @@ func irFuncIR(tokens, pos, ntoks) {
     // should be procedural (side-effects only, no return value).
     if startsWith(fname, "pure_") {
         bodyCode = "LOCAL _gc_ck\nBUILTIN gcCheckpoint 0\nSTORE _gc_ck\n" + bodyCode + "LOAD _gc_ck\nBUILTIN gcRestore 1\nPOP\n"
+    }
+    // 2.0-alpha-3 GC stage 3: wrap function body with shadow_sp save/restore.
+    // Per-let pushes (in irLetIR) accumulate during function execution; this
+    // resets shadow_sp to the entry value at function exit, popping every
+    // pushed root at once. CAVEAT: explicit `return`/`emit` early-exits
+    // bypass the restore (RETURN op jumps straight to the function
+    // epilogue), causing shadow stack growth. Mitigation deferred until
+    // stages 4-5 land — pre-collection the imbalance is harmless.
+    if !startsWith(fname, "pure_") {
+        bodyCode = "LOCAL __sh_save\nBUILTIN gcShadowCount 0\nSTORE __sh_save\n" + bodyCode +
+                   "BUILTIN gcShadowCount 0\nLOAD __sh_save\nSUB\nBUILTIN gcShadowPop 1\nPOP\n"
     }
     emit "FUNC " + fname + " " + pc + "\n" + params + bodyCode + "END\n\n," + p
 }
@@ -5845,7 +5863,13 @@ just run {
         if irEntry >= 0 {
             let mainTypes = irScanStructTypes(tokens, ntoks) + irScanFuncTypes(tokens, irEntry)
             let ep = irBlockIR(tokens, irEntry, ntoks, 0, "0", mainTypes)
-            sbIR = sbAppend(sbIR, "FUNC __main__ 0\n" + sbToString(sbGlobInit) + pairVal(ep) + "END\n")
+            // 2.0-alpha-3 GC stage 3: same shadow-stack save/restore wrap
+            // as irFuncIR applies to __main__'s body (and prepended global
+            // inits). On normal exit, all per-let pushes get popped.
+            let mainBody = sbToString(sbGlobInit) + pairVal(ep)
+            mainBody = "LOCAL __sh_save\nBUILTIN gcShadowCount 0\nSTORE __sh_save\n" + mainBody +
+                       "BUILTIN gcShadowCount 0\nLOAD __sh_save\nSUB\nBUILTIN gcShadowPop 1\nPOP\n"
+            sbIR = sbAppend(sbIR, "FUNC __main__ 0\n" + mainBody + "END\n")
         }
 
         let irText = sbToString(sbIR)

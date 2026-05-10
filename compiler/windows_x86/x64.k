@@ -446,7 +446,7 @@ func emitStringTable(strs) {
 // Eight DLLs: kernel32.dll + krypton_rt.dll + advapi32.dll + pdh.dll + user32.dll + ckrypton_gui.dll + ckrypton_proc.dll + ckrypton_fs.dll
 
 let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,GetCurrentThreadId,GetLastError,SetLastError,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA,WaitForSingleObject,TerminateProcess,OpenProcess"
-let KRUSER_FUNCS = "GetSystemMetrics,MessageBoxA"
+let KRUSER_FUNCS = "GetSystemMetrics,MessageBoxA,ShowWindow,SetTimer,KillTimer,GetForegroundWindow,SetForegroundWindow"
 let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword,kr_envnew,kr_envset,kr_envget,kr_hasfield,kr_structfields,kr_repeat,kr_padleft,kr_padright,kr_reverse,kr_abs,kr_min,kr_max,kr_endswith,kr_bin,kr_pow,kr_gc_allocated,kr_gc_limit,kr_gc_set_limit,kr_gc_collect,kr_arena_reset,kr_gc_checkpoint,kr_gc_restore,kr_gc_slab_count,kr_gc_slab_bytes,kr_bufgetbyte,kr_bufgetwordat,kr_bufsetwordat,kr_bufsetqwordat,kr_bufgetwordatbe,kr_bufgetdwordatbe,kr_bufgetqwordatbe,kr_gc_alloc_count,kr_gc_shadow_count,kr_gc_shadow_pop_n,kr_gc_shadow_push,kr_gc_walk_allocs,kr_rdtsc"
 let KRADV_FUNCS = "RegOpenKeyExA,RegQueryValueExA,RegEnumKeyExA,RegCloseKey,GetUserNameA"
 let KRPDH_FUNCS = "PdhOpenQueryA,PdhAddEnglishCounterA,PdhCollectQueryData,PdhGetFormattedCounterArrayA,PdhCloseQuery"
@@ -588,6 +588,19 @@ func win32IntArgs(name) {
     if name == "GetCurrentThreadId"          { emit "" }
     if name == "GetLastError"                { emit "" }
     if name == "SetLastError"                { emit "0" }      // dwErrCode
+    // File / virtual memory
+    if name == "CreateFileA"                 { emit "1,2,4,5,6" }   // access,share,creat,attr,template
+    if name == "VirtualAlloc"                { emit "0,1,2,3" }     // addr,size,type,prot
+    if name == "VirtualFree"                 { emit "0,1,2" }       // addr,size,type
+    if name == "HeapAlloc"                   { emit "0,1,2" }       // handle,flags,size
+    if name == "HeapReAlloc"                 { emit "0,1,3" }       // handle,flags,(addr=ptr),size
+    // user32
+    if name == "GetSystemMetrics"            { emit "0" }           // index
+    if name == "MessageBoxA"                 { emit "0,3" }         // handle, uType
+    if name == "ShowWindow"                  { emit "0,1" }         // hwnd, nCmdShow
+    if name == "SetTimer"                    { emit "0,1,2" }       // hwnd, idTimer, ms (proc=ptr)
+    if name == "KillTimer"                   { emit "0,1" }
+    if name == "SetForegroundWindow"         { emit "0" }           // hwnd
     emit ""
 }
 
@@ -632,9 +645,20 @@ func win32IntReturns(name) {
     // DWORD returns
     if name == "GetLogicalDrives"           { emit "1" }
     if name == "GetFileAttributesA"         { emit "1" }
+    // File / virtual memory
+    if name == "CreateFileA"                { emit "1" }   // HANDLE
+    if name == "VirtualFree"                { emit "1" }   // BOOL
+    // user32
+    if name == "GetSystemMetrics"           { emit "1" }   // int
+    if name == "MessageBoxA"                { emit "1" }   // int (LRESULT/IDxxx)
+    if name == "ShowWindow"                 { emit "1" }   // BOOL (was-visible)
+    if name == "SetTimer"                   { emit "1" }   // UINT_PTR (timer id)
+    if name == "KillTimer"                  { emit "1" }   // BOOL
+    if name == "GetForegroundWindow"        { emit "1" }   // HWND (handle)
+    if name == "SetForegroundWindow"        { emit "1" }   // BOOL
     // Excluded (returns ptr or special):
     //   GetExitCodeProcess    — BOOL but writes int via OUT-ptr; user reads OUT
-    //   HeapAlloc             — returns LPVOID (opaque pointer; treat as char*)
+    //   HeapAlloc / VirtualAlloc — returns LPVOID (opaque pointer; treat as char*)
     //   LoadLibraryA          — returns HMODULE (also a pointer; treat as char*)
     //   GetProcAddress        — returns FARPROC (function pointer)
     //   GetCommandLineA       — returns LPSTR (already a string)
