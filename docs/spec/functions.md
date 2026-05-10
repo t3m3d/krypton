@@ -1,6 +1,6 @@
 # Krypton Built-in Functions Reference
 
-**Version 1.8.0** — Reference for built-in functions.
+**Version 2.0** — Reference for built-in functions.
 
 All values in Krypton are strings. Functions that operate on numbers parse their
 arguments and return numeric strings. Lists are comma-separated strings (`"a,b,c"`).
@@ -462,6 +462,48 @@ Per-call slab allocations are reclaimed automatically. Caveat: the
 wrap appends BEFORE the implicit RETURN, so `pure_` functions must
 be **procedural** — no explicit `emit` / `return` of allocated values.
 
+## 2.0 additions
+
+### `gcMark()` — (native, Windows; 2.0)
+Walks the shadow stack as roots and marks every reachable allocation
+by setting bit 0 of the allocation's size+flags qword (`header[8]`).
+Returns the count of newly-marked allocations as a string.
+
+Pure visualization on its own — pair with `gcSweep()` to actually
+free unmarked memory. Most users call `gcCollect()` instead, which
+does both in sequence.
+
+### `gcSweep()` — (native, Windows; 2.0)
+Walks `gcAllocsHead`, rebuilds the chain keeping only marked
+allocations (clears the mark bit on survivors), and pushes unmarked
+allocations onto the global freelist (`gcGlobals[72]`). Returns the
+count of swept allocations.
+
+### `gcCollect()` — (native, Windows; 2.0)
+Mark + sweep in one call. Returns the sweep count. Replaces the
+1.x no-op stub. Call between events / requests / loop ticks in
+long-running programs to keep memory bounded.
+
+### `gcFreelistCount()` — (native, Windows; 2.0)
+Returns the count of allocations on the freelist (waiting for reuse).
+After a `gcCollect()`, this number indicates how much memory is
+available for reuse on the next `__rt_alloc` call.
+
+### `rdtsc()` — (native, Windows; 2.0-alpha)
+Reads the x86 time-stamp counter (RDTSC instruction). Returns the
+64-bit cycle count as a string. Use for high-resolution benchmarks.
+
+### `pause()` / `mfence()` / `lfence()` / `sfence()` — (native, Windows; 2.0)
+Single-instruction asm primitives. `pause()` is a spin-loop hint
+(low-power, SMT-friendly). The fences are memory barriers
+(`mfence` = full, `lfence` = load, `sfence` = store).
+
+### `mmapFile(path)` / `mmapPtr(m)` / `mmapOk(m)` / `mmapClose(m)` — (Krypton, `k:mmap`; 2.0)
+Win32 `CreateFileMappingA` + `MapViewOfFile` wrappers. `mmapFile`
+returns a Krypton env with `ptr`, `h`, `hMap` keys. `mmapPtr` extracts
+the raw `*u8` mmap pointer (use `bufGetByte(p, i)` to read individual
+bytes with no copy into the GC heap). Always pair with `mmapClose`.
+
 ## Notes
 
 - Numeric `+` semantics: when both operands are numeric strings, `+` performs
@@ -472,3 +514,7 @@ be **procedural** — no explicit `emit` / `return` of allocated values.
   (1 GiB) for string pointers; integers at or above that boundary will be
   misinterpreted as pointers and likely crash. Use `add64` / `mul64` etc. when
   you need more headroom.
+- Krypton 2.0 marshals int args + int returns automatically at ~30 known
+  Win32 call sites (Sleep, GetTickCount, GetCurrentProcessId, CreateFileA,
+  RegOpenKeyExA, etc.). User code can call them directly without cfunc
+  wrappers — see `examples/win32_direct.k` and `examples/win32_registry.k`.
