@@ -3693,7 +3693,7 @@ func irCall(tokens, pos, ntoks, lc, types) {
     // The previous substring-only check silently routed user functions named
     // add/sub/mul/div/pos/etc. through the BUILTIN path → backends emitted
     // UNSUPPORTED markers → stack corruption at runtime. Bug found 2026-05-03.
-    let builtins = "print,kp,printErr,readLine,input,readFile,writeFile,arg,argCount,len,count,substring,charAt,indexOf,contains,startsWith,endsWith,replace,trim,lstrip,rstrip,center,toLower,toUpper,repeat,padLeft,padRight,charCode,fromCharCode,splitBy,format,strReverse,isAlpha,isDigit,isSpace,toInt,parseInt,abs,min,max,pow,sqrt,sign,clamp,hex,bin,floor,ceil,round,split,length,first,last,head,tail,append,join,reverse,sort,unique,fill,zip,slice,listIndexOf,every,some,countOf,sumList,maxList,minList,range,words,lines,keys,values,hasKey,structNew,getField,setField,hasField,structFields,random,timestamp,environ,exit,assert,type,isTruthy,toStr,throw,mapGet,mapSet,mapDel,fadd,fsub,fmul,fdiv,fsqrt,ffloor,fceil,fround,fformat,flt,fgt,feq,sbNew,sbAppend,sbToString,bufNew,bufStr,bufGetDword,bufSetDword,bufGetWord,bufGetQword,bufGetDwordAt,bufGetQwordAt,bufSetByte,bufGetByte,bufSetDwordAt,bufSetQwordAt,bufGetWordAt,bufSetWordAt,bufGetWordAtBE,bufGetDwordAtBE,bufGetQwordAtBE,handleOut,handleGet,handleInt,toHandle,ptrDeref,ptrIndex,callPtr,getLine,lineCount,envNew,envSet,envGet,makeResult,getResultTag,getResultVal,getResultEnv,getResultPos,gcAllocated,gcAllocCount,gcShadowCount,gcShadowPop,gcShadowPush,gcWalkAllocs,gcMark,gcSweep,rdtsc,pause,mfence,gcLimit,gcSetLimit,gcCollect,gcReset,gcCheckpoint,gcRestore,gcSlabCount,gcSlabBytes"
+    let builtins = "print,kp,printErr,readLine,input,readFile,writeFile,arg,argCount,len,count,substring,charAt,indexOf,contains,startsWith,endsWith,replace,trim,lstrip,rstrip,center,toLower,toUpper,repeat,padLeft,padRight,charCode,fromCharCode,splitBy,format,strReverse,isAlpha,isDigit,isSpace,toInt,parseInt,abs,min,max,pow,sqrt,sign,clamp,hex,bin,floor,ceil,round,split,length,first,last,head,tail,append,join,reverse,sort,unique,fill,zip,slice,listIndexOf,every,some,countOf,sumList,maxList,minList,range,words,lines,keys,values,hasKey,structNew,getField,setField,hasField,structFields,random,timestamp,environ,exit,assert,type,isTruthy,toStr,throw,mapGet,mapSet,mapDel,fadd,fsub,fmul,fdiv,fsqrt,ffloor,fceil,fround,fformat,flt,fgt,feq,sbNew,sbAppend,sbToString,bufNew,bufStr,bufGetDword,bufSetDword,bufGetWord,bufGetQword,bufGetDwordAt,bufGetQwordAt,bufSetByte,bufGetByte,bufSetDwordAt,bufSetQwordAt,bufGetWordAt,bufSetWordAt,bufGetWordAtBE,bufGetDwordAtBE,bufGetQwordAtBE,handleOut,handleGet,handleInt,toHandle,ptrDeref,ptrIndex,callPtr,getLine,lineCount,envNew,envSet,envGet,makeResult,getResultTag,getResultVal,getResultEnv,getResultPos,gcAllocated,gcAllocCount,gcShadowCount,gcShadowPop,gcShadowPush,gcWalkAllocs,gcMark,gcSweep,gcFreelistCount,rdtsc,pause,mfence,gcLimit,gcSetLimit,gcCollect,gcReset,gcCheckpoint,gcRestore,gcSlabCount,gcSlabBytes"
     if contains("," + builtins + ",", "," + fname + ",") {
         emit code + "BUILTIN " + fname + " " + argc + "\n," + (p + 1)
     }
@@ -3716,7 +3716,18 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
         let code = pairVal(pair)
         let p = pairPos(pair)
         if tokAt(tokens, p) == "SEMI" { p += 1 }
-        emit code + "RETURN\n," + p
+        // 2.0-alpha-3 stage 6: restore shadow_sp before early return.
+        // The function-exit wrap (irFuncIR) adds the same restore at
+        // the implicit fall-through end; explicit RETURN bypasses that
+        // unless we re-emit it here. inFunc=="0" → top-level (__main__);
+        // skip the restore there since __sh_save isn't always present
+        // in IR-mode entry blocks. (Top-level early return = process
+        // exit anyway.)
+        let restoreCode = ""
+        if inFunc == "1" {
+            restoreCode = "BUILTIN gcShadowCount 0\nLOAD __sh_save\nSUB\nBUILTIN gcShadowPop 1\nPOP\n"
+        }
+        emit code + restoreCode + "RETURN\n," + p
     }
 
     // if statement
@@ -3893,7 +3904,7 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
             if nt == "STAREQ"  { op = "MUL\n" }
             if nt == "SLASHEQ" { op = "DIV\n" }
             if nt == "MODEQ"   { op = "MOD\n" }
-            emit "LOAD " + name + "\n" + rcode + op + "STORE " + name + "\n," + p
+            emit "LOAD " + name + "\n" + rcode + op + "STORE " + name + "\nLOAD " + name + "\nBUILTIN gcShadowPush 1\nPOP\n," + p
         }
     }
 
@@ -3973,7 +3984,10 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
         let code = pairVal(pair)
         let p = pairPos(pair)
         if tokAt(tokens, p) == "SEMI" { p += 1 }
-        emit code + "STORE " + name + "\n," + p
+        // 2.0-alpha-3 stage 6 prep: re-root the new value on the shadow
+        // stack. Without this, a sweep between the reassignment and the
+        // next read could collect the new heap-allocated value.
+        emit code + "STORE " + name + "\nLOAD " + name + "\nBUILTIN gcShadowPush 1\nPOP\n," + p
     }
 
     // expression statement (function call)
@@ -4621,25 +4635,26 @@ func irFuncIR(tokens, pos, ntoks) {
     // bypass the restore (RETURN op jumps straight to the function
     // epilogue), causing shadow stack growth. Mitigation deferred until
     // stages 4-5 land — pre-collection the imbalance is harmless.
-    if !startsWith(fname, "pure_") {
-        // Push every PARAM onto the shadow stack at entry. Without this,
-        // function-arg heap pointers wouldn't be roots — sweep could
-        // collect them while the callee still uses them. Walk `params`
-        // (which is "PARAM <name>\n" lines) to extract param names.
-        let paramPushes = ""
-        let plnCount = lineCount(params)
-        let pli = 0
-        while pli < plnCount {
-            let pln = getLine(params, pli)
-            if startsWith(pln, "PARAM ") == "1" {
-                let pn = substring(pln, 6, len(pln))
-                paramPushes = paramPushes + "LOAD " + pn + "\nBUILTIN gcShadowPush 1\nPOP\n"
-            }
-            pli += 1
+    // 2.0-alpha-3 stage 6: wrap EVERY function (including pure_) with
+    // shadow-stack save/restore. pure_ functions also have gcCheckpoint
+    // wrapping, but that doesn't conflict — the two operate on different
+    // GC mechanisms (arena epoch vs. mark-sweep root tracking).
+    // Push every PARAM onto the shadow stack at entry. Without this,
+    // function-arg heap pointers wouldn't be roots — sweep could
+    // collect them while the callee still uses them.
+    let paramPushes = ""
+    let plnCount = lineCount(params)
+    let pli = 0
+    while pli < plnCount {
+        let pln = getLine(params, pli)
+        if startsWith(pln, "PARAM ") == "1" {
+            let pn = substring(pln, 6, len(pln))
+            paramPushes = paramPushes + "LOAD " + pn + "\nBUILTIN gcShadowPush 1\nPOP\n"
         }
-        bodyCode = "LOCAL __sh_save\nBUILTIN gcShadowCount 0\nSTORE __sh_save\n" + paramPushes + bodyCode +
-                   "BUILTIN gcShadowCount 0\nLOAD __sh_save\nSUB\nBUILTIN gcShadowPop 1\nPOP\n"
+        pli += 1
     }
+    bodyCode = "LOCAL __sh_save\nBUILTIN gcShadowCount 0\nSTORE __sh_save\n" + paramPushes + bodyCode +
+               "BUILTIN gcShadowCount 0\nLOAD __sh_save\nSUB\nBUILTIN gcShadowPop 1\nPOP\n"
     emit "FUNC " + fname + " " + pc + "\n" + params + bodyCode + "END\n\n," + p
 }
 
