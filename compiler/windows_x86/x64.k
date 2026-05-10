@@ -466,6 +466,12 @@ let KRFS_FUNCS = "krFsFileExists,krFsHexDump,krFsIsDir,krFsListDir,krFsLooksBina
 // User binaries don't include the helper block, so we emit this at the start
 // of the user .text section so each Win32 marshalling site can CALL it.
 // Fixed-size, no IAT calls, no shadow space needed by callees.
+//
+// CALLER CONTRACT: RCX must be a Krypton string pointer (atoi-able). Code
+// that uses `toHandle("N")` to construct raw HANDLE values must NOT route
+// through marshalled Win32 calls — pass the int as a plain string instead
+// (e.g., `Sleep(500)` instead of `Sleep(toHandle("500"))`). The 1.x raw-int
+// convention is incompatible with 2.0 marshalling.
 func userAtoiHelper() {
     let sb = sbNew()
     sb = sbAppend(sb, hexByte(0x4C)+hexByte(0x8B)+hexByte(0xC1))               // MOV R8,RCX
@@ -674,6 +680,12 @@ func win32IntReturns(name) {
     if name == "SetForegroundWindow"        { emit "1" }   // BOOL
     if name == "CreateFileMappingA"         { emit "1" }   // HANDLE
     if name == "UnmapViewOfFile"            { emit "1" }   // BOOL
+    // LoadLibraryA NOT itoa'd — its HMODULE return is the same bag of bits
+    // as the GetProcAddress base. itoa-ing it would force every consumer
+    // (GetProcAddress, FreeLibrary callers) to atoi, but GetProcAddress's
+    // 2nd arg is a string pointer that would then be wrongly atoi'd.
+    // Treat HMODULE as raw char* (1.x convention) and let user code wrap
+    // FreeLibrary in toHandle if needed.
     // advapi32 registry — all return LONG (status code)
     if name == "RegOpenKeyExA"              { emit "1" }
     if name == "RegQueryValueExA"           { emit "1" }
