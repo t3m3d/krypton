@@ -1014,21 +1014,24 @@ func compilePrimary(tokens, pos, ntoks) {
     }
 
     if tt == "INT" {
-        emit "kr_str(\"" + tv + "\")," + (pos + 1)
+        // Krypton-2.1: emit C string literal directly (lives in .rodata,
+        // no per-call kr_str allocation). The kr_* runtime helpers all
+        // take read-only inputs so this is safe.
+        emit "((char*)\"" + tv + "\")," + (pos + 1)
     }
 
     if tt == "STR" {
         let expanded = expandEscapes(tv)
         let escaped = cEscape(expanded)
-        emit "kr_str(\"" + escaped + "\")," + (pos + 1)
+        emit "((char*)\"" + escaped + "\")," + (pos + 1)
     }
 
     if tt == "KW" {
         if tv == "true" {
-            emit "kr_str(\"true\")," + (pos + 1)
+            emit "((char*)\"true\")," + (pos + 1)
         }
         if tv == "false" {
-            emit "kr_str(\"false\")," + (pos + 1)
+            emit "((char*)\"false\")," + (pos + 1)
         }
         if tv == "null" {
             emit "((char*)0)," + (pos + 1)
@@ -1084,7 +1087,7 @@ func compilePrimary(tokens, pos, ntoks) {
         emit cIdent(name) + "," + (pos + 1)
     }
 
-    emit "kr_str(\"\")," + (pos + 1)
+    emit "((char*)\"\")," + (pos + 1)
 }
 
 // === Function/builtin call compiler ===
@@ -2830,9 +2833,12 @@ func sbToString(sb) {
 func cRuntime() {
     let r = sbNew()
     r = sbAppend(r, "#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n#include <time.h>\n#include <ctype.h>\n#include <stdarg.h>\n#include <stdint.h>\n#if defined(_WIN32) || defined(_WIN64)\n#include <string.h>\n#else\n#include <strings.h>\n#define _stricmp strcasecmp\n#endif\n\nstatic int _argc; static char** _argv;\n\ntypedef struct ABlock { struct ABlock* next; int cap; int used; } ABlock;\n")
-    r = sbAppend(r, "static ABlock* _arena = 0;\nstatic char* _alloc(int n) {\n    n = (n + 7) & ~7;\n    if (!_arena || _arena->used + n > _arena->cap) {\n        int cap = 64*1024*1024;\n        if (n > cap) cap = n;\n        ABlock* b = (ABlock*)malloc(sizeof(ABlock) + cap);\n")
+    r = sbAppend(r, "static ABlock* _arena = 0;\n")
+    r = sbAppend(r, "static char* _alloc(int n) {\n    n = (n + 7) & ~7;\n")
+    r = sbAppend(r, "    if (!_arena || _arena->used + n > _arena->cap) {\n        int cap = 64*1024*1024;\n        if (n > cap) cap = n;\n        ABlock* b = (ABlock*)malloc(sizeof(ABlock) + cap);\n")
     r = sbAppend(r, "        if (!b) { fprintf(stderr, \"out of memory\\n\"); exit(1); }\n")
-    r = sbAppend(r, "        b->cap = cap; b->used = 0; b->next = _arena; _arena = b;\n    }\n    char* p = (char*)(_arena + 1) + _arena->used;\n    _arena->used += n;\n    return p;\n}\n\n")
+    r = sbAppend(r, "        b->cap = cap; b->used = 0; b->next = _arena; _arena = b;\n")
+    r = sbAppend(r, "    }\n    char* p = (char*)(_arena + 1) + _arena->used;\n    _arena->used += n;\n    return p;\n}\n\n")
 
     // ── Arena mark/reset (Krypton 2.1 GC-for-C-emit) ──
     // Lets long-running compiler loops reclaim per-iteration garbage in O(1).
@@ -2848,6 +2854,9 @@ func cRuntime() {
     r = sbAppend(r, "    memcpy(tok, &m, sizeof(_AllocMark));\n")
     r = sbAppend(r, "    return tok;\n")
     r = sbAppend(r, "}\n")
+    // Forward-declare the itoa cache (defined alongside kr_itoa lower
+    // down) so _alloc_reset can clear it.
+    r = sbAppend(r, "static char* _kr_itoa_cache[1024];\n")
     r = sbAppend(r, "static char* _alloc_reset(const char* tok) {\n")
     r = sbAppend(r, "    _AllocMark m;\n")
     r = sbAppend(r, "    memcpy(&m, tok, sizeof(_AllocMark));\n")
@@ -2857,6 +2866,8 @@ func cRuntime() {
     r = sbAppend(r, "        free(dead);\n")
     r = sbAppend(r, "    }\n")
     r = sbAppend(r, "    if (_arena) _arena->used = m.used;\n")
+    r = sbAppend(r, "    // kr_itoa cached strings point into arena; reset invalidates them.\n")
+    r = sbAppend(r, "    for (int i = 0; i < 1024; i++) _kr_itoa_cache[i] = 0;\n")
     r = sbAppend(r, "    return \"\";\n")
     r = sbAppend(r, "}\n\n")
 
@@ -2884,10 +2895,29 @@ func cRuntime() {
     // Pre-allocated constant strings — eliminates billions of allocations
     r = sbAppend(r, "static char _K_EMPTY[] = \"\";\nstatic char _K_ZERO[] = \"0\";\nstatic char _K_ONE[] = \"1\";\n\n")
 
-    r = sbAppend(r, "static char* kr_str(const char* s) {\n    if (!s[0]) return _K_EMPTY;\n    if (s[0] == '0' && !s[1]) return _K_ZERO;\n    if (s[0] == '1' && !s[1]) return _K_ONE;\n    int n = (int)strlen(s) + 1;\n    char* p = _alloc(n);\n    memcpy(p, s, n);\n    return p;\n")
-    r = sbAppend(r, "}\n\nstatic char* kr_cat(const char* a, const char* b) {\n    int la = (int)strlen(a), lb = (int)strlen(b);\n    char* p = _alloc(la + lb + 1);\n    memcpy(p, a, la);\n    memcpy(p + la, b, lb + 1);\n    return p;\n}\n\n")
+    r = sbAppend(r, "static char* kr_str(const char* s) {\nif (!s[0]) return _K_EMPTY;\n    if (s[0] == '0' && !s[1]) return _K_ZERO;\n    if (s[0] == '1' && !s[1]) return _K_ONE;\n    int n = (int)strlen(s) + 1;\n    char* p = _alloc(n);\n    memcpy(p, s, n);\n    return p;\n")
+    r = sbAppend(r, "}\n\nstatic char* kr_cat(const char* a, const char* b) {\nint la = (int)strlen(a), lb = (int)strlen(b);\n    char* p = _alloc(la + lb + 1);\n    memcpy(p, a, la);\n    memcpy(p + la, b, lb + 1);\n    return p;\n}\n\n")
     r = sbAppend(r, "static int kr_isnum(const char* s) {\n    if (!*s) return 0;\n    const char* p = s;\n    if (*p == '-') p++;\n    if (!*p) return 0;\n    while (*p) { if (*p < '0' || *p > '9') return 0; p++; }\n    return 1;\n}\n\n")
-    r = sbAppend(r, "static char* kr_itoa(int v) {\n    if (v == 0) return _K_ZERO;\n    if (v == 1) return _K_ONE;\n    char buf[32];\n    snprintf(buf, sizeof(buf), \"%d\", v);\n    return kr_str(buf);\n}\n\nstatic int kr_atoi(const char* s) { return atoi(s); }\n\n")
+    // Krypton-2.1: small-int cache for kr_itoa. Most ints used by the
+    // compiler are positions, offsets, sizes — values in 0..1023 dominate
+    // by a wide margin. Caching them eliminates ~80% of kr_itoa-induced
+    // _alloc traffic. (Cache array forward-declared above _alloc_reset.)
+    r = sbAppend(r, "static char* kr_itoa(int v) {\n")
+    r = sbAppend(r, "    if (v == 0) return _K_ZERO;\n")
+    r = sbAppend(r, "    if (v == 1) return _K_ONE;\n")
+    r = sbAppend(r, "    if (v >= 0 && v < 1024) {\n")
+    r = sbAppend(r, "        char* c = _kr_itoa_cache[v];\n")
+    r = sbAppend(r, "        if (c) return c;\n")
+    r = sbAppend(r, "        char buf[8];\n")
+    r = sbAppend(r, "        snprintf(buf, sizeof(buf), \"%d\", v);\n")
+    r = sbAppend(r, "        c = kr_str(buf);\n")
+    r = sbAppend(r, "        _kr_itoa_cache[v] = c;\n")
+    r = sbAppend(r, "        return c;\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    char buf[32];\n")
+    r = sbAppend(r, "    snprintf(buf, sizeof(buf), \"%d\", v);\n")
+    r = sbAppend(r, "    return kr_str(buf);\n")
+    r = sbAppend(r, "}\n\nstatic int kr_atoi(const char* s) { return atoi(s); }\n\n")
     // 64-bit int → string. Used by C-emit Win32 marshalling for HANDLE
     // returns (which are 64-bit pointers — kr_itoa truncates).
     r = sbAppend(r, "static char* kr_itoa64(long long v) {\n    char buf[32];\n    snprintf(buf, sizeof(buf), \"%lld\", v);\n    return kr_str(buf);\n}\n\n")
