@@ -6,16 +6,22 @@
 //   - documentSymbolProvider    : top-level decls (func/struct/module/let)
 //   - completionProvider        : keywords + builtins + buffer funcs
 //
-// Build (C path, since stdin needs cfunc):
-//   kcc.exe --headers headers/ lsp/kls.k > lsp/_kls.c
-//   gcc lsp/_kls.c -o kls.exe -w
+// Build (currently C+gcc — see lsp/build.bat):
+//   .\kcc.exe lsp\kls.k > lsp\_kls.c
+//   gcc lsp\_kls.c -o kls.exe -w
 //
-// See lsp/build.bat.
+// Native PE path (`kcc.exe -o kls.exe lsp\kls.k`) and a cfunc-free
+// stdlib/jsonrpc.k port to `k:winio` are both ready in source but
+// blocked on (a) the x64 codegen RAM blowup at this program size and
+// (b) C-emit not yet marshalling Win32 int args (GetStdHandle gets a
+// pointer-to-string instead of a DWORD). Both 2.1 work items.
 
 import "lex.k"
 import "validate.k"
 import "symbols.k"
 import "complete.k"
+import "head:windows"
+import "k:winio"
 import "k:json_parse"
 import "k:json_emit"
 import "k:jsonrpc"

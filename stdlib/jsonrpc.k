@@ -1,4 +1,4 @@
-// lsp/jsonrpc.k — Content-Length framed JSON-RPC over stdio.
+// stdlib/jsonrpc.k — Content-Length framed JSON-RPC over stdio.
 //
 // Wire format (per LSP spec, mirroring vscode-jsonrpc):
 //
@@ -6,140 +6,102 @@
 //     \r\n
 //     <N bytes of UTF-8 JSON body>
 //
-// We use a cfunc { } block to drop into setvbuf+fread for stdin, since
-// Windows' default text-mode CRLF translation would mangle the body
-// byte count. stdout is also switched to binary so our framing isn't
-// corrupted.
+// 2.0+: pure Krypton via stdlib/winio.k. No cfunc body, no setvbuf+fread.
+// Win32 ReadFile/WriteFile on the standard handles is byte-clean by
+// definition — the CRT's CRLF translation never enters the picture.
+// Works through both the native PE pipeline (KR32_FUNCS marshalling in
+// x64.k) and the C+gcc pipeline (compileWin32IntArgs marshalling in
+// compile.k).
 //
 // Public API:
-//   jrInit()                  — once at startup; sets stdin/stdout binary.
+//   jrInit()                  — cheap noop kept for source compatibility
+//                               with the 1.x cfunc version.
 //   jrReadFrame()             — blocks until next full frame, returns body.
 //                               Returns "" on EOF.
 //   jrWriteFrame(body)        — writes a Content-Length-prefixed frame.
-//   jrLog(s)                  — stderr trace; LSP clients ignore stderr.
+//   jrLog(s)                  — writes "[kls] <s>\n" to stderr.
 
 module jsonrpc
 
-jxt {
-    func krLspInit()
-    func krLspReadFrame() -> char_ptr
-    func krLspWriteFrame(body)
-    func krLspLog(s)
+import "k:winio"
+
+// 1.x compat shim — Win32 ReadFile/WriteFile don't need setmode.
+func jrInit() { emit "1" }
+
+// Strip trailing "\r\n" or "\n" from a line winioReadLine returned.
+// Krypton C-emit escapes "\r" as literal backslash-r in some paths; use
+// fromCharCode(13) to get the actual carriage return.
+func _jr_chomp(line) {
+    let CR = fromCharCode("13")
+    let LF = fromCharCode("10")
+    let n = len(line)
+    if n == 0 { emit "" }
+    let last = substring(line, n - 1, n)
+    if last != LF { emit line }
+    if n == 1 { emit "" }
+    let prev = substring(line, n - 2, n - 1)
+    if prev == CR { emit substring(line, 0, n - 2) }
+    emit substring(line, 0, n - 1)
 }
 
-cfunc {
-    #include <stdio.h>
-    #include <stdlib.h>
-    #include <string.h>
-    #ifdef _WIN32
-        #include <io.h>
-        #include <fcntl.h>
-        #define KR_STRNICMP _strnicmp
-    #else
-        #include <strings.h>     // strncasecmp on POSIX
-        #define KR_STRNICMP strncasecmp
-    #endif
+// Case-insensitive prefix check.
+func _jr_hasPrefix(s, prefix) {
+    if len(s) < len(prefix) { emit "0" }
+    let a = toLower(substring(s, 0, len(prefix)))
+    let b = toLower(prefix)
+    if a == b { emit "1" }
+    emit "0"
+}
 
-    static int g_inited = 0;
-
-    char* krLspInit(void) {
-        if (!g_inited) {
-            #ifdef _WIN32
-                // Defeat CRLF translation; binary mode preserves \r\n in headers
-                // and clean byte counts in bodies.
-                _setmode(_fileno(stdin),  _O_BINARY);
-                _setmode(_fileno(stdout), _O_BINARY);
-            #endif
-            // POSIX stdin/stdout are already byte-clean — no setmode needed.
-            // Disable buffering on stdout so frames flush immediately.
-            setvbuf(stdout, NULL, _IONBF, 0);
-            // Line-buffer stderr so logs interleave readably.
-            setvbuf(stderr, NULL, _IOLBF, 0);
-            g_inited = 1;
-        }
-        return (char*)"1";
-    }
-
-    // Reads one JSON-RPC frame. Returns a malloc'd null-terminated string
-    // containing the body. Returns NULL-equivalent (a static "") on EOF.
-    char* krLspReadFrame(void) {
-        char header[256];
-        int contentLen = -1;
-
-        for (;;) {
-            int hi = 0;
-            // Read one CRLF-terminated header line.
-            for (;;) {
-                int ch = fgetc(stdin);
-                if (ch == EOF) return (char*)"";
-                if (ch == '\r') {
-                    int nx = fgetc(stdin);
-                    if (nx == '\n') break;
-                    if (nx == EOF) return (char*)"";
-                    if (hi < (int)sizeof(header) - 2) {
-                        header[hi++] = (char)ch;
-                        header[hi++] = (char)nx;
-                    }
-                } else if (ch == '\n') {
-                    // tolerate bare LF
-                    break;
-                } else {
-                    if (hi < (int)sizeof(header) - 1) header[hi++] = (char)ch;
+func jrReadFrame() {
+    let h = winioStdin()
+    let contentLen = -1
+    let sawHeader  = 0
+    let done       = 0
+    while done == 0 {
+        let raw = winioReadLine(h)
+        if len(raw) == 0 {
+            if sawHeader == 0 { emit "" }
+            done = 1
+        } else {
+            let line = _jr_chomp(raw)
+            sawHeader = 1
+            if line == "" {
+                done = 1
+            } else {
+                if _jr_hasPrefix(line, "Content-Length:") == "1" {
+                    let rest = substring(line, len("Content-Length:"), len(line))
+                    contentLen = toInt(trim(rest))
                 }
             }
-            header[hi] = 0;
-
-            // Empty line — end of header block.
-            if (hi == 0) break;
-
-            // Parse "Content-Length: N"
-            const char* prefix = "Content-Length:";
-            size_t plen = strlen(prefix);
-            if (hi >= (int)plen && KR_STRNICMP(header, prefix, plen) == 0) {
-                const char* p = header + plen;
-                while (*p == ' ' || *p == '\t') p++;
-                contentLen = atoi(p);
-            }
-            // Other headers (Content-Type) ignored.
         }
-
-        if (contentLen < 0) return (char*)"";
-        if (contentLen == 0) {
-            char* empty = (char*)malloc(1);
-            empty[0] = 0;
-            return empty;
-        }
-
-        char* buf = (char*)malloc((size_t)contentLen + 1);
-        if (!buf) return (char*)"";
-        size_t got = 0;
-        while (got < (size_t)contentLen) {
-            size_t n = fread(buf + got, 1, (size_t)contentLen - got, stdin);
-            if (n == 0) { free(buf); return (char*)""; }
-            got += n;
-        }
-        buf[contentLen] = 0;
-        return buf;
     }
 
-    char* krLspWriteFrame(char* body) {
-        if (!body) body = (char*)"";
-        size_t n = strlen(body);
-        fprintf(stdout, "Content-Length: %zu\r\n\r\n", n);
-        fwrite(body, 1, n, stdout);
-        fflush(stdout);
-        return (char*)"1";
-    }
-
-    char* krLspLog(char* s) {
-        if (s) fprintf(stderr, "[kls] %s\n", s);
-        else   fprintf(stderr, "[kls] (null)\n");
-        fflush(stderr);
-        return (char*)"1";
-    }
+    if contentLen < 0 { emit "" }
+    if contentLen == 0 { emit "" }
+    emit winioReadBytes(h, contentLen + "")
 }
 
-func jrInit()        { emit krLspInit() }
-func jrReadFrame()   { emit krLspReadFrame() }
-func jrWriteFrame(b) { emit krLspWriteFrame(b) }
-func jrLog(s)        { emit krLspLog(s) }
+func jrWriteFrame(body) {
+    let h = winioStdout()
+    let CRLF = fromCharCode("13") + fromCharCode("10")
+    let HEADER_END = CRLF + CRLF
+    if len(body) == 0 {
+        winioWrite(h, "Content-Length: 0" + HEADER_END)
+        emit "1"
+    }
+    let n = len(body)
+    winioWrite(h, "Content-Length: " + n + HEADER_END)
+    winioWrite(h, body)
+    emit "1"
+}
+
+func jrLog(s) {
+    let h = winioStderr()
+    if len(s) == 0 {
+        winioWriteLine(h, "[kls] (null)")
+        emit "1"
+    }
+    winioWriteLine(h, "[kls] " + s)
+    emit "1"
+}
