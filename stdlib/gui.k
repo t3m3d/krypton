@@ -7209,8 +7209,30 @@ func guiQuit() {
 // has no mutable module globals across function calls, this is the
 // canonical workaround for IDE-style apps that need cross-handler
 // state (current file path, dirty flag, etc.).
-func guiStateSet(key, value)                     { emit krGuiStateSet(key, value) }
-func guiStateGet(key)                            { emit krGuiStateGet(key) }
+// 2026-05-11 Phase D: pure-Krypton state store. Singleton Krypton env
+// allocated lazily and tracked via process env var "KRK_GUI_ENV" (decimal
+// address string — no NULs, survives Win32 env-var NUL-termination).
+// `intToPtr(decimal_string)` (rt.dll helper added this session) reconstructs
+// a Krypton "string" whose slot value IS the integer — when passed as the
+// first arg of kr_envset/kr_envget, RCX = env address.
+func _krkStateEnv() {
+    let buf = bufNew("64")
+    let len = GetEnvironmentVariableA("KRK_GUI_ENV", buf, "64")
+    if len == "0" {
+        let env = envNew()
+        SetEnvironmentVariableA("KRK_GUI_ENV", ptrToInt(env))
+        emit env
+    }
+    let addrDec = _guiBufToStr(buf, 64)
+    emit intToPtr(addrDec)
+}
+func guiStateSet(key, value) {
+    envSet(_krkStateEnv(), key, value)
+    emit "1"
+}
+func guiStateGet(key) {
+    emit envGet(_krkStateEnv(), key)
+}
 
 // Periodic-timer helpers. `cb` must be a 0-arg Krypton function
 // passed via funcptr(). Returns a timer-id string (use to kill).
