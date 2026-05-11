@@ -1,0 +1,26 @@
+// uxtheme.krh — Krypton bindings for Win32 visual-style / theme APIs.
+// Usage: import "head:uxtheme"
+// Link line:  -luxtheme (gcc) — ships in every MinGW install
+//
+// Native PE pipeline: uxtheme.dll IAT slot added in x64.k Phase A
+// (2026-05-11). Pure Krypton can now call these directly via `kcc -o`.
+
+jxt {
+    c "windows.h"
+    c "uxtheme.h"
+
+    // Opt a child control into a named visual style. The classic
+    // dark-mode opt-in for native widgets in Win10 1809+ is
+    // SetWindowTheme(hwnd, L"DarkMode_Explorer", NULL). On older
+    // builds the call silently no-ops and the control stays classic.
+    func SetWindowTheme(hwnd, pszSubAppName, pszSubIdList)
+    func GetWindowTheme(hwnd) -> char_ptr
+
+    // Composition / classic-mode probes.
+    func IsThemeActive() -> INT
+    func IsAppThemed() -> INT
+
+    // Theme-data lifecycle (only used by custom-drawn controls).
+    func OpenThemeData(hwnd, pszClassList) -> char_ptr
+    func CloseThemeData(hTheme) -> INT
+}

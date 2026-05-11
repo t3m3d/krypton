@@ -2834,11 +2834,174 @@ func cRuntime() {
     let r = sbNew()
     r = sbAppend(r, "#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n#include <time.h>\n#include <ctype.h>\n#include <stdarg.h>\n#include <stdint.h>\n#if defined(_WIN32) || defined(_WIN64)\n#include <string.h>\n#else\n#include <strings.h>\n#define _stricmp strcasecmp\n#endif\n\nstatic int _argc; static char** _argv;\n\ntypedef struct ABlock { struct ABlock* next; int cap; int used; } ABlock;\n")
     r = sbAppend(r, "static ABlock* _arena = 0;\n")
-    r = sbAppend(r, "static char* _alloc(int n) {\n    n = (n + 7) & ~7;\n")
-    r = sbAppend(r, "    if (!_arena || _arena->used + n > _arena->cap) {\n        int cap = 64*1024*1024;\n        if (n > cap) cap = n;\n        ABlock* b = (ABlock*)malloc(sizeof(ABlock) + cap);\n")
+
+    // Krypton-2.1 mark+sweep collector for the C-emit runtime.
+    //
+    // Strategy: conservative stack-scan mark+sweep. Every _alloc prepends
+    // a 16-byte header (linked-list pointer + size + mark flag) to the
+    // returned chunk. Allocations are still bump-allocated within 64-MB
+    // arena blocks, but we also keep a global linked list of all
+    // outstanding allocations.
+    //
+    // When the total committed arena exceeds _gc_threshold bytes, the
+    // next _alloc call triggers _gc_collect:
+    //   1. setjmp() forces callee-save registers to a jmp_buf.
+    //   2. Walk the C stack from (jmp_buf + locals) up to _stack_bottom,
+    //      treating each 8-byte aligned word as a possible pointer.
+    //   3. Mark any allocation whose user-data range contains a stack-word
+    //      value. Strings have no internal pointers so recursion isn't
+    //      needed.
+    //   4. Sweep: unmarked allocations are removed from the linked list.
+    //   5. If any 64-MB arena block ends up with all of its allocations
+    //      unmarked, free() the whole block. This is the only memory
+    //      that gets returned to the OS without a full copy.
+    //
+    // Limits:
+    //   - Conservative scan retains some false-positives (integers that
+    //     happen to look like arena pointers).
+    //   - Bump allocator means individual chunks can't be reclaimed within
+    //     a still-live block; only fully-dead blocks free.
+    //   - In practice, this is sufficient to bound long compilations
+    //     because most arena memory is per-iteration garbage that dies
+    //     in waves.
+    r = sbAppend(r, "typedef struct AllocHdr { struct AllocHdr* next; uint32_t size; uint32_t mark; } AllocHdr;\n")
+    r = sbAppend(r, "static AllocHdr* _alloc_head = 0;\n")
+    r = sbAppend(r, "static char* _stack_bottom = 0;\n")
+    r = sbAppend(r, "static long _gc_arena_bytes = 0;\n")
+    r = sbAppend(r, "static long _gc_threshold = 268435456L;\n")  // 256 MB default
+    r = sbAppend(r, "static int _gc_enabled = -1;\n")  // lazy-init: -1 unknown, 0 off, 1 on
+    r = sbAppend(r, "static void _gc_collect(void);\n")
+    // Pointer-range hint used by mark phase for O(1) reject of non-arena
+    // stack words. Updated on every _alloc and recomputed on _gc_collect.
+    r = sbAppend(r, "static char* _arena_addr_lo = (char*)~(uintptr_t)0;\n")
+    r = sbAppend(r, "static char* _arena_addr_hi = 0;\n")
+
+    // noinline so a real call frame exists at GC trigger time — caller's
+    // caller-save register values are spilled to the stack before the
+    // call, making them visible to the conservative scan.
+    r = sbAppend(r, "static char* _alloc(int n) __attribute__((noinline));\n")
+    r = sbAppend(r, "static char* _alloc(int n) {\n")
+    r = sbAppend(r, "    n = (n + 7) & ~7;\n")
+    r = sbAppend(r, "    if (_gc_enabled < 0) {\n")
+    r = sbAppend(r, "        const char* env = getenv(\"KR_NOGC\");\n")
+    r = sbAppend(r, "        _gc_enabled = (env && *env) ? 0 : 1;\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    int total = sizeof(AllocHdr) + n;\n")
+    r = sbAppend(r, "    if (!_arena || _arena->used + total > _arena->cap) {\n")
+    r = sbAppend(r, "        if (_gc_enabled && _gc_arena_bytes > _gc_threshold) {\n")
+    r = sbAppend(r, "            _gc_collect();\n")
+    r = sbAppend(r, "            if (_arena && _arena->used + total <= _arena->cap) goto have_room;\n")
+    r = sbAppend(r, "        }\n")
+    r = sbAppend(r, "        int cap = 64*1024*1024;\n")
+    r = sbAppend(r, "        if (total > cap) cap = total;\n")
+    r = sbAppend(r, "        ABlock* b = (ABlock*)malloc(sizeof(ABlock) + cap);\n")
     r = sbAppend(r, "        if (!b) { fprintf(stderr, \"out of memory\\n\"); exit(1); }\n")
     r = sbAppend(r, "        b->cap = cap; b->used = 0; b->next = _arena; _arena = b;\n")
-    r = sbAppend(r, "    }\n    char* p = (char*)(_arena + 1) + _arena->used;\n    _arena->used += n;\n    return p;\n}\n\n")
+    r = sbAppend(r, "        _gc_arena_bytes += cap;\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    have_room:;\n")
+    r = sbAppend(r, "    AllocHdr* h = (AllocHdr*)((char*)(_arena + 1) + _arena->used);\n")
+    r = sbAppend(r, "    h->next = _alloc_head;\n")
+    r = sbAppend(r, "    h->size = (uint32_t)n;\n")
+    r = sbAppend(r, "    h->mark = 0;\n")
+    r = sbAppend(r, "    _alloc_head = h;\n")
+    r = sbAppend(r, "    _arena->used += total;\n")
+    r = sbAppend(r, "    char* user = (char*)(h + 1);\n")
+    r = sbAppend(r, "    if (user < _arena_addr_lo) _arena_addr_lo = user;\n")
+    r = sbAppend(r, "    if (user + n > _arena_addr_hi) _arena_addr_hi = user + n;\n")
+    r = sbAppend(r, "    return user;\n")
+    r = sbAppend(r, "}\n\n")
+
+    // Mark+sweep collector itself (defined after _alloc since it doesn't
+    // call _alloc internally). Conservative stack-scan with setjmp() to
+    // force callee-save register spills.
+    r = sbAppend(r, "#include <setjmp.h>\n")
+    r = sbAppend(r, "static int _gc_in_range(ABlock* b, char* p) {\n")
+    r = sbAppend(r, "    char* base = (char*)(b + 1);\n")
+    r = sbAppend(r, "    return p >= base && p < base + b->cap;\n")
+    r = sbAppend(r, "}\n")
+    // Sorted-array index built once per GC. Binary search lets mark phase
+    // be O(log n) per stack word instead of O(n) — the difference between
+    // a few seconds and tens of minutes on a 1M-alloc compile.
+    r = sbAppend(r, "static AllocHdr** _gc_sorted = 0;\n")
+    r = sbAppend(r, "static int _gc_sorted_cap = 0;\n")
+    r = sbAppend(r, "static int _gc_sorted_n = 0;\n")
+    r = sbAppend(r, "static int _gc_alloc_cmp(const void* a, const void* b) {\n")
+    r = sbAppend(r, "    char* pa = (char*)*(AllocHdr* const*)a;\n")
+    r = sbAppend(r, "    char* pb = (char*)*(AllocHdr* const*)b;\n")
+    r = sbAppend(r, "    return pa < pb ? -1 : (pa > pb ? 1 : 0);\n")
+    r = sbAppend(r, "}\n")
+    r = sbAppend(r, "static void _gc_mark_word(void* word) {\n")
+    r = sbAppend(r, "    char* p = (char*)word;\n")
+    r = sbAppend(r, "    if (p < _arena_addr_lo || p >= _arena_addr_hi) return;\n")
+    r = sbAppend(r, "    if (_gc_sorted_n == 0) return;\n")
+    r = sbAppend(r, "    // Binary search for greatest alloc with start <= p.\n")
+    r = sbAppend(r, "    int lo = 0, hi = _gc_sorted_n;\n")
+    r = sbAppend(r, "    while (lo < hi) {\n")
+    r = sbAppend(r, "        int mid = (lo + hi) / 2;\n")
+    r = sbAppend(r, "        char* mid_start = (char*)_gc_sorted[mid];\n")
+    r = sbAppend(r, "        if (mid_start <= p) lo = mid + 1; else hi = mid;\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    if (lo == 0) return;\n")
+    r = sbAppend(r, "    AllocHdr* a = _gc_sorted[lo - 1];\n")
+    r = sbAppend(r, "    char* user = (char*)(a + 1);\n")
+    r = sbAppend(r, "    if (p >= user && p < user + a->size) a->mark = 1;\n")
+    r = sbAppend(r, "}\n")
+    r = sbAppend(r, "static void _gc_collect(void) {\n")
+    r = sbAppend(r, "    // Clear all marks + count.\n")
+    r = sbAppend(r, "    AllocHdr* a = _alloc_head;\n")
+    r = sbAppend(r, "    long n_total = 0, n_live = 0;\n")
+    r = sbAppend(r, "    while (a) { a->mark = 0; n_total++; a = a->next; }\n")
+    r = sbAppend(r, "    // Build sorted-by-address index for binary-search mark phase.\n")
+    r = sbAppend(r, "    if (n_total > _gc_sorted_cap) {\n")
+    r = sbAppend(r, "        int newcap = _gc_sorted_cap ? _gc_sorted_cap : 1024;\n")
+    r = sbAppend(r, "        while (newcap < n_total) newcap *= 2;\n")
+    r = sbAppend(r, "        _gc_sorted = (AllocHdr**)realloc(_gc_sorted, newcap * sizeof(AllocHdr*));\n")
+    r = sbAppend(r, "        _gc_sorted_cap = newcap;\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    int idx = 0;\n")
+    r = sbAppend(r, "    for (a = _alloc_head; a; a = a->next) _gc_sorted[idx++] = a;\n")
+    r = sbAppend(r, "    _gc_sorted_n = idx;\n")
+    r = sbAppend(r, "    qsort(_gc_sorted, idx, sizeof(AllocHdr*), _gc_alloc_cmp);\n")
+    r = sbAppend(r, "    // Mark roots: spill regs to jmp_buf, then scan stack.\n")
+    r = sbAppend(r, "    jmp_buf regs;\n")
+    r = sbAppend(r, "    setjmp(regs);\n")
+    r = sbAppend(r, "    char* lo = (char*)&regs;\n")
+    r = sbAppend(r, "    char* hi = _stack_bottom;\n")
+    r = sbAppend(r, "    if (lo > hi) { char* t = lo; lo = hi; hi = t; }\n")
+    r = sbAppend(r, "    char* p = (char*)(((uintptr_t)lo + 7) & ~(uintptr_t)7);\n")
+    r = sbAppend(r, "    while (p < hi) {\n")
+    r = sbAppend(r, "        _gc_mark_word(*(void**)p);\n")
+    r = sbAppend(r, "        p += 8;\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    // Sweep: unlink unmarked from the global list.\n")
+    r = sbAppend(r, "    AllocHdr** pp = &_alloc_head;\n")
+    r = sbAppend(r, "    while (*pp) {\n")
+    r = sbAppend(r, "        if ((*pp)->mark == 0) { *pp = (*pp)->next; }\n")
+    r = sbAppend(r, "        else { n_live++; pp = &(*pp)->next; }\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    // Free any fully-dead arena blocks (no live allocs in their range).\n")
+    r = sbAppend(r, "    ABlock** bpp = &_arena;\n")
+    r = sbAppend(r, "    while (*bpp) {\n")
+    r = sbAppend(r, "        int has_live = 0;\n")
+    r = sbAppend(r, "        AllocHdr* la = _alloc_head;\n")
+    r = sbAppend(r, "        while (la) { if (_gc_in_range(*bpp, (char*)la)) { has_live = 1; break; } la = la->next; }\n")
+    r = sbAppend(r, "        if (!has_live && *bpp != _arena) {\n")
+    r = sbAppend(r, "            ABlock* dead = *bpp;\n")
+    r = sbAppend(r, "            *bpp = dead->next;\n")
+    r = sbAppend(r, "            _gc_arena_bytes -= dead->cap;\n")
+    r = sbAppend(r, "            free(dead);\n")
+    r = sbAppend(r, "        } else {\n")
+    r = sbAppend(r, "            bpp = &(*bpp)->next;\n")
+    r = sbAppend(r, "        }\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    // Reset _gc_threshold to roughly 4x current live size, min 64 MB.\n")
+    r = sbAppend(r, "    long live_bytes = 0;\n")
+    r = sbAppend(r, "    a = _alloc_head; while (a) { live_bytes += a->size; a = a->next; }\n")
+    r = sbAppend(r, "    _gc_threshold = live_bytes * 4;\n")
+    r = sbAppend(r, "    if (_gc_threshold < 536870912L) _gc_threshold = 536870912L;\n")  // 512 MB floor — small live sets shouldn't cause thrashing GC cycles
+    r = sbAppend(r, "    if (getenv(\"KR_GC_LOG\")) fprintf(stderr, \"[gc] swept %ld/%ld allocs, %ldMB live, threshold->%ldMB\\n\", n_total - n_live, n_total, live_bytes/1048576, _gc_threshold/1048576);\n")
+    r = sbAppend(r, "}\n\n")
 
     // ── Arena mark/reset (Krypton 2.1 GC-for-C-emit) ──
     // Lets long-running compiler loops reclaim per-iteration garbage in O(1).
@@ -2860,10 +3023,28 @@ func cRuntime() {
     r = sbAppend(r, "static char* _alloc_reset(const char* tok) {\n")
     r = sbAppend(r, "    _AllocMark m;\n")
     r = sbAppend(r, "    memcpy(&m, tok, sizeof(_AllocMark));\n")
+    r = sbAppend(r, "    // Prune the global alloc list: anything in a block we're about\n")
+    r = sbAppend(r, "    // to free (or above m.used within m.block) gets dropped first so\n")
+    r = sbAppend(r, "    // the GC mark phase doesn't dereference freed memory.\n")
+    r = sbAppend(r, "    AllocHdr** pp = &_alloc_head;\n")
+    r = sbAppend(r, "    while (*pp) {\n")
+    r = sbAppend(r, "        AllocHdr* h = *pp;\n")
+    r = sbAppend(r, "        int dead = 0;\n")
+    r = sbAppend(r, "        ABlock* b = _arena;\n")
+    r = sbAppend(r, "        while (b && b != m.block) {\n")
+    r = sbAppend(r, "            if (_gc_in_range(b, (char*)h)) { dead = 1; break; }\n")
+    r = sbAppend(r, "            b = b->next;\n")
+    r = sbAppend(r, "        }\n")
+    r = sbAppend(r, "        if (!dead && m.block && _gc_in_range(m.block, (char*)h)\n")
+    r = sbAppend(r, "             && (char*)h >= (char*)(m.block + 1) + m.used) dead = 1;\n")
+    r = sbAppend(r, "        if (dead) *pp = h->next;\n")
+    r = sbAppend(r, "        else pp = &h->next;\n")
+    r = sbAppend(r, "    }\n")
     r = sbAppend(r, "    while (_arena && _arena != m.block) {\n")
-    r = sbAppend(r, "        ABlock* dead = _arena;\n")
-    r = sbAppend(r, "        _arena = dead->next;\n")
-    r = sbAppend(r, "        free(dead);\n")
+    r = sbAppend(r, "        ABlock* deadb = _arena;\n")
+    r = sbAppend(r, "        _arena = deadb->next;\n")
+    r = sbAppend(r, "        _gc_arena_bytes -= deadb->cap;\n")
+    r = sbAppend(r, "        free(deadb);\n")
     r = sbAppend(r, "    }\n")
     r = sbAppend(r, "    if (_arena) _arena->used = m.used;\n")
     r = sbAppend(r, "    // kr_itoa cached strings point into arena; reset invalidates them.\n")
@@ -6091,6 +6272,7 @@ just run {
     }
 
     sb = sbAppend(sb, "int main(int argc, char** argv) {\n")
+    sb = sbAppend(sb, "    char _stack_anchor; _stack_bottom = &_stack_anchor;\n")
     sb = sbAppend(sb, "    _argc = argc; _argv = argv;\n")
     sb = sbAppend(sb, "    srand((unsigned)time(NULL));\n")
     // initialize global variables declared at file scope

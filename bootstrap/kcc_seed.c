@@ -16,18 +16,104 @@ static int _argc; static char** _argv;
 
 typedef struct ABlock { struct ABlock* next; int cap; int used; } ABlock;
 static ABlock* _arena = 0;
+typedef struct AllocHdr { struct AllocHdr* next; uint32_t size; uint32_t mark; } AllocHdr;
+static AllocHdr* _alloc_head = 0;
+static char* _stack_bottom = 0;
+static long _gc_arena_bytes = 0;
+static long _gc_threshold = 268435456L;
+static int _gc_enabled = -1;
+static void _gc_collect(void);
 static char* _alloc(int n) {
     n = (n + 7) & ~7;
-    if (!_arena || _arena->used + n > _arena->cap) {
+    if (_gc_enabled < 0) {
+        const char* env = getenv("KR_NOGC");
+        _gc_enabled = (env && *env) ? 0 : 1;
+    }
+    int total = sizeof(AllocHdr) + n;
+    if (!_arena || _arena->used + total > _arena->cap) {
+        if (_gc_enabled && _gc_arena_bytes > _gc_threshold) {
+            _gc_collect();
+            if (_arena && _arena->used + total <= _arena->cap) goto have_room;
+        }
         int cap = 64*1024*1024;
-        if (n > cap) cap = n;
+        if (total > cap) cap = total;
         ABlock* b = (ABlock*)malloc(sizeof(ABlock) + cap);
         if (!b) { fprintf(stderr, "out of memory\n"); exit(1); }
         b->cap = cap; b->used = 0; b->next = _arena; _arena = b;
+        _gc_arena_bytes += cap;
     }
-    char* p = (char*)(_arena + 1) + _arena->used;
-    _arena->used += n;
-    return p;
+    have_room:;
+    AllocHdr* h = (AllocHdr*)((char*)(_arena + 1) + _arena->used);
+    h->next = _alloc_head;
+    h->size = (uint32_t)n;
+    h->mark = 0;
+    _alloc_head = h;
+    _arena->used += total;
+    return (char*)(h + 1);
+}
+
+#include <setjmp.h>
+static int _gc_in_range(ABlock* b, char* p) {
+    char* base = (char*)(b + 1);
+    return p >= base && p < base + b->cap;
+}
+static void _gc_mark_word(void* word) {
+    char* p = (char*)word;
+    // Quick reject: is p inside any current arena block?
+    ABlock* b = _arena;
+    while (b) { if (_gc_in_range(b, p)) break; b = b->next; }
+    if (!b) return;
+    // Walk allocation list looking for one whose user range contains p.
+    AllocHdr* a = _alloc_head;
+    while (a) {
+        char* user = (char*)(a + 1);
+        if (p >= user && p < user + a->size) { a->mark = 1; return; }
+        a = a->next;
+    }
+}
+static void _gc_collect(void) {
+    // Clear all marks.
+    AllocHdr* a = _alloc_head;
+    long n_total = 0, n_live = 0;
+    while (a) { a->mark = 0; n_total++; a = a->next; }
+    // Mark roots: spill regs to jmp_buf, then scan stack.
+    jmp_buf regs;
+    setjmp(regs);
+    char* lo = (char*)&regs;
+    char* hi = _stack_bottom;
+    if (lo > hi) { char* t = lo; lo = hi; hi = t; }
+    char* p = (char*)(((uintptr_t)lo + 7) & ~(uintptr_t)7);
+    while (p < hi) {
+        _gc_mark_word(*(void**)p);
+        p += 8;
+    }
+    // Sweep: unlink unmarked from the global list.
+    AllocHdr** pp = &_alloc_head;
+    while (*pp) {
+        if ((*pp)->mark == 0) { *pp = (*pp)->next; }
+        else { n_live++; pp = &(*pp)->next; }
+    }
+    // Free any fully-dead arena blocks (no live allocs in their range).
+    ABlock** bpp = &_arena;
+    while (*bpp) {
+        int has_live = 0;
+        AllocHdr* la = _alloc_head;
+        while (la) { if (_gc_in_range(*bpp, (char*)la)) { has_live = 1; break; } la = la->next; }
+        if (!has_live && *bpp != _arena) {
+            ABlock* dead = *bpp;
+            *bpp = dead->next;
+            _gc_arena_bytes -= dead->cap;
+            free(dead);
+        } else {
+            bpp = &(*bpp)->next;
+        }
+    }
+    // Reset _gc_threshold to roughly 4x current live size, min 64 MB.
+    long live_bytes = 0;
+    a = _alloc_head; while (a) { live_bytes += a->size; a = a->next; }
+    _gc_threshold = live_bytes * 4;
+    if (_gc_threshold < 67108864L) _gc_threshold = 67108864L;
+    if (getenv("KR_GC_LOG")) fprintf(stderr, "[gc] swept %ld/%ld allocs, %ldMB live, threshold->%ldMB\n", n_total - n_live, n_total, live_bytes/1048576, _gc_threshold/1048576);
 }
 
 typedef struct { ABlock* block; int used; } _AllocMark;
@@ -43,10 +129,28 @@ static char* _kr_itoa_cache[1024];
 static char* _alloc_reset(const char* tok) {
     _AllocMark m;
     memcpy(&m, tok, sizeof(_AllocMark));
+    // Prune the global alloc list: anything in a block we're about
+    // to free (or above m.used within m.block) gets dropped first so
+    // the GC mark phase doesn't dereference freed memory.
+    AllocHdr** pp = &_alloc_head;
+    while (*pp) {
+        AllocHdr* h = *pp;
+        int dead = 0;
+        ABlock* b = _arena;
+        while (b && b != m.block) {
+            if (_gc_in_range(b, (char*)h)) { dead = 1; break; }
+            b = b->next;
+        }
+        if (!dead && m.block && _gc_in_range(m.block, (char*)h)
+             && (char*)h >= (char*)(m.block + 1) + m.used) dead = 1;
+        if (dead) *pp = h->next;
+        else pp = &h->next;
+    }
     while (_arena && _arena != m.block) {
-        ABlock* dead = _arena;
-        _arena = dead->next;
-        free(dead);
+        ABlock* deadb = _arena;
+        _arena = deadb->next;
+        _gc_arena_bytes -= deadb->cap;
+        free(deadb);
     }
     if (_arena) _arena->used = m.used;
     // kr_itoa cached strings point into arena; reset invalidates them.
@@ -4460,11 +4564,131 @@ char* cRuntime() {
     char* r = kr_sbnew();
     r = kr_sbappend(r, ((char*)"#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n#include <time.h>\n#include <ctype.h>\n#include <stdarg.h>\n#include <stdint.h>\n#if defined(_WIN32) || defined(_WIN64)\n#include <string.h>\n#else\n#include <strings.h>\n#define _stricmp strcasecmp\n#endif\n\nstatic int _argc; static char** _argv;\n\ntypedef struct ABlock { struct ABlock* next; int cap; int used; } ABlock;\n"));
     r = kr_sbappend(r, ((char*)"static ABlock* _arena = 0;\n"));
-    r = kr_sbappend(r, ((char*)"static char* _alloc(int n) {\n    n = (n + 7) & ~7;\n"));
-    r = kr_sbappend(r, ((char*)"    if (!_arena || _arena->used + n > _arena->cap) {\n        int cap = 64*1024*1024;\n        if (n > cap) cap = n;\n        ABlock* b = (ABlock*)malloc(sizeof(ABlock) + cap);\n"));
+    r = kr_sbappend(r, ((char*)"typedef struct AllocHdr { struct AllocHdr* next; uint32_t size; uint32_t mark; } AllocHdr;\n"));
+    r = kr_sbappend(r, ((char*)"static AllocHdr* _alloc_head = 0;\n"));
+    r = kr_sbappend(r, ((char*)"static char* _stack_bottom = 0;\n"));
+    r = kr_sbappend(r, ((char*)"static long _gc_arena_bytes = 0;\n"));
+    r = kr_sbappend(r, ((char*)"static long _gc_threshold = 268435456L;\n"));
+    r = kr_sbappend(r, ((char*)"static int _gc_enabled = -1;\n"));
+    r = kr_sbappend(r, ((char*)"static void _gc_collect(void);\n"));
+    r = kr_sbappend(r, ((char*)"static char* _arena_addr_lo = (char*)~(uintptr_t)0;\n"));
+    r = kr_sbappend(r, ((char*)"static char* _arena_addr_hi = 0;\n"));
+    r = kr_sbappend(r, ((char*)"static char* _alloc(int n) __attribute__((noinline));\n"));
+    r = kr_sbappend(r, ((char*)"static char* _alloc(int n) {\n"));
+    r = kr_sbappend(r, ((char*)"    n = (n + 7) & ~7;\n"));
+    r = kr_sbappend(r, ((char*)"    if (_gc_enabled < 0) {\n"));
+    r = kr_sbappend(r, ((char*)"        const char* env = getenv(\"KR_NOGC\");\n"));
+    r = kr_sbappend(r, ((char*)"        _gc_enabled = (env && *env) ? 0 : 1;\n"));
+    r = kr_sbappend(r, ((char*)"    }\n"));
+    r = kr_sbappend(r, ((char*)"    int total = sizeof(AllocHdr) + n;\n"));
+    r = kr_sbappend(r, ((char*)"    if (!_arena || _arena->used + total > _arena->cap) {\n"));
+    r = kr_sbappend(r, ((char*)"        if (_gc_enabled && _gc_arena_bytes > _gc_threshold) {\n"));
+    r = kr_sbappend(r, ((char*)"            _gc_collect();\n"));
+    r = kr_sbappend(r, ((char*)"            if (_arena && _arena->used + total <= _arena->cap) goto have_room;\n"));
+    r = kr_sbappend(r, ((char*)"        }\n"));
+    r = kr_sbappend(r, ((char*)"        int cap = 64*1024*1024;\n"));
+    r = kr_sbappend(r, ((char*)"        if (total > cap) cap = total;\n"));
+    r = kr_sbappend(r, ((char*)"        ABlock* b = (ABlock*)malloc(sizeof(ABlock) + cap);\n"));
     r = kr_sbappend(r, ((char*)"        if (!b) { fprintf(stderr, \"out of memory\\n\"); exit(1); }\n"));
     r = kr_sbappend(r, ((char*)"        b->cap = cap; b->used = 0; b->next = _arena; _arena = b;\n"));
-    r = kr_sbappend(r, ((char*)"    }\n    char* p = (char*)(_arena + 1) + _arena->used;\n    _arena->used += n;\n    return p;\n}\n\n"));
+    r = kr_sbappend(r, ((char*)"        _gc_arena_bytes += cap;\n"));
+    r = kr_sbappend(r, ((char*)"    }\n"));
+    r = kr_sbappend(r, ((char*)"    have_room:;\n"));
+    r = kr_sbappend(r, ((char*)"    AllocHdr* h = (AllocHdr*)((char*)(_arena + 1) + _arena->used);\n"));
+    r = kr_sbappend(r, ((char*)"    h->next = _alloc_head;\n"));
+    r = kr_sbappend(r, ((char*)"    h->size = (uint32_t)n;\n"));
+    r = kr_sbappend(r, ((char*)"    h->mark = 0;\n"));
+    r = kr_sbappend(r, ((char*)"    _alloc_head = h;\n"));
+    r = kr_sbappend(r, ((char*)"    _arena->used += total;\n"));
+    r = kr_sbappend(r, ((char*)"    char* user = (char*)(h + 1);\n"));
+    r = kr_sbappend(r, ((char*)"    if (user < _arena_addr_lo) _arena_addr_lo = user;\n"));
+    r = kr_sbappend(r, ((char*)"    if (user + n > _arena_addr_hi) _arena_addr_hi = user + n;\n"));
+    r = kr_sbappend(r, ((char*)"    return user;\n"));
+    r = kr_sbappend(r, ((char*)"}\n\n"));
+    r = kr_sbappend(r, ((char*)"#include <setjmp.h>\n"));
+    r = kr_sbappend(r, ((char*)"static int _gc_in_range(ABlock* b, char* p) {\n"));
+    r = kr_sbappend(r, ((char*)"    char* base = (char*)(b + 1);\n"));
+    r = kr_sbappend(r, ((char*)"    return p >= base && p < base + b->cap;\n"));
+    r = kr_sbappend(r, ((char*)"}\n"));
+    r = kr_sbappend(r, ((char*)"static AllocHdr** _gc_sorted = 0;\n"));
+    r = kr_sbappend(r, ((char*)"static int _gc_sorted_cap = 0;\n"));
+    r = kr_sbappend(r, ((char*)"static int _gc_sorted_n = 0;\n"));
+    r = kr_sbappend(r, ((char*)"static int _gc_alloc_cmp(const void* a, const void* b) {\n"));
+    r = kr_sbappend(r, ((char*)"    char* pa = (char*)*(AllocHdr* const*)a;\n"));
+    r = kr_sbappend(r, ((char*)"    char* pb = (char*)*(AllocHdr* const*)b;\n"));
+    r = kr_sbappend(r, ((char*)"    return pa < pb ? -1 : (pa > pb ? 1 : 0);\n"));
+    r = kr_sbappend(r, ((char*)"}\n"));
+    r = kr_sbappend(r, ((char*)"static void _gc_mark_word(void* word) {\n"));
+    r = kr_sbappend(r, ((char*)"    char* p = (char*)word;\n"));
+    r = kr_sbappend(r, ((char*)"    if (p < _arena_addr_lo || p >= _arena_addr_hi) return;\n"));
+    r = kr_sbappend(r, ((char*)"    if (_gc_sorted_n == 0) return;\n"));
+    r = kr_sbappend(r, ((char*)"    // Binary search for greatest alloc with start <= p.\n"));
+    r = kr_sbappend(r, ((char*)"    int lo = 0, hi = _gc_sorted_n;\n"));
+    r = kr_sbappend(r, ((char*)"    while (lo < hi) {\n"));
+    r = kr_sbappend(r, ((char*)"        int mid = (lo + hi) / 2;\n"));
+    r = kr_sbappend(r, ((char*)"        char* mid_start = (char*)_gc_sorted[mid];\n"));
+    r = kr_sbappend(r, ((char*)"        if (mid_start <= p) lo = mid + 1; else hi = mid;\n"));
+    r = kr_sbappend(r, ((char*)"    }\n"));
+    r = kr_sbappend(r, ((char*)"    if (lo == 0) return;\n"));
+    r = kr_sbappend(r, ((char*)"    AllocHdr* a = _gc_sorted[lo - 1];\n"));
+    r = kr_sbappend(r, ((char*)"    char* user = (char*)(a + 1);\n"));
+    r = kr_sbappend(r, ((char*)"    if (p >= user && p < user + a->size) a->mark = 1;\n"));
+    r = kr_sbappend(r, ((char*)"}\n"));
+    r = kr_sbappend(r, ((char*)"static void _gc_collect(void) {\n"));
+    r = kr_sbappend(r, ((char*)"    // Clear all marks + count.\n"));
+    r = kr_sbappend(r, ((char*)"    AllocHdr* a = _alloc_head;\n"));
+    r = kr_sbappend(r, ((char*)"    long n_total = 0, n_live = 0;\n"));
+    r = kr_sbappend(r, ((char*)"    while (a) { a->mark = 0; n_total++; a = a->next; }\n"));
+    r = kr_sbappend(r, ((char*)"    // Build sorted-by-address index for binary-search mark phase.\n"));
+    r = kr_sbappend(r, ((char*)"    if (n_total > _gc_sorted_cap) {\n"));
+    r = kr_sbappend(r, ((char*)"        int newcap = _gc_sorted_cap ? _gc_sorted_cap : 1024;\n"));
+    r = kr_sbappend(r, ((char*)"        while (newcap < n_total) newcap *= 2;\n"));
+    r = kr_sbappend(r, ((char*)"        _gc_sorted = (AllocHdr**)realloc(_gc_sorted, newcap * sizeof(AllocHdr*));\n"));
+    r = kr_sbappend(r, ((char*)"        _gc_sorted_cap = newcap;\n"));
+    r = kr_sbappend(r, ((char*)"    }\n"));
+    r = kr_sbappend(r, ((char*)"    int idx = 0;\n"));
+    r = kr_sbappend(r, ((char*)"    for (a = _alloc_head; a; a = a->next) _gc_sorted[idx++] = a;\n"));
+    r = kr_sbappend(r, ((char*)"    _gc_sorted_n = idx;\n"));
+    r = kr_sbappend(r, ((char*)"    qsort(_gc_sorted, idx, sizeof(AllocHdr*), _gc_alloc_cmp);\n"));
+    r = kr_sbappend(r, ((char*)"    // Mark roots: spill regs to jmp_buf, then scan stack.\n"));
+    r = kr_sbappend(r, ((char*)"    jmp_buf regs;\n"));
+    r = kr_sbappend(r, ((char*)"    setjmp(regs);\n"));
+    r = kr_sbappend(r, ((char*)"    char* lo = (char*)&regs;\n"));
+    r = kr_sbappend(r, ((char*)"    char* hi = _stack_bottom;\n"));
+    r = kr_sbappend(r, ((char*)"    if (lo > hi) { char* t = lo; lo = hi; hi = t; }\n"));
+    r = kr_sbappend(r, ((char*)"    char* p = (char*)(((uintptr_t)lo + 7) & ~(uintptr_t)7);\n"));
+    r = kr_sbappend(r, ((char*)"    while (p < hi) {\n"));
+    r = kr_sbappend(r, ((char*)"        _gc_mark_word(*(void**)p);\n"));
+    r = kr_sbappend(r, ((char*)"        p += 8;\n"));
+    r = kr_sbappend(r, ((char*)"    }\n"));
+    r = kr_sbappend(r, ((char*)"    // Sweep: unlink unmarked from the global list.\n"));
+    r = kr_sbappend(r, ((char*)"    AllocHdr** pp = &_alloc_head;\n"));
+    r = kr_sbappend(r, ((char*)"    while (*pp) {\n"));
+    r = kr_sbappend(r, ((char*)"        if ((*pp)->mark == 0) { *pp = (*pp)->next; }\n"));
+    r = kr_sbappend(r, ((char*)"        else { n_live++; pp = &(*pp)->next; }\n"));
+    r = kr_sbappend(r, ((char*)"    }\n"));
+    r = kr_sbappend(r, ((char*)"    // Free any fully-dead arena blocks (no live allocs in their range).\n"));
+    r = kr_sbappend(r, ((char*)"    ABlock** bpp = &_arena;\n"));
+    r = kr_sbappend(r, ((char*)"    while (*bpp) {\n"));
+    r = kr_sbappend(r, ((char*)"        int has_live = 0;\n"));
+    r = kr_sbappend(r, ((char*)"        AllocHdr* la = _alloc_head;\n"));
+    r = kr_sbappend(r, ((char*)"        while (la) { if (_gc_in_range(*bpp, (char*)la)) { has_live = 1; break; } la = la->next; }\n"));
+    r = kr_sbappend(r, ((char*)"        if (!has_live && *bpp != _arena) {\n"));
+    r = kr_sbappend(r, ((char*)"            ABlock* dead = *bpp;\n"));
+    r = kr_sbappend(r, ((char*)"            *bpp = dead->next;\n"));
+    r = kr_sbappend(r, ((char*)"            _gc_arena_bytes -= dead->cap;\n"));
+    r = kr_sbappend(r, ((char*)"            free(dead);\n"));
+    r = kr_sbappend(r, ((char*)"        } else {\n"));
+    r = kr_sbappend(r, ((char*)"            bpp = &(*bpp)->next;\n"));
+    r = kr_sbappend(r, ((char*)"        }\n"));
+    r = kr_sbappend(r, ((char*)"    }\n"));
+    r = kr_sbappend(r, ((char*)"    // Reset _gc_threshold to roughly 4x current live size, min 64 MB.\n"));
+    r = kr_sbappend(r, ((char*)"    long live_bytes = 0;\n"));
+    r = kr_sbappend(r, ((char*)"    a = _alloc_head; while (a) { live_bytes += a->size; a = a->next; }\n"));
+    r = kr_sbappend(r, ((char*)"    _gc_threshold = live_bytes * 4;\n"));
+    r = kr_sbappend(r, ((char*)"    if (_gc_threshold < 536870912L) _gc_threshold = 536870912L;\n"));
+    r = kr_sbappend(r, ((char*)"    if (getenv(\"KR_GC_LOG\")) fprintf(stderr, \"[gc] swept %ld/%ld allocs, %ldMB live, threshold->%ldMB\\n\", n_total - n_live, n_total, live_bytes/1048576, _gc_threshold/1048576);\n"));
+    r = kr_sbappend(r, ((char*)"}\n\n"));
     r = kr_sbappend(r, ((char*)"typedef struct { ABlock* block; int used; } _AllocMark;\n"));
     r = kr_sbappend(r, ((char*)"static char* _alloc_mark(void) {\n"));
     r = kr_sbappend(r, ((char*)"    _AllocMark m;\n"));
@@ -4478,10 +4702,28 @@ char* cRuntime() {
     r = kr_sbappend(r, ((char*)"static char* _alloc_reset(const char* tok) {\n"));
     r = kr_sbappend(r, ((char*)"    _AllocMark m;\n"));
     r = kr_sbappend(r, ((char*)"    memcpy(&m, tok, sizeof(_AllocMark));\n"));
+    r = kr_sbappend(r, ((char*)"    // Prune the global alloc list: anything in a block we're about\n"));
+    r = kr_sbappend(r, ((char*)"    // to free (or above m.used within m.block) gets dropped first so\n"));
+    r = kr_sbappend(r, ((char*)"    // the GC mark phase doesn't dereference freed memory.\n"));
+    r = kr_sbappend(r, ((char*)"    AllocHdr** pp = &_alloc_head;\n"));
+    r = kr_sbappend(r, ((char*)"    while (*pp) {\n"));
+    r = kr_sbappend(r, ((char*)"        AllocHdr* h = *pp;\n"));
+    r = kr_sbappend(r, ((char*)"        int dead = 0;\n"));
+    r = kr_sbappend(r, ((char*)"        ABlock* b = _arena;\n"));
+    r = kr_sbappend(r, ((char*)"        while (b && b != m.block) {\n"));
+    r = kr_sbappend(r, ((char*)"            if (_gc_in_range(b, (char*)h)) { dead = 1; break; }\n"));
+    r = kr_sbappend(r, ((char*)"            b = b->next;\n"));
+    r = kr_sbappend(r, ((char*)"        }\n"));
+    r = kr_sbappend(r, ((char*)"        if (!dead && m.block && _gc_in_range(m.block, (char*)h)\n"));
+    r = kr_sbappend(r, ((char*)"             && (char*)h >= (char*)(m.block + 1) + m.used) dead = 1;\n"));
+    r = kr_sbappend(r, ((char*)"        if (dead) *pp = h->next;\n"));
+    r = kr_sbappend(r, ((char*)"        else pp = &h->next;\n"));
+    r = kr_sbappend(r, ((char*)"    }\n"));
     r = kr_sbappend(r, ((char*)"    while (_arena && _arena != m.block) {\n"));
-    r = kr_sbappend(r, ((char*)"        ABlock* dead = _arena;\n"));
-    r = kr_sbappend(r, ((char*)"        _arena = dead->next;\n"));
-    r = kr_sbappend(r, ((char*)"        free(dead);\n"));
+    r = kr_sbappend(r, ((char*)"        ABlock* deadb = _arena;\n"));
+    r = kr_sbappend(r, ((char*)"        _arena = deadb->next;\n"));
+    r = kr_sbappend(r, ((char*)"        _gc_arena_bytes -= deadb->cap;\n"));
+    r = kr_sbappend(r, ((char*)"        free(deadb);\n"));
     r = kr_sbappend(r, ((char*)"    }\n"));
     r = kr_sbappend(r, ((char*)"    if (_arena) _arena->used = m.used;\n"));
     r = kr_sbappend(r, ((char*)"    // kr_itoa cached strings point into arena; reset invalidates them.\n"));
@@ -6378,6 +6620,7 @@ char* emitPortWarnings(char* tokens, char* ntoks, char* fname) {
 }
 
 int main(int argc, char** argv) {
+    char _stack_anchor; _stack_bottom = &_stack_anchor;
     _argc = argc; _argv = argv;
     srand((unsigned)time(NULL));
     char* kccVer = ((char*)"1.8.0");
@@ -7341,6 +7584,7 @@ int main(int argc, char** argv) {
         return atoi(((char*)"0"));
     }
     sb = kr_sbappend(sb, ((char*)"int main(int argc, char** argv) {\n"));
+    sb = kr_sbappend(sb, ((char*)"    char _stack_anchor; _stack_bottom = &_stack_anchor;\n"));
     sb = kr_sbappend(sb, ((char*)"    _argc = argc; _argv = argv;\n"));
     sb = kr_sbappend(sb, ((char*)"    srand((unsigned)time(NULL));\n"));
     char* globInitCode = kr_sbtostring(sbGlobals);
