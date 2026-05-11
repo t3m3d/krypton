@@ -5832,17 +5832,81 @@ cfunc {
 
 // ── Krypton public API ─────────────────────────────────────────
 
-func guiInit()                                   { emit krGuiInit() }
+// 2026-05-11 Phase D: pure-Krypton WindowProc. Handles WM_CLOSE,
+// WM_DESTROY, WM_COMMAND (button/menu clicks), WM_TIMER (Krypton-side
+// timer dispatch). Callback registry uses guiState keys:
+//   cb.click.<id>      — guiOnClick handler funcptr address (decimal)
+//   cb.timer.<tid>     — guiSetTimer handler funcptr address (decimal)
+// Falls through to DefWindowProcA for everything else.
+func _krkWndProc(hwnd, msg, wParam, lParam) {
+    let msgInt = toInt(msg)
+    if msgInt == 16 {
+        DestroyWindow(hwnd)
+        emit "0"
+    }
+    if msgInt == 2 {
+        PostQuitMessage("0")
+        emit "0"
+    }
+    if msgInt == 273 {
+        let id = bitAnd(wParam, "65535")
+        let cb = guiStateGet("cb.click." + id)
+        if cb != "" {
+            callPtr(cb, "")
+        }
+        emit "0"
+    }
+    if msgInt == 275 {
+        let cb = guiStateGet("cb.timer." + wParam)
+        if cb != "" {
+            callPtr(cb, "")
+        }
+        emit "0"
+    }
+    emit DefWindowProcA(hwnd, msg, wParam, lParam)
+}
+
+// 2026-05-11 Phase D: pure-Krypton guiInit. Registers a window class
+// "PureKWnd" with our trampoline as lpfnWndProc, calls
+// InitCommonControlsEx with the full set of common-control classes.
+// Idempotent via guiState flag. SetUiFont / dark-mode / themes are
+// separate calls now (user opts in explicitly).
+func guiInit() {
+    if guiStateGet("__krk_inited") == "1" { emit "1" }
+    let icc = bufNew("8")
+    bufSetDwordAt(icc, "0", "8")
+    bufSetDwordAt(icc, "4", "20479")
+    InitCommonControlsEx(icc)
+    setWindowProc(funcptr(_krkWndProc))
+    let hInst = GetModuleHandleA("0")
+    let arrow = LoadCursorA("0", "32512")
+    let className = "PureKWnd"
+    let wcx = bufNew("80")
+    bufSetDwordAt(wcx, "0", "80")
+    bufSetDwordAt(wcx, "4", "3")
+    bufSetQwordAt(wcx, "8", windowProcAddr())
+    bufSetQwordAt(wcx, "24", hInst)
+    bufSetQwordAt(wcx, "40", arrow)
+    bufSetQwordAt(wcx, "48", "6")
+    bufSetQwordAt(wcx, "64", ptrToInt(className))
+    RegisterClassExA(wcx)
+    guiStateSet("__krk_inited", "1")
+    emit "1"
+}
 // 2026-05-11 Phase B: cfunc krGuiWindow returns hwnd as "0x%llx" hex,
 // which __user_rt_atoi reads as 0 (atoi stops at the 'x'). All
 // pure-Krypton ports calling Win32 with an int-marshalled HWND need
 // a decimal version. Helper below + guiWindow now publishes both
 // the original (kept for cfunc consumers) AND a decimal copy for
 // the pure-Krypton ports to read.
+// 2026-05-11 Phase D: parse decimal-or-hex. Returns int. Hex requires
+// "0x"/"0X" prefix; bare digits parse as decimal so pure-Krypton
+// guiWindow (which returns decimal hwnd) round-trips cleanly.
 func _guiHexToInt(s) {
-    let p = s
-    if startsWith(p, "0x") { p = substring(p, 2, len(p)) }
-    if startsWith(p, "0X") { p = substring(p, 2, len(p)) }
+    if !startsWith(s, "0x") && !startsWith(s, "0X") {
+        emit toInt(s)
+    }
+    let p = substring(s, 2, len(s))
     let v = 0
     let i = 0
     while i < len(p) {
@@ -5856,24 +5920,30 @@ func _guiHexToInt(s) {
     }
     emit v
 }
+// 2026-05-11 Phase D: pure-Krypton guiWindow. Uses the "PureKWnd" class
+// registered by guiInit (lpfnWndProc = our trampoline). Returns the
+// hwnd as a hex-prefixed string for backward compat with cfunc callers
+// that may sscanf("%p", ...); _guiResolveHwnd already handles both
+// formats. Pure-Krypton ports read decimal from guiStateGet("main.hwnd").
 func guiWindow(title, w, h) {
-    let hwndHex = krGuiWindow(title, w + "", h + "")
-    let hwndDec = _guiHexToInt(hwndHex)
-    guiStateSet("main.hwnd", hwndDec + "")
-    emit hwndHex
+    guiInit()
+    let hInst = GetModuleHandleA("0")
+    let hwnd = CreateWindowExA("0", "PureKWnd", title, "13565952", "100", "100", w + "", h + "", "0", "0", hInst, "0")
+    guiStateSet("main.hwnd", hwnd)
+    emit hwnd
 }
 // 2026-05-11 Phase B ports — pure Krypton via head:user32.
 // SW_SHOW=5, SW_HIDE=0. krGuiWindow/Button/etc return hex-formatted
 // hwnd strings ("0x..."); we hex-decode for the int-marshalled call.
 func guiShow(hwnd) {
-    let h = _guiHexToInt(hwnd)
-    ShowWindow(h + "", "5")
-    UpdateWindow(h + "")
+    let h = _guiResolveHwnd(hwnd)
+    ShowWindow(h, "5")
+    UpdateWindow(h)
     emit "1"
 }
 func guiHide(hwnd) {
-    let h = _guiHexToInt(hwnd)
-    ShowWindow(h + "", "0")
+    let h = _guiResolveHwnd(hwnd)
+    ShowWindow(h, "0")
     emit "1"
 }
 // 2026-05-11 Phase D: "BUTTON" class, WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON = 1342242816.
@@ -5923,7 +5993,23 @@ func guiTextArea(parent, x, y, w, h) {
     if ctl == "0" { emit "0" }
     emit id
 }
-func guiRichEdit(parent, x, y, w, h)             { emit krGuiRichEdit(parent, x + "", y + "", w + "", h + "") }
+// 2026-05-11 Phase D: RichEdit needs msftedit.dll loaded so the
+// RICHEDIT50W window class is registered. We lazy-load once per
+// program; the state flag prevents repeat LoadLibrary calls.
+// Style: WS_CHILD|WS_VISIBLE|WS_VSCROLL|WS_HSCROLL|ES_MULTILINE|
+//        ES_AUTOVSCROLL|ES_AUTOHSCROLL|ES_NOHIDESEL|ES_WANTRETURN = 1345749956.
+func guiRichEdit(parent, x, y, w, h) {
+    if guiStateGet("__krk_re_loaded") == "" {
+        LoadLibraryA("msftedit.dll")
+        guiStateSet("__krk_re_loaded", "1")
+    }
+    let pHwnd = _guiResolveHwnd(parent)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let ctl = CreateWindowExA("0", "RICHEDIT50W", "", "1345749956", x + "", y + "", w + "", h + "", pHwnd + "", id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    emit id
+}
 func guiRichSetFmt(rich, start, end, hexColor, bold) { emit krGuiRichSetFmt(rich, start + "", end + "", hexColor, bold + "") }
 func guiRichClearFmt(rich)                       { emit krGuiRichClearFmt(rich) }
 func guiRichAppend(rich, text, hexColor, bold)   { emit krGuiRichAppend(rich, text, hexColor, bold + "") }
@@ -6120,25 +6206,87 @@ func guiTabs(parent, x, y, w, h) {
     if ctl == "0" { emit "0" }
     emit id
 }
-func guiTabAdd(tabs, label)                      { emit krGuiTabAdd(tabs, label) }
+// 2026-05-11 Phase D: TCITEM struct (40 bytes on x64).
+//   +0  UINT mask    +8 DWORD dwState   +12 DWORD dwStateMask
+//   +16 LPSTR pszText  +24 int cchTextMax  +28 int iImage
+//   +32 LPARAM lParam
+// TCIF_TEXT=1. TCM_GETITEMCOUNT=4868. TCM_INSERTITEMA=4871.
+func guiTabAdd(tabs, label) {
+    let h = _guiResolveHwnd(tabs)
+    if h == "0" { emit "-1" }
+    let item = bufNew("40")
+    bufSetDwordAt(item, "0", "1")
+    bufSetQwordAt(item, "16", ptrToInt(label))
+    let count = SendMessageA(h, "4868", "0", "0")
+    SendMessageA(h, "4871", count, ptrToInt(item))
+    emit count
+}
 // 2026-05-11 Phase B: TCM_SETCURSEL=4876, TCM_GETCURSEL=4875. Pure Krypton.
 func guiTabSelect(tabs, idx) {
     let h = _guiResolveHwnd(tabs)
     if h == "0" { emit "-1" }
     emit SendMessageA(h, "4876", idx + "", "0")
 }
-func guiTabFind(tabs, label)                     { emit krGuiTabFind(tabs, label) }
+// 2026-05-11 Phase D: enumerate tabs with TCM_GETITEMA=4869, compare labels.
+// TCITEM layout same as guiTabAdd. Returns the 0-based index, or "-1" on miss.
+func guiTabFind(tabs, label) {
+    let h = _guiResolveHwnd(tabs)
+    if h == "0" { emit "-1" }
+    let count = toInt(SendMessageA(h, "4868", "0", "0"))
+    let textBuf = bufNew("256")
+    let item = bufNew("40")
+    let i = 0
+    while i < count {
+        bufSetByte(textBuf, "0", "0")
+        bufSetDwordAt(item, "0", "1")
+        bufSetQwordAt(item, "16", ptrToInt(textBuf))
+        bufSetDwordAt(item, "24", "256")
+        SendMessageA(h, "4869", i + "", ptrToInt(item))
+        let got = _guiBufToStr(textBuf, 256)
+        if got == label { emit i + "" }
+        i = i + 1
+    }
+    emit "-1"
+}
 func guiTabSelected(tabs) {
     let h = _guiResolveHwnd(tabs)
     if h == "0" { emit "-1" }
     emit SendMessageA(h, "4875", "0", "0")
 }
 func guiOnChange(hwnd, sinkPtr)                  { emit krGuiOnChange(hwnd, sinkPtr) }
-func guiMenuBegin(window)                        { emit krGuiMenuBegin(window) }
-func guiMenu(menubar, label)                     { emit krGuiMenu(menubar, label) }
-func guiMenuItem(popup, label)                   { emit krGuiMenuItem(popup, label) }
-func guiMenuSeparator(popup)                     { emit krGuiMenuSeparator(popup) }
-func guiMenuAdd(menu, label)                     { emit krGuiMenuAdd(menu, label) }
+// 2026-05-11 Phase D: Menu construction via CreateMenu + AppendMenuA.
+// guiMenuBegin returns the HMENU of a fresh menubar attached to `window`.
+// guiMenu(menubar, label) creates a popup, appends it to menubar, returns HMENU.
+// guiMenuItem(popup, label) appends a clickable item with auto-allocated id.
+// guiMenuSeparator(popup) appends a separator.
+// guiMenuAdd is an alias for guiMenuItem.
+// MF_STRING=0x0000, MF_POPUP=0x0010, MF_SEPARATOR=0x0800.
+func guiMenuBegin(window) {
+    let hw = _guiResolveHwnd(window)
+    let menubar = CreateMenu()
+    SetMenu(hw, menubar)
+    DrawMenuBar(hw)
+    emit menubar
+}
+func guiMenu(menubar, label) {
+    let popup = CreatePopupMenu()
+    AppendMenuA(menubar, "16", popup, label)
+    emit popup
+}
+func guiMenuItem(popup, label) {
+    let id = _guiNextId()
+    AppendMenuA(popup, "0", id, label)
+    emit id
+}
+func guiMenuSeparator(popup) {
+    AppendMenuA(popup, "2048", "0", "0")
+    emit ""
+}
+func guiMenuAdd(menu, label) {
+    let id = _guiNextId()
+    AppendMenuA(menu, "0", id, label)
+    emit id
+}
 // "msctls_statusbar32" class. WS_CHILD|WS_VISIBLE|SBARS_SIZEGRIP(0x100) = 1342177536.
 // 0 dims → auto-positioned by Win32.
 func guiStatusBar(window) {
@@ -6185,7 +6333,14 @@ func guiStatusGet(bar, idx) {
     emit _guiBufToStr(buf, 256)
 }
 func guiStatusIcon(bar, idx, iconName)           { emit krGuiStatusIcon(bar, idx + "", iconName) }
-func guiStatusBgColor(bar, hex)                  { emit krGuiStatusBgColor(bar, hex) }
+// SB_SETBKCOLOR=1025 (WM_USER+1). wParam=0, lParam=COLORREF.
+func guiStatusBgColor(bar, hex) {
+    let h = _guiResolveHwnd(bar)
+    if h == "0" { emit "0" }
+    let cr = _guiColorRefFromHex(hex)
+    SendMessageA(h, "1025", "0", cr + "")
+    emit "1"
+}
 func guiImage(parent, path, x, y, w, h)          { emit krGuiImage(parent, path, x + "", y + "", w + "", h + "") }
 func guiImageSet(image, path)                    { emit krGuiImageSet(image, path) }
 
@@ -6206,13 +6361,74 @@ func guiMove(handle, x, y, w, h) {
     MoveWindow(H, x + "", y + "", w + "", h + "", "1")
     emit "1"
 }
-func guiDock(window)                             { emit krGuiDock(window) }
-func guiDockTop(dock, hwnd, size)                { emit krGuiDockTop(dock, hwnd, size + "") }
-func guiDockBottom(dock, hwnd, size)             { emit krGuiDockBottom(dock, hwnd, size + "") }
-func guiDockLeft(dock, hwnd, size)               { emit krGuiDockLeft(dock, hwnd, size + "") }
-func guiDockRight(dock, hwnd, size)              { emit krGuiDockRight(dock, hwnd, size + "") }
-func guiDockFill(dock, hwnd)                     { emit krGuiDockFill(dock, hwnd) }
-func guiDockApply(dock)                          { emit krGuiDockApply(dock) }
+// 2026-05-11 Phase D: pure-Krypton dock layout. State per dock:
+//   dock.<id>.win — parent hwnd
+//   dock.<id>.q   — newline-joined queue of "side|hwnd|size" entries
+// guiDockApply walks the queue, calculates positions from GetClientRect,
+// MoveWindows each child. RECT layout: left(4) top(4) right(4) bottom(4).
+func guiDock(window) {
+    let id = _guiNextId()
+    guiStateSet("dock." + id + ".win", window)
+    guiStateSet("dock." + id + ".q", "")
+    emit id
+}
+func _krkDockAppend(dock, side, hwnd, size) {
+    let cur = guiStateGet("dock." + dock + ".q")
+    let entry = side + "|" + hwnd + "|" + size
+    if cur == "" {
+        guiStateSet("dock." + dock + ".q", entry)
+    } else {
+        guiStateSet("dock." + dock + ".q", cur + "\n" + entry)
+    }
+}
+func guiDockTop(dock, hwnd, size)    { _krkDockAppend(dock, "T", hwnd, size + "")  emit "" }
+func guiDockBottom(dock, hwnd, size) { _krkDockAppend(dock, "B", hwnd, size + "")  emit "" }
+func guiDockLeft(dock, hwnd, size)   { _krkDockAppend(dock, "L", hwnd, size + "")  emit "" }
+func guiDockRight(dock, hwnd, size)  { _krkDockAppend(dock, "R", hwnd, size + "")  emit "" }
+func guiDockFill(dock, hwnd)         { _krkDockAppend(dock, "F", hwnd, "0")  emit "" }
+func guiDockApply(dock) {
+    let window = guiStateGet("dock." + dock + ".win")
+    let win = _guiResolveHwnd(window)
+    let rect = bufNew("16")
+    GetClientRect(win, rect)
+    let top = 0
+    let left = 0
+    let right = toInt(bufGetDwordAt(rect, "8"))
+    let bottom = toInt(bufGetDwordAt(rect, "12"))
+    let q = guiStateGet("dock." + dock + ".q")
+    if q == "" { emit "" }
+    let lc = lineCount(q)
+    let i = 0
+    while i < lc {
+        let line = getLine(q, i)
+        let parts = split(line, "|")
+        let side = getLine(parts, 0)
+        let hwnd = getLine(parts, 1)
+        let size = toInt(getLine(parts, 2))
+        let h = _guiResolveHwnd(hwnd)
+        if side == "T" {
+            MoveWindow(h, left + "", top + "", (right - left) + "", size + "", "1")
+            top = top + size
+        }
+        if side == "B" {
+            bottom = bottom - size
+            MoveWindow(h, left + "", bottom + "", (right - left) + "", size + "", "1")
+        }
+        if side == "L" {
+            MoveWindow(h, left + "", top + "", size + "", (bottom - top) + "", "1")
+            left = left + size
+        }
+        if side == "R" {
+            right = right - size
+            MoveWindow(h, right + "", top + "", size + "", (bottom - top) + "", "1")
+        }
+        if side == "F" {
+            MoveWindow(h, left + "", top + "", (right - left) + "", (bottom - top) + "", "1")
+        }
+        i = i + 1
+    }
+    emit ""
+}
 func guiSplitter(parent, x, y, w, h, orientation) { emit krGuiSplitter(parent, x + "", y + "", w + "", h + "", orientation) }
 func guiSplitterPos(splitter)                    { emit krGuiSplitterPos(splitter) }
 // "COMBOBOX" class. WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|CBS_DROPDOWNLIST(3) = 1344602115.
@@ -6295,8 +6511,38 @@ func guiDatePicker(parent, x, y, w, h) {
     if ctl == "0" { emit "0" }
     emit id
 }
-func guiDateGet(picker)                          { emit krGuiDateGet(picker) }
-func guiDateSet(picker, ymd)                     { emit krGuiDateSet(picker, ymd) }
+// 2026-05-11 Phase D: SYSTEMTIME (16 bytes) struct dispatch.
+//   +0 wYear (2)    +2 wMonth (2)   +4 wDOW (2)    +6 wDay (2)
+//   +8 wHour (2)    +10 wMinute (2) +12 wSec (2)   +14 wMs (2)
+// DTM_GETSYSTEMTIME=4097 (wParam=0, lParam=ptr). DTM_SETSYSTEMTIME=4098 (wParam=GDT_VALID=0).
+func _krk2d(n) {
+    let s = n + ""
+    if len(s) < 2 { emit "0" + s }
+    emit s
+}
+func guiDateGet(picker) {
+    let h = _guiResolveHwnd(picker)
+    if h == "0" { emit "" }
+    let st = bufNew("16")
+    SendMessageA(h, "4097", "0", ptrToInt(st))
+    let year = bufGetWordAt(st, "0")
+    let month = bufGetWordAt(st, "2")
+    let day = bufGetWordAt(st, "6")
+    emit year + "-" + _krk2d(month) + "-" + _krk2d(day)
+}
+func guiDateSet(picker, ymd) {
+    let h = _guiResolveHwnd(picker)
+    if h == "0" { emit "0" }
+    // ymd = "YYYY-MM-DD"
+    let parts = split(ymd, "-")
+    if lineCount(parts) < 3 { emit "0" }
+    let st = bufNew("16")
+    bufSetWordAt(st, "0", getLine(parts, 0))
+    bufSetWordAt(st, "2", getLine(parts, 1))
+    bufSetWordAt(st, "6", getLine(parts, 2))
+    SendMessageA(h, "4098", "0", ptrToInt(st))
+    emit "1"
+}
 // "SCROLLBAR" class. WS_CHILD|WS_VISIBLE|SBS_VERT(1)/SBS_HORZ(0).
 func guiScrollbar(parent, x, y, w, h, vertical) {
     let pHwnd = _guiHexToInt(parent)
@@ -6313,7 +6559,20 @@ func guiScrollbar(parent, x, y, w, h, vertical) {
 // which takes a SCROLLINFO struct — for the simple cases we use the legacy
 // SBM_SETRANGE which doesn't support page. Pass-through for SBM_SETSCROLLINFO
 // path until SCROLLINFO struct construction lands as a follow-up.
-func guiScrollbarRange(sb, lo, hi, page)         { emit krGuiScrollbarRange(sb, lo + "", hi + "", page + "") }
+// 2026-05-11 Phase D: SBM_SETSCROLLINFO=233. SCROLLINFO struct (28 bytes):
+//   +0 cbSize=28  +4 fMask=3(SIF_RANGE|SIF_PAGE)  +8 nMin  +12 nMax  +16 nPage  +20 nPos  +24 nTrackPos
+func guiScrollbarRange(sb, lo, hi, page) {
+    let h = _guiResolveHwnd(sb)
+    if h == "0" { emit "0" }
+    let si = bufNew("28")
+    bufSetDwordAt(si, "0", "28")
+    bufSetDwordAt(si, "4", "3")
+    bufSetDwordAt(si, "8", lo + "")
+    bufSetDwordAt(si, "12", hi + "")
+    bufSetDwordAt(si, "16", page + "")
+    SendMessageA(h, "233", "1", ptrToInt(si))
+    emit "1"
+}
 func guiScrollbarValue(sb) {
     let h = _guiResolveHwnd(sb)
     if h == "0" { emit "0" }
@@ -6325,17 +6584,59 @@ func guiScrollbarSet(sb, value) {
     SendMessageA(h, "224", value + "", "1")
     emit "1"
 }
-func guiVStack(parent, x, y, width, gap)         { emit krGuiVStack(parent, x + "", y + "", width + "", gap + "") }
-func guiHStack(parent, x, y, height, gap)        { emit krGuiHStack(parent, x + "", y + "", height + "", gap + "") }
-func guiVNext(stack, height)                     { emit krGuiVNext(stack, height + "") }
-func guiHNext(stack, width)                      { emit krGuiHNext(stack, width + "") }
-func guiStackParent(stack)                       { emit krGuiStackParent(stack) }
-func guiStackX(stack)                            { emit krGuiStackX(stack) }
-func guiStackY(stack)                            { emit krGuiStackY(stack) }
-func guiStackW(stack)                            { emit krGuiStackW(stack) }
-func guiStackH(stack)                            { emit krGuiStackH(stack) }
-func guiVGap(stack, pixels)                      { emit krGuiStackGapAdd(stack, pixels + "") }
-func guiHGap(stack, pixels)                      { emit krGuiStackGapAdd(stack, pixels + "") }
+// 2026-05-11 Phase D: layout stacks ported to pure Krypton. Stack state
+// is a CSV record stored under `stk.<id>` via guiStateSet/Get:
+//   parent | x | y | size | gap | cursor | orient   (orient: 0=V, 1=H)
+// VNext/HNext advance the cursor; consumers compute child position from cursor.
+// guiStateSet/Get still cfunc-routed; eliminate when state helpers move out of cfunc.
+func _krkStackField(stack, idx) {
+    let s = guiStateGet("stk." + stack)
+    let parts = split(s, "|")
+    emit getLine(parts, idx)
+}
+func _krkStackUpdateCursor(stack, newCursor) {
+    let s = guiStateGet("stk." + stack)
+    let p = split(s, "|")
+    let updated = getLine(p, 0) + "|" + getLine(p, 1) + "|" + getLine(p, 2) + "|" + getLine(p, 3) + "|" + getLine(p, 4) + "|" + newCursor + "|" + getLine(p, 6)
+    guiStateSet("stk." + stack, updated)
+}
+func guiVStack(parent, x, y, width, gap) {
+    let id = _guiNextId()
+    guiStateSet("stk." + id, parent + "|" + (x + "") + "|" + (y + "") + "|" + (width + "") + "|" + (gap + "") + "|" + (y + "") + "|0")
+    emit id
+}
+func guiHStack(parent, x, y, height, gap) {
+    let id = _guiNextId()
+    guiStateSet("stk." + id, parent + "|" + (x + "") + "|" + (y + "") + "|" + (height + "") + "|" + (gap + "") + "|" + (x + "") + "|1")
+    emit id
+}
+func guiVNext(stack, height) {
+    let cursor = toInt(_krkStackField(stack, "5"))
+    let gap = toInt(_krkStackField(stack, "4"))
+    _krkStackUpdateCursor(stack, (cursor + toInt(height + "") + gap) + "")
+    emit cursor + ""
+}
+func guiHNext(stack, width) {
+    let cursor = toInt(_krkStackField(stack, "5"))
+    let gap = toInt(_krkStackField(stack, "4"))
+    _krkStackUpdateCursor(stack, (cursor + toInt(width + "") + gap) + "")
+    emit cursor + ""
+}
+func guiStackParent(stack)                       { emit _krkStackField(stack, "0") }
+func guiStackX(stack)                            { emit _krkStackField(stack, "1") }
+func guiStackY(stack)                            { emit _krkStackField(stack, "2") }
+func guiStackW(stack)                            { emit _krkStackField(stack, "3") }
+func guiStackH(stack)                            { emit _krkStackField(stack, "3") }
+func guiVGap(stack, pixels) {
+    let cursor = toInt(_krkStackField(stack, "5"))
+    _krkStackUpdateCursor(stack, (cursor + toInt(pixels + "")) + "")
+    emit ""
+}
+func guiHGap(stack, pixels) {
+    let cursor = toInt(_krkStackField(stack, "5"))
+    _krkStackUpdateCursor(stack, (cursor + toInt(pixels + "")) + "")
+    emit ""
+}
 
 // ── V-stack convenience widgets ──────────────────────────────
 // Each places a widget at the stack's next y, using the stack's
@@ -6449,16 +6750,31 @@ func guiSpinboxRange(spin, lo, hi)               { emit krGuiSpinboxRange(spin, 
 func guiSpinboxSet(spin, value)                  { emit krGuiSpinboxSet(spin, value + "") }
 func guiSpinboxValue(spin)                       { emit krGuiSpinboxValue(spin) }
 // "ToolbarWindow32" class. WS_CHILD|WS_VISIBLE|TBSTYLE_FLAT(0x800)|TBSTYLE_TOOLTIPS(0x100)|CCS_NODIVIDER(0x40)|CCS_NOPARENTALIGN(0x8) = 1342179656.
+// Sends TB_BUTTONSTRUCTSIZE=1054 with sizeof(TBBUTTON)=32 (x64 layout) so subsequent TB_ADDBUTTONS calls read the struct correctly.
 func guiToolbar(window) {
-    let pHwnd = _guiHexToInt(window)
+    let pHwnd = _guiResolveHwnd(window)
     let hInst = GetModuleHandleA("0")
     let id = _guiNextId()
-    let ctl = CreateWindowExA("0", "ToolbarWindow32", "", "1342179656", "0", "0", "0", "0", pHwnd + "", id, hInst, "0")
+    let ctl = CreateWindowExA("0", "ToolbarWindow32", "", "1342179656", "0", "0", "0", "0", pHwnd, id, hInst, "0")
     if ctl == "0" { emit "0" }
+    SendMessageA(ctl, "1054", "32", "0")
     emit id
 }
 func guiToolButton(toolbar, label, iconName)     { emit krGuiToolButton(toolbar, label, iconName) }
-func guiToolSep(toolbar)                         { emit krGuiToolSep(toolbar) }
+// 2026-05-11 Phase D: TB_ADDBUTTONS=1044 (WM_USER+20). TBBUTTON struct (32 B on x64):
+//   +0 iBitmap (4)  +4 idCommand (4)
+//   +8 fsState (1)  +9 fsStyle (1)  +10 pad[6]
+//   +16 dwData (8)  +24 iString (8)
+// Separator: fsState=TBSTATE_ENABLED(4), fsStyle=TBSTYLE_SEP(1).
+func guiToolSep(toolbar) {
+    let h = _guiResolveHwnd(toolbar)
+    if h == "0" { emit "" }
+    let btn = bufNew("32")
+    bufSetByte(btn, "8", "4")
+    bufSetByte(btn, "9", "1")
+    SendMessageA(h, "1044", "1", ptrToInt(btn))
+    emit ""
+}
 // 2026-05-11 Phase B: TB_GETBUTTONSIZE=1054. Returns packed DWORD with
 // LOWORD=width, HIWORD=height. We extract the height (high 16 bits).
 func guiToolbarHeight(toolbar) {
@@ -6568,18 +6884,22 @@ func guiPickFolder(title)                        { emit krGuiPickFolder(title) }
 // 2026-05-11 Phase B ports — pure Krypton via head:user32.
 // Dispatch: "0x..."hex → direct HWND; bare-decimal id >= 1000 →
 // GetDlgItem(main_hwnd, id) → HWND.  Matches the cfunc legacy dual-format.
+// 2026-05-11 Phase D: dispatch hwnd format.
+//   "0x..." → hex parse
+//   decimal in [1000, 65535] → control id, look up via GetDlgItem(main_hwnd, id)
+//   anything else (decimal > 65535) → direct hwnd
 func _guiResolveHwnd(hwnd) {
     if startsWith(hwnd, "0x") || startsWith(hwnd, "0X") {
         emit _guiHexToInt(hwnd) + ""
     }
     let id = toInt(hwnd)
-    if id >= 1000 {
+    if id >= 1000 && id <= 65535 {
         let main = guiStateGet("main.hwnd")
         if main != "" {
             emit GetDlgItem(main, hwnd)
         }
     }
-    emit _guiHexToInt(hwnd) + ""
+    emit hwnd
 }
 func guiSetText(hwnd, text) {
     let h = _guiResolveHwnd(hwnd)
@@ -6594,7 +6914,13 @@ func guiGetText(hwnd) {
     GetWindowTextA(h, buf, "2048")
     emit _guiBufToStr(buf, 2048)
 }
-func guiOnClick(hwnd, sinkPtr)                   { emit krGuiOnClick(hwnd, sinkPtr) }
+// 2026-05-11 Phase D: register a Krypton funcptr keyed by control id.
+// _krkWndProc looks up "cb.click.<id>" on WM_COMMAND and invokes via callPtr.
+// `hwnd` here is a control id (decimal, from widget creators), not a hex hwnd.
+func guiOnClick(hwnd, sinkPtr) {
+    guiStateSet("cb.click." + hwnd, sinkPtr)
+    emit "1"
+}
 // Native pure-Krypton port (2026-05-11): MessageBoxA via user32 IAT
 // (no longer routes through cfunc krGuiMessageBox / kr_gui_to_w UTF-16
 // conversion). ANSI/MBCS only for now — true UTF-16 deferred until the
@@ -6633,7 +6959,19 @@ func guiStateGet(key)                            { emit krGuiStateGet(key) }
 
 // Periodic-timer helpers. `cb` must be a 0-arg Krypton function
 // passed via funcptr(). Returns a timer-id string (use to kill).
-func guiSetTimer(ms, cb)                         { emit krGuiSetTimer(ms + "", cb) }
+// 2026-05-11 Phase D: SetTimer on main hwnd with auto-allocated id;
+// callback stored in cb.timer.<tid> for _krkWndProc to dispatch on WM_TIMER.
+func guiSetTimer(ms, cb) {
+    let main = guiStateGet("main.hwnd")
+    if main == "" { emit "0" }
+    let tid = guiStateGet("__krk_next_tid")
+    let n = 1
+    if tid != "" { n = toInt(tid) }
+    guiStateSet("__krk_next_tid", (n + 1) + "")
+    guiStateSet("cb.timer." + n, cb)
+    SetTimer(main, n + "", ms + "", "0")
+    emit n + ""
+}
 // 2026-05-11 Phase B: KillTimer direct. cfunc krGuiKillTimer also
 // cleared its g_timer_cb[id] slot; we leak that slot until the program
 // exits. With 16 slots this is fine for typical apps; full port lands
@@ -6673,7 +7011,17 @@ func guiSetUiFont(family, ptSize)                { emit krGuiSetUiFont(family, p
 // fall-throughs; TreeSetColors directly sets a TreeView's bg/fg.
 func guiSetWindowBg(hexColor)                    { emit krGuiSetWindowBg(hexColor) }
 func guiSetUiTextColor(hexColor)                 { emit krGuiSetUiTextColor(hexColor) }
-func guiTreeSetColors(tree, bgHex, fgHex)        { emit krGuiTreeSetColors(tree, bgHex, fgHex) }
+// TVM_SETBKCOLOR=4381 (TV_FIRST+29), TVM_SETTEXTCOLOR=4382 (TV_FIRST+30).
+// lParam = COLORREF (use -1 to reset to default).
+func guiTreeSetColors(tree, bgHex, fgHex) {
+    let h = _guiResolveHwnd(tree)
+    if h == "0" { emit "0" }
+    let bg = _guiColorRefFromHex(bgHex)
+    let fg = _guiColorRefFromHex(fgHex)
+    SendMessageA(h, "4381", "0", bg + "")
+    SendMessageA(h, "4382", "0", fg + "")
+    emit "1"
+}
 func guiStatusTextColor(bar, hexColor)           { emit krGuiStatusTextColor(bar, hexColor) }
 
 // Line-number gutter — a small column to the left of a RichEdit

@@ -449,7 +449,7 @@ func emitStringTable(strs) {
 // (The last 6 added 2026-05-11 for the gui.k cfunc → pure-Krypton port.)
 
 let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,GetCurrentThreadId,GetLastError,SetLastError,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA,WaitForSingleObject,TerminateProcess,OpenProcess,CreateFileMappingA,MapViewOfFile,UnmapViewOfFile,GetModuleHandleA"
-let KRUSER_FUNCS = "GetSystemMetrics,MessageBoxA,ShowWindow,SetTimer,KillTimer,GetForegroundWindow,SetForegroundWindow,GetMessageA,TranslateMessage,DispatchMessageA,PostQuitMessage,UpdateWindow,DestroyWindow,SetWindowTextA,GetWindowTextA,SendMessageA,GetDlgItem,InvalidateRect,MoveWindow,SetWindowPos,GetClientRect,GetWindowRect,RegisterClassExA,CreateWindowExA,DefWindowProcA,LoadCursorA,LoadIconA"
+let KRUSER_FUNCS = "GetSystemMetrics,MessageBoxA,ShowWindow,SetTimer,KillTimer,GetForegroundWindow,SetForegroundWindow,GetMessageA,TranslateMessage,DispatchMessageA,PostQuitMessage,UpdateWindow,DestroyWindow,SetWindowTextA,GetWindowTextA,SendMessageA,GetDlgItem,InvalidateRect,MoveWindow,SetWindowPos,GetClientRect,GetWindowRect,RegisterClassExA,CreateWindowExA,DefWindowProcA,LoadCursorA,LoadIconA,CreateMenu,CreatePopupMenu,AppendMenuA,SetMenu,DrawMenuBar,DestroyMenu"
 let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword,kr_envnew,kr_envset,kr_envget,kr_hasfield,kr_structfields,kr_repeat,kr_padleft,kr_padright,kr_reverse,kr_abs,kr_min,kr_max,kr_endswith,kr_bin,kr_pow,kr_gc_allocated,kr_gc_limit,kr_gc_set_limit,kr_gc_collect,kr_arena_reset,kr_gc_checkpoint,kr_gc_restore,kr_gc_slab_count,kr_gc_slab_bytes,kr_bufgetbyte,kr_bufgetwordat,kr_bufsetwordat,kr_bufsetqwordat,kr_bufgetwordatbe,kr_bufgetdwordatbe,kr_bufgetqwordatbe,kr_gc_alloc_count,kr_gc_shadow_count,kr_gc_shadow_pop_n,kr_gc_shadow_push,kr_gc_walk_allocs,kr_rdtsc,kr_gc_mark,kr_gc_sweep,kr_pause,kr_mfence,kr_lfence,kr_sfence,kr_gc_freelist_count,kr_set_wndproc,kr_wndproc_addr"
 let KRADV_FUNCS = "RegOpenKeyExA,RegQueryValueExA,RegEnumKeyExA,RegCloseKey,GetUserNameA"
 let KRPDH_FUNCS = "PdhOpenQueryA,PdhAddEnglishCounterA,PdhCollectQueryData,PdhGetFormattedCounterArrayA,PdhCloseQuery"
@@ -620,7 +620,7 @@ func win32IntArgs(name) {
     if name == "GetSystemMetrics"            { emit "0" }           // index
     if name == "MessageBoxA"                 { emit "0,3" }         // handle, uType
     if name == "ShowWindow"                  { emit "0,1" }         // hwnd, nCmdShow
-    if name == "SetTimer"                    { emit "0,1,2" }       // hwnd, idTimer, ms (proc=ptr)
+    if name == "SetTimer"                    { emit "0,1,2,3" }     // hwnd, idTimer, ms, proc — atoi all so callers can pass "0" for NULL proc (post WM_TIMER)
     if name == "KillTimer"                   { emit "0,1" }
     if name == "SetForegroundWindow"         { emit "0" }           // hwnd
     if name == "GetMessageA"                 { emit "1,2,3" }       // msg=ptr, hwnd, wMsgFilterMin, wMsgFilterMax (all int)
@@ -639,6 +639,12 @@ func win32IntArgs(name) {
     if name == "LoadCursorA"                 { emit "0,1" }         // hInstance, lpCursorName
     if name == "LoadIconA"                   { emit "0,1" }
     if name == "GetModuleHandleA"            { emit "0" }           // lpModuleName=str/NULL — atoi means callers pass "0" for NULL; for named, use toHandle pattern (rare)
+    if name == "CreateMenu"                  { emit "" }            // no args
+    if name == "CreatePopupMenu"             { emit "" }
+    if name == "AppendMenuA"                 { emit "0,1,2" }       // menu, flags, idOrSubmenu (3rd is dual-use; pass HMENU as decimal for submenu, item-id as decimal); lpNewItem=str
+    if name == "SetMenu"                     { emit "0,1" }         // hwnd, hmenu
+    if name == "DrawMenuBar"                 { emit "0" }
+    if name == "DestroyMenu"                 { emit "0" }
     if name == "SetWindowPos"                { emit "0,1,2,3,4,5,6" } // hwnd, after, x, y, w, h, flags
     if name == "GetClientRect"               { emit "0" }           // hwnd, rect=ptr
     if name == "GetWindowRect"               { emit "0" }           // hwnd, rect=ptr
@@ -756,6 +762,12 @@ func win32IntReturns(name) {
     if name == "LoadCursorA"                { emit "1" }   // HCURSOR
     if name == "LoadIconA"                  { emit "1" }
     if name == "GetModuleHandleA"           { emit "1" }   // HMODULE
+    if name == "CreateMenu"                 { emit "1" }   // HMENU
+    if name == "CreatePopupMenu"            { emit "1" }   // HMENU
+    if name == "AppendMenuA"                { emit "1" }   // BOOL
+    if name == "SetMenu"                    { emit "1" }   // BOOL
+    if name == "DrawMenuBar"                { emit "1" }   // BOOL
+    if name == "DestroyMenu"                { emit "1" }   // BOOL
     if name == "SetWindowPos"               { emit "1" }
     if name == "GetClientRect"              { emit "1" }
     if name == "GetWindowRect"              { emit "1" }
