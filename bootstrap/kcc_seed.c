@@ -30,6 +30,43 @@ static char* _alloc(int n) {
     return p;
 }
 
+typedef struct { ABlock* block; int used; } _AllocMark;
+static char* _alloc_mark(void) {
+    _AllocMark m;
+    m.block = _arena;
+    m.used = _arena ? _arena->used : 0;
+    char* tok = _alloc(sizeof(_AllocMark));
+    memcpy(tok, &m, sizeof(_AllocMark));
+    return tok;
+}
+static char* _alloc_reset(const char* tok) {
+    _AllocMark m;
+    memcpy(&m, tok, sizeof(_AllocMark));
+    while (_arena && _arena != m.block) {
+        ABlock* dead = _arena;
+        _arena = dead->next;
+        free(dead);
+    }
+    if (_arena) _arena->used = m.used;
+    return "";
+}
+
+static long _intSlots[32];
+static char* intSlotStore(const char* slot, const char* val) {
+    int s = atoi(slot);
+    if (s < 0 || s >= 32) return "";
+    _intSlots[s] = atol(val);
+    return "";
+}
+static char* kr_str(const char*);
+static char* intSlotLoad(const char* slot) {
+    int s = atoi(slot);
+    char buf[32];
+    if (s < 0 || s >= 32) { buf[0]='0'; buf[1]=0; return kr_str(buf); }
+    snprintf(buf, sizeof(buf), "%ld", _intSlots[s]);
+    return kr_str(buf);
+}
+
 static char _K_EMPTY[] = "";
 static char _K_ZERO[] = "0";
 static char _K_ONE[] = "1";
@@ -71,6 +108,12 @@ static char* kr_itoa(int v) {
 
 static int kr_atoi(const char* s) { return atoi(s); }
 
+static char* kr_itoa64(long long v) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%lld", v);
+    return kr_str(buf);
+}
+
 static char* kr_plus(const char* a, const char* b) {
     if (kr_isnum(a) && kr_isnum(b))
         return kr_itoa(atoi(a) + atoi(b));
@@ -108,6 +151,7 @@ static char* kr_gte(const char* a, const char* b) {
 static int kr_truthy(const char* s) {
     if (!s || !*s) return 0;
     if (strcmp(s, "0") == 0) return 0;
+    if (strcmp(s, "false") == 0) return 0;
     return 1;
 }
 
@@ -249,7 +293,9 @@ static char* kr_linecount(const char* s) {
 }
 
 static char* kr_count(const char* s) {
-    return kr_linecount(s);
+    int n = 1;
+    if (s) { const char* p = s; while (*p) { if (*p == ',') n++; p++; } }
+    return kr_itoa(n);
 }
 
 static char* kr_writefile(const char* path, const char* data) {
@@ -625,6 +671,7 @@ static char* kr_unique(const char* lst) {
 
 static char* kr_printerr(const char* s) {
     fprintf(stderr, "%s\n", s);
+    fflush(stderr);
     return _K_EMPTY;
 }
 
@@ -1278,7 +1325,11 @@ static char* kr_bufgetqword(char* buf){unsigned long long v=*(unsigned long long
 static char* kr_bufgetdwordat(char* buf,const char* off){unsigned int v=*(unsigned int*)(buf+atoi(off));return kr_itoa((int)v);}
 static char* kr_bufgetqwordat(char* buf,const char* off){unsigned long long v=*(unsigned long long*)(buf+atoi(off));char s[32];snprintf(s,32,"%llu",v);return kr_str(s);}
 static char* kr_bufsetbyte(char* buf,const char* off,const char* val){buf[atoi(off)]=(unsigned char)atoi(val);return _K_EMPTY;}
+static char* kr_bufgetbyte(char* buf,const char* off){return kr_itoa((int)(unsigned char)buf[atoi(off)]);}
 static char* kr_bufsetdwordat(char* buf,const char* off,const char* val){*(unsigned int*)(buf+atoi(off))=(unsigned int)atoll(val);return _K_EMPTY;}
+static char* kr_bufsetqwordat(char* buf,const char* off,const char* val){*(unsigned long long*)(buf+atoi(off))=(unsigned long long)atoll(val);return _K_EMPTY;}
+static char* kr_bufgetwordat(char* buf,const char* off){unsigned short v=*(unsigned short*)(buf+atoi(off));return kr_itoa((int)v);}
+static char* kr_bufsetwordat(char* buf,const char* off,const char* val){*(unsigned short*)(buf+atoi(off))=(unsigned short)atoi(val);return _K_EMPTY;}
 static char* kr_handleget(char* buf){return *(char**)buf;}
 static char* kr_handleint(char* ptr){char s[32];snprintf(s,32,"%d",(int)(intptr_t)ptr);return kr_str(s);}
 static char* kr_ptrderef(char* ptr){return *(char**)ptr;}
@@ -1332,6 +1383,10 @@ char* compilePow(char*, char*, char*);
 char* compileUnary(char*, char*, char*);
 char* compilePostfix(char*, char*, char*);
 char* compilePrimary(char*, char*, char*);
+char* compileWin32IntArgs(char*);
+char* compileWin32Return64(char*);
+char* compileWin32IntReturn(char*);
+char* compileCsvHas(char*, char*);
 char* compileCall(char*, char*, char*);
 char* compileStmt(char*, char*, char*, char*, char*);
 char* compileLet(char*, char*, char*, char*);
@@ -1363,31 +1418,42 @@ char* scanModuleFunctions(char*, char*);
 char* compileImportedFunctions(char*, char*, char*);
 char* compileImportedForwardDecls(char*, char*, char*);
 char* irLabel(char*, char*);
-char* irExpr(char*, char*, char*, char*);
-char* irTernary(char*, char*, char*, char*);
-char* irOr(char*, char*, char*, char*);
-char* irAnd(char*, char*, char*, char*);
-char* irEquality(char*, char*, char*, char*);
-char* irRelational(char*, char*, char*, char*);
-char* irAdditive(char*, char*, char*, char*);
-char* irMultiplicative(char*, char*, char*, char*);
-char* irUnary(char*, char*, char*, char*);
-char* irPostfix(char*, char*, char*, char*);
-char* irPrimary(char*, char*, char*, char*);
-char* irInterpToIR(char*, char*);
-char* irListLiteralIR(char*, char*, char*, char*);
-char* irStructLiteralIR(char*, char*, char*, char*);
-char* irCall(char*, char*, char*, char*);
-char* irStmt(char*, char*, char*, char*, char*);
-char* irLetIR(char*, char*, char*, char*, char*);
-char* irBlockIR(char*, char*, char*, char*, char*);
-char* irIfIR(char*, char*, char*, char*, char*);
-char* irWhileIR(char*, char*, char*, char*, char*);
-char* irForIR(char*, char*, char*, char*, char*);
-char* irMatchIR(char*, char*, char*, char*, char*);
-char* irTryIR(char*, char*, char*, char*, char*);
+char* irExpr(char*, char*, char*, char*, char*);
+char* irTernary(char*, char*, char*, char*, char*);
+char* irOr(char*, char*, char*, char*, char*);
+char* irAnd(char*, char*, char*, char*, char*);
+char* irEquality(char*, char*, char*, char*, char*);
+char* irRelational(char*, char*, char*, char*, char*);
+char* irAdditive(char*, char*, char*, char*, char*);
+char* irMultiplicative(char*, char*, char*, char*, char*);
+char* irPow(char*, char*, char*, char*, char*);
+char* irUnary(char*, char*, char*, char*, char*);
+char* irPostfix(char*, char*, char*, char*, char*);
+char* irPrimary(char*, char*, char*, char*, char*);
+char* irInterpToIR(char*, char*, char*, char*);
+char* irListLiteralIR(char*, char*, char*, char*, char*);
+char* irStructLiteralIR(char*, char*, char*, char*, char*);
+char* irCall(char*, char*, char*, char*, char*);
+char* irStmt(char*, char*, char*, char*, char*, char*);
+char* irTypeStr(char*, char*, char*);
+char* irTypeOf(char*, char*);
+char* irStructSizeOf(char*, char*);
+char* irSkipTypeBody(char*, char*);
+char* irSkipTypeAnnotation(char*, char*);
+char* irLetIR(char*, char*, char*, char*, char*, char*);
+char* irBlockIR(char*, char*, char*, char*, char*, char*);
+char* irIfIR(char*, char*, char*, char*, char*, char*);
+char* irWhileIR(char*, char*, char*, char*, char*, char*);
+char* irForIR(char*, char*, char*, char*, char*, char*);
+char* irMatchIR(char*, char*, char*, char*, char*, char*);
+char* irTryIR(char*, char*, char*, char*, char*, char*);
+char* irScanStructTypes(char*, char*);
+char* irScanStructTypesOnce(char*, char*, char*);
+char* irScanFuncTypes(char*, char*);
+char* irLambdaIR(char*, char*, char*, char*);
 char* irFuncIR(char*, char*, char*);
 char* findFreeVars(char*, char*, char*, char*);
+char* emitPortWarnings(char*, char*, char*);
 
 char* findLastComma(char* s) {
     char* i = kr_sub(kr_len(s), kr_str("1"));
@@ -1474,13 +1540,13 @@ char* readIdent(char* text, char* i) {
 char* readString(char* text, char* i) {
     i = kr_plus(i, kr_str("1"));
     char* start = i;
-    char* s = kr_str("");
+    char* sb = kr_sbnew();
     while (kr_truthy((kr_truthy(kr_lt(i, kr_len(text))) && kr_truthy(kr_neq(kr_idx(text, kr_atoi(i)), kr_str("\""))) ? kr_str("1") : kr_str("0")))) {
         if (kr_truthy((kr_truthy(kr_eq(kr_idx(text, kr_atoi(i)), kr_str("\\"))) && kr_truthy(kr_lt(kr_plus(i, kr_str("1")), kr_len(text))) ? kr_str("1") : kr_str("0")))) {
             if (kr_truthy(kr_gt(i, start))) {
-                s = kr_plus(s, kr_substr(text, start, i));
+                sb = kr_sbappend(sb, kr_substr(text, start, i));
             }
-            s = kr_plus(s, kr_substr(text, i, kr_plus(i, kr_str("2"))));
+            sb = kr_sbappend(sb, kr_substr(text, i, kr_plus(i, kr_str("2"))));
             i = kr_plus(i, kr_str("2"));
             start = i;
         } else {
@@ -1488,9 +1554,9 @@ char* readString(char* text, char* i) {
         }
     }
     if (kr_truthy(kr_gt(i, start))) {
-        s = kr_plus(s, kr_substr(text, start, i));
+        sb = kr_sbappend(sb, kr_substr(text, start, i));
     }
-    return kr_plus(kr_plus(s, kr_str(",")), kr_plus(i, kr_str("1")));
+    return kr_plus(kr_plus(kr_sbtostring(sb), kr_str(",")), kr_plus(i, kr_str("1")));
 }
 
 char* skipWS(char* text, char* i) {
@@ -1600,12 +1666,12 @@ char* isKW(char* word) {
 
 char* readBacktickString(char* text, char* i) {
     i = kr_plus(i, kr_str("1"));
-    char* s = kr_str("");
+    char* sb = kr_sbnew();
     while (kr_truthy((kr_truthy(kr_lt(i, kr_len(text))) && kr_truthy(kr_neq(kr_idx(text, kr_atoi(i)), kr_str("`"))) ? kr_str("1") : kr_str("0")))) {
-        s = kr_plus(s, kr_idx(text, kr_atoi(i)));
+        sb = kr_sbappend(sb, kr_idx(text, kr_atoi(i)));
         i = kr_plus(i, kr_str("1"));
     }
-    return kr_plus(kr_plus(s, kr_str(",")), kr_plus(i, kr_str("1")));
+    return kr_plus(kr_plus(kr_sbtostring(sb), kr_str(",")), kr_plus(i, kr_str("1")));
 }
 
 char* tokenize(char* text) {
@@ -1688,6 +1754,62 @@ char* tokenize(char* text) {
                 }
             } else if (kr_truthy(((char*(*)(char*))isKW)(id))) {
                 out = kr_sbappend(out, kr_plus(kr_plus(kr_str("KW:"), id), kr_str("\n")));
+                if (kr_truthy(kr_eq(id, kr_str("jxt")))) {
+                    char* ji = ((char*(*)(char*,char*))skipWS)(text, i);
+                    char* bracketless = kr_str("0");
+                    if (kr_truthy(kr_lt(ji, kr_len(text)))) {
+                        if (kr_truthy(kr_neq(kr_idx(text, kr_atoi(ji)), kr_str("{")))) {
+                            bracketless = kr_str("1");
+                        }
+                    }
+                    if (kr_truthy(kr_eq(bracketless, kr_str("1")))) {
+                        out = kr_sbappend(out, kr_str("LBRACE\n"));
+                        char* done = kr_str("0");
+                        while (kr_truthy(kr_eq(done, kr_str("0")))) {
+                            char* ji2 = ((char*(*)(char*,char*))skipWS)(text, ji);
+                            if (kr_truthy(kr_gte(ji2, kr_len(text)))) {
+                                done = kr_str("1");
+                            } else {
+                                if (kr_truthy(((char*(*)(char*))charIsAlpha)(kr_idx(text, kr_atoi(ji2))))) {
+                                    char* pp = ((char*(*)(char*,char*))readIdent)(text, ji2);
+                                    char* nm = ((char*(*)(char*))pairVal)(pp);
+                                    if (kr_truthy(kr_eq(nm, kr_str("inc")))) {
+                                        char* ji3 = ((char*(*)(char*))pairPos)(pp);
+                                        ji3 = ((char*(*)(char*,char*))skipWS)(text, ji3);
+                                        char* haveStr = kr_str("0");
+                                        if (kr_truthy(kr_lt(ji3, kr_len(text)))) {
+                                            if (kr_truthy(kr_eq(kr_idx(text, kr_atoi(ji3)), kr_str("\"")))) {
+                                                haveStr = kr_str("1");
+                                            }
+                                        }
+                                        if (kr_truthy(kr_eq(haveStr, kr_str("1")))) {
+                                            char* sp = ((char*(*)(char*,char*))readString)(text, ji3);
+                                            char* path = ((char*(*)(char*))pairVal)(sp);
+                                            ji = ((char*(*)(char*))pairPos)(sp);
+                                            char* lang = kr_str("k");
+                                            if (kr_truthy(kr_endswith(path, kr_str(".h")))) {
+                                                lang = kr_str("c");
+                                            }
+                                            if (kr_truthy(kr_endswith(path, kr_str(".krh")))) {
+                                                lang = kr_str("c");
+                                            }
+                                            out = kr_sbappend(out, kr_plus(kr_plus(kr_str("ID:"), lang), kr_str("\n")));
+                                            out = kr_sbappend(out, kr_plus(kr_plus(kr_str("STR:"), path), kr_str("\n")));
+                                        } else {
+                                            done = kr_str("1");
+                                        }
+                                    } else {
+                                        done = kr_str("1");
+                                    }
+                                } else {
+                                    done = kr_str("1");
+                                }
+                            }
+                        }
+                        out = kr_sbappend(out, kr_str("RBRACE\n"));
+                        i = ji;
+                    }
+                }
             } else {
                 out = kr_sbappend(out, kr_plus(kr_plus(kr_str("ID:"), id), kr_str("\n")));
             }
@@ -1861,60 +1983,61 @@ char* tokVal(char* tok) {
 }
 
 char* cEscape(char* s) {
-    char* out = kr_str("");
+    char* sb = kr_sbnew();
     char* i = kr_str("0");
     char* start = kr_str("0");
     while (kr_truthy(kr_lt(i, kr_len(s)))) {
         char* c = kr_idx(s, kr_atoi(i));
         if (kr_truthy((kr_truthy((kr_truthy((kr_truthy((kr_truthy(kr_eq(c, kr_str("\\"))) || kr_truthy(kr_eq(c, kr_str("\""))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(c, kr_str("\n"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(c, kr_str("\\r"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(c, kr_str("\t"))) ? kr_str("1") : kr_str("0")))) {
             if (kr_truthy(kr_gt(i, start))) {
-                out = kr_plus(out, kr_substr(s, start, i));
+                sb = kr_sbappend(sb, kr_substr(s, start, i));
             }
             if (kr_truthy(kr_eq(c, kr_str("\\")))) {
-                out = kr_plus(out, kr_str("\\\\"));
+                sb = kr_sbappend(sb, kr_str("\\\\"));
             } else if (kr_truthy(kr_eq(c, kr_str("\"")))) {
-                out = kr_plus(out, kr_str("\\\""));
+                sb = kr_sbappend(sb, kr_str("\\\""));
             } else if (kr_truthy(kr_eq(c, kr_str("\n")))) {
-                out = kr_plus(out, kr_str("\\n"));
+                sb = kr_sbappend(sb, kr_str("\\n"));
             } else if (kr_truthy(kr_eq(c, kr_str("\\r")))) {
-                out = kr_plus(out, kr_str("\\r"));
+                sb = kr_sbappend(sb, kr_str("\\r"));
             } else if (kr_truthy(kr_eq(c, kr_str("\t")))) {
-                out = kr_plus(out, kr_str("\\t"));
+                sb = kr_sbappend(sb, kr_str("\\t"));
             }
             start = kr_plus(i, kr_str("1"));
         }
         i = kr_plus(i, kr_str("1"));
     }
     if (kr_truthy(kr_gt(i, start))) {
-        out = kr_plus(out, kr_substr(s, start, i));
+        sb = kr_sbappend(sb, kr_substr(s, start, i));
     }
-    return out;
+    return kr_sbtostring(sb);
 }
 
 char* expandEscapes(char* s) {
-    char* out = kr_str("");
+    char* sb = kr_sbnew();
     char* i = kr_str("0");
     char* start = kr_str("0");
     while (kr_truthy(kr_lt(i, kr_len(s)))) {
         if (kr_truthy(kr_eq(kr_idx(s, kr_atoi(i)), kr_str("\\")))) {
             if (kr_truthy(kr_gt(i, start))) {
-                out = kr_plus(out, kr_substr(s, start, i));
+                sb = kr_sbappend(sb, kr_substr(s, start, i));
             }
             i = kr_plus(i, kr_str("1"));
             if (kr_truthy(kr_lt(i, kr_len(s)))) {
                 char* c = kr_idx(s, kr_atoi(i));
                 if (kr_truthy(kr_eq(c, kr_str("n")))) {
-                    out = kr_plus(out, kr_str("\n"));
+                    sb = kr_sbappend(sb, kr_str("\n"));
                 } else if (kr_truthy(kr_eq(c, kr_str("t")))) {
-                    out = kr_plus(out, kr_str("\t"));
+                    sb = kr_sbappend(sb, kr_str("\t"));
                 } else if (kr_truthy(kr_eq(c, kr_str("r")))) {
-                    out = kr_plus(out, kr_str("\\r"));
+                    sb = kr_sbappend(sb, kr_str("\\r"));
                 } else if (kr_truthy(kr_eq(c, kr_str("\\")))) {
-                    out = kr_plus(out, kr_str("\\"));
+                    sb = kr_sbappend(sb, kr_str("\\"));
                 } else if (kr_truthy(kr_eq(c, kr_str("\"")))) {
-                    out = kr_plus(out, kr_str("\""));
+                    sb = kr_sbappend(sb, kr_str("\""));
                 } else {
-                    out = kr_plus(kr_plus(out, kr_str("\\")), c);
+                    sb = kr_sbappend(sb, kr_str("\\"));
+                    sb = kr_sbappend(sb, c);
                 }
             }
             start = kr_plus(i, kr_str("1"));
@@ -1922,9 +2045,9 @@ char* expandEscapes(char* s) {
         i = kr_plus(i, kr_str("1"));
     }
     if (kr_truthy(kr_gt(i, start))) {
-        out = kr_plus(out, kr_substr(s, start, i));
+        sb = kr_sbappend(sb, kr_substr(s, start, i));
     }
-    return out;
+    return kr_sbtostring(sb);
 }
 
 char* scanFunctions(char* tokens, char* ntoks) {
@@ -2107,13 +2230,13 @@ char* skipBlock(char* tokens, char* pos) {
 }
 
 char* indent(char* depth) {
-    char* out = kr_str("");
+    char* sb = kr_sbnew();
     char* i = kr_str("0");
     while (kr_truthy(kr_lt(i, depth))) {
-        out = kr_plus(out, kr_str("    "));
+        sb = kr_sbappend(sb, kr_str("    "));
         i = kr_plus(i, kr_str("1"));
     }
-    return out;
+    return kr_sbtostring(sb);
 }
 
 char* cIdent(char* name) {
@@ -2333,10 +2456,10 @@ char* compilePrimary(char* tokens, char* pos, char* ntoks) {
     }
     if (kr_truthy(kr_eq(tt, kr_str("KW")))) {
         if (kr_truthy(kr_eq(tv, kr_str("true")))) {
-            return kr_plus(kr_str("kr_str(\"1\"),"), kr_plus(pos, kr_str("1")));
+            return kr_plus(kr_str("kr_str(\"true\"),"), kr_plus(pos, kr_str("1")));
         }
         if (kr_truthy(kr_eq(tv, kr_str("false")))) {
-            return kr_plus(kr_str("kr_str(\"0\"),"), kr_plus(pos, kr_str("1")));
+            return kr_plus(kr_str("kr_str(\"false\"),"), kr_plus(pos, kr_str("1")));
         }
         if (kr_truthy(kr_eq(tv, kr_str("null")))) {
             return kr_plus(kr_str("((char*)0),"), kr_plus(pos, kr_str("1")));
@@ -2365,7 +2488,13 @@ char* compilePrimary(char* tokens, char* pos, char* ntoks) {
         if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("1"))), kr_str("LBRACE")))) {
             char* firstChar = kr_idx(name, kr_atoi(kr_str("0")));
             if (kr_truthy((kr_truthy(kr_gte(firstChar, kr_str("A"))) && kr_truthy(kr_lte(firstChar, kr_str("Z"))) ? kr_str("1") : kr_str("0")))) {
-                return ((char*(*)(char*,char*,char*))compileStructLiteral)(tokens, pos, ntoks);
+                char* inner1c = ((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("2")));
+                char* inner2c = ((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("3")));
+                if (kr_truthy(kr_eq(kr_startswith(inner1c, kr_str("ID:")), kr_str("1")))) {
+                    if (kr_truthy(kr_eq(inner2c, kr_str("COLON")))) {
+                        return ((char*(*)(char*,char*,char*))compileStructLiteral)(tokens, pos, ntoks);
+                    }
+                }
             }
         }
         return kr_plus(kr_plus(((char*(*)(char*))cIdent)(name), kr_str(",")), kr_plus(pos, kr_str("1")));
@@ -2373,10 +2502,441 @@ char* compilePrimary(char* tokens, char* pos, char* ntoks) {
     return kr_plus(kr_str("kr_str(\"\"),"), kr_plus(pos, kr_str("1")));
 }
 
+char* compileWin32IntArgs(char* name) {
+    if (kr_truthy(kr_eq(name, kr_str("GetStdHandle")))) {
+        return kr_str("0");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("SetConsoleOutputCP")))) {
+        return kr_str("0");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("SetConsoleMode")))) {
+        return kr_str("0,1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetConsoleMode")))) {
+        return kr_str("0");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetConsoleScreenBufferInfo")))) {
+        return kr_str("0");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("Sleep")))) {
+        return kr_str("0");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetTickCount")))) {
+        return kr_str("");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetTickCount64")))) {
+        return kr_str("");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetSystemMetrics")))) {
+        return kr_str("0");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("ExitProcess")))) {
+        return kr_str("0");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("WriteFile")))) {
+        return kr_str("0,2,4");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("ReadFile")))) {
+        return kr_str("0,2,4");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("CloseHandle")))) {
+        return kr_str("0");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("CreateToolhelp32Snapshot")))) {
+        return kr_str("0,1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("Process32First")))) {
+        return kr_str("0");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("Process32Next")))) {
+        return kr_str("0");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetLogicalDrives")))) {
+        return kr_str("");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetFileAttributesA")))) {
+        return kr_str("");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetFileSizeEx")))) {
+        return kr_str("0");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("FreeLibrary")))) {
+        return kr_str("0");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("FindFirstFileA")))) {
+        return kr_str("");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("FindNextFileA")))) {
+        return kr_str("0");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("FindClose")))) {
+        return kr_str("0");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("CreateDirectoryA")))) {
+        return kr_str("");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("DeleteFileA")))) {
+        return kr_str("");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("RemoveDirectoryA")))) {
+        return kr_str("");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("MoveFileA")))) {
+        return kr_str("");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("CopyFileA")))) {
+        return kr_str("2");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("CreatePipe")))) {
+        return kr_str("3");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("CreateProcessA")))) {
+        return kr_str("4,5");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("PeekNamedPipe")))) {
+        return kr_str("0,2");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetExitCodeProcess")))) {
+        return kr_str("0");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("SetHandleInformation")))) {
+        return kr_str("0,1,2");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("RegOpenKeyExA")))) {
+        return kr_str("0,2,3");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("RegQueryValueExA")))) {
+        return kr_str("0");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("RegEnumKeyExA")))) {
+        return kr_str("0,1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("RegCloseKey")))) {
+        return kr_str("0");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetUserNameA")))) {
+        return kr_str("");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GlobalMemoryStatusEx")))) {
+        return kr_str("");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetSystemPowerStatus")))) {
+        return kr_str("");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetDiskFreeSpaceExA")))) {
+        return kr_str("");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetCurrentProcessId")))) {
+        return kr_str("");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetCurrentThreadId")))) {
+        return kr_str("");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetLastError")))) {
+        return kr_str("");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("SetLastError")))) {
+        return kr_str("0");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("WaitForSingleObject")))) {
+        return kr_str("0,1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("TerminateProcess")))) {
+        return kr_str("0,1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("OpenProcess")))) {
+        return kr_str("0,1,2");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("CreateFileA")))) {
+        return kr_str("1,2,3,4,5,6");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("VirtualAlloc")))) {
+        return kr_str("0,1,2,3");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("VirtualFree")))) {
+        return kr_str("0,1,2");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("HeapAlloc")))) {
+        return kr_str("0,1,2");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("HeapReAlloc")))) {
+        return kr_str("0,1,3");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("HeapFree")))) {
+        return kr_str("0,1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetEnvironmentVariableA")))) {
+        return kr_str("2");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("CreateFileMappingA")))) {
+        return kr_str("0,1,2,3,4,5");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("MapViewOfFile")))) {
+        return kr_str("0,1,2,3,4");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("MessageBoxA")))) {
+        return kr_str("0,3");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("ShowWindow")))) {
+        return kr_str("0,1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("SetTimer")))) {
+        return kr_str("0,1,2");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("KillTimer")))) {
+        return kr_str("0,1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("SetForegroundWindow")))) {
+        return kr_str("0");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("ShellExecuteA")))) {
+        return kr_str("0,5");
+    }
+    return kr_str("");
+}
+
+char* compileWin32Return64(char* name) {
+    if (kr_truthy(kr_eq(name, kr_str("GetStdHandle")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetProcessHeap")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("CreateToolhelp32Snapshot")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("CreateFileA")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("FindFirstFileA")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("CreateFileMappingA")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("MapViewOfFile")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetForegroundWindow")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("VirtualAlloc")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("HeapAlloc")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("HeapReAlloc")))) {
+        return kr_str("1");
+    }
+    return kr_str("");
+}
+
+char* compileWin32IntReturn(char* name) {
+    if (kr_truthy(kr_eq(name, kr_str("GetStdHandle")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetTickCount")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetTickCount64")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetSystemMetrics")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("WriteFile")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("ReadFile")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("CloseHandle")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("CreateToolhelp32Snapshot")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("Process32First")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("Process32Next")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetLogicalDrives")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetFileAttributesA")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetFileSizeEx")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("FindFirstFileA")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("FindNextFileA")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("FindClose")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("CreateDirectoryA")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("DeleteFileA")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("RemoveDirectoryA")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("MoveFileA")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("CopyFileA")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("CreateFileA")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("CreatePipe")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("CreateProcessA")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("PeekNamedPipe")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetExitCodeProcess")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("SetHandleInformation")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("RegOpenKeyExA")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("RegQueryValueExA")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("RegEnumKeyExA")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("RegCloseKey")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetUserNameA")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GlobalMemoryStatusEx")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetSystemPowerStatus")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetDiskFreeSpaceExA")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetCurrentProcessId")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetCurrentThreadId")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetLastError")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("WaitForSingleObject")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("TerminateProcess")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetProcessHeap")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("SetConsoleMode")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetConsoleMode")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("SetConsoleOutputCP")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetConsoleScreenBufferInfo")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("VirtualFree")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("HeapFree")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("FreeLibrary")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("MessageBoxA")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("ShowWindow")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("SetTimer")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("KillTimer")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("GetForegroundWindow")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("SetForegroundWindow")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("CreateFileMappingA")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("UnmapViewOfFile")))) {
+        return kr_str("1");
+    }
+    if (kr_truthy(kr_eq(name, kr_str("ShellExecuteA")))) {
+        return kr_str("1");
+    }
+    return kr_str("");
+}
+
+char* compileCsvHas(char* csv, char* idx) {
+    if (kr_truthy(kr_eq(kr_len(csv), kr_str("0")))) {
+        return kr_str("0");
+    }
+    char* target = kr_plus(kr_str(""), idx);
+    char* i = kr_str("0");
+    char* cur = kr_str("");
+    while (kr_truthy(kr_lte(i, kr_len(csv)))) {
+        char* ch = kr_str("");
+        if (kr_truthy(kr_lt(i, kr_len(csv)))) {
+            ch = kr_substr(csv, i, kr_plus(i, kr_str("1")));
+        }
+        if (kr_truthy((kr_truthy(kr_eq(i, kr_len(csv))) || kr_truthy(kr_eq(ch, kr_str(","))) ? kr_str("1") : kr_str("0")))) {
+            if (kr_truthy(kr_eq(cur, target))) {
+                return kr_str("1");
+            }
+            cur = kr_str("");
+        } else {
+            cur = kr_plus(cur, ch);
+        }
+        i = kr_plus(i, kr_str("1"));
+    }
+    return kr_str("0");
+}
+
 char* compileCall(char* tokens, char* pos, char* ntoks) {
     char* fname = ((char*(*)(char*))tokVal)(((char*(*)(char*,char*))tokAt)(tokens, pos));
     char* p = kr_plus(pos, kr_str("2"));
     char* args = kr_str("");
+    char* argList = kr_str("");
     char* argc = kr_str("0");
     while (kr_truthy(kr_neq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("RPAREN")))) {
         if (kr_truthy(kr_gt(argc, kr_str("0")))) {
@@ -2387,8 +2947,10 @@ char* compileCall(char* tokens, char* pos, char* ntoks) {
         p = ((char*(*)(char*))pairPos)(ap);
         if (kr_truthy(kr_gt(argc, kr_str("0")))) {
             args = kr_plus(kr_plus(args, kr_str(", ")), acode);
+            argList = kr_plus(kr_plus(argList, kr_str("\n")), acode);
         } else {
             args = acode;
+            argList = acode;
         }
         argc = kr_plus(argc, kr_str("1"));
     }
@@ -2459,6 +3021,18 @@ char* compileCall(char* tokens, char* pos, char* ntoks) {
     }
     if (kr_truthy(kr_eq(fname, kr_str("structAddr")))) {
         return kr_plus(kr_plus(kr_plus(kr_str("((char*)("), args), kr_str(")),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("arenaMark")))) {
+        return kr_plus(kr_str("_alloc_mark(),"), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("arenaReset")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("_alloc_reset("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("intSlotStore")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("intSlotStore("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("intSlotLoad")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("intSlotLoad("), args), kr_str("),")), p);
     }
     if (kr_truthy(kr_eq(fname, kr_str("readFile")))) {
         return kr_plus(kr_plus(kr_plus(kr_str("kr_readfile("), args), kr_str("),")), p);
@@ -2827,7 +3401,7 @@ char* compileCall(char* tokens, char* pos, char* ntoks) {
         return kr_plus(kr_plus(kr_plus(kr_str("kr_handlevalid("), args), kr_str("),")), p);
     }
     if (kr_truthy(kr_eq(fname, kr_str("bufNew")))) {
-        return kr_plus(kr_plus(kr_plus(kr_str("_alloc(atoi("), args), kr_str(")),")), p);
+        return kr_plus(kr_plus(kr_plus(kr_str("({int _bn=atoi("), args), kr_str(");char* _bp=_alloc(_bn);memset(_bp,0,_bn);_bp;}),")), p);
     }
     if (kr_truthy(kr_eq(fname, kr_str("bufStr")))) {
         return kr_plus(kr_plus(kr_plus(kr_str("kr_str("), args), kr_str("),")), p);
@@ -2850,8 +3424,20 @@ char* compileCall(char* tokens, char* pos, char* ntoks) {
     if (kr_truthy(kr_eq(fname, kr_str("bufGetQwordAt")))) {
         return kr_plus(kr_plus(kr_plus(kr_str("kr_bufgetqwordat("), args), kr_str("),")), p);
     }
+    if (kr_truthy(kr_eq(fname, kr_str("bufSetQwordAt")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_bufsetqwordat("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("bufGetWordAt")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_bufgetwordat("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("bufSetWordAt")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_bufsetwordat("), args), kr_str("),")), p);
+    }
     if (kr_truthy(kr_eq(fname, kr_str("bufSetByte")))) {
         return kr_plus(kr_plus(kr_plus(kr_str("kr_bufsetbyte("), args), kr_str("),")), p);
+    }
+    if (kr_truthy(kr_eq(fname, kr_str("bufGetByte")))) {
+        return kr_plus(kr_plus(kr_plus(kr_str("kr_bufgetbyte("), args), kr_str("),")), p);
     }
     if (kr_truthy(kr_eq(fname, kr_str("bufSetDwordAt")))) {
         return kr_plus(kr_plus(kr_plus(kr_str("kr_bufsetdwordat("), args), kr_str("),")), p);
@@ -2935,6 +3521,48 @@ char* compileCall(char* tokens, char* pos, char* ntoks) {
     }
     if (kr_truthy(kr_eq(argc, kr_str("0")))) {
         castArgs = kr_str("void");
+    }
+    char* intArgsCsv = ((char*(*)(char*))compileWin32IntArgs)(fname);
+    char* intRet = ((char*(*)(char*))compileWin32IntReturn)(fname);
+    if (kr_truthy((kr_truthy(kr_gt(kr_len(intArgsCsv), kr_str("0"))) || kr_truthy(kr_eq(intRet, kr_str("1"))) ? kr_str("1") : kr_str("0")))) {
+        char* mCast = kr_str("");
+        char* mArgs = kr_str("");
+        char* mi = kr_str("0");
+        while (kr_truthy(kr_lt(mi, argc))) {
+            char* acode = kr_getline(argList, mi);
+            if (kr_truthy(kr_eq(((char*(*)(char*,char*))compileCsvHas)(intArgsCsv, mi), kr_str("1")))) {
+                if (kr_truthy(kr_eq(mi, kr_str("0")))) {
+                    mCast = kr_str("void*");
+                    mArgs = kr_plus(kr_plus(kr_str("(void*)(intptr_t)atoll("), acode), kr_str(")"));
+                } else {
+                    mCast = kr_plus(mCast, kr_str(",void*"));
+                    mArgs = kr_plus(kr_plus(kr_plus(mArgs, kr_str(", (void*)(intptr_t)atoll(")), acode), kr_str(")"));
+                }
+            } else {
+                if (kr_truthy(kr_eq(mi, kr_str("0")))) {
+                    mCast = kr_str("char*");
+                    mArgs = acode;
+                } else {
+                    mCast = kr_plus(mCast, kr_str(",char*"));
+                    mArgs = kr_plus(kr_plus(mArgs, kr_str(", ")), acode);
+                }
+            }
+            mi = kr_plus(mi, kr_str("1"));
+        }
+        if (kr_truthy(kr_eq(argc, kr_str("0")))) {
+            mCast = kr_str("void");
+        }
+        char* retType = kr_str("char*");
+        char* mCall = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("(("), retType), kr_str("(*)(")), mCast), kr_str("))")), ((char*(*)(char*))cIdent)(fname)), kr_str(")(")), mArgs), kr_str(")"));
+        if (kr_truthy(kr_eq(intRet, kr_str("1")))) {
+            char* is64 = ((char*(*)(char*))compileWin32Return64)(fname);
+            if (kr_truthy(kr_eq(is64, kr_str("1")))) {
+                mCall = kr_plus(kr_plus(kr_str("kr_itoa64((long long)(intptr_t)("), mCall), kr_str("))"));
+            } else {
+                mCall = kr_plus(kr_plus(kr_str("kr_itoa((int)(intptr_t)("), mCall), kr_str("))"));
+            }
+        }
+        return kr_plus(kr_plus(mCall, kr_str(",")), p);
     }
     return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("((char*(*)("), castArgs), kr_str("))")), ((char*(*)(char*))cIdent)(fname)), kr_str(")(")), args), kr_str("),")), p);
 }
@@ -3822,16 +4450,52 @@ char* cRuntime() {
     r = kr_sbappend(r, kr_str("static ABlock* _arena = 0;\nstatic char* _alloc(int n) {\n    n = (n + 7) & ~7;\n    if (!_arena || _arena->used + n > _arena->cap) {\n        int cap = 64*1024*1024;\n        if (n > cap) cap = n;\n        ABlock* b = (ABlock*)malloc(sizeof(ABlock) + cap);\n"));
     r = kr_sbappend(r, kr_str("        if (!b) { fprintf(stderr, \"out of memory\\n\"); exit(1); }\n"));
     r = kr_sbappend(r, kr_str("        b->cap = cap; b->used = 0; b->next = _arena; _arena = b;\n    }\n    char* p = (char*)(_arena + 1) + _arena->used;\n    _arena->used += n;\n    return p;\n}\n\n"));
+    r = kr_sbappend(r, kr_str("typedef struct { ABlock* block; int used; } _AllocMark;\n"));
+    r = kr_sbappend(r, kr_str("static char* _alloc_mark(void) {\n"));
+    r = kr_sbappend(r, kr_str("    _AllocMark m;\n"));
+    r = kr_sbappend(r, kr_str("    m.block = _arena;\n"));
+    r = kr_sbappend(r, kr_str("    m.used = _arena ? _arena->used : 0;\n"));
+    r = kr_sbappend(r, kr_str("    char* tok = _alloc(sizeof(_AllocMark));\n"));
+    r = kr_sbappend(r, kr_str("    memcpy(tok, &m, sizeof(_AllocMark));\n"));
+    r = kr_sbappend(r, kr_str("    return tok;\n"));
+    r = kr_sbappend(r, kr_str("}\n"));
+    r = kr_sbappend(r, kr_str("static char* _alloc_reset(const char* tok) {\n"));
+    r = kr_sbappend(r, kr_str("    _AllocMark m;\n"));
+    r = kr_sbappend(r, kr_str("    memcpy(&m, tok, sizeof(_AllocMark));\n"));
+    r = kr_sbappend(r, kr_str("    while (_arena && _arena != m.block) {\n"));
+    r = kr_sbappend(r, kr_str("        ABlock* dead = _arena;\n"));
+    r = kr_sbappend(r, kr_str("        _arena = dead->next;\n"));
+    r = kr_sbappend(r, kr_str("        free(dead);\n"));
+    r = kr_sbappend(r, kr_str("    }\n"));
+    r = kr_sbappend(r, kr_str("    if (_arena) _arena->used = m.used;\n"));
+    r = kr_sbappend(r, kr_str("    return \"\";\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
+    r = kr_sbappend(r, kr_str("static long _intSlots[32];\n"));
+    r = kr_sbappend(r, kr_str("static char* intSlotStore(const char* slot, const char* val) {\n"));
+    r = kr_sbappend(r, kr_str("    int s = atoi(slot);\n"));
+    r = kr_sbappend(r, kr_str("    if (s < 0 || s >= 32) return \"\";\n"));
+    r = kr_sbappend(r, kr_str("    _intSlots[s] = atol(val);\n"));
+    r = kr_sbappend(r, kr_str("    return \"\";\n"));
+    r = kr_sbappend(r, kr_str("}\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_str(const char*);\n"));
+    r = kr_sbappend(r, kr_str("static char* intSlotLoad(const char* slot) {\n"));
+    r = kr_sbappend(r, kr_str("    int s = atoi(slot);\n"));
+    r = kr_sbappend(r, kr_str("    char buf[32];\n"));
+    r = kr_sbappend(r, kr_str("    if (s < 0 || s >= 32) { buf[0]='0'; buf[1]=0; return kr_str(buf); }\n"));
+    r = kr_sbappend(r, kr_str("    snprintf(buf, sizeof(buf), \"%ld\", _intSlots[s]);\n"));
+    r = kr_sbappend(r, kr_str("    return kr_str(buf);\n"));
+    r = kr_sbappend(r, kr_str("}\n\n"));
     r = kr_sbappend(r, kr_str("static char _K_EMPTY[] = \"\";\nstatic char _K_ZERO[] = \"0\";\nstatic char _K_ONE[] = \"1\";\n\n"));
     r = kr_sbappend(r, kr_str("static char* kr_str(const char* s) {\n    if (!s[0]) return _K_EMPTY;\n    if (s[0] == '0' && !s[1]) return _K_ZERO;\n    if (s[0] == '1' && !s[1]) return _K_ONE;\n    int n = (int)strlen(s) + 1;\n    char* p = _alloc(n);\n    memcpy(p, s, n);\n    return p;\n"));
     r = kr_sbappend(r, kr_str("}\n\nstatic char* kr_cat(const char* a, const char* b) {\n    int la = (int)strlen(a), lb = (int)strlen(b);\n    char* p = _alloc(la + lb + 1);\n    memcpy(p, a, la);\n    memcpy(p + la, b, lb + 1);\n    return p;\n}\n\n"));
     r = kr_sbappend(r, kr_str("static int kr_isnum(const char* s) {\n    if (!*s) return 0;\n    const char* p = s;\n    if (*p == '-') p++;\n    if (!*p) return 0;\n    while (*p) { if (*p < '0' || *p > '9') return 0; p++; }\n    return 1;\n}\n\n"));
     r = kr_sbappend(r, kr_str("static char* kr_itoa(int v) {\n    if (v == 0) return _K_ZERO;\n    if (v == 1) return _K_ONE;\n    char buf[32];\n    snprintf(buf, sizeof(buf), \"%d\", v);\n    return kr_str(buf);\n}\n\nstatic int kr_atoi(const char* s) { return atoi(s); }\n\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_itoa64(long long v) {\n    char buf[32];\n    snprintf(buf, sizeof(buf), \"%lld\", v);\n    return kr_str(buf);\n}\n\n"));
     r = kr_sbappend(r, kr_str("static char* kr_plus(const char* a, const char* b) {\n    if (kr_isnum(a) && kr_isnum(b))\n        return kr_itoa(atoi(a) + atoi(b));\n    return kr_cat(a, b);\n}\n\nstatic char* kr_sub(const char* a, const char* b) { return kr_itoa(atoi(a) - atoi(b)); }\nstatic char* kr_mul(const char* a, const char* b) { return kr_itoa(atoi(a) * atoi(b)); }\nstatic char* kr_div(const char* a, const char* b) { return kr_itoa(atoi(a) / atoi(b)); }\n"));
     r = kr_sbappend(r, kr_str("static char* kr_mod(const char* a, const char* b) { return kr_itoa(atoi(a) % atoi(b)); }\nstatic char* kr_neg(const char* a) { return kr_itoa(-atoi(a)); }\nstatic char* kr_not(const char* a) { return atoi(a) ? _K_ZERO : _K_ONE; }\n\nstatic char* kr_eq(const char* a, const char* b) {\n    return strcmp(a, b) == 0 ? _K_ONE : _K_ZERO;\n}\nstatic char* kr_neq(const char* a, const char* b) {\n    return strcmp(a, b) != 0 ? _K_ONE : _K_ZERO;\n"));
     r = kr_sbappend(r, kr_str("}\nstatic char* kr_lt(const char* a, const char* b) {\n    if (kr_isnum(a) && kr_isnum(b)) return atoi(a) < atoi(b) ? _K_ONE : _K_ZERO;\n    return strcmp(a, b) < 0 ? _K_ONE : _K_ZERO;\n}\nstatic char* kr_gt(const char* a, const char* b) {\n    if (kr_isnum(a) && kr_isnum(b)) return atoi(a) > atoi(b) ? _K_ONE : _K_ZERO;\n    return strcmp(a, b) > 0 ? _K_ONE : _K_ZERO;\n"));
     r = kr_sbappend(r, kr_str("}\nstatic char* kr_lte(const char* a, const char* b) {\n    return kr_gt(a, b) == _K_ZERO ? _K_ONE : _K_ZERO;\n}\nstatic char* kr_gte(const char* a, const char* b) {\n    return kr_lt(a, b) == _K_ZERO ? _K_ONE : _K_ZERO;\n}\n\nstatic int kr_truthy(const char* s) {\n"));
-    r = kr_sbappend(r, kr_str("    if (!s || !*s) return 0;\n    if (strcmp(s, \"0\") == 0) return 0;\n    return 1;\n}\n\nstatic char* kr_print(const char* s) {\n"));
+    r = kr_sbappend(r, kr_str("    if (!s || !*s) return 0;\n    if (strcmp(s, \"0\") == 0) return 0;\n    if (strcmp(s, \"false\") == 0) return 0;\n    return 1;\n}\n\nstatic char* kr_print(const char* s) {\n"));
     r = kr_sbappend(r, kr_str("    printf(\"%s\\n\", s);\n"));
     r = kr_sbappend(r, kr_str("    return _K_EMPTY;\n}\n\nstatic char* kr_len(const char* s) { return kr_itoa((int)strlen(s)); }\n\nstatic char* kr_idx(const char* s, int i) {\n    char buf[2] = {s[i], 0};\n    return kr_str(buf);\n}\n\nstatic char* kr_split(const char* s, const char* idxs) {\n"));
     r = kr_sbappend(r, kr_str("    int idx = atoi(idxs);\n    int count = 0;\n    const char* start = s;\n    const char* p = s;\n    while (*p) {\n        if (*p == ',') {\n            if (count == idx) {\n                int len = (int)(p - start);\n"));
@@ -3849,7 +4513,7 @@ char* cRuntime() {
     r = kr_sbappend(r, kr_str("    if (!*s) return kr_str(\"0\");\n    int count = 1;\n    const char* p = s;\n"));
     r = kr_sbappend(r, kr_str("    while (*p) { if (*p == '\\n') count++; p++; }\n"));
     r = kr_sbappend(r, kr_str("    if (*(p - 1) == '\\n') count--;\n"));
-    r = kr_sbappend(r, kr_str("    return kr_itoa(count);\n}\n\nstatic char* kr_count(const char* s) {\n    return kr_linecount(s);\n}\n\n"));
+    r = kr_sbappend(r, kr_str("    return kr_itoa(count);\n}\n\nstatic char* kr_count(const char* s) {\n    int n = 1;\n    if (s) { const char* p = s; while (*p) { if (*p == ',') n++; p++; } }\n    return kr_itoa(n);\n}\n\n"));
     r = kr_sbappend(r, kr_str("static char* kr_writefile(const char* path, const char* data) {\n    FILE* f = fopen(path, \"wb\");\n    if (!f) return _K_ZERO;\n    fwrite(data, 1, strlen(data), f);\n    fclose(f);\n    return _K_ONE;\n}\n\n"));
     r = kr_sbappend(r, kr_str("static int _krhex(char c){if(c>='0'&&c<='9')return c-'0';if(c>='a'&&c<='f')return c-'a'+10;if(c>='A'&&c<='F')return c-'A'+10;return -1;}\n"));
     r = kr_sbappend(r, kr_str("static char* kr_writebytes(const char* path, const char* hexstr) {\n    FILE* f = fopen(path, \"wb\");\n    if (!f) return _K_ZERO;\n    const char* p = hexstr;\n    while (*p) {\n        if (*p == 'x' && p[1] && p[2]) {\n            int hi = _krhex(p[1]), lo = _krhex(p[2]);\n            if (hi >= 0 && lo >= 0) { unsigned char b = (unsigned char)(hi*16+lo); fwrite(&b,1,1,f); }\n            p += 3;\n        } else { p++; }\n    }\n    fclose(f);\n    return _K_ONE;\n}\n\n"));
@@ -3923,6 +4587,7 @@ char* cRuntime() {
     r = kr_sbappend(r, kr_str("}\n\n"));
     r = kr_sbappend(r, kr_str("static char* kr_printerr(const char* s) {\n"));
     r = kr_sbappend(r, kr_str("    fprintf(stderr, \"%s\\n\", s);\n"));
+    r = kr_sbappend(r, kr_str("    fflush(stderr);\n"));
     r = kr_sbappend(r, kr_str("    return _K_EMPTY;\n}\n\n"));
     r = kr_sbappend(r, kr_str("static char* kr_readline(const char* prompt) {\n    if (*prompt) printf(\"%s\", prompt);\n    fflush(stdout);\n    char buf[4096];\n    if (!fgets(buf, sizeof(buf), stdin)) return _K_EMPTY;\n    int len = (int)strlen(buf);\n"));
     r = kr_sbappend(r, kr_str("    if (len > 0 && buf[len-1] == '\\n') buf[--len] = 0;\n"));
@@ -3969,7 +4634,7 @@ char* cRuntime() {
     r = kr_sbappend(r, kr_str("static char* kr_getresultenv(const char* r) {\n    return ((ResultStruct*)r)->env;\n}\n\n"));
     r = kr_sbappend(r, kr_str("static char* kr_getresultpos(const char* r) {\n    return kr_itoa(((ResultStruct*)r)->pos);\n}\n\n"));
     r = kr_sbappend(r, kr_str("static char* kr_istruthy(const char* s) {\n    if (!s || !*s || strcmp(s, \"0\") == 0 || strcmp(s, \"false\") == 0)\n        return _K_ZERO;\n    return _K_ONE;\n}\n\n"));
-    r = kr_sbappend(r, kr_str("typedef struct { int cap; int len; } SBHdr;\n#define MAX_SBS 4096\nstatic SBHdr* _sb_table[MAX_SBS];\nstatic int _sb_count = 0;\n\nstatic char* kr_sbnew() {\n    int initcap = 65536;\n    SBHdr* h = (SBHdr*)malloc(sizeof(SBHdr) + initcap);\n    h->cap = initcap;\n"));
+    r = kr_sbappend(r, kr_str("typedef struct { int cap; int len; } SBHdr;\n#define MAX_SBS 1048576\nstatic SBHdr* _sb_table[MAX_SBS];\nstatic int _sb_count = 0;\n\nstatic char* kr_sbnew() {\n    int initcap = 65536;\n    SBHdr* h = (SBHdr*)malloc(sizeof(SBHdr) + initcap);\n    h->cap = initcap;\n"));
     r = kr_sbappend(r, kr_str("    h->len = 0;\n    ((char*)(h + 1))[0] = 0;\n    _sb_table[_sb_count] = h;\n    return kr_itoa(_sb_count++);\n}\n\nstatic char* kr_sbappend(const char* handle, const char* s) {\n    int idx = atoi(handle);\n    SBHdr* h = _sb_table[idx];\n"));
     r = kr_sbappend(r, kr_str("    int slen = (int)strlen(s);\n    while (h->len + slen + 1 > h->cap) {\n        int newcap = h->cap * 2;\n        h = (SBHdr*)realloc(h, sizeof(SBHdr) + newcap);\n        h->cap = newcap;\n    }\n    memcpy((char*)(h + 1) + h->len, s, slen);\n    h->len += slen;\n"));
     r = kr_sbappend(r, kr_str("    ((char*)(h + 1))[h->len] = 0;\n    _sb_table[idx] = h;\n    return kr_str(handle);\n}\n\nstatic char* kr_sbtostring(const char* handle) {\n    int idx = atoi(handle);\n    SBHdr* h = _sb_table[idx];\n    return (char*)(h + 1);\n"));
@@ -4059,7 +4724,11 @@ char* cRuntime() {
     r = kr_sbappend(r, kr_str("static char* kr_bufgetdwordat(char* buf,const char* off){unsigned int v=*(unsigned int*)(buf+atoi(off));return kr_itoa((int)v);}\n"));
     r = kr_sbappend(r, kr_str("static char* kr_bufgetqwordat(char* buf,const char* off){unsigned long long v=*(unsigned long long*)(buf+atoi(off));char s[32];snprintf(s,32,\"%llu\",v);return kr_str(s);}\n"));
     r = kr_sbappend(r, kr_str("static char* kr_bufsetbyte(char* buf,const char* off,const char* val){buf[atoi(off)]=(unsigned char)atoi(val);return _K_EMPTY;}\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_bufgetbyte(char* buf,const char* off){return kr_itoa((int)(unsigned char)buf[atoi(off)]);}\n"));
     r = kr_sbappend(r, kr_str("static char* kr_bufsetdwordat(char* buf,const char* off,const char* val){*(unsigned int*)(buf+atoi(off))=(unsigned int)atoll(val);return _K_EMPTY;}\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_bufsetqwordat(char* buf,const char* off,const char* val){*(unsigned long long*)(buf+atoi(off))=(unsigned long long)atoll(val);return _K_EMPTY;}\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_bufgetwordat(char* buf,const char* off){unsigned short v=*(unsigned short*)(buf+atoi(off));return kr_itoa((int)v);}\n"));
+    r = kr_sbappend(r, kr_str("static char* kr_bufsetwordat(char* buf,const char* off,const char* val){*(unsigned short*)(buf+atoi(off))=(unsigned short)atoi(val);return _K_EMPTY;}\n"));
     r = kr_sbappend(r, kr_str("static char* kr_handleget(char* buf){return *(char**)buf;}\n"));
     r = kr_sbappend(r, kr_str("static char* kr_handleint(char* ptr){char s[32];snprintf(s,32,\"%d\",(int)(intptr_t)ptr);return kr_str(s);}\n"));
     r = kr_sbappend(r, kr_str("static char* kr_ptrderef(char* ptr){return *(char**)ptr;}\n"));
@@ -4172,12 +4841,12 @@ char* irLabel(char* prefix, char* n) {
     return kr_plus(kr_plus(prefix, kr_str("_")), n);
 }
 
-char* irExpr(char* tokens, char* pos, char* ntoks, char* lc) {
-    return ((char*(*)(char*,char*,char*,char*))irTernary)(tokens, pos, ntoks, lc);
+char* irExpr(char* tokens, char* pos, char* ntoks, char* lc, char* types) {
+    return ((char*(*)(char*,char*,char*,char*,char*))irTernary)(tokens, pos, ntoks, lc, types);
 }
 
-char* irTernary(char* tokens, char* pos, char* ntoks, char* lc) {
-    char* pair = ((char*(*)(char*,char*,char*,char*))irOr)(tokens, pos, ntoks, lc);
+char* irTernary(char* tokens, char* pos, char* ntoks, char* lc, char* types) {
+    char* pair = ((char*(*)(char*,char*,char*,char*,char*))irOr)(tokens, pos, ntoks, lc, types);
     char* code = ((char*(*)(char*))pairVal)(pair);
     char* p = ((char*(*)(char*))pairPos)(pair);
     char* nlc = lc;
@@ -4185,12 +4854,12 @@ char* irTernary(char* tokens, char* pos, char* ntoks, char* lc) {
         char* trueLabel = ((char*(*)(char*,char*))irLabel)(kr_str("_tern_t"), p);
         char* endLabel = ((char*(*)(char*,char*))irLabel)(kr_str("_tern_e"), p);
         nlc = kr_plus(nlc, kr_str("1"));
-        char* tp = ((char*(*)(char*,char*,char*,char*))irExpr)(tokens, kr_plus(p, kr_str("1")), ntoks, nlc);
+        char* tp = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, kr_plus(p, kr_str("1")), ntoks, nlc, types);
         char* tcode = ((char*(*)(char*))pairVal)(tp);
         p = ((char*(*)(char*))pairPos)(tp);
         nlc = kr_plus(nlc, kr_str("1"));
         p = kr_plus(p, kr_str("1"));
-        char* fp = ((char*(*)(char*,char*,char*,char*))irExpr)(tokens, p, ntoks, nlc);
+        char* fp = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, p, ntoks, nlc, types);
         char* fcode = ((char*(*)(char*))pairVal)(fp);
         p = ((char*(*)(char*))pairPos)(fp);
         nlc = kr_plus(nlc, kr_str("1"));
@@ -4200,45 +4869,47 @@ char* irTernary(char* tokens, char* pos, char* ntoks, char* lc) {
     return kr_plus(kr_plus(code, kr_str(",")), p);
 }
 
-char* irOr(char* tokens, char* pos, char* ntoks, char* lc) {
-    char* pair = ((char*(*)(char*,char*,char*,char*))irAnd)(tokens, pos, ntoks, lc);
+char* irOr(char* tokens, char* pos, char* ntoks, char* lc, char* types) {
+    char* pair = ((char*(*)(char*,char*,char*,char*,char*))irAnd)(tokens, pos, ntoks, lc, types);
     char* code = ((char*(*)(char*))pairVal)(pair);
     char* p = ((char*(*)(char*))pairPos)(pair);
     char* nlc = lc;
     while (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("OR")))) {
         char* shortLabel = ((char*(*)(char*,char*))irLabel)(kr_str("_or"), p);
+        char* endLabel = ((char*(*)(char*,char*))irLabel)(kr_str("_orend"), p);
         nlc = kr_plus(nlc, kr_str("1"));
-        char* rp = ((char*(*)(char*,char*,char*,char*))irAnd)(tokens, kr_plus(p, kr_str("1")), ntoks, nlc);
+        char* rp = ((char*(*)(char*,char*,char*,char*,char*))irAnd)(tokens, kr_plus(p, kr_str("1")), ntoks, nlc, types);
         char* rcode = ((char*(*)(char*))pairVal)(rp);
         p = ((char*(*)(char*))pairPos)(rp);
-        code = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(code, kr_str("JUMPIF ")), shortLabel), kr_str("\n")), rcode), kr_str("LABEL ")), shortLabel), kr_str("\n"));
+        code = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(code, kr_str("JUMPIF ")), shortLabel), kr_str("\n")), rcode), kr_str("JUMP ")), endLabel), kr_str("\n")), kr_str("LABEL ")), shortLabel), kr_str("\n")), kr_str("PUSH 1\n")), kr_str("LABEL ")), endLabel), kr_str("\n"));
     }
     return kr_plus(kr_plus(code, kr_str(",")), p);
 }
 
-char* irAnd(char* tokens, char* pos, char* ntoks, char* lc) {
-    char* pair = ((char*(*)(char*,char*,char*,char*))irEquality)(tokens, pos, ntoks, lc);
+char* irAnd(char* tokens, char* pos, char* ntoks, char* lc, char* types) {
+    char* pair = ((char*(*)(char*,char*,char*,char*,char*))irEquality)(tokens, pos, ntoks, lc, types);
     char* code = ((char*(*)(char*))pairVal)(pair);
     char* p = ((char*(*)(char*))pairPos)(pair);
     char* nlc = lc;
     while (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("AND")))) {
         char* shortLabel = ((char*(*)(char*,char*))irLabel)(kr_str("_and"), p);
+        char* endLabel = ((char*(*)(char*,char*))irLabel)(kr_str("_andend"), p);
         nlc = kr_plus(nlc, kr_str("1"));
-        char* rp = ((char*(*)(char*,char*,char*,char*))irEquality)(tokens, kr_plus(p, kr_str("1")), ntoks, nlc);
+        char* rp = ((char*(*)(char*,char*,char*,char*,char*))irEquality)(tokens, kr_plus(p, kr_str("1")), ntoks, nlc, types);
         char* rcode = ((char*(*)(char*))pairVal)(rp);
         p = ((char*(*)(char*))pairPos)(rp);
-        code = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(code, kr_str("JUMPIFNOT ")), shortLabel), kr_str("\n")), rcode), kr_str("LABEL ")), shortLabel), kr_str("\n"));
+        code = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(code, kr_str("JUMPIFNOT ")), shortLabel), kr_str("\n")), rcode), kr_str("JUMP ")), endLabel), kr_str("\n")), kr_str("LABEL ")), shortLabel), kr_str("\n")), kr_str("PUSH 0\n")), kr_str("LABEL ")), endLabel), kr_str("\n"));
     }
     return kr_plus(kr_plus(code, kr_str(",")), p);
 }
 
-char* irEquality(char* tokens, char* pos, char* ntoks, char* lc) {
-    char* pair = ((char*(*)(char*,char*,char*,char*))irRelational)(tokens, pos, ntoks, lc);
+char* irEquality(char* tokens, char* pos, char* ntoks, char* lc, char* types) {
+    char* pair = ((char*(*)(char*,char*,char*,char*,char*))irRelational)(tokens, pos, ntoks, lc, types);
     char* code = ((char*(*)(char*))pairVal)(pair);
     char* p = ((char*(*)(char*))pairPos)(pair);
     while (kr_truthy((kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("EQ"))) || kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("NEQ"))) ? kr_str("1") : kr_str("0")))) {
         char* op = ((char*(*)(char*,char*))tokAt)(tokens, p);
-        char* rp = ((char*(*)(char*,char*,char*,char*))irRelational)(tokens, kr_plus(p, kr_str("1")), ntoks, lc);
+        char* rp = ((char*(*)(char*,char*,char*,char*,char*))irRelational)(tokens, kr_plus(p, kr_str("1")), ntoks, lc, types);
         char* rcode = ((char*(*)(char*))pairVal)(rp);
         p = ((char*(*)(char*))pairPos)(rp);
         if (kr_truthy(kr_eq(op, kr_str("EQ")))) {
@@ -4250,13 +4921,13 @@ char* irEquality(char* tokens, char* pos, char* ntoks, char* lc) {
     return kr_plus(kr_plus(code, kr_str(",")), p);
 }
 
-char* irRelational(char* tokens, char* pos, char* ntoks, char* lc) {
-    char* pair = ((char*(*)(char*,char*,char*,char*))irAdditive)(tokens, pos, ntoks, lc);
+char* irRelational(char* tokens, char* pos, char* ntoks, char* lc, char* types) {
+    char* pair = ((char*(*)(char*,char*,char*,char*,char*))irAdditive)(tokens, pos, ntoks, lc, types);
     char* code = ((char*(*)(char*))pairVal)(pair);
     char* p = ((char*(*)(char*))pairPos)(pair);
     while (kr_truthy((kr_truthy((kr_truthy((kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("LT"))) || kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("GT"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("LTE"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("GTE"))) ? kr_str("1") : kr_str("0")))) {
         char* op = ((char*(*)(char*,char*))tokAt)(tokens, p);
-        char* rp = ((char*(*)(char*,char*,char*,char*))irAdditive)(tokens, kr_plus(p, kr_str("1")), ntoks, lc);
+        char* rp = ((char*(*)(char*,char*,char*,char*,char*))irAdditive)(tokens, kr_plus(p, kr_str("1")), ntoks, lc, types);
         char* rcode = ((char*(*)(char*))pairVal)(rp);
         p = ((char*(*)(char*))pairPos)(rp);
         if (kr_truthy(kr_eq(op, kr_str("LT")))) {
@@ -4275,13 +4946,13 @@ char* irRelational(char* tokens, char* pos, char* ntoks, char* lc) {
     return kr_plus(kr_plus(code, kr_str(",")), p);
 }
 
-char* irAdditive(char* tokens, char* pos, char* ntoks, char* lc) {
-    char* pair = ((char*(*)(char*,char*,char*,char*))irMultiplicative)(tokens, pos, ntoks, lc);
+char* irAdditive(char* tokens, char* pos, char* ntoks, char* lc, char* types) {
+    char* pair = ((char*(*)(char*,char*,char*,char*,char*))irMultiplicative)(tokens, pos, ntoks, lc, types);
     char* code = ((char*(*)(char*))pairVal)(pair);
     char* p = ((char*(*)(char*))pairPos)(pair);
     while (kr_truthy((kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("PLUS"))) || kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("MINUS"))) ? kr_str("1") : kr_str("0")))) {
         char* op = ((char*(*)(char*,char*))tokAt)(tokens, p);
-        char* rp = ((char*(*)(char*,char*,char*,char*))irMultiplicative)(tokens, kr_plus(p, kr_str("1")), ntoks, lc);
+        char* rp = ((char*(*)(char*,char*,char*,char*,char*))irMultiplicative)(tokens, kr_plus(p, kr_str("1")), ntoks, lc, types);
         char* rcode = ((char*(*)(char*))pairVal)(rp);
         p = ((char*(*)(char*))pairPos)(rp);
         if (kr_truthy(kr_eq(op, kr_str("PLUS")))) {
@@ -4293,13 +4964,13 @@ char* irAdditive(char* tokens, char* pos, char* ntoks, char* lc) {
     return kr_plus(kr_plus(code, kr_str(",")), p);
 }
 
-char* irMultiplicative(char* tokens, char* pos, char* ntoks, char* lc) {
-    char* pair = ((char*(*)(char*,char*,char*,char*))irUnary)(tokens, pos, ntoks, lc);
+char* irMultiplicative(char* tokens, char* pos, char* ntoks, char* lc, char* types) {
+    char* pair = ((char*(*)(char*,char*,char*,char*,char*))irPow)(tokens, pos, ntoks, lc, types);
     char* code = ((char*(*)(char*))pairVal)(pair);
     char* p = ((char*(*)(char*))pairPos)(pair);
     while (kr_truthy((kr_truthy((kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("STAR"))) || kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("SLASH"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("MOD"))) ? kr_str("1") : kr_str("0")))) {
         char* op = ((char*(*)(char*,char*))tokAt)(tokens, p);
-        char* rp = ((char*(*)(char*,char*,char*,char*))irUnary)(tokens, kr_plus(p, kr_str("1")), ntoks, lc);
+        char* rp = ((char*(*)(char*,char*,char*,char*,char*))irPow)(tokens, kr_plus(p, kr_str("1")), ntoks, lc, types);
         char* rcode = ((char*(*)(char*))pairVal)(rp);
         p = ((char*(*)(char*))pairPos)(rp);
         if (kr_truthy(kr_eq(op, kr_str("STAR")))) {
@@ -4315,43 +4986,121 @@ char* irMultiplicative(char* tokens, char* pos, char* ntoks, char* lc) {
     return kr_plus(kr_plus(code, kr_str(",")), p);
 }
 
-char* irUnary(char* tokens, char* pos, char* ntoks, char* lc) {
+char* irPow(char* tokens, char* pos, char* ntoks, char* lc, char* types) {
+    char* pair = ((char*(*)(char*,char*,char*,char*,char*))irUnary)(tokens, pos, ntoks, lc, types);
+    char* code = ((char*(*)(char*))pairVal)(pair);
+    char* p = ((char*(*)(char*))pairPos)(pair);
+    if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("STARSTAR")))) {
+        char* rp = ((char*(*)(char*,char*,char*,char*,char*))irPow)(tokens, kr_plus(p, kr_str("1")), ntoks, lc, types);
+        char* rcode = ((char*(*)(char*))pairVal)(rp);
+        p = ((char*(*)(char*))pairPos)(rp);
+        code = kr_plus(kr_plus(code, rcode), kr_str("BUILTIN pow 2\n"));
+    }
+    return kr_plus(kr_plus(code, kr_str(",")), p);
+}
+
+char* irUnary(char* tokens, char* pos, char* ntoks, char* lc, char* types) {
     char* tok = ((char*(*)(char*,char*))tokAt)(tokens, pos);
     if (kr_truthy(kr_eq(tok, kr_str("MINUS")))) {
-        char* pair = ((char*(*)(char*,char*,char*,char*))irUnary)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc);
+        char* pair = ((char*(*)(char*,char*,char*,char*,char*))irUnary)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc, types);
         char* code = ((char*(*)(char*))pairVal)(pair);
         char* p = ((char*(*)(char*))pairPos)(pair);
         return kr_plus(kr_plus(code, kr_str("NEG\n,")), p);
     }
     if (kr_truthy(kr_eq(tok, kr_str("BANG")))) {
-        char* pair = ((char*(*)(char*,char*,char*,char*))irUnary)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc);
+        char* pair = ((char*(*)(char*,char*,char*,char*,char*))irUnary)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc, types);
         char* code = ((char*(*)(char*))pairVal)(pair);
         char* p = ((char*(*)(char*))pairPos)(pair);
         return kr_plus(kr_plus(code, kr_str("NOT\n,")), p);
     }
-    return ((char*(*)(char*,char*,char*,char*))irPostfix)(tokens, pos, ntoks, lc);
+    return ((char*(*)(char*,char*,char*,char*,char*))irPostfix)(tokens, pos, ntoks, lc, types);
 }
 
-char* irPostfix(char* tokens, char* pos, char* ntoks, char* lc) {
-    char* pair = ((char*(*)(char*,char*,char*,char*))irPrimary)(tokens, pos, ntoks, lc);
+char* irPostfix(char* tokens, char* pos, char* ntoks, char* lc, char* types) {
+    char* pair = ((char*(*)(char*,char*,char*,char*,char*))irPrimary)(tokens, pos, ntoks, lc, types);
     char* code = ((char*(*)(char*))pairVal)(pair);
     char* p = ((char*(*)(char*))pairPos)(pair);
+    char* accumOff = kr_str("0");
+    char* deferredType = kr_str("");
+    char* nLines0 = kr_linecount(code);
+    if (kr_truthy(kr_gt(nLines0, kr_str("0")))) {
+        char* last0 = kr_getline(code, kr_sub(nLines0, kr_str("1")));
+        if (kr_truthy(kr_eq(kr_startswith(last0, kr_str("; TYPE ")), kr_str("1")))) {
+            deferredType = kr_substr(last0, kr_str("7"), kr_len(last0));
+        }
+    }
     while (kr_truthy((kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("LBRACK"))) || kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("DOT"))) ? kr_str("1") : kr_str("0")))) {
         if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("LBRACK")))) {
-            char* idxp = ((char*(*)(char*,char*,char*,char*))irExpr)(tokens, kr_plus(p, kr_str("1")), ntoks, lc);
+            char* idxp = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, kr_plus(p, kr_str("1")), ntoks, lc, types);
             char* idxcode = ((char*(*)(char*))pairVal)(idxp);
             p = kr_plus(((char*(*)(char*))pairPos)(idxp), kr_str("1"));
-            code = kr_plus(kr_plus(code, idxcode), kr_str("INDEX\n"));
+            char* addAcc = kr_str("");
+            if (kr_truthy(kr_neq(accumOff, kr_str("0")))) {
+                addAcc = kr_plus(kr_plus(kr_str("PUSH "), accumOff), kr_str("\nADD\n"));
+            }
+            if (kr_truthy(kr_eq(deferredType, kr_str("*u8")))) {
+                code = kr_plus(kr_plus(kr_plus(code, idxcode), addAcc), kr_str("BUILTIN bufGetByte 2\n"));
+            } else if (kr_truthy((kr_truthy(kr_eq(deferredType, kr_str("*u16"))) || kr_truthy(kr_eq(deferredType, kr_str("*i16"))) ? kr_str("1") : kr_str("0")))) {
+                code = kr_plus(kr_plus(kr_plus(kr_plus(code, idxcode), kr_str("PUSH 2\nMUL\n")), addAcc), kr_str("BUILTIN bufGetWordAt 2\n"));
+            } else if (kr_truthy((kr_truthy(kr_eq(deferredType, kr_str("*u32"))) || kr_truthy(kr_eq(deferredType, kr_str("*i32"))) ? kr_str("1") : kr_str("0")))) {
+                code = kr_plus(kr_plus(kr_plus(kr_plus(code, idxcode), kr_str("PUSH 4\nMUL\n")), addAcc), kr_str("BUILTIN bufGetDwordAt 2\n"));
+            } else if (kr_truthy((kr_truthy(kr_eq(deferredType, kr_str("*u64"))) || kr_truthy(kr_eq(deferredType, kr_str("*i64"))) ? kr_str("1") : kr_str("0")))) {
+                code = kr_plus(kr_plus(kr_plus(kr_plus(code, idxcode), kr_str("PUSH 8\nMUL\n")), addAcc), kr_str("BUILTIN bufGetQwordAt 2\n"));
+            } else {
+                code = kr_plus(kr_plus(code, idxcode), kr_str("INDEX\n"));
+            }
+            accumOff = kr_str("0");
+            deferredType = kr_str("");
         } else {
             char* field = ((char*(*)(char*))tokVal)(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(p, kr_str("1"))));
             p = kr_plus(p, kr_str("2"));
-            code = kr_plus(kr_plus(kr_plus(code, kr_str("GETFIELD ")), field), kr_str("\n"));
+            char* didTypedField = kr_str("0");
+            if (kr_truthy(kr_eq(kr_startswith(deferredType, kr_str("*")), kr_str("1")))) {
+                char* sname = kr_substr(deferredType, kr_str("1"), kr_len(deferredType));
+                char* info = ((char*(*)(char*,char*))irTypeOf)(types, kr_plus(kr_plus(sname, kr_str(".")), field));
+                if (kr_truthy(kr_gt(kr_len(info), kr_str("0")))) {
+                    char* pipe1 = kr_indexof(info, kr_str("|"));
+                    char* offStr = kr_substr(info, kr_str("0"), pipe1);
+                    char* ftype = kr_substr(info, kr_plus(pipe1, kr_str("1")), kr_len(info));
+                    char* fOff = kr_toint(offStr);
+                    if (kr_truthy(kr_eq(kr_startswith(ftype, kr_str("*")), kr_str("1")))) {
+                        accumOff = kr_plus(accumOff, fOff);
+                        deferredType = ftype;
+                        didTypedField = kr_str("1");
+                    } else {
+                        char* fop = kr_str("");
+                        if (kr_truthy((kr_truthy(kr_eq(ftype, kr_str("u8"))) || kr_truthy(kr_eq(ftype, kr_str("i8"))) ? kr_str("1") : kr_str("0")))) {
+                            fop = kr_str("BUILTIN bufGetByte 2\n");
+                        }
+                        if (kr_truthy((kr_truthy(kr_eq(ftype, kr_str("u16"))) || kr_truthy(kr_eq(ftype, kr_str("i16"))) ? kr_str("1") : kr_str("0")))) {
+                            fop = kr_str("BUILTIN bufGetWordAt 2\n");
+                        }
+                        if (kr_truthy((kr_truthy(kr_eq(ftype, kr_str("u32"))) || kr_truthy(kr_eq(ftype, kr_str("i32"))) ? kr_str("1") : kr_str("0")))) {
+                            fop = kr_str("BUILTIN bufGetDwordAt 2\n");
+                        }
+                        if (kr_truthy((kr_truthy(kr_eq(ftype, kr_str("u64"))) || kr_truthy(kr_eq(ftype, kr_str("i64"))) ? kr_str("1") : kr_str("0")))) {
+                            fop = kr_str("BUILTIN bufGetQwordAt 2\n");
+                        }
+                        if (kr_truthy(kr_gt(kr_len(fop), kr_str("0")))) {
+                            code = kr_plus(kr_plus(kr_plus(kr_plus(code, kr_str("PUSH ")), kr_plus(accumOff, fOff)), kr_str("\n")), fop);
+                            didTypedField = kr_str("1");
+                            accumOff = kr_str("0");
+                            deferredType = kr_str("");
+                        }
+                    }
+                }
+            }
+            if (kr_truthy(kr_eq(didTypedField, kr_str("0")))) {
+                code = kr_plus(kr_plus(kr_plus(code, kr_str("GETFIELD ")), field), kr_str("\n"));
+                deferredType = kr_str("");
+                accumOff = kr_str("0");
+            }
         }
     }
     return kr_plus(kr_plus(code, kr_str(",")), p);
 }
 
-char* irPrimary(char* tokens, char* pos, char* ntoks, char* lc) {
+char* irPrimary(char* tokens, char* pos, char* ntoks, char* lc, char* types) {
     char* tok = ((char*(*)(char*,char*))tokAt)(tokens, pos);
     char* tt = ((char*(*)(char*))tokType)(tok);
     char* tv = ((char*(*)(char*))tokVal)(tok);
@@ -4359,44 +5108,89 @@ char* irPrimary(char* tokens, char* pos, char* ntoks, char* lc) {
         return kr_plus(kr_plus(kr_plus(kr_str("PUSH "), tv), kr_str("\n,")), kr_plus(pos, kr_str("1")));
     }
     if (kr_truthy(kr_eq(tt, kr_str("STR")))) {
-        char* escaped = kr_replace(kr_replace(tv, kr_str("\\n"), kr_str("\\\\n")), kr_str("\\t"), kr_str("\\\\t"));
-        return kr_plus(kr_plus(kr_plus(kr_str("PUSH \""), escaped), kr_str("\"\n,")), kr_plus(pos, kr_str("1")));
+        return kr_plus(kr_plus(kr_plus(kr_str("PUSH \""), tv), kr_str("\"\n,")), kr_plus(pos, kr_str("1")));
     }
     if (kr_truthy(kr_eq(tt, kr_str("INTERP")))) {
-        return kr_plus(kr_plus(((char*(*)(char*,char*))irInterpToIR)(tv, pos), kr_str(",")), kr_plus(pos, kr_str("1")));
+        return kr_plus(kr_plus(((char*(*)(char*,char*,char*,char*))irInterpToIR)(tv, pos, lc, types), kr_str(",")), kr_plus(pos, kr_str("1")));
     }
     if (kr_truthy(kr_eq(tok, kr_str("KW:true")))) {
-        return kr_plus(kr_str("PUSH 1\n,"), kr_plus(pos, kr_str("1")));
+        return kr_plus(kr_str("PUSH \"true\"\n,"), kr_plus(pos, kr_str("1")));
     }
     if (kr_truthy(kr_eq(tok, kr_str("KW:false")))) {
-        return kr_plus(kr_str("PUSH 0\n,"), kr_plus(pos, kr_str("1")));
+        return kr_plus(kr_str("PUSH \"false\"\n,"), kr_plus(pos, kr_str("1")));
     }
     if (kr_truthy(kr_eq(tok, kr_str("LPAREN")))) {
-        char* pair = ((char*(*)(char*,char*,char*,char*))irExpr)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc);
+        char* pair = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc, types);
         char* code = ((char*(*)(char*))pairVal)(pair);
         char* p = ((char*(*)(char*))pairPos)(pair);
         return kr_plus(kr_plus(code, kr_str(",")), kr_plus(p, kr_str("1")));
     }
     if (kr_truthy(kr_eq(tok, kr_str("LBRACK")))) {
-        return ((char*(*)(char*,char*,char*,char*))irListLiteralIR)(tokens, pos, ntoks, lc);
+        return ((char*(*)(char*,char*,char*,char*,char*))irListLiteralIR)(tokens, pos, ntoks, lc, types);
+    }
+    if (kr_truthy((kr_truthy((kr_truthy(kr_eq(tok, kr_str("KW:func"))) || kr_truthy(kr_eq(tok, kr_str("KW:fn"))) ? kr_str("1") : kr_str("0"))) && kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("1"))), kr_str("LPAREN"))) ? kr_str("1") : kr_str("0")))) {
+        char* lp = kr_plus(pos, kr_str("2"));
+        char* lpc = kr_str("");
+        while (kr_truthy(kr_neq(((char*(*)(char*,char*))tokAt)(tokens, lp), kr_str("RPAREN")))) {
+            char* lpt = ((char*(*)(char*,char*))tokAt)(tokens, lp);
+            if (kr_truthy(kr_eq(((char*(*)(char*))tokType)(lpt), kr_str("ID")))) {
+                if (kr_truthy(kr_gt(kr_len(lpc), kr_str("0")))) {
+                    lpc = kr_plus(lpc, kr_str(","));
+                }
+                lpc = kr_plus(lpc, ((char*(*)(char*))tokVal)(lpt));
+            }
+            lp = kr_plus(lp, kr_str("1"));
+        }
+        lp = kr_plus(lp, kr_str("1"));
+        if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, lp), kr_str("ARROW")))) {
+            lp = kr_plus(lp, kr_str("2"));
+        }
+        char* lpEnd = ((char*(*)(char*,char*))skipBlock)(tokens, lp);
+        char* lFree = ((char*(*)(char*,char*,char*,char*))findFreeVars)(tokens, lp, lpEnd, lpc);
+        char* envCode = kr_str("BUILTIN envNew 0\n");
+        if (kr_truthy(kr_gt(kr_len(lFree), kr_str("0")))) {
+            char* lfc = kr_count(lFree);
+            char* lfi = kr_str("0");
+            while (kr_truthy(kr_lt(lfi, lfc))) {
+                char* lfname = kr_split(lFree, lfi);
+                envCode = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(envCode, kr_str("PUSH \"")), lfname), kr_str("\"\n")), kr_str("LOAD ")), lfname), kr_str("\n")), kr_str("BUILTIN envSet 3\n"));
+                lfi = kr_plus(lfi, kr_str("1"));
+            }
+        }
+        envCode = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(envCode, kr_str("PUSH \"__fp__\"\n")), kr_str("FUNCPTR _krlam")), pos), kr_str("\n")), kr_str("BUILTIN envSet 3\n"));
+        return kr_plus(kr_plus(envCode, kr_str(",")), lpEnd);
     }
     if (kr_truthy(kr_eq(tt, kr_str("ID")))) {
         char* nextTok = ((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("1")));
         if (kr_truthy(kr_eq(nextTok, kr_str("LPAREN")))) {
-            return ((char*(*)(char*,char*,char*,char*))irCall)(tokens, pos, ntoks, lc);
+            return ((char*(*)(char*,char*,char*,char*,char*))irCall)(tokens, pos, ntoks, lc, types);
         }
         char* firstChar = kr_idx(tv, kr_atoi(kr_str("0")));
         if (kr_truthy(kr_eq(nextTok, kr_str("LBRACE")))) {
             if (kr_truthy((kr_truthy(kr_gte(firstChar, kr_str("A"))) && kr_truthy(kr_lte(firstChar, kr_str("Z"))) ? kr_str("1") : kr_str("0")))) {
-                return ((char*(*)(char*,char*,char*,char*))irStructLiteralIR)(tokens, pos, ntoks, lc);
+                char* inner1 = ((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("2")));
+                char* inner2 = ((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("3")));
+                if (kr_truthy(kr_eq(kr_startswith(inner1, kr_str("ID:")), kr_str("1")))) {
+                    if (kr_truthy(kr_eq(inner2, kr_str("COLON")))) {
+                        return ((char*(*)(char*,char*,char*,char*,char*))irStructLiteralIR)(tokens, pos, ntoks, lc, types);
+                    }
+                }
             }
+        }
+        char* varType = ((char*(*)(char*,char*))irTypeOf)(types, tv);
+        if (kr_truthy(kr_gt(kr_len(varType), kr_str("0")))) {
+            if (kr_truthy(kr_eq(kr_startswith(varType, kr_str("__cap__:")), kr_str("1")))) {
+                char* capName = kr_substr(varType, kr_str("8"), kr_len(varType));
+                return kr_plus(kr_plus(kr_plus(kr_str("LOAD __env\nPUSH \""), capName), kr_str("\"\nBUILTIN envGet 2\n,")), kr_plus(pos, kr_str("1")));
+            }
+            return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("LOAD "), tv), kr_str("\n; TYPE ")), varType), kr_str("\n,")), kr_plus(pos, kr_str("1")));
         }
         return kr_plus(kr_plus(kr_plus(kr_str("LOAD "), tv), kr_str("\n,")), kr_plus(pos, kr_str("1")));
     }
     return kr_plus(kr_str("PUSH \"\"\n,"), kr_plus(pos, kr_str("1")));
 }
 
-char* irInterpToIR(char* s, char* pos) {
+char* irInterpToIR(char* s, char* pos, char* lc, char* types) {
     char* code = kr_str("");
     char* i = kr_str("0");
     char* seg = kr_str("");
@@ -4418,7 +5212,14 @@ char* irInterpToIR(char* s, char* pos) {
                 i = kr_plus(i, kr_str("1"));
             }
             i = kr_plus(i, kr_str("1"));
-            code = kr_plus(kr_plus(kr_plus(code, kr_str("LOAD ")), expr), kr_str("\n"));
+            char* exprToks = ((char*(*)(char*))tokenize)(expr);
+            char* exprNtoks = kr_linecount(exprToks);
+            if (kr_truthy(kr_gt(exprNtoks, kr_str("0")))) {
+                char* ep = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(exprToks, kr_str("0"), exprNtoks, lc, types);
+                code = kr_plus(code, ((char*(*)(char*))pairVal)(ep));
+            } else {
+                code = kr_plus(code, kr_str("PUSH \"\"\n"));
+            }
             if (kr_truthy(kr_gt(parts, kr_str("0")))) {
                 code = kr_plus(code, kr_str("CAT\n"));
             }
@@ -4441,7 +5242,7 @@ char* irInterpToIR(char* s, char* pos) {
     return code;
 }
 
-char* irListLiteralIR(char* tokens, char* pos, char* ntoks, char* lc) {
+char* irListLiteralIR(char* tokens, char* pos, char* ntoks, char* lc, char* types) {
     char* p = kr_plus(pos, kr_str("1"));
     if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("RBRACK")))) {
         return kr_plus(kr_str("PUSH \"\"\n,"), kr_plus(p, kr_str("1")));
@@ -4452,7 +5253,7 @@ char* irListLiteralIR(char* tokens, char* pos, char* ntoks, char* lc) {
         if (kr_truthy(kr_gt(ec, kr_str("0")))) {
             p = kr_plus(p, kr_str("1"));
         }
-        char* ep = ((char*(*)(char*,char*,char*,char*))irExpr)(tokens, p, ntoks, lc);
+        char* ep = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, p, ntoks, lc, types);
         char* ecode = ((char*(*)(char*))pairVal)(ep);
         p = ((char*(*)(char*))pairPos)(ep);
         if (kr_truthy(kr_gt(ec, kr_str("0")))) {
@@ -4465,7 +5266,7 @@ char* irListLiteralIR(char* tokens, char* pos, char* ntoks, char* lc) {
     return kr_plus(kr_plus(code, kr_str(",")), kr_plus(p, kr_str("1")));
 }
 
-char* irStructLiteralIR(char* tokens, char* pos, char* ntoks, char* lc) {
+char* irStructLiteralIR(char* tokens, char* pos, char* ntoks, char* lc, char* types) {
     char* name = ((char*(*)(char*))tokVal)(((char*(*)(char*,char*))tokAt)(tokens, pos));
     char* p = kr_plus(pos, kr_str("2"));
     char* code = kr_str("STRUCTNEW\n");
@@ -4473,7 +5274,7 @@ char* irStructLiteralIR(char* tokens, char* pos, char* ntoks, char* lc) {
         if (kr_truthy(kr_eq(((char*(*)(char*))tokType)(((char*(*)(char*,char*))tokAt)(tokens, p)), kr_str("ID")))) {
             char* fname = ((char*(*)(char*))tokVal)(((char*(*)(char*,char*))tokAt)(tokens, p));
             p = kr_plus(p, kr_str("2"));
-            char* ep = ((char*(*)(char*,char*,char*,char*))irExpr)(tokens, p, ntoks, lc);
+            char* ep = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, p, ntoks, lc, types);
             char* ecode = ((char*(*)(char*))pairVal)(ep);
             p = ((char*(*)(char*))pairPos)(ep);
             if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("COMMA")))) {
@@ -4487,8 +5288,15 @@ char* irStructLiteralIR(char* tokens, char* pos, char* ntoks, char* lc) {
     return kr_plus(kr_plus(code, kr_str(",")), kr_plus(p, kr_str("1")));
 }
 
-char* irCall(char* tokens, char* pos, char* ntoks, char* lc) {
+char* irCall(char* tokens, char* pos, char* ntoks, char* lc, char* types) {
     char* fname = ((char*(*)(char*))tokVal)(((char*(*)(char*,char*))tokAt)(tokens, pos));
+    if (kr_truthy(kr_eq(fname, kr_str("funcptr")))) {
+        char* argTok = ((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("2")));
+        if (kr_truthy((kr_truthy(kr_eq(((char*(*)(char*))tokType)(argTok), kr_str("ID"))) && kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("3"))), kr_str("RPAREN"))) ? kr_str("1") : kr_str("0")))) {
+            char* funcName = ((char*(*)(char*))tokVal)(argTok);
+            return kr_plus(kr_plus(kr_plus(kr_str("FUNCPTR "), funcName), kr_str("\n,")), kr_plus(pos, kr_str("4")));
+        }
+    }
     char* p = kr_plus(pos, kr_str("2"));
     char* code = kr_str("");
     char* argc = kr_str("0");
@@ -4496,44 +5304,56 @@ char* irCall(char* tokens, char* pos, char* ntoks, char* lc) {
         if (kr_truthy(kr_gt(argc, kr_str("0")))) {
             p = kr_plus(p, kr_str("1"));
         }
-        char* ap = ((char*(*)(char*,char*,char*,char*))irExpr)(tokens, p, ntoks, lc);
+        char* ap = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, p, ntoks, lc, types);
         code = kr_plus(code, ((char*(*)(char*))pairVal)(ap));
         p = ((char*(*)(char*))pairPos)(ap);
         argc = kr_plus(argc, kr_str("1"));
     }
-    char* builtins = kr_str("print,kp,printErr,readLine,input,readFile,writeFile,arg,argCount,len,substring,charAt,indexOf,contains,startsWith,endsWith,replace,trim,lstrip,rstrip,center,toLower,toUpper,repeat,padLeft,padRight,charCode,fromCharCode,splitBy,format,strReverse,isAlpha,isDigit,isSpace,toInt,parseInt,abs,min,max,pow,sqrt,sign,clamp,hex,bin,floor,ceil,round,split,length,first,last,head,tail,append,join,reverse,sort,unique,fill,zip,slice,listIndexOf,every,some,countOf,sumList,maxList,minList,range,words,lines,keys,values,hasKey,structNew,getField,setField,hasField,structFields,random,timestamp,environ,exit,assert,type,isTruthy,toStr,throw,mapGet,mapSet,mapDel,fadd,fsub,fmul,fdiv,fsqrt,ffloor,fceil,fround,fformat,flt,fgt,feq,sbNew,sbAppend,sbToString,bufNew,bufStr,bufGetDword,bufSetDword,bufGetWord,bufGetQword,bufGetDwordAt,bufGetQwordAt,bufSetByte,bufSetDwordAt,handleOut,handleGet,handleInt,toHandle,ptrDeref,ptrIndex,callPtr");
-    if (kr_truthy(kr_contains(builtins, fname))) {
+    if (kr_truthy(kr_eq(((char*(*)(char*,char*))irTypeOf)(types, fname), kr_str("fp")))) {
+        return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("LOAD "), fname), kr_str("\n")), code), kr_str("BUILTIN callPtr ")), kr_plus(argc, kr_str("1"))), kr_str("\n,")), kr_plus(p, kr_str("1")));
+    }
+    if (kr_truthy(kr_eq(((char*(*)(char*,char*))irTypeOf)(types, fname), kr_str("closure")))) {
+        char* fpExtract = kr_plus(kr_plus(kr_str("LOAD "), fname), kr_str("\nPUSH \"__fp__\"\nBUILTIN envGet 2\n"));
+        char* envPush = kr_plus(kr_plus(kr_str("LOAD "), fname), kr_str("\n"));
+        return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(fpExtract, envPush), code), kr_str("BUILTIN callPtr ")), kr_plus(argc, kr_str("2"))), kr_str("\n,")), kr_plus(p, kr_str("1")));
+    }
+    char* builtins = kr_str("print,kp,printErr,readLine,input,readFile,writeFile,arg,argCount,len,count,substring,charAt,indexOf,contains,startsWith,endsWith,replace,trim,lstrip,rstrip,center,toLower,toUpper,repeat,padLeft,padRight,charCode,fromCharCode,splitBy,format,strReverse,isAlpha,isDigit,isSpace,toInt,parseInt,abs,min,max,pow,sqrt,sign,clamp,hex,bin,floor,ceil,round,split,length,first,last,head,tail,append,join,reverse,sort,unique,fill,zip,slice,listIndexOf,every,some,countOf,sumList,maxList,minList,range,words,lines,keys,values,hasKey,structNew,getField,setField,hasField,structFields,random,timestamp,environ,exit,assert,type,isTruthy,toStr,throw,mapGet,mapSet,mapDel,fadd,fsub,fmul,fdiv,fsqrt,ffloor,fceil,fround,fformat,flt,fgt,feq,sbNew,sbAppend,sbToString,bufNew,bufStr,bufGetDword,bufSetDword,bufGetWord,bufGetQword,bufGetDwordAt,bufGetQwordAt,bufSetByte,bufGetByte,bufSetDwordAt,bufSetQwordAt,bufGetWordAt,bufSetWordAt,bufGetWordAtBE,bufGetDwordAtBE,bufGetQwordAtBE,handleOut,handleGet,handleInt,toHandle,ptrDeref,ptrIndex,callPtr,getLine,lineCount,envNew,envSet,envGet,makeResult,getResultTag,getResultVal,getResultEnv,getResultPos,gcAllocated,gcAllocCount,gcShadowCount,gcShadowPop,gcShadowPush,gcWalkAllocs,gcMark,gcSweep,gcFreelistCount,rdtsc,pause,mfence,lfence,sfence,gcLimit,gcSetLimit,gcCollect,gcReset,gcCheckpoint,gcRestore,gcSlabCount,gcSlabBytes");
+    if (kr_truthy(kr_contains(kr_plus(kr_plus(kr_str(","), builtins), kr_str(",")), kr_plus(kr_plus(kr_str(","), fname), kr_str(","))))) {
         return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(code, kr_str("BUILTIN ")), fname), kr_str(" ")), argc), kr_str("\n,")), kr_plus(p, kr_str("1")));
     }
     return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(code, kr_str("CALL ")), fname), kr_str(" ")), argc), kr_str("\n,")), kr_plus(p, kr_str("1")));
 }
 
-char* irStmt(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
+char* irStmt(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc, char* types) {
     char* tok = ((char*(*)(char*,char*))tokAt)(tokens, pos);
     char* tt = ((char*(*)(char*))tokType)(tok);
     if (kr_truthy((kr_truthy(kr_eq(tok, kr_str("KW:let"))) || kr_truthy(kr_eq(tok, kr_str("KW:const"))) ? kr_str("1") : kr_str("0")))) {
-        return ((char*(*)(char*,char*,char*,char*,char*))irLetIR)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc, inFunc);
+        return ((char*(*)(char*,char*,char*,char*,char*,char*))irLetIR)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc, inFunc, types);
     }
     if (kr_truthy((kr_truthy(kr_eq(tok, kr_str("KW:emit"))) || kr_truthy(kr_eq(tok, kr_str("KW:return"))) ? kr_str("1") : kr_str("0")))) {
-        char* pair = ((char*(*)(char*,char*,char*,char*))irExpr)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc);
+        char* pair = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc, types);
         char* code = ((char*(*)(char*))pairVal)(pair);
         char* p = ((char*(*)(char*))pairPos)(pair);
         if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("SEMI")))) {
             p = kr_plus(p, kr_str("1"));
         }
-        return kr_plus(kr_plus(code, kr_str("RETURN\n,")), p);
+        char* restoreCode = kr_str("");
+        if (kr_truthy(kr_eq(inFunc, kr_str("1")))) {
+            restoreCode = kr_str("BUILTIN gcShadowCount 0\nLOAD __sh_save\nSUB\nBUILTIN gcShadowPop 1\nPOP\n");
+        }
+        return kr_plus(kr_plus(kr_plus(code, restoreCode), kr_str("RETURN\n,")), p);
     }
     if (kr_truthy(kr_eq(tok, kr_str("KW:if")))) {
-        return ((char*(*)(char*,char*,char*,char*,char*))irIfIR)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc, inFunc);
+        return ((char*(*)(char*,char*,char*,char*,char*,char*))irIfIR)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc, inFunc, types);
     }
     if (kr_truthy(kr_eq(tok, kr_str("KW:while")))) {
-        return ((char*(*)(char*,char*,char*,char*,char*))irWhileIR)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc, inFunc);
+        return ((char*(*)(char*,char*,char*,char*,char*,char*))irWhileIR)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc, inFunc, types);
     }
     if (kr_truthy(kr_eq(tok, kr_str("KW:for")))) {
-        return ((char*(*)(char*,char*,char*,char*,char*))irForIR)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc, inFunc);
+        return ((char*(*)(char*,char*,char*,char*,char*,char*))irForIR)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc, inFunc, types);
     }
     if (kr_truthy(kr_eq(tok, kr_str("KW:match")))) {
-        return ((char*(*)(char*,char*,char*,char*,char*))irMatchIR)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc, inFunc);
+        return ((char*(*)(char*,char*,char*,char*,char*,char*))irMatchIR)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc, inFunc, types);
     }
     if (kr_truthy(kr_eq(tok, kr_str("KW:break")))) {
         char* p = kr_plus(pos, kr_str("1"));
@@ -4550,7 +5370,7 @@ char* irStmt(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
         return kr_plus(kr_str("CONTINUE\n,"), p);
     }
     if (kr_truthy(kr_eq(tok, kr_str("KW:throw")))) {
-        char* pair = ((char*(*)(char*,char*,char*,char*))irExpr)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc);
+        char* pair = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc, types);
         char* code = ((char*(*)(char*))pairVal)(pair);
         char* p = ((char*(*)(char*))pairPos)(pair);
         if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("SEMI")))) {
@@ -4559,21 +5379,119 @@ char* irStmt(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
         return kr_plus(kr_plus(code, kr_str("THROW\n,")), p);
     }
     if (kr_truthy(kr_eq(tok, kr_str("KW:try")))) {
-        return ((char*(*)(char*,char*,char*,char*,char*))irTryIR)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc, inFunc);
+        return ((char*(*)(char*,char*,char*,char*,char*,char*))irTryIR)(tokens, kr_plus(pos, kr_str("1")), ntoks, lc, inFunc, types);
+    }
+    if (kr_truthy((kr_truthy((kr_truthy(kr_eq(tok, kr_str("KW:func"))) || kr_truthy(kr_eq(tok, kr_str("KW:fn"))) ? kr_str("1") : kr_str("0"))) && kr_truthy(kr_eq(((char*(*)(char*))tokType)(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("1")))), kr_str("ID"))) ? kr_str("1") : kr_str("0")))) {
+        char* p = kr_plus(pos, kr_str("2"));
+        if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("LPAREN")))) {
+            char* pdepth = kr_str("1");
+            p = kr_plus(p, kr_str("1"));
+            while (kr_truthy((kr_truthy(kr_lt(p, ntoks)) && kr_truthy(kr_gt(pdepth, kr_str("0"))) ? kr_str("1") : kr_str("0")))) {
+                char* tt2 = ((char*(*)(char*,char*))tokAt)(tokens, p);
+                if (kr_truthy(kr_eq(tt2, kr_str("LPAREN")))) {
+                    pdepth = kr_plus(pdepth, kr_str("1"));
+                }
+                if (kr_truthy(kr_eq(tt2, kr_str("RPAREN")))) {
+                    pdepth = kr_sub(pdepth, kr_str("1"));
+                }
+                p = kr_plus(p, kr_str("1"));
+            }
+        }
+        while (kr_truthy((kr_truthy(kr_lt(p, ntoks)) && kr_truthy(kr_neq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("LBRACE"))) ? kr_str("1") : kr_str("0")))) {
+            p = kr_plus(p, kr_str("1"));
+        }
+        if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("LBRACE")))) {
+            char* bdepth = kr_str("1");
+            p = kr_plus(p, kr_str("1"));
+            while (kr_truthy((kr_truthy(kr_lt(p, ntoks)) && kr_truthy(kr_gt(bdepth, kr_str("0"))) ? kr_str("1") : kr_str("0")))) {
+                char* tt3 = ((char*(*)(char*,char*))tokAt)(tokens, p);
+                if (kr_truthy(kr_eq(tt3, kr_str("LBRACE")))) {
+                    bdepth = kr_plus(bdepth, kr_str("1"));
+                }
+                if (kr_truthy(kr_eq(tt3, kr_str("RBRACE")))) {
+                    bdepth = kr_sub(bdepth, kr_str("1"));
+                }
+                p = kr_plus(p, kr_str("1"));
+            }
+        }
+        return kr_plus(kr_str(","), p);
     }
     if (kr_truthy(kr_eq(tt, kr_str("ID")))) {
         if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("1"))), kr_str("DOT")))) {
             if (kr_truthy(kr_eq(((char*(*)(char*))tokType)(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("2")))), kr_str("ID")))) {
-                if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("3"))), kr_str("ASSIGN")))) {
+                char* chainEnd = kr_plus(pos, kr_str("2"));
+                while (kr_truthy((kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(chainEnd, kr_str("1"))), kr_str("DOT"))) && kr_truthy(kr_eq(((char*(*)(char*))tokType)(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(chainEnd, kr_str("2")))), kr_str("ID"))) ? kr_str("1") : kr_str("0")))) {
+                    chainEnd = kr_plus(chainEnd, kr_str("2"));
+                }
+                if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(chainEnd, kr_str("1"))), kr_str("ASSIGN")))) {
                     char* objName = ((char*(*)(char*))tokVal)(tok);
-                    char* field = ((char*(*)(char*))tokVal)(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("2"))));
-                    char* pair = ((char*(*)(char*,char*,char*,char*))irExpr)(tokens, kr_plus(pos, kr_str("4")), ntoks, lc);
-                    char* code = ((char*(*)(char*))pairVal)(pair);
-                    char* p = ((char*(*)(char*))pairPos)(pair);
-                    if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("SEMI")))) {
-                        p = kr_plus(p, kr_str("1"));
+                    char* objType = ((char*(*)(char*,char*))irTypeOf)(types, objName);
+                    char* didTypedWrite = kr_str("0");
+                    if (kr_truthy((kr_truthy(kr_eq(kr_startswith(objType, kr_str("*")), kr_str("1"))) && kr_truthy(kr_gt(kr_len(objType), kr_str("1"))) ? kr_str("1") : kr_str("0")))) {
+                        char* curType = objType;
+                        char* acc = kr_str("0");
+                        char* fpos = kr_plus(pos, kr_str("2"));
+                        char* walkOK = kr_str("1");
+                        char* leafType = kr_str("");
+                        while (kr_truthy((kr_truthy(kr_lte(fpos, chainEnd)) && kr_truthy(kr_eq(walkOK, kr_str("1"))) ? kr_str("1") : kr_str("0")))) {
+                            char* fname = ((char*(*)(char*))tokVal)(((char*(*)(char*,char*))tokAt)(tokens, fpos));
+                            char* sname = kr_substr(curType, kr_str("1"), kr_len(curType));
+                            char* info = ((char*(*)(char*,char*))irTypeOf)(types, kr_plus(kr_plus(sname, kr_str(".")), fname));
+                            if (kr_truthy(kr_eq(kr_len(info), kr_str("0")))) {
+                                walkOK = kr_str("0");
+                            }
+                            if (kr_truthy(kr_eq(walkOK, kr_str("1")))) {
+                                char* pipe1 = kr_indexof(info, kr_str("|"));
+                                char* off = kr_toint(kr_substr(info, kr_str("0"), pipe1));
+                                char* ft = kr_substr(info, kr_plus(pipe1, kr_str("1")), kr_len(info));
+                                acc = kr_plus(acc, off);
+                                if (kr_truthy(kr_eq(fpos, chainEnd))) {
+                                    leafType = ft;
+                                } else {
+                                    if (kr_truthy(kr_eq(kr_startswith(ft, kr_str("*")), kr_str("1")))) {
+                                        curType = ft;
+                                    } else {
+                                        walkOK = kr_str("0");
+                                    }
+                                }
+                            }
+                            fpos = kr_plus(fpos, kr_str("2"));
+                        }
+                        if (kr_truthy(kr_eq(walkOK, kr_str("1")))) {
+                            char* setOp = kr_str("");
+                            if (kr_truthy((kr_truthy(kr_eq(leafType, kr_str("u8"))) || kr_truthy(kr_eq(leafType, kr_str("i8"))) ? kr_str("1") : kr_str("0")))) {
+                                setOp = kr_str("BUILTIN bufSetByte 3\n");
+                            }
+                            if (kr_truthy((kr_truthy(kr_eq(leafType, kr_str("u16"))) || kr_truthy(kr_eq(leafType, kr_str("i16"))) ? kr_str("1") : kr_str("0")))) {
+                                setOp = kr_str("BUILTIN bufSetWordAt 3\n");
+                            }
+                            if (kr_truthy((kr_truthy(kr_eq(leafType, kr_str("u32"))) || kr_truthy(kr_eq(leafType, kr_str("i32"))) ? kr_str("1") : kr_str("0")))) {
+                                setOp = kr_str("BUILTIN bufSetDwordAt 3\n");
+                            }
+                            if (kr_truthy((kr_truthy(kr_eq(leafType, kr_str("u64"))) || kr_truthy(kr_eq(leafType, kr_str("i64"))) ? kr_str("1") : kr_str("0")))) {
+                                setOp = kr_str("BUILTIN bufSetQwordAt 3\n");
+                            }
+                            if (kr_truthy(kr_gt(kr_len(setOp), kr_str("0")))) {
+                                char* valp = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, kr_plus(chainEnd, kr_str("2")), ntoks, lc, types);
+                                char* p2 = ((char*(*)(char*))pairPos)(valp);
+                                if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p2), kr_str("SEMI")))) {
+                                    p2 = kr_plus(p2, kr_str("1"));
+                                }
+                                return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("LOAD "), objName), kr_str("\nPUSH ")), acc), kr_str("\n")), ((char*(*)(char*))pairVal)(valp)), setOp), kr_str("POP\n,")), p2);
+                                didTypedWrite = kr_str("1");
+                            }
+                        }
                     }
-                    return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("LOAD "), objName), kr_str("\n")), code), kr_str("SETFIELD ")), field), kr_str("\nSTORE ")), objName), kr_str("\n,")), p);
+                    if (kr_truthy((kr_truthy(kr_eq(didTypedWrite, kr_str("0"))) && kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("3"))), kr_str("ASSIGN"))) ? kr_str("1") : kr_str("0")))) {
+                        char* field = ((char*(*)(char*))tokVal)(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("2"))));
+                        char* pair = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, kr_plus(pos, kr_str("4")), ntoks, lc, types);
+                        char* code = ((char*(*)(char*))pairVal)(pair);
+                        char* p = ((char*(*)(char*))pairPos)(pair);
+                        if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("SEMI")))) {
+                            p = kr_plus(p, kr_str("1"));
+                        }
+                        return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("LOAD "), objName), kr_str("\n")), code), kr_str("SETFIELD ")), field), kr_str("\nSTORE ")), objName), kr_str("\n,")), p);
+                    }
                 }
             }
         }
@@ -4582,7 +5500,7 @@ char* irStmt(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
         char* nt = ((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("1")));
         if (kr_truthy((kr_truthy((kr_truthy((kr_truthy((kr_truthy(kr_eq(nt, kr_str("PLUSEQ"))) || kr_truthy(kr_eq(nt, kr_str("MINUSEQ"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(nt, kr_str("STAREQ"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(nt, kr_str("SLASHEQ"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(nt, kr_str("MODEQ"))) ? kr_str("1") : kr_str("0")))) {
             char* name = ((char*(*)(char*))tokVal)(tok);
-            char* pair = ((char*(*)(char*,char*,char*,char*))irExpr)(tokens, kr_plus(pos, kr_str("2")), ntoks, lc);
+            char* pair = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, kr_plus(pos, kr_str("2")), ntoks, lc, types);
             char* rcode = ((char*(*)(char*))pairVal)(pair);
             char* p = ((char*(*)(char*))pairPos)(pair);
             if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("SEMI")))) {
@@ -4601,20 +5519,92 @@ char* irStmt(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
             if (kr_truthy(kr_eq(nt, kr_str("MODEQ")))) {
                 op = kr_str("MOD\n");
             }
-            return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("LOAD "), name), kr_str("\n")), rcode), op), kr_str("STORE ")), name), kr_str("\n,")), p);
+            return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("LOAD "), name), kr_str("\n")), rcode), op), kr_str("STORE ")), name), kr_str("\nLOAD ")), name), kr_str("\nBUILTIN gcShadowPush 1\nPOP\n,")), p);
+        }
+    }
+    if (kr_truthy(kr_eq(tt, kr_str("ID")))) {
+        char* nt = ((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("1")));
+        if (kr_truthy((kr_truthy(kr_eq(nt, kr_str("PLUSPLUS"))) || kr_truthy(kr_eq(nt, kr_str("MINUSMINUS"))) ? kr_str("1") : kr_str("0")))) {
+            char* name = ((char*(*)(char*))tokVal)(tok);
+            char* p = kr_plus(pos, kr_str("2"));
+            if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("SEMI")))) {
+                p = kr_plus(p, kr_str("1"));
+            }
+            char* op = kr_str("ADD\n");
+            if (kr_truthy(kr_eq(nt, kr_str("MINUSMINUS")))) {
+                op = kr_str("SUB\n");
+            }
+            return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("LOAD "), name), kr_str("\nPUSH 1\n")), op), kr_str("STORE ")), name), kr_str("\n,")), p);
+        }
+    }
+    if (kr_truthy((kr_truthy(kr_eq(tok, kr_str("PLUSPLUS"))) || kr_truthy(kr_eq(tok, kr_str("MINUSMINUS"))) ? kr_str("1") : kr_str("0")))) {
+        char* name = ((char*(*)(char*))tokVal)(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("1"))));
+        char* p = kr_plus(pos, kr_str("2"));
+        if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("SEMI")))) {
+            p = kr_plus(p, kr_str("1"));
+        }
+        char* op = kr_str("ADD\n");
+        if (kr_truthy(kr_eq(tok, kr_str("MINUSMINUS")))) {
+            op = kr_str("SUB\n");
+        }
+        return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("LOAD "), name), kr_str("\nPUSH 1\n")), op), kr_str("STORE ")), name), kr_str("\n,")), p);
+    }
+    if (kr_truthy((kr_truthy(kr_eq(tt, kr_str("ID"))) && kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("1"))), kr_str("LBRACK"))) ? kr_str("1") : kr_str("0")))) {
+        char* name = ((char*(*)(char*))tokVal)(tok);
+        char* varType = ((char*(*)(char*,char*))irTypeOf)(types, name);
+        if (kr_truthy(kr_gt(kr_len(varType), kr_str("0")))) {
+            char* depth = kr_str("1");
+            char* pB = kr_plus(pos, kr_str("2"));
+            while (kr_truthy((kr_truthy(kr_lt(pB, ntoks)) && kr_truthy(kr_gt(depth, kr_str("0"))) ? kr_str("1") : kr_str("0")))) {
+                char* tk = ((char*(*)(char*,char*))tokAt)(tokens, pB);
+                if (kr_truthy(kr_eq(tk, kr_str("LBRACK")))) {
+                    depth = kr_plus(depth, kr_str("1"));
+                }
+                if (kr_truthy(kr_eq(tk, kr_str("RBRACK")))) {
+                    depth = kr_sub(depth, kr_str("1"));
+                }
+                if (kr_truthy(kr_gt(depth, kr_str("0")))) {
+                    pB = kr_plus(pB, kr_str("1"));
+                }
+            }
+            if (kr_truthy((kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, pB), kr_str("RBRACK"))) && kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pB, kr_str("1"))), kr_str("ASSIGN"))) ? kr_str("1") : kr_str("0")))) {
+                char* setOp = kr_str("");
+                char* scaleOp = kr_str("");
+                if (kr_truthy(kr_eq(varType, kr_str("*u8")))) {
+                    setOp = kr_str("BUILTIN bufSetByte 3\n");
+                } else if (kr_truthy((kr_truthy(kr_eq(varType, kr_str("*u16"))) || kr_truthy(kr_eq(varType, kr_str("*i16"))) ? kr_str("1") : kr_str("0")))) {
+                    setOp = kr_str("BUILTIN bufSetWordAt 3\n");
+                    scaleOp = kr_str("PUSH 2\nMUL\n");
+                } else if (kr_truthy((kr_truthy(kr_eq(varType, kr_str("*u32"))) || kr_truthy(kr_eq(varType, kr_str("*i32"))) ? kr_str("1") : kr_str("0")))) {
+                    setOp = kr_str("BUILTIN bufSetDwordAt 3\n");
+                    scaleOp = kr_str("PUSH 4\nMUL\n");
+                } else if (kr_truthy((kr_truthy(kr_eq(varType, kr_str("*u64"))) || kr_truthy(kr_eq(varType, kr_str("*i64"))) ? kr_str("1") : kr_str("0")))) {
+                    setOp = kr_str("BUILTIN bufSetQwordAt 3\n");
+                    scaleOp = kr_str("PUSH 8\nMUL\n");
+                }
+                if (kr_truthy(kr_gt(kr_len(setOp), kr_str("0")))) {
+                    char* idxp = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, kr_plus(pos, kr_str("2")), ntoks, lc, types);
+                    char* valp = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, kr_plus(pB, kr_str("2")), ntoks, lc, types);
+                    char* p = ((char*(*)(char*))pairPos)(valp);
+                    if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("SEMI")))) {
+                        p = kr_plus(p, kr_str("1"));
+                    }
+                    return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("LOAD "), name), kr_str("\n")), ((char*(*)(char*))pairVal)(idxp)), scaleOp), ((char*(*)(char*))pairVal)(valp)), setOp), kr_str("POP\n,")), p);
+                }
+            }
         }
     }
     if (kr_truthy((kr_truthy(kr_eq(tt, kr_str("ID"))) && kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("1"))), kr_str("ASSIGN"))) ? kr_str("1") : kr_str("0")))) {
         char* name = ((char*(*)(char*))tokVal)(tok);
-        char* pair = ((char*(*)(char*,char*,char*,char*))irExpr)(tokens, kr_plus(pos, kr_str("2")), ntoks, lc);
+        char* pair = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, kr_plus(pos, kr_str("2")), ntoks, lc, types);
         char* code = ((char*(*)(char*))pairVal)(pair);
         char* p = ((char*(*)(char*))pairPos)(pair);
         if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("SEMI")))) {
             p = kr_plus(p, kr_str("1"));
         }
-        return kr_plus(kr_plus(kr_plus(kr_plus(code, kr_str("STORE ")), name), kr_str("\n,")), p);
+        return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(code, kr_str("STORE ")), name), kr_str("\nLOAD ")), name), kr_str("\nBUILTIN gcShadowPush 1\nPOP\n,")), p);
     }
-    char* pair = ((char*(*)(char*,char*,char*,char*))irExpr)(tokens, pos, ntoks, lc);
+    char* pair = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, pos, ntoks, lc, types);
     char* code = ((char*(*)(char*))pairVal)(pair);
     char* p = ((char*(*)(char*))pairPos)(pair);
     if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("SEMI")))) {
@@ -4623,35 +5613,187 @@ char* irStmt(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
     return kr_plus(kr_plus(code, kr_str("POP\n,")), p);
 }
 
-char* irLetIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
-    char* name = ((char*(*)(char*))tokVal)(((char*(*)(char*,char*))tokAt)(tokens, pos));
-    char* p = kr_plus(pos, kr_str("1"));
-    if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("COLON")))) {
-        p = kr_plus(p, kr_str("2"));
-        if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("LBRACK")))) {
-            p = kr_plus(p, kr_str("1"));
-            while (kr_truthy(kr_neq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("RBRACK")))) {
-                p = kr_plus(p, kr_str("1"));
+char* irTypeStr(char* tokens, char* start, char* end) {
+    char* p = start;
+    char* sb = kr_sbnew();
+    while (kr_truthy(kr_lt(p, end))) {
+        char* tk = ((char*(*)(char*,char*))tokAt)(tokens, p);
+        if (kr_truthy(kr_eq(tk, kr_str("STAR")))) {
+            sb = kr_sbappend(sb, kr_str("*"));
+        }
+        if (kr_truthy(kr_eq(tk, kr_str("LBRACK")))) {
+            sb = kr_sbappend(sb, kr_str("["));
+        }
+        if (kr_truthy(kr_eq(tk, kr_str("RBRACK")))) {
+            sb = kr_sbappend(sb, kr_str("]"));
+        }
+        if (kr_truthy(kr_eq(kr_startswith(tk, kr_str("ID:")), kr_str("1")))) {
+            sb = kr_sbappend(sb, kr_substr(tk, kr_str("3"), kr_len(tk)));
+        }
+        if (kr_truthy(kr_eq(kr_startswith(tk, kr_str("KW:")), kr_str("1")))) {
+            sb = kr_sbappend(sb, kr_substr(tk, kr_str("3"), kr_len(tk)));
+        }
+        p = kr_plus(p, kr_str("1"));
+    }
+    return kr_sbtostring(sb);
+}
+
+char* irTypeOf(char* types, char* name) {
+    char* n = kr_linecount(types);
+    char* i = kr_str("0");
+    while (kr_truthy(kr_lt(i, n))) {
+        char* line = kr_getline(types, i);
+        char* pipePos = kr_indexof(line, kr_str("|"));
+        if (kr_truthy(kr_gt(pipePos, kr_str("0")))) {
+            if (kr_truthy(kr_eq(kr_substr(line, kr_str("0"), pipePos), name))) {
+                return kr_substr(line, kr_plus(pipePos, kr_str("1")), kr_len(line));
             }
+        }
+        i = kr_plus(i, kr_str("1"));
+    }
+    return kr_str("");
+}
+
+char* irStructSizeOf(char* types, char* sname) {
+    char* sizeKey = kr_plus(kr_str("__size__."), sname);
+    char* sizeRec = ((char*(*)(char*,char*))irTypeOf)(types, sizeKey);
+    if (kr_truthy(kr_gt(kr_len(sizeRec), kr_str("0")))) {
+        return kr_toint(sizeRec);
+    }
+    char* n = kr_linecount(types);
+    char* i = kr_str("0");
+    char* prefix = kr_plus(sname, kr_str("."));
+    char* totalSize = kr_str("0");
+    while (kr_truthy(kr_lt(i, n))) {
+        char* line = kr_getline(types, i);
+        if (kr_truthy(kr_eq(kr_startswith(line, prefix), kr_str("1")))) {
+            char* pipe1 = kr_indexof(line, kr_str("|"));
+            char* rest = kr_substr(line, kr_plus(pipe1, kr_str("1")), kr_len(line));
+            char* pipe2 = kr_indexof(rest, kr_str("|"));
+            char* off = kr_toint(kr_substr(rest, kr_str("0"), pipe2));
+            char* ft = kr_substr(rest, kr_plus(pipe2, kr_str("1")), kr_len(rest));
+            char* fsize = kr_str("4");
+            if (kr_truthy((kr_truthy(kr_eq(ft, kr_str("u8"))) || kr_truthy(kr_eq(ft, kr_str("i8"))) ? kr_str("1") : kr_str("0")))) {
+                fsize = kr_str("1");
+            }
+            if (kr_truthy((kr_truthy(kr_eq(ft, kr_str("u16"))) || kr_truthy(kr_eq(ft, kr_str("i16"))) ? kr_str("1") : kr_str("0")))) {
+                fsize = kr_str("2");
+            }
+            if (kr_truthy((kr_truthy(kr_eq(ft, kr_str("u32"))) || kr_truthy(kr_eq(ft, kr_str("i32"))) ? kr_str("1") : kr_str("0")))) {
+                fsize = kr_str("4");
+            }
+            if (kr_truthy((kr_truthy(kr_eq(ft, kr_str("u64"))) || kr_truthy(kr_eq(ft, kr_str("i64"))) ? kr_str("1") : kr_str("0")))) {
+                fsize = kr_str("8");
+            }
+            char* endOff = kr_plus(off, fsize);
+            if (kr_truthy(kr_gt(endOff, totalSize))) {
+                totalSize = endOff;
+            }
+        }
+        i = kr_plus(i, kr_str("1"));
+    }
+    return totalSize;
+}
+
+char* irSkipTypeBody(char* tokens, char* pos) {
+    char* p = pos;
+    while (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("STAR")))) {
+        p = kr_plus(p, kr_str("1"));
+    }
+    if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("LBRACK")))) {
+        p = kr_plus(p, kr_str("1"));
+        p = ((char*(*)(char*,char*))irSkipTypeBody)(tokens, p);
+        if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("RBRACK")))) {
             p = kr_plus(p, kr_str("1"));
         }
+        return p;
     }
+    char* tk = ((char*(*)(char*,char*))tokAt)(tokens, p);
+    if (kr_truthy((kr_truthy(kr_eq(kr_startswith(tk, kr_str("ID:")), kr_str("1"))) || kr_truthy(kr_eq(kr_startswith(tk, kr_str("KW:")), kr_str("1"))) ? kr_str("1") : kr_str("0")))) {
+        p = kr_plus(p, kr_str("1"));
+    }
+    return p;
+}
+
+char* irSkipTypeAnnotation(char* tokens, char* pos) {
+    if (kr_truthy(kr_neq(((char*(*)(char*,char*))tokAt)(tokens, pos), kr_str("COLON")))) {
+        return pos;
+    }
+    return ((char*(*)(char*,char*))irSkipTypeBody)(tokens, kr_plus(pos, kr_str("1")));
+}
+
+char* irLetIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc, char* types) {
+    char* name = ((char*(*)(char*))tokVal)(((char*(*)(char*,char*))tokAt)(tokens, pos));
+    if (kr_truthy(kr_eq(name, kr_str("local")))) {
+        char* typeTk = ((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("1")));
+        char* varTk = ((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("2")));
+        if (kr_truthy((kr_truthy(kr_eq(kr_startswith(typeTk, kr_str("ID:")), kr_str("1"))) && kr_truthy(kr_eq(kr_startswith(varTk, kr_str("ID:")), kr_str("1"))) ? kr_str("1") : kr_str("0")))) {
+            char* typeName = kr_substr(typeTk, kr_str("3"), kr_len(typeTk));
+            char* varName = kr_substr(varTk, kr_str("3"), kr_len(varTk));
+            char* structSize = ((char*(*)(char*,char*))irStructSizeOf)(types, typeName);
+            if (kr_truthy(kr_gt(structSize, kr_str("0")))) {
+                char* p = kr_plus(pos, kr_str("3"));
+                if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("SEMI")))) {
+                    p = kr_plus(p, kr_str("1"));
+                }
+                char* baseCode = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("LOCAL "), varName), kr_str("\nPUSH ")), structSize), kr_str("\nBUILTIN bufNew 1\nSTORE ")), varName), kr_str("\n"));
+                char* initCode = kr_str("");
+                char* dpfx = kr_plus(kr_plus(kr_str("__default__."), typeName), kr_str("."));
+                char* dn = kr_linecount(types);
+                char* di = kr_str("0");
+                while (kr_truthy(kr_lt(di, dn))) {
+                    char* dline = kr_getline(types, di);
+                    if (kr_truthy(kr_eq(kr_startswith(dline, dpfx), kr_str("1")))) {
+                        char* dpipe = kr_indexof(dline, kr_str("|"));
+                        char* dfname = kr_substr(dline, kr_len(dpfx), dpipe);
+                        char* dval = kr_substr(dline, kr_plus(dpipe, kr_str("1")), kr_len(dline));
+                        char* finfo = ((char*(*)(char*,char*))irTypeOf)(types, kr_plus(kr_plus(typeName, kr_str(".")), dfname));
+                        if (kr_truthy(kr_gt(kr_len(finfo), kr_str("0")))) {
+                            char* fpipe = kr_indexof(finfo, kr_str("|"));
+                            char* foff = kr_substr(finfo, kr_str("0"), fpipe);
+                            char* ft = kr_substr(finfo, kr_plus(fpipe, kr_str("1")), kr_len(finfo));
+                            char* setOp = kr_str("");
+                            if (kr_truthy((kr_truthy(kr_eq(ft, kr_str("u8"))) || kr_truthy(kr_eq(ft, kr_str("i8"))) ? kr_str("1") : kr_str("0")))) {
+                                setOp = kr_str("BUILTIN bufSetByte 3\n");
+                            }
+                            if (kr_truthy((kr_truthy(kr_eq(ft, kr_str("u16"))) || kr_truthy(kr_eq(ft, kr_str("i16"))) ? kr_str("1") : kr_str("0")))) {
+                                setOp = kr_str("BUILTIN bufSetWordAt 3\n");
+                            }
+                            if (kr_truthy((kr_truthy(kr_eq(ft, kr_str("u32"))) || kr_truthy(kr_eq(ft, kr_str("i32"))) ? kr_str("1") : kr_str("0")))) {
+                                setOp = kr_str("BUILTIN bufSetDwordAt 3\n");
+                            }
+                            if (kr_truthy((kr_truthy(kr_eq(ft, kr_str("u64"))) || kr_truthy(kr_eq(ft, kr_str("i64"))) ? kr_str("1") : kr_str("0")))) {
+                                setOp = kr_str("BUILTIN bufSetQwordAt 3\n");
+                            }
+                            if (kr_truthy(kr_gt(kr_len(setOp), kr_str("0")))) {
+                                initCode = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(initCode, kr_str("LOAD ")), varName), kr_str("\nPUSH ")), foff), kr_str("\nPUSH ")), dval), kr_str("\n")), setOp), kr_str("POP\n"));
+                            }
+                        }
+                    }
+                    di = kr_plus(di, kr_str("1"));
+                }
+                return kr_plus(kr_plus(kr_plus(baseCode, initCode), kr_str(",")), p);
+            }
+        }
+    }
+    char* p = ((char*(*)(char*,char*))irSkipTypeAnnotation)(tokens, kr_plus(pos, kr_str("1")));
     p = kr_plus(p, kr_str("1"));
-    char* pair = ((char*(*)(char*,char*,char*,char*))irExpr)(tokens, p, ntoks, lc);
+    char* pair = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, p, ntoks, lc, types);
     char* code = ((char*(*)(char*))pairVal)(pair);
     p = ((char*(*)(char*))pairPos)(pair);
     if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("SEMI")))) {
         p = kr_plus(p, kr_str("1"));
     }
-    return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("LOCAL "), name), kr_str("\n")), code), kr_str("STORE ")), name), kr_str("\n,")), p);
+    char* pushCode = kr_plus(kr_plus(kr_str("LOAD "), name), kr_str("\nBUILTIN gcShadowPush 1\nPOP\n"));
+    return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("LOCAL "), name), kr_str("\n")), code), kr_str("STORE ")), name), kr_str("\n")), pushCode), kr_str(",")), p);
 }
 
-char* irBlockIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
+char* irBlockIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc, char* types) {
     char* p = kr_plus(pos, kr_str("1"));
     char* sbBlock = kr_sbnew();
     char* nlc = lc;
     while (kr_truthy(kr_neq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("RBRACE")))) {
-        char* sp = ((char*(*)(char*,char*,char*,char*,char*))irStmt)(tokens, p, ntoks, nlc, inFunc);
+        char* sp = ((char*(*)(char*,char*,char*,char*,char*,char*))irStmt)(tokens, p, ntoks, nlc, inFunc, types);
         sbBlock = kr_sbappend(sbBlock, ((char*(*)(char*))pairVal)(sp));
         p = ((char*(*)(char*))pairPos)(sp);
         nlc = kr_plus(nlc, kr_str("1"));
@@ -4659,25 +5801,25 @@ char* irBlockIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
     return kr_plus(kr_plus(kr_sbtostring(sbBlock), kr_str(",")), kr_plus(p, kr_str("1")));
 }
 
-char* irIfIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
-    char* pair = ((char*(*)(char*,char*,char*,char*))irExpr)(tokens, pos, ntoks, lc);
-    char* condCode = ((char*(*)(char*))pairVal)(pair);
+char* irIfIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc, char* types) {
+    char* pair = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, pos, ntoks, lc, types);
+    char* condCode = kr_plus(((char*(*)(char*))pairVal)(pair), kr_str("BUILTIN isTruthy 1\n"));
     char* p = ((char*(*)(char*))pairPos)(pair);
     char* elseLabel = ((char*(*)(char*,char*))irLabel)(kr_str("_else"), pos);
     char* endLabel = ((char*(*)(char*,char*))irLabel)(kr_str("_endif"), pos);
     char* nlc = kr_plus(lc, kr_str("1"));
-    char* bp = ((char*(*)(char*,char*,char*,char*,char*))irBlockIR)(tokens, p, ntoks, nlc, inFunc);
+    char* bp = ((char*(*)(char*,char*,char*,char*,char*,char*))irBlockIR)(tokens, p, ntoks, nlc, inFunc, types);
     char* bodyCode = ((char*(*)(char*))pairVal)(bp);
     p = ((char*(*)(char*))pairPos)(bp);
     nlc = kr_plus(nlc, kr_str("1"));
     if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("KW:else")))) {
         if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(p, kr_str("1"))), kr_str("KW:if")))) {
-            char* ep = ((char*(*)(char*,char*,char*,char*,char*))irIfIR)(tokens, kr_plus(p, kr_str("2")), ntoks, nlc, inFunc);
+            char* ep = ((char*(*)(char*,char*,char*,char*,char*,char*))irIfIR)(tokens, kr_plus(p, kr_str("2")), ntoks, nlc, inFunc, types);
             char* elseCode = ((char*(*)(char*))pairVal)(ep);
             p = ((char*(*)(char*))pairPos)(ep);
             return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(condCode, kr_str("JUMPIFNOT ")), elseLabel), kr_str("\n")), bodyCode), kr_str("JUMP ")), endLabel), kr_str("\n")), kr_str("LABEL ")), elseLabel), kr_str("\n")), elseCode), kr_str("LABEL ")), endLabel), kr_str("\n,")), p);
         } else {
-            char* ep = ((char*(*)(char*,char*,char*,char*,char*))irBlockIR)(tokens, kr_plus(p, kr_str("1")), ntoks, nlc, inFunc);
+            char* ep = ((char*(*)(char*,char*,char*,char*,char*,char*))irBlockIR)(tokens, kr_plus(p, kr_str("1")), ntoks, nlc, inFunc, types);
             char* elseCode = ((char*(*)(char*))pairVal)(ep);
             p = ((char*(*)(char*))pairPos)(ep);
             return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(condCode, kr_str("JUMPIFNOT ")), elseLabel), kr_str("\n")), bodyCode), kr_str("JUMP ")), endLabel), kr_str("\n")), kr_str("LABEL ")), elseLabel), kr_str("\n")), elseCode), kr_str("LABEL ")), endLabel), kr_str("\n,")), p);
@@ -4686,23 +5828,25 @@ char* irIfIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
     return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(condCode, kr_str("JUMPIFNOT ")), endLabel), kr_str("\n")), bodyCode), kr_str("LABEL ")), endLabel), kr_str("\n,")), p);
 }
 
-char* irWhileIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
+char* irWhileIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc, char* types) {
     char* loopLabel = ((char*(*)(char*,char*))irLabel)(kr_str("_wloop"), pos);
     char* endLabel = ((char*(*)(char*,char*))irLabel)(kr_str("_wend"), pos);
     char* nlc = kr_plus(lc, kr_str("1"));
-    char* pair = ((char*(*)(char*,char*,char*,char*))irExpr)(tokens, pos, ntoks, nlc);
-    char* condCode = ((char*(*)(char*))pairVal)(pair);
+    char* pair = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, pos, ntoks, nlc, types);
+    char* condCode = kr_plus(((char*(*)(char*))pairVal)(pair), kr_str("BUILTIN isTruthy 1\n"));
     char* p = ((char*(*)(char*))pairPos)(pair);
-    char* bp = ((char*(*)(char*,char*,char*,char*,char*))irBlockIR)(tokens, p, ntoks, nlc, inFunc);
+    char* bp = ((char*(*)(char*,char*,char*,char*,char*,char*))irBlockIR)(tokens, p, ntoks, nlc, inFunc, types);
     char* bodyCode = ((char*(*)(char*))pairVal)(bp);
     p = ((char*(*)(char*))pairPos)(bp);
+    bodyCode = kr_replace(bodyCode, kr_str("BREAK\n"), kr_plus(kr_plus(kr_str("JUMP "), endLabel), kr_str("\n")));
+    bodyCode = kr_replace(bodyCode, kr_str("CONTINUE\n"), kr_plus(kr_plus(kr_str("JUMP "), loopLabel), kr_str("\n")));
     return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("LABEL "), loopLabel), kr_str("\n")), condCode), kr_str("JUMPIFNOT ")), endLabel), kr_str("\n")), bodyCode), kr_str("JUMP ")), loopLabel), kr_str("\n")), kr_str("LABEL ")), endLabel), kr_str("\n,")), p);
 }
 
-char* irForIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
+char* irForIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc, char* types) {
     char* varName = ((char*(*)(char*))tokVal)(((char*(*)(char*,char*))tokAt)(tokens, pos));
     char* p = kr_plus(pos, kr_str("2"));
-    char* pair = ((char*(*)(char*,char*,char*,char*))irExpr)(tokens, p, ntoks, lc);
+    char* pair = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, p, ntoks, lc, types);
     char* collCode = ((char*(*)(char*))pairVal)(pair);
     p = ((char*(*)(char*))pairPos)(pair);
     char* loopLabel = ((char*(*)(char*,char*))irLabel)(kr_str("_floop"), pos);
@@ -4711,9 +5855,12 @@ char* irForIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
     char* cntVar = kr_plus(kr_str("_for_cnt_"), pos);
     char* colVar = kr_plus(kr_str("_for_col_"), pos);
     char* nlc = kr_plus(lc, kr_str("1"));
-    char* bp = ((char*(*)(char*,char*,char*,char*,char*))irBlockIR)(tokens, p, ntoks, nlc, inFunc);
+    char* bp = ((char*(*)(char*,char*,char*,char*,char*,char*))irBlockIR)(tokens, p, ntoks, nlc, inFunc, types);
     char* bodyCode = ((char*(*)(char*))pairVal)(bp);
     p = ((char*(*)(char*))pairPos)(bp);
+    char* contLabel = ((char*(*)(char*,char*))irLabel)(kr_str("_fcont"), pos);
+    bodyCode = kr_replace(bodyCode, kr_str("BREAK\n"), kr_plus(kr_plus(kr_str("JUMP "), endLabel), kr_str("\n")));
+    bodyCode = kr_replace(bodyCode, kr_str("CONTINUE\n"), kr_plus(kr_plus(kr_str("JUMP "), contLabel), kr_str("\n")));
     char* code = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(collCode, kr_str("LOCAL ")), colVar), kr_str("\n")), kr_str("STORE ")), colVar), kr_str("\n"));
     code = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(code, kr_str("LOCAL ")), idxVar), kr_str("\n")), kr_str("PUSH 0\n")), kr_str("STORE ")), idxVar), kr_str("\n"));
     code = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(code, kr_str("LOCAL ")), cntVar), kr_str("\n")), kr_str("LOAD ")), colVar), kr_str("\n")), kr_str("BUILTIN length 1\n")), kr_str("STORE ")), cntVar), kr_str("\n"));
@@ -4723,14 +5870,15 @@ char* irForIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
     code = kr_plus(kr_plus(kr_plus(code, kr_str("LOCAL ")), varName), kr_str("\n"));
     code = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(code, kr_str("LOAD ")), colVar), kr_str("\n")), kr_str("LOAD ")), idxVar), kr_str("\n")), kr_str("BUILTIN split 2\n")), kr_str("STORE ")), varName), kr_str("\n"));
     code = kr_plus(code, bodyCode);
+    code = kr_plus(kr_plus(kr_plus(code, kr_str("LABEL ")), contLabel), kr_str("\n"));
     code = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(code, kr_str("LOAD ")), idxVar), kr_str("\n")), kr_str("PUSH 1\n")), kr_str("ADD\n")), kr_str("STORE ")), idxVar), kr_str("\n"));
     code = kr_plus(kr_plus(kr_plus(code, kr_str("JUMP ")), loopLabel), kr_str("\n"));
     code = kr_plus(kr_plus(kr_plus(code, kr_str("LABEL ")), endLabel), kr_str("\n"));
     return kr_plus(kr_plus(code, kr_str(",")), p);
 }
 
-char* irMatchIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
-    char* pair = ((char*(*)(char*,char*,char*,char*))irExpr)(tokens, pos, ntoks, lc);
+char* irMatchIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc, char* types) {
+    char* pair = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, pos, ntoks, lc, types);
     char* matchCode = ((char*(*)(char*))pairVal)(pair);
     char* p = kr_plus(((char*(*)(char*))pairPos)(pair), kr_str("1"));
     char* endLabel = ((char*(*)(char*,char*))irLabel)(kr_str("_mend"), pos);
@@ -4743,14 +5891,14 @@ char* irMatchIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
         nlc = kr_plus(nlc, kr_str("1"));
         if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("KW:else")))) {
             p = kr_plus(p, kr_str("1"));
-            char* bp = ((char*(*)(char*,char*,char*,char*,char*))irBlockIR)(tokens, p, ntoks, nlc, inFunc);
+            char* bp = ((char*(*)(char*,char*,char*,char*,char*,char*))irBlockIR)(tokens, p, ntoks, nlc, inFunc, types);
             code = kr_plus(code, ((char*(*)(char*))pairVal)(bp));
             p = ((char*(*)(char*))pairPos)(bp);
         } else {
-            char* cp = ((char*(*)(char*,char*,char*,char*))irExpr)(tokens, p, ntoks, nlc);
+            char* cp = ((char*(*)(char*,char*,char*,char*,char*))irExpr)(tokens, p, ntoks, nlc, types);
             char* caseCode = ((char*(*)(char*))pairVal)(cp);
             p = ((char*(*)(char*))pairPos)(cp);
-            char* bp = ((char*(*)(char*,char*,char*,char*,char*))irBlockIR)(tokens, p, ntoks, nlc, inFunc);
+            char* bp = ((char*(*)(char*,char*,char*,char*,char*,char*))irBlockIR)(tokens, p, ntoks, nlc, inFunc, types);
             char* bodyCode = ((char*(*)(char*))pairVal)(bp);
             p = ((char*(*)(char*))pairPos)(bp);
             code = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(code, kr_str("LOAD ")), matchVar), kr_str("\n")), caseCode), kr_str("EQ\n")), kr_str("JUMPIFNOT ")), nextLabel), kr_str("\n")), bodyCode), kr_str("JUMP ")), endLabel), kr_str("\n")), kr_str("LABEL ")), nextLabel), kr_str("\n"));
@@ -4761,11 +5909,11 @@ char* irMatchIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
     return kr_plus(kr_plus(kr_plus(kr_plus(code, kr_str("LABEL ")), endLabel), kr_str("\n,")), p);
 }
 
-char* irTryIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
+char* irTryIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc, char* types) {
     char* catchLabel = ((char*(*)(char*,char*))irLabel)(kr_str("_catch"), pos);
     char* endLabel = ((char*(*)(char*,char*))irLabel)(kr_str("_tryend"), pos);
     char* nlc = kr_plus(lc, kr_str("1"));
-    char* bp = ((char*(*)(char*,char*,char*,char*,char*))irBlockIR)(tokens, pos, ntoks, nlc, inFunc);
+    char* bp = ((char*(*)(char*,char*,char*,char*,char*,char*))irBlockIR)(tokens, pos, ntoks, nlc, inFunc, types);
     char* bodyCode = ((char*(*)(char*))pairVal)(bp);
     char* p = ((char*(*)(char*))pairPos)(bp);
     if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("KW:catch")))) {
@@ -4775,7 +5923,7 @@ char* irTryIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
             catchVar = ((char*(*)(char*))tokVal)(((char*(*)(char*,char*))tokAt)(tokens, p));
             p = kr_plus(p, kr_str("1"));
         }
-        char* cp = ((char*(*)(char*,char*,char*,char*,char*))irBlockIR)(tokens, p, ntoks, nlc, inFunc);
+        char* cp = ((char*(*)(char*,char*,char*,char*,char*,char*))irBlockIR)(tokens, p, ntoks, nlc, inFunc, types);
         char* catchCode = ((char*(*)(char*))pairVal)(cp);
         p = ((char*(*)(char*))pairPos)(cp);
         return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("TRY "), catchLabel), kr_str("\n")), bodyCode), kr_str("ENDTRY\n")), kr_str("JUMP ")), endLabel), kr_str("\n")), kr_str("LABEL ")), catchLabel), kr_str("\n")), kr_str("LOCAL ")), catchVar), kr_str("\n")), kr_str("STORE ")), catchVar), kr_str("\n")), catchCode), kr_str("LABEL ")), endLabel), kr_str("\n,")), p);
@@ -4783,25 +5931,201 @@ char* irTryIR(char* tokens, char* pos, char* ntoks, char* lc, char* inFunc) {
     return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("TRY "), catchLabel), kr_str("\n")), bodyCode), kr_str("ENDTRY\n")), kr_str("LABEL ")), catchLabel), kr_str("\n")), kr_str("LABEL ")), endLabel), kr_str("\n,")), p);
 }
 
-char* irFuncIR(char* tokens, char* pos, char* ntoks) {
-    char* fname = ((char*(*)(char*))tokVal)(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("1"))));
-    char* p = kr_plus(pos, kr_str("3"));
-    char* params = kr_str("");
-    char* pc = kr_str("0");
-    while (kr_truthy(kr_neq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("RPAREN")))) {
-        char* pt = ((char*(*)(char*,char*))tokAt)(tokens, p);
-        if (kr_truthy(kr_eq(((char*(*)(char*))tokType)(pt), kr_str("ID")))) {
-            params = kr_plus(kr_plus(kr_plus(params, kr_str("PARAM ")), ((char*(*)(char*))tokVal)(pt)), kr_str("\n"));
-            pc = kr_plus(pc, kr_str("1"));
-            if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(p, kr_str("1"))), kr_str("COLON")))) {
-                p = kr_plus(p, kr_str("3"));
-                if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("LBRACK")))) {
-                    p = kr_plus(p, kr_str("1"));
-                    while (kr_truthy(kr_neq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("RBRACK")))) {
-                        p = kr_plus(p, kr_str("1"));
+char* irScanStructTypes(char* tokens, char* ntoks) {
+    char* prev = kr_str("");
+    char* curr = ((char*(*)(char*,char*,char*))irScanStructTypesOnce)(tokens, ntoks, kr_str(""));
+    char* iters = kr_str("0");
+    while (kr_truthy((kr_truthy(kr_neq(curr, prev)) && kr_truthy(kr_lt(iters, kr_str("16"))) ? kr_str("1") : kr_str("0")))) {
+        prev = curr;
+        curr = ((char*(*)(char*,char*,char*))irScanStructTypesOnce)(tokens, ntoks, curr);
+        iters = kr_plus(iters, kr_str("1"));
+    }
+    return curr;
+}
+
+char* irScanStructTypesOnce(char* tokens, char* ntoks, char* sizeHints) {
+    char* sb = kr_sbnew();
+    char* i = kr_str("0");
+    while (kr_truthy(kr_lt(i, ntoks))) {
+        char* tk = ((char*(*)(char*,char*))tokAt)(tokens, i);
+        if (kr_truthy((kr_truthy((kr_truthy(kr_eq(tk, kr_str("KW:struct"))) || kr_truthy(kr_eq(tk, kr_str("KW:class"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(tk, kr_str("KW:type"))) ? kr_str("1") : kr_str("0")))) {
+            char* snameTk = ((char*(*)(char*,char*))tokAt)(tokens, kr_plus(i, kr_str("1")));
+            if (kr_truthy((kr_truthy(kr_eq(kr_startswith(snameTk, kr_str("ID:")), kr_str("1"))) && kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(i, kr_str("2"))), kr_str("LBRACE"))) ? kr_str("1") : kr_str("0")))) {
+                char* sname = kr_substr(snameTk, kr_str("3"), kr_len(snameTk));
+                char* p = kr_plus(i, kr_str("3"));
+                char* off = kr_str("0");
+                char* maxAlign = kr_str("1");
+                while (kr_truthy((kr_truthy(kr_lt(p, ntoks)) && kr_truthy(kr_neq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("RBRACE"))) ? kr_str("1") : kr_str("0")))) {
+                    if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("KW:let")))) {
+                        char* fnameTk = ((char*(*)(char*,char*))tokAt)(tokens, kr_plus(p, kr_str("1")));
+                        if (kr_truthy(kr_eq(kr_startswith(fnameTk, kr_str("ID:")), kr_str("1")))) {
+                            char* fname = kr_substr(fnameTk, kr_str("3"), kr_len(fnameTk));
+                            char* ftype = kr_str("u32");
+                            char* fsize = kr_str("4");
+                            char* falign = kr_str("4");
+                            char* q = kr_plus(p, kr_str("2"));
+                            if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, q), kr_str("COLON")))) {
+                                char* typeStart = kr_plus(q, kr_str("1"));
+                                char* typeEnd = ((char*(*)(char*,char*))irSkipTypeBody)(tokens, typeStart);
+                                ftype = ((char*(*)(char*,char*,char*))irTypeStr)(tokens, typeStart, typeEnd);
+                                if (kr_truthy((kr_truthy(kr_eq(ftype, kr_str("u8"))) || kr_truthy(kr_eq(ftype, kr_str("i8"))) ? kr_str("1") : kr_str("0")))) {
+                                    fsize = kr_str("1");
+                                    falign = kr_str("1");
+                                }
+                                if (kr_truthy((kr_truthy(kr_eq(ftype, kr_str("u16"))) || kr_truthy(kr_eq(ftype, kr_str("i16"))) ? kr_str("1") : kr_str("0")))) {
+                                    fsize = kr_str("2");
+                                    falign = kr_str("2");
+                                }
+                                if (kr_truthy((kr_truthy(kr_eq(ftype, kr_str("u32"))) || kr_truthy(kr_eq(ftype, kr_str("i32"))) ? kr_str("1") : kr_str("0")))) {
+                                    fsize = kr_str("4");
+                                    falign = kr_str("4");
+                                }
+                                if (kr_truthy((kr_truthy(kr_eq(ftype, kr_str("u64"))) || kr_truthy(kr_eq(ftype, kr_str("i64"))) ? kr_str("1") : kr_str("0")))) {
+                                    fsize = kr_str("8");
+                                    falign = kr_str("8");
+                                }
+                                char* nestedSize = ((char*(*)(char*,char*))irStructSizeOf)(sizeHints, ftype);
+                                if (kr_truthy(kr_gt(nestedSize, kr_str("0")))) {
+                                    fsize = nestedSize;
+                                    char* nalignRec = ((char*(*)(char*,char*))irTypeOf)(sizeHints, kr_plus(kr_str("__align__."), ftype));
+                                    if (kr_truthy(kr_gt(kr_len(nalignRec), kr_str("0")))) {
+                                        falign = kr_toint(nalignRec);
+                                    } else {
+                                        falign = kr_str("4");
+                                    }
+                                    ftype = kr_plus(kr_str("*"), ftype);
+                                }
+                                q = typeEnd;
+                            }
+                            if (kr_truthy(kr_neq(kr_mod(off, falign), kr_str("0")))) {
+                                off = kr_plus(off, kr_sub(falign, kr_mod(off, falign)));
+                            }
+                            if (kr_truthy(kr_gt(falign, maxAlign))) {
+                                maxAlign = falign;
+                            }
+                            sb = kr_sbappend(sb, kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(sname, kr_str(".")), fname), kr_str("|")), off), kr_str("|")), ftype), kr_str("\n")));
+                            off = kr_plus(off, fsize);
+                            if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, q), kr_str("ASSIGN")))) {
+                                char* dvTk = ((char*(*)(char*,char*))tokAt)(tokens, kr_plus(q, kr_str("1")));
+                                if (kr_truthy(kr_eq(((char*(*)(char*))tokType)(dvTk), kr_str("INT")))) {
+                                    sb = kr_sbappend(sb, kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("__default__."), sname), kr_str(".")), fname), kr_str("|")), ((char*(*)(char*))tokVal)(dvTk)), kr_str("\n")));
+                                }
+                                while (kr_truthy((kr_truthy((kr_truthy((kr_truthy(kr_lt(q, ntoks)) && kr_truthy(kr_neq(((char*(*)(char*,char*))tokAt)(tokens, q), kr_str("SEMI"))) ? kr_str("1") : kr_str("0"))) && kr_truthy(kr_neq(((char*(*)(char*,char*))tokAt)(tokens, q), kr_str("KW:let"))) ? kr_str("1") : kr_str("0"))) && kr_truthy(kr_neq(((char*(*)(char*,char*))tokAt)(tokens, q), kr_str("RBRACE"))) ? kr_str("1") : kr_str("0")))) {
+                                    q = kr_plus(q, kr_str("1"));
+                                }
+                            }
+                            p = q;
+                            continue;
+                        }
                     }
                     p = kr_plus(p, kr_str("1"));
                 }
+                char* totalSize = off;
+                if (kr_truthy(kr_neq(kr_mod(totalSize, maxAlign), kr_str("0")))) {
+                    totalSize = kr_plus(totalSize, kr_sub(maxAlign, kr_mod(totalSize, maxAlign)));
+                }
+                sb = kr_sbappend(sb, kr_plus(kr_plus(kr_plus(kr_plus(kr_str("__size__."), sname), kr_str("|")), totalSize), kr_str("\n")));
+                sb = kr_sbappend(sb, kr_plus(kr_plus(kr_plus(kr_plus(kr_str("__align__."), sname), kr_str("|")), maxAlign), kr_str("\n")));
+            }
+        }
+        i = kr_plus(i, kr_str("1"));
+    }
+    return kr_sbtostring(sb);
+}
+
+char* irScanFuncTypes(char* tokens, char* bodyStart) {
+    if (kr_truthy(kr_neq(((char*(*)(char*,char*))tokAt)(tokens, bodyStart), kr_str("LBRACE")))) {
+        return kr_str("");
+    }
+    char* p = kr_plus(bodyStart, kr_str("1"));
+    char* depth = kr_str("1");
+    char* nTok = kr_linecount(tokens);
+    char* sb = kr_sbnew();
+    while (kr_truthy((kr_truthy(kr_lt(p, nTok)) && kr_truthy(kr_gt(depth, kr_str("0"))) ? kr_str("1") : kr_str("0")))) {
+        char* tk = ((char*(*)(char*,char*))tokAt)(tokens, p);
+        if (kr_truthy(kr_eq(tk, kr_str("LBRACE")))) {
+            depth = kr_plus(depth, kr_str("1"));
+            p = kr_plus(p, kr_str("1"));
+            continue;
+        }
+        if (kr_truthy(kr_eq(tk, kr_str("RBRACE")))) {
+            depth = kr_sub(depth, kr_str("1"));
+            p = kr_plus(p, kr_str("1"));
+            continue;
+        }
+        if (kr_truthy((kr_truthy(kr_eq(tk, kr_str("KW:let"))) || kr_truthy(kr_eq(tk, kr_str("KW:const"))) ? kr_str("1") : kr_str("0")))) {
+            char* nameTk = ((char*(*)(char*,char*))tokAt)(tokens, kr_plus(p, kr_str("1")));
+            if (kr_truthy(kr_eq(kr_startswith(nameTk, kr_str("ID:")), kr_str("1")))) {
+                char* nameStr = kr_substr(nameTk, kr_str("3"), kr_len(nameTk));
+                if (kr_truthy(kr_eq(nameStr, kr_str("local")))) {
+                    char* typeTk = ((char*(*)(char*,char*))tokAt)(tokens, kr_plus(p, kr_str("2")));
+                    char* varTk = ((char*(*)(char*,char*))tokAt)(tokens, kr_plus(p, kr_str("3")));
+                    if (kr_truthy((kr_truthy(kr_eq(kr_startswith(typeTk, kr_str("ID:")), kr_str("1"))) && kr_truthy(kr_eq(kr_startswith(varTk, kr_str("ID:")), kr_str("1"))) ? kr_str("1") : kr_str("0")))) {
+                        char* typeName = kr_substr(typeTk, kr_str("3"), kr_len(typeTk));
+                        char* varName = kr_substr(varTk, kr_str("3"), kr_len(varTk));
+                        sb = kr_sbappend(sb, kr_plus(kr_plus(kr_plus(varName, kr_str("|*")), typeName), kr_str("\n")));
+                        p = kr_plus(p, kr_str("4"));
+                        continue;
+                    }
+                }
+                if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(p, kr_str("2"))), kr_str("COLON")))) {
+                    char* typeStart = kr_plus(p, kr_str("3"));
+                    char* typeEnd = ((char*(*)(char*,char*))irSkipTypeBody)(tokens, typeStart);
+                    sb = kr_sbappend(sb, kr_plus(kr_plus(kr_plus(nameStr, kr_str("|")), ((char*(*)(char*,char*,char*))irTypeStr)(tokens, typeStart, typeEnd)), kr_str("\n")));
+                    p = typeEnd;
+                    continue;
+                }
+                if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(p, kr_str("2"))), kr_str("ASSIGN")))) {
+                    char* rhsTk = ((char*(*)(char*,char*))tokAt)(tokens, kr_plus(p, kr_str("3")));
+                    char* isLam = kr_str("0");
+                    char* isFuncPtr = kr_str("0");
+                    if (kr_truthy((kr_truthy(kr_eq(rhsTk, kr_str("KW:func"))) || kr_truthy(kr_eq(rhsTk, kr_str("KW:fn"))) ? kr_str("1") : kr_str("0")))) {
+                        if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(p, kr_str("4"))), kr_str("LPAREN")))) {
+                            isLam = kr_str("1");
+                        }
+                    }
+                    if (kr_truthy(kr_eq(rhsTk, kr_str("ID:funcptr")))) {
+                        if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(p, kr_str("4"))), kr_str("LPAREN")))) {
+                            isFuncPtr = kr_str("1");
+                        }
+                    }
+                    if (kr_truthy(kr_eq(isLam, kr_str("1")))) {
+                        sb = kr_sbappend(sb, kr_plus(nameStr, kr_str("|closure\n")));
+                    } else {
+                        if (kr_truthy(kr_eq(isFuncPtr, kr_str("1")))) {
+                            sb = kr_sbappend(sb, kr_plus(nameStr, kr_str("|fp\n")));
+                        }
+                    }
+                }
+            }
+        }
+        p = kr_plus(p, kr_str("1"));
+    }
+    return kr_sbtostring(sb);
+}
+
+char* irLambdaIR(char* tokens, char* pos, char* ntoks, char* lambdaName) {
+    char* p = kr_plus(pos, kr_str("2"));
+    char* userParams = kr_str("");
+    char* paramTypes = kr_str("");
+    char* pc = kr_str("0");
+    char* paramCsv = kr_str("");
+    while (kr_truthy(kr_neq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("RPAREN")))) {
+        char* pt = ((char*(*)(char*,char*))tokAt)(tokens, p);
+        if (kr_truthy(kr_eq(((char*(*)(char*))tokType)(pt), kr_str("ID")))) {
+            char* pname = ((char*(*)(char*))tokVal)(pt);
+            userParams = kr_plus(kr_plus(kr_plus(userParams, kr_str("PARAM ")), pname), kr_str("\n"));
+            if (kr_truthy(kr_gt(kr_len(paramCsv), kr_str("0")))) {
+                paramCsv = kr_plus(paramCsv, kr_str(","));
+            }
+            paramCsv = kr_plus(paramCsv, pname);
+            pc = kr_plus(pc, kr_str("1"));
+            if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(p, kr_str("1"))), kr_str("COLON")))) {
+                char* typeStart = kr_plus(p, kr_str("2"));
+                char* typeEnd = ((char*(*)(char*,char*))irSkipTypeBody)(tokens, typeStart);
+                char* ptype = ((char*(*)(char*,char*,char*))irTypeStr)(tokens, typeStart, typeEnd);
+                paramTypes = kr_plus(kr_plus(kr_plus(kr_plus(paramTypes, pname), kr_str("|")), ptype), kr_str("\n"));
+                p = typeEnd;
                 if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("COMMA")))) {
                     p = kr_plus(p, kr_str("1"));
                 }
@@ -4816,9 +6140,78 @@ char* irFuncIR(char* tokens, char* pos, char* ntoks) {
     if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("ARROW")))) {
         p = kr_plus(p, kr_str("2"));
     }
-    char* bp = ((char*(*)(char*,char*,char*,char*,char*))irBlockIR)(tokens, p, ntoks, kr_str("0"), kr_str("1"));
+    char* bodyEnd = ((char*(*)(char*,char*))skipBlock)(tokens, p);
+    char* freeVars = ((char*(*)(char*,char*,char*,char*))findFreeVars)(tokens, p, bodyEnd, paramCsv);
+    char* captureTypes = kr_str("");
+    char* allParams = kr_plus(kr_str("PARAM __env\n"), userParams);
+    pc = kr_plus(pc, kr_str("1"));
+    if (kr_truthy(kr_gt(kr_len(freeVars), kr_str("0")))) {
+        char* fcount = kr_count(freeVars);
+        char* fi = kr_str("0");
+        while (kr_truthy(kr_lt(fi, fcount))) {
+            char* fname = kr_split(freeVars, fi);
+            captureTypes = kr_plus(kr_plus(kr_plus(kr_plus(captureTypes, fname), kr_str("|__cap__:")), fname), kr_str("\n"));
+            fi = kr_plus(fi, kr_str("1"));
+        }
+    }
+    char* funcTypes = kr_plus(kr_plus(kr_plus(((char*(*)(char*,char*))irScanStructTypes)(tokens, ntoks), ((char*(*)(char*,char*))irScanFuncTypes)(tokens, p)), paramTypes), captureTypes);
+    char* bp = ((char*(*)(char*,char*,char*,char*,char*,char*))irBlockIR)(tokens, p, ntoks, kr_str("0"), kr_str("1"), funcTypes);
     char* bodyCode = ((char*(*)(char*))pairVal)(bp);
     p = ((char*(*)(char*))pairPos)(bp);
+    return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("FUNC "), lambdaName), kr_str(" ")), pc), kr_str("\n")), allParams), bodyCode), kr_str("RETURN\nEND\n\n,")), p);
+}
+
+char* irFuncIR(char* tokens, char* pos, char* ntoks) {
+    char* fname = ((char*(*)(char*))tokVal)(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pos, kr_str("1"))));
+    char* p = kr_plus(pos, kr_str("3"));
+    char* params = kr_str("");
+    char* paramTypes = kr_str("");
+    char* pc = kr_str("0");
+    while (kr_truthy(kr_neq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("RPAREN")))) {
+        char* pt = ((char*(*)(char*,char*))tokAt)(tokens, p);
+        if (kr_truthy(kr_eq(((char*(*)(char*))tokType)(pt), kr_str("ID")))) {
+            char* pname = ((char*(*)(char*))tokVal)(pt);
+            params = kr_plus(kr_plus(kr_plus(params, kr_str("PARAM ")), pname), kr_str("\n"));
+            pc = kr_plus(pc, kr_str("1"));
+            if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(p, kr_str("1"))), kr_str("COLON")))) {
+                char* typeStart = kr_plus(p, kr_str("2"));
+                char* typeEnd = ((char*(*)(char*,char*))irSkipTypeBody)(tokens, typeStart);
+                char* ptype = ((char*(*)(char*,char*,char*))irTypeStr)(tokens, typeStart, typeEnd);
+                paramTypes = kr_plus(kr_plus(kr_plus(kr_plus(paramTypes, pname), kr_str("|")), ptype), kr_str("\n"));
+                p = typeEnd;
+                if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("COMMA")))) {
+                    p = kr_plus(p, kr_str("1"));
+                }
+            } else {
+                p = kr_plus(p, kr_str("1"));
+            }
+        } else {
+            p = kr_plus(p, kr_str("1"));
+        }
+    }
+    p = kr_plus(p, kr_str("1"));
+    if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, p), kr_str("ARROW")))) {
+        p = kr_plus(p, kr_str("2"));
+    }
+    char* funcTypes = kr_plus(kr_plus(((char*(*)(char*,char*))irScanStructTypes)(tokens, ntoks), ((char*(*)(char*,char*))irScanFuncTypes)(tokens, p)), paramTypes);
+    char* bp = ((char*(*)(char*,char*,char*,char*,char*,char*))irBlockIR)(tokens, p, ntoks, kr_str("0"), kr_str("1"), funcTypes);
+    char* bodyCode = ((char*(*)(char*))pairVal)(bp);
+    p = ((char*(*)(char*))pairPos)(bp);
+    if (kr_truthy(kr_startswith(fname, kr_str("pure_")))) {
+        bodyCode = kr_plus(kr_plus(kr_str("LOCAL _gc_ck\nBUILTIN gcCheckpoint 0\nSTORE _gc_ck\n"), bodyCode), kr_str("LOAD _gc_ck\nBUILTIN gcRestore 1\nPOP\n"));
+    }
+    char* paramPushes = kr_str("");
+    char* plnCount = kr_linecount(params);
+    char* pli = kr_str("0");
+    while (kr_truthy(kr_lt(pli, plnCount))) {
+        char* pln = kr_getline(params, pli);
+        if (kr_truthy(kr_eq(kr_startswith(pln, kr_str("PARAM ")), kr_str("1")))) {
+            char* pn = kr_substr(pln, kr_str("6"), kr_len(pln));
+            paramPushes = kr_plus(kr_plus(kr_plus(paramPushes, kr_str("LOAD ")), pn), kr_str("\nBUILTIN gcShadowPush 1\nPOP\n"));
+        }
+        pli = kr_plus(pli, kr_str("1"));
+    }
+    bodyCode = kr_plus(kr_plus(kr_plus(kr_str("LOCAL __sh_save\nBUILTIN gcShadowCount 0\nSTORE __sh_save\n"), paramPushes), bodyCode), kr_str("BUILTIN gcShadowCount 0\nLOAD __sh_save\nSUB\nBUILTIN gcShadowPop 1\nPOP\n"));
     return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_str("FUNC "), fname), kr_str(" ")), pc), kr_str("\n")), params), bodyCode), kr_str("END\n\n,")), p);
 }
 
@@ -4860,12 +6253,105 @@ char* findFreeVars(char* tokens, char* bodyStart, char* bodyEnd, char* params) {
     return kr_str("");
 }
 
+char* emitPortWarnings(char* tokens, char* ntoks, char* fname) {
+    char* warnings = kr_str("0");
+    char* i = kr_str("0");
+    char* topLevelLets = kr_str("");
+    char* pp = kr_str("0");
+    char* ppDepth = kr_str("0");
+    while (kr_truthy(kr_lt(pp, ntoks))) {
+        char* pt = ((char*(*)(char*,char*))tokAt)(tokens, pp);
+        if (kr_truthy(kr_eq(pt, kr_str("LBRACE")))) {
+            ppDepth = kr_plus(ppDepth, kr_str("1"));
+        }
+        if (kr_truthy(kr_eq(pt, kr_str("RBRACE")))) {
+            ppDepth = kr_sub(ppDepth, kr_str("1"));
+        }
+        if (kr_truthy((kr_truthy(kr_eq(ppDepth, kr_str("0"))) && kr_truthy((kr_truthy(kr_eq(pt, kr_str("KW:let"))) || kr_truthy(kr_eq(pt, kr_str("KW:const"))) ? kr_str("1") : kr_str("0"))) ? kr_str("1") : kr_str("0")))) {
+            char* nameTk = ((char*(*)(char*,char*))tokAt)(tokens, kr_plus(pp, kr_str("1")));
+            if (kr_truthy(kr_eq(kr_startswith(nameTk, kr_str("ID:")), kr_str("1")))) {
+                char* nm = kr_substr(nameTk, kr_str("3"), kr_len(nameTk));
+                if (kr_truthy(kr_gt(kr_len(topLevelLets), kr_str("0")))) {
+                    topLevelLets = kr_plus(topLevelLets, kr_str(","));
+                }
+                topLevelLets = kr_plus(topLevelLets, nm);
+            }
+        }
+        pp = kr_plus(pp, kr_str("1"));
+    }
+    while (kr_truthy(kr_lt(i, ntoks))) {
+        char* tok = ((char*(*)(char*,char*))tokAt)(tokens, i);
+        if (kr_truthy((kr_truthy(kr_eq(tok, kr_str("ID:bufNew"))) && kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(i, kr_str("1"))), kr_str("LPAREN"))) ? kr_str("1") : kr_str("0")))) {
+            kr_printerr(kr_plus(fname, kr_str(": warning [port-1to2]: bufNew() — manual heap allocation. In 2.0, prefer typed `let local TYPE name` (stack alloc) or wait for GC reclamation.")));
+            warnings = kr_plus(warnings, kr_str("1"));
+        }
+        if (kr_truthy((kr_truthy(kr_eq(tok, kr_str("ID:rawAlloc"))) && kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(i, kr_str("1"))), kr_str("LPAREN"))) ? kr_str("1") : kr_str("0")))) {
+            kr_printerr(kr_plus(fname, kr_str(": warning [port-1to2]: rawAlloc() — escapes GC; 2.0 will require explicit `unsafe` block or paired rawFree.")));
+            warnings = kr_plus(warnings, kr_str("1"));
+        }
+        if (kr_truthy((kr_truthy(kr_eq(tok, kr_str("ID:rawFree"))) && kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(i, kr_str("1"))), kr_str("LPAREN"))) ? kr_str("1") : kr_str("0")))) {
+            kr_printerr(kr_plus(fname, kr_str(": warning [port-1to2]: rawFree() — only needed for rawAlloc'd memory under 2.0 GC.")));
+            warnings = kr_plus(warnings, kr_str("1"));
+        }
+        if (kr_truthy((kr_truthy(kr_eq(tok, kr_str("ID:ptrAdd"))) && kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(i, kr_str("1"))), kr_str("LPAREN"))) ? kr_str("1") : kr_str("0")))) {
+            kr_printerr(kr_plus(fname, kr_str(": warning [port-1to2]: ptrAdd() — raw pointer arithmetic. Prefer typed `*u8 + n` syntax in 2.0.")));
+            warnings = kr_plus(warnings, kr_str("1"));
+        }
+        if (kr_truthy((kr_truthy(kr_eq(tok, kr_str("ID:ptrToInt"))) && kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(i, kr_str("1"))), kr_str("LPAREN"))) ? kr_str("1") : kr_str("0")))) {
+            kr_printerr(kr_plus(fname, kr_str(": warning [port-1to2]: ptrToInt() — converts pointer to int. Loses GC-tracking under 2.0.")));
+            warnings = kr_plus(warnings, kr_str("1"));
+        }
+        if (kr_truthy((kr_truthy((kr_truthy(kr_eq(tok, kr_str("ID:rawReadByte"))) || kr_truthy(kr_eq(tok, kr_str("ID:rawReadWord"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(tok, kr_str("ID:rawReadQword"))) ? kr_str("1") : kr_str("0")))) {
+            if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(i, kr_str("1"))), kr_str("LPAREN")))) {
+                char* fn = kr_substr(tok, kr_str("3"), kr_len(tok));
+                kr_printerr(kr_plus(kr_plus(kr_plus(fname, kr_str(": warning [port-1to2]: ")), fn), kr_str("() — raw memory read. Prefer typed pointer indexing (`p[i]` with `let p: *u8 = ...`) for 2.0 safety.")));
+                warnings = kr_plus(warnings, kr_str("1"));
+            }
+        }
+        if (kr_truthy((kr_truthy(kr_eq(tok, kr_str("ID:rawWriteWord"))) || kr_truthy(kr_eq(tok, kr_str("ID:rawWriteQword"))) ? kr_str("1") : kr_str("0")))) {
+            if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(i, kr_str("1"))), kr_str("LPAREN")))) {
+                char* fn = kr_substr(tok, kr_str("3"), kr_len(tok));
+                kr_printerr(kr_plus(kr_plus(kr_plus(fname, kr_str(": warning [port-1to2]: ")), fn), kr_str("() — raw memory write. Prefer typed pointer assignment in 2.0.")));
+                warnings = kr_plus(warnings, kr_str("1"));
+            }
+        }
+        if (kr_truthy(kr_eq(((char*(*)(char*))tokType)(tok), kr_str("CBLOCK")))) {
+            kr_printerr(kr_plus(fname, kr_str(": warning [port-1to2]: `cfunc { }` block — C-language body. 2.0 prefers pure-Krypton implementations once Win32 ABI marshalling lands.")));
+            warnings = kr_plus(warnings, kr_str("1"));
+        }
+        if (kr_truthy(kr_eq(((char*(*)(char*))tokType)(tok), kr_str("ID")))) {
+            char* nm2 = ((char*(*)(char*))tokVal)(tok);
+            if (kr_truthy(kr_contains(kr_plus(kr_plus(kr_str(","), topLevelLets), kr_str(",")), kr_plus(kr_plus(kr_str(","), nm2), kr_str(","))))) {
+                char* nextTok = ((char*(*)(char*,char*))tokAt)(tokens, kr_plus(i, kr_str("1")));
+                if (kr_truthy(kr_eq(nextTok, kr_str("ASSIGN")))) {
+                    char* prev = kr_str("");
+                    if (kr_truthy(kr_gt(i, kr_str("0")))) {
+                        prev = ((char*(*)(char*,char*))tokAt)(tokens, kr_sub(i, kr_str("1")));
+                    }
+                    if (kr_truthy((kr_truthy(kr_neq(prev, kr_str("KW:let"))) && kr_truthy(kr_neq(prev, kr_str("KW:const"))) ? kr_str("1") : kr_str("0")))) {
+                        kr_printerr(kr_plus(kr_plus(kr_plus(fname, kr_str(": warning [port-1to2]: file-scope `")), nm2), kr_str("` reassigned — mutable module globals are broken in the native pipeline. Confine state to function scope or pass explicitly.")));
+                        warnings = kr_plus(warnings, kr_str("1"));
+                    }
+                }
+            }
+        }
+        i = kr_plus(i, kr_str("1"));
+    }
+    if (kr_truthy(kr_eq(warnings, kr_str("0")))) {
+        kr_printerr(kr_plus(fname, kr_str(": port-1to2 clean — no 2.0 migration concerns flagged.")));
+    } else {
+        kr_printerr(kr_plus(kr_plus(kr_plus(fname, kr_str(": port-1to2 done — ")), warnings), kr_str(" warning(s).")));
+    }
+}
+
 int main(int argc, char** argv) {
     _argc = argc; _argv = argv;
     srand((unsigned)time(NULL));
-    char* kccVer = kr_str("1.3.7");
+    char* kccVer = kr_str("1.8.0");
     char* irMode = kr_str("0");
-    char* headersDir = kr_str("");
+    char* portMode = kr_str("0");
+    char* installRoot = kr_str("C:\\krypton");
+    char* headersDir = kr_plus(installRoot, kr_str("\\headers"));
     char* outFile = kr_str("");
     char* file = kr_arg(kr_str("0"));
     char* argIdx = kr_str("0");
@@ -4875,17 +6361,12 @@ int main(int argc, char** argv) {
     }
     if (kr_truthy(kr_eq(kr_argcount(), kr_str("0")))) {
         kr_printerr(kr_str("kcc: no input file"));
-        kr_printerr(kr_str("usage: kcc [-o out.exe] [--headers dir] source.k"));
+        kr_printerr(kr_str("usage: kcc [-o out.exe] [--port-1to2] source.k"));
         return atoi(kr_str("1"));
     }
-    while (kr_truthy((kr_truthy((kr_truthy(kr_eq(file, kr_str("--ir"))) || kr_truthy(kr_eq(file, kr_str("--headers"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(file, kr_str("-o"))) ? kr_str("1") : kr_str("0")))) {
+    while (kr_truthy((kr_truthy((kr_truthy(kr_eq(file, kr_str("--ir"))) || kr_truthy(kr_eq(file, kr_str("-o"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(file, kr_str("--port-1to2"))) ? kr_str("1") : kr_str("0")))) {
         if (kr_truthy(kr_eq(file, kr_str("--ir")))) {
             irMode = kr_str("1");
-            argIdx = kr_plus(argIdx, kr_str("1"));
-        }
-        if (kr_truthy(kr_eq(file, kr_str("--headers")))) {
-            argIdx = kr_plus(argIdx, kr_str("1"));
-            headersDir = kr_arg(kr_plus(argIdx, kr_str("")));
             argIdx = kr_plus(argIdx, kr_str("1"));
         }
         if (kr_truthy(kr_eq(file, kr_str("-o")))) {
@@ -4893,13 +6374,14 @@ int main(int argc, char** argv) {
             outFile = kr_arg(kr_plus(argIdx, kr_str("")));
             argIdx = kr_plus(argIdx, kr_str("1"));
         }
+        if (kr_truthy(kr_eq(file, kr_str("--port-1to2")))) {
+            portMode = kr_str("1");
+            argIdx = kr_plus(argIdx, kr_str("1"));
+        }
         file = kr_arg(kr_plus(argIdx, kr_str("")));
     }
     if (kr_truthy(kr_gt(kr_len(outFile), kr_str("0")))) {
         irMode = kr_str("1");
-    }
-    if (kr_truthy(kr_eq(headersDir, kr_str("")))) {
-        headersDir = kr_str("C:\\krypton\\headers");
     }
     char* source = kr_readfile(file);
     if (kr_truthy(kr_eq(kr_len(source), kr_str("0")))) {
@@ -4908,6 +6390,10 @@ int main(int argc, char** argv) {
     }
     char* tokens = ((char*(*)(char*))tokenize)(source);
     char* ntoks = kr_linecount(tokens);
+    if (kr_truthy(kr_eq(portMode, kr_str("1")))) {
+        ((char*(*)(char*,char*,char*))emitPortWarnings)(tokens, ntoks, file);
+        return atoi(kr_str("0"));
+    }
     char* baseDir = kr_str("");
     char* lastSlash = kr_sub(kr_str("0"), kr_str("1"));
     char* fi = kr_str("0");
@@ -4995,25 +6481,50 @@ int main(int argc, char** argv) {
         if (kr_truthy(kr_eq(itok, kr_str("KW:import")))) {
             char* importPath = ((char*(*)(char*))tokVal)(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(ii, kr_str("1"))));
             char* fullPath = importPath;
+            char* colonAt = kr_indexof(importPath, kr_str(":"));
+            if (kr_truthy((kr_truthy(kr_gt(colonAt, kr_str("0"))) && kr_truthy(kr_lt(colonAt, kr_str("8"))) ? kr_str("1") : kr_str("0")))) {
+                char* prefix = kr_substr(importPath, kr_str("0"), colonAt);
+                char* sub = kr_substr(importPath, kr_plus(colonAt, kr_str("1")), kr_len(importPath));
+                if (kr_truthy(kr_eq(prefix, kr_str("k")))) {
+                    fullPath = kr_plus(kr_plus(kr_plus(installRoot, kr_str("/stdlib/")), sub), kr_str(".k"));
+                }
+                if (kr_truthy(kr_eq(prefix, kr_str("core")))) {
+                    fullPath = kr_plus(kr_plus(kr_plus(installRoot, kr_str("/stdlib/")), sub), kr_str(".k"));
+                }
+                if (kr_truthy(kr_eq(prefix, kr_str("head")))) {
+                    fullPath = kr_plus(kr_plus(kr_plus(installRoot, kr_str("/headers/")), sub), kr_str(".krh"));
+                }
+                if (kr_truthy(kr_eq(prefix, kr_str("headers")))) {
+                    fullPath = kr_plus(kr_plus(kr_plus(installRoot, kr_str("/headers/")), sub), kr_str(".krh"));
+                }
+            }
             if (kr_truthy(kr_gt(kr_len(baseDir), kr_str("0")))) {
                 if (kr_truthy(kr_not(kr_startswith(importPath, kr_str("/"))))) {
                     if (kr_truthy(kr_not(kr_startswith(importPath, kr_str("C:"))))) {
-                        char* relPath = kr_plus(baseDir, importPath);
-                        char* testSrc = kr_readfile(relPath);
-                        if (kr_truthy(kr_gt(kr_len(testSrc), kr_str("0")))) {
-                            fullPath = relPath;
+                        if (kr_truthy(kr_not(kr_startswith(fullPath, installRoot)))) {
+                            char* relPath = kr_plus(baseDir, importPath);
+                            char* testSrc = kr_readfile(relPath);
+                            if (kr_truthy(kr_gt(kr_len(testSrc), kr_str("0")))) {
+                                fullPath = relPath;
+                            }
                         }
                     }
                 }
             }
-            if (kr_truthy(kr_gt(kr_len(headersDir), kr_str("0")))) {
-                char* testSrc2 = kr_readfile(fullPath);
-                if (kr_truthy(kr_eq(kr_len(testSrc2), kr_str("0")))) {
-                    char* hdPath = kr_plus(kr_plus(headersDir, kr_str("/")), importPath);
-                    char* testSrc3 = kr_readfile(hdPath);
-                    if (kr_truthy(kr_gt(kr_len(testSrc3), kr_str("0")))) {
-                        fullPath = hdPath;
-                    }
+            char* testSrc2 = kr_readfile(fullPath);
+            if (kr_truthy(kr_eq(kr_len(testSrc2), kr_str("0")))) {
+                char* hdPath = kr_plus(kr_plus(installRoot, kr_str("/headers/")), importPath);
+                char* testSrc3 = kr_readfile(hdPath);
+                if (kr_truthy(kr_gt(kr_len(testSrc3), kr_str("0")))) {
+                    fullPath = hdPath;
+                }
+            }
+            char* testSrc4 = kr_readfile(fullPath);
+            if (kr_truthy(kr_eq(kr_len(testSrc4), kr_str("0")))) {
+                char* stdPath = kr_plus(kr_plus(installRoot, kr_str("/")), importPath);
+                char* testSrc5 = kr_readfile(stdPath);
+                if (kr_truthy(kr_gt(kr_len(testSrc5), kr_str("0")))) {
+                    fullPath = stdPath;
                 }
             }
             if (kr_truthy(kr_not(kr_contains(imported, kr_plus(fullPath, kr_str("|")))))) {
@@ -5160,7 +6671,14 @@ int main(int argc, char** argv) {
                                         ijfPos = kr_plus(ijfPos, kr_str("2"));
                                     }
                                     char* ijfCName = ((char*(*)(char*))cIdent)(ijfName);
-                                    if (kr_truthy((kr_truthy((kr_truthy((kr_truthy((kr_truthy(kr_eq(ijfRetType, kr_str("INT"))) || kr_truthy(kr_eq(ijfRetType, kr_str("UINT"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(ijfRetType, kr_str("DWORD"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(ijfRetType, kr_str("LONG"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(ijfRetType, kr_str("BOOL"))) ? kr_str("1") : kr_str("0")))) {
+                                    char* _iHasMarshal = kr_str("0");
+                                    if (kr_truthy(kr_gt(kr_len(((char*(*)(char*))compileWin32IntReturn)(ijfCName)), kr_str("0")))) {
+                                        _iHasMarshal = kr_str("1");
+                                    }
+                                    if (kr_truthy(kr_gt(kr_len(((char*(*)(char*))compileWin32IntArgs)(ijfCName)), kr_str("0")))) {
+                                        _iHasMarshal = kr_str("1");
+                                    }
+                                    if (kr_truthy((kr_truthy((kr_truthy((kr_truthy((kr_truthy((kr_truthy(kr_eq(ijfRetType, kr_str("INT"))) || kr_truthy(kr_eq(ijfRetType, kr_str("UINT"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(ijfRetType, kr_str("DWORD"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(ijfRetType, kr_str("LONG"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(ijfRetType, kr_str("BOOL"))) ? kr_str("1") : kr_str("0"))) && kr_truthy(kr_eq(_iHasMarshal, kr_str("0"))) ? kr_str("1") : kr_str("0")))) {
                                         char* iwd = kr_plus(kr_plus(kr_str("static char* _krw_"), ijfCName), kr_str("("));
                                         char* iwpi = kr_str("0");
                                         while (kr_truthy(kr_lt(iwpi, ijfPc))) {
@@ -5185,7 +6703,7 @@ int main(int argc, char** argv) {
                                         iwd = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(iwd, kr_str("));}\n#define ")), ijfCName), kr_str(" _krw_")), ijfCName), kr_str("\n"));
                                         iDecls = kr_plus(iDecls, iwd);
                                     }
-                                    if (kr_truthy((kr_truthy(kr_eq(ijfRetType, kr_str("UINT64"))) || kr_truthy(kr_eq(ijfRetType, kr_str("ULONGLONG"))) ? kr_str("1") : kr_str("0")))) {
+                                    if (kr_truthy((kr_truthy((kr_truthy(kr_eq(ijfRetType, kr_str("UINT64"))) || kr_truthy(kr_eq(ijfRetType, kr_str("ULONGLONG"))) ? kr_str("1") : kr_str("0"))) && kr_truthy(kr_eq(_iHasMarshal, kr_str("0"))) ? kr_str("1") : kr_str("0")))) {
                                         char* iwd = kr_plus(kr_plus(kr_str("static char* _krw_"), ijfCName), kr_str("("));
                                         char* iwpi = kr_str("0");
                                         while (kr_truthy(kr_lt(iwpi, ijfPc))) {
@@ -5210,7 +6728,7 @@ int main(int argc, char** argv) {
                                         iwd = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(iwd, kr_str("));return kr_str(_b);}\n#define ")), ijfCName), kr_str(" _krw_")), ijfCName), kr_str("\n"));
                                         iDecls = kr_plus(iDecls, iwd);
                                     }
-                                    if (kr_truthy(kr_eq(ijfRetType, kr_str("zero")))) {
+                                    if (kr_truthy((kr_truthy(kr_eq(ijfRetType, kr_str("zero"))) && kr_truthy(kr_eq(_iHasMarshal, kr_str("0"))) ? kr_str("1") : kr_str("0")))) {
                                         char* iwd = kr_plus(kr_plus(kr_str("static char* _krw_"), ijfCName), kr_str("("));
                                         char* iwpi = kr_str("0");
                                         while (kr_truthy(kr_lt(iwpi, ijfPc))) {
@@ -5240,7 +6758,7 @@ int main(int argc, char** argv) {
                                     ijxtPos = kr_plus(ijxtPos, kr_str("2"));
                                 }
                             }
-                            ij = ((char*(*)(char*,char*))skipBlock)(iToks, kr_plus(ij, kr_str("1")));
+                            ij = kr_sub(((char*(*)(char*,char*))skipBlock)(iToks, kr_plus(ij, kr_str("1"))), kr_str("1"));
                         } else if (kr_truthy((kr_truthy(kr_eq(itk, kr_str("KW:func"))) || kr_truthy(kr_eq(itk, kr_str("KW:fn"))) ? kr_str("1") : kr_str("0")))) {
                             char* iname = ((char*(*)(char*))tokVal)(((char*(*)(char*,char*))tokAt)(iToks, kr_plus(ij, kr_str("1"))));
                             if (kr_truthy(kr_gt(kr_len(iname), kr_str("0")))) {
@@ -5258,6 +6776,9 @@ int main(int argc, char** argv) {
                                 idecl = kr_plus(idecl, kr_str(");\n"));
                                 iDecls = kr_plus(iDecls, idecl);
                             }
+                        } else if (kr_truthy(kr_eq(((char*(*)(char*))tokType)(itk), kr_str("CBLOCK")))) {
+                            char* icraw = kr_replace(((char*(*)(char*))tokVal)(itk), kr_str("\\x01"), kr_str("\n"));
+                            iDecls = kr_plus(kr_plus(iDecls, icraw), kr_str("\n"));
                         }
                         ij = kr_plus(ij, kr_str("1"));
                     }
@@ -5326,6 +6847,7 @@ int main(int argc, char** argv) {
                             kr_printerr(kr_plus(kr_str("kcc: jxt k not found: "), jFullPath));
                         }
                     }
+                    jxtPos = kr_plus(jxtPos, kr_str("2"));
                 } else if (kr_truthy((kr_truthy(kr_eq(lang, kr_str("c"))) || kr_truthy(kr_eq(lang, kr_str("t"))) ? kr_str("1") : kr_str("0")))) {
                     jxtHasCHeader = kr_str("1");
                     char* jIncLine = kr_str("");
@@ -5460,7 +6982,10 @@ int main(int argc, char** argv) {
                         jfRetType = ((char*(*)(char*))tokVal)(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(jfPos, kr_str("1"))));
                         jfPos = kr_plus(jfPos, kr_str("2"));
                     }
-                    if (kr_truthy((kr_truthy((kr_truthy((kr_truthy((kr_truthy(kr_eq(jfRetType, kr_str("INT"))) || kr_truthy(kr_eq(jfRetType, kr_str("UINT"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(jfRetType, kr_str("DWORD"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(jfRetType, kr_str("LONG"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(jfRetType, kr_str("BOOL"))) ? kr_str("1") : kr_str("0")))) {
+                    char* _hasNewMarshal = ((char*(*)(char*))compileWin32IntReturn)(jfCName);
+                    if (kr_truthy((kr_truthy(kr_gt(kr_len(_hasNewMarshal), kr_str("0"))) || kr_truthy(kr_gt(kr_len(((char*(*)(char*))compileWin32IntArgs)(jfCName)), kr_str("0"))) ? kr_str("1") : kr_str("0")))) {
+                    }
+                    if (kr_truthy((kr_truthy((kr_truthy((kr_truthy((kr_truthy((kr_truthy((kr_truthy(kr_eq(jfRetType, kr_str("INT"))) || kr_truthy(kr_eq(jfRetType, kr_str("UINT"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(jfRetType, kr_str("DWORD"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(jfRetType, kr_str("LONG"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(jfRetType, kr_str("BOOL"))) ? kr_str("1") : kr_str("0"))) && kr_truthy(kr_eq(kr_len(_hasNewMarshal), kr_str("0"))) ? kr_str("1") : kr_str("0"))) && kr_truthy(kr_eq(kr_len(((char*(*)(char*))compileWin32IntArgs)(jfCName)), kr_str("0"))) ? kr_str("1") : kr_str("0")))) {
                         char* wd = kr_plus(kr_plus(kr_str("static char* _krw_"), jfCName), kr_str("("));
                         char* wpi = kr_str("0");
                         while (kr_truthy(kr_lt(wpi, jfPc))) {
@@ -5485,7 +7010,7 @@ int main(int argc, char** argv) {
                         wd = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(wd, kr_str(");}\n#define ")), jfCName), kr_str(" _krw_")), jfCName), kr_str("\n"));
                         importFwdDecls = kr_plus(importFwdDecls, wd);
                     }
-                    if (kr_truthy((kr_truthy(kr_eq(jfRetType, kr_str("UINT64"))) || kr_truthy(kr_eq(jfRetType, kr_str("ULONGLONG"))) ? kr_str("1") : kr_str("0")))) {
+                    if (kr_truthy((kr_truthy((kr_truthy((kr_truthy(kr_eq(jfRetType, kr_str("UINT64"))) || kr_truthy(kr_eq(jfRetType, kr_str("ULONGLONG"))) ? kr_str("1") : kr_str("0"))) && kr_truthy(kr_eq(kr_len(_hasNewMarshal), kr_str("0"))) ? kr_str("1") : kr_str("0"))) && kr_truthy(kr_eq(kr_len(((char*(*)(char*))compileWin32IntArgs)(jfCName)), kr_str("0"))) ? kr_str("1") : kr_str("0")))) {
                         char* wd = kr_plus(kr_plus(kr_str("static char* _krw_"), jfCName), kr_str("("));
                         char* wpi = kr_str("0");
                         while (kr_truthy(kr_lt(wpi, jfPc))) {
@@ -5510,7 +7035,7 @@ int main(int argc, char** argv) {
                         wd = kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(wd, kr_str("));return kr_str(_b);}\n#define ")), jfCName), kr_str(" _krw_")), jfCName), kr_str("\n"));
                         importFwdDecls = kr_plus(importFwdDecls, wd);
                     }
-                    if (kr_truthy(kr_eq(jfRetType, kr_str("zero")))) {
+                    if (kr_truthy((kr_truthy((kr_truthy(kr_eq(jfRetType, kr_str("zero"))) && kr_truthy(kr_eq(kr_len(_hasNewMarshal), kr_str("0"))) ? kr_str("1") : kr_str("0"))) && kr_truthy(kr_eq(kr_len(((char*(*)(char*))compileWin32IntArgs)(jfCName)), kr_str("0"))) ? kr_str("1") : kr_str("0")))) {
                         char* wd = kr_plus(kr_plus(kr_str("static char* _krw_"), jfCName), kr_str("("));
                         char* wpi = kr_str("0");
                         while (kr_truthy(kr_lt(wpi, jfPc))) {
@@ -5764,12 +7289,12 @@ int main(int argc, char** argv) {
             }
             char* irLibText = kr_sbtostring(sbIRlib);
             if (kr_truthy(kr_gt(kr_len(outFile), kr_str("0")))) {
-                char* kompilerDir = kr_replace(headersDir, kr_str("headers"), kr_str("bin"));
+                char* compilerDir = kr_replace(headersDir, kr_str("headers"), kr_str("bin"));
                 char* tmpIR = kr_str("C:\\krypton\\tmp_kcc_build.ir");
                 char* tmpOpt = kr_str("C:\\krypton\\tmp_kcc_build_opt.ir");
                 kr_writefile(tmpIR, irLibText);
-                char* optCmd2 = kr_plus(kr_plus(kr_plus(kr_plus(kompilerDir, kr_str("\\optimize_host.exe ")), tmpIR), kr_str(" > ")), tmpOpt);
-                char* codeCmd2 = kr_plus(kr_plus(kr_plus(kr_plus(kompilerDir, kr_str("\\x64_host_new.exe ")), tmpOpt), kr_str(" ")), outFile);
+                char* optCmd2 = kr_plus(kr_plus(kr_plus(kr_plus(compilerDir, kr_str("\\optimize_host.exe ")), tmpIR), kr_str(" > ")), tmpOpt);
+                char* codeCmd2 = kr_plus(kr_plus(kr_plus(kr_plus(compilerDir, kr_str("\\x64_host_new.exe ")), tmpOpt), kr_str(" ")), outFile);
                 kr_shellrun(optCmd2);
                 kr_shellrun(codeCmd2);
                 kr_deletefile(tmpIR);
@@ -5798,6 +7323,7 @@ int main(int argc, char** argv) {
         char* sbIR = kr_sbnew();
         sbIR = kr_sbappend(sbIR, kr_plus(kr_plus(kr_str("; Krypton IR\n; Source: "), file), kr_str("\n\n")));
         sbIR = kr_sbappend(sbIR, importedIR);
+        char* sbGlobInit = kr_sbnew();
         char* iri = kr_str("0");
         while (kr_truthy(kr_lt(iri, ntoks))) {
             char* irtok = ((char*(*)(char*,char*))tokAt)(tokens, iri);
@@ -5816,23 +7342,88 @@ int main(int argc, char** argv) {
                 } else {
                     iri = kr_plus(iri, kr_str("1"));
                 }
+            } else if (kr_truthy((kr_truthy(kr_eq(irtok, kr_str("KW:just"))) || kr_truthy(kr_eq(irtok, kr_str("KW:go"))) ? kr_str("1") : kr_str("0")))) {
+                char* bodyOpen = kr_plus(iri, kr_str("2"));
+                while (kr_truthy((kr_truthy(kr_lt(bodyOpen, ntoks)) && kr_truthy(kr_neq(((char*(*)(char*,char*))tokAt)(tokens, bodyOpen), kr_str("LBRACE"))) ? kr_str("1") : kr_str("0")))) {
+                    bodyOpen = kr_plus(bodyOpen, kr_str("1"));
+                }
+                char* scanP = kr_plus(bodyOpen, kr_str("1"));
+                char* scanDepth = kr_str("1");
+                while (kr_truthy((kr_truthy(kr_lt(scanP, ntoks)) && kr_truthy(kr_gt(scanDepth, kr_str("0"))) ? kr_str("1") : kr_str("0")))) {
+                    char* st = ((char*(*)(char*,char*))tokAt)(tokens, scanP);
+                    if (kr_truthy(kr_eq(st, kr_str("LBRACE")))) {
+                        scanDepth = kr_plus(scanDepth, kr_str("1"));
+                        scanP = kr_plus(scanP, kr_str("1"));
+                    } else if (kr_truthy(kr_eq(st, kr_str("RBRACE")))) {
+                        scanDepth = kr_sub(scanDepth, kr_str("1"));
+                        scanP = kr_plus(scanP, kr_str("1"));
+                    } else if (kr_truthy((kr_truthy((kr_truthy(kr_eq(st, kr_str("KW:func"))) || kr_truthy(kr_eq(st, kr_str("KW:fn"))) ? kr_str("1") : kr_str("0"))) && kr_truthy(kr_eq(((char*(*)(char*))tokType)(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(scanP, kr_str("1")))), kr_str("ID"))) ? kr_str("1") : kr_str("0")))) {
+                        char* nfp = ((char*(*)(char*,char*,char*))irFuncIR)(tokens, scanP, ntoks);
+                        sbIR = kr_sbappend(sbIR, ((char*(*)(char*))pairVal)(nfp));
+                        scanP = ((char*(*)(char*))pairPos)(nfp);
+                    } else {
+                        scanP = kr_plus(scanP, kr_str("1"));
+                    }
+                }
+                iri = scanP;
+            } else if (kr_truthy((kr_truthy((kr_truthy(kr_eq(irtok, kr_str("KW:struct"))) || kr_truthy(kr_eq(irtok, kr_str("KW:class"))) ? kr_str("1") : kr_str("0"))) || kr_truthy(kr_eq(irtok, kr_str("KW:type"))) ? kr_str("1") : kr_str("0")))) {
+                char* structName = ((char*(*)(char*))tokVal)(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(iri, kr_str("1"))));
+                sbIR = kr_sbappend(sbIR, kr_plus(kr_plus(kr_str("FUNC "), structName), kr_str(" 0\nSTRUCTNEW\nRETURN\nEND\n\n")));
+                char* entryP = kr_plus(iri, kr_str("2"));
+                while (kr_truthy((kr_truthy(kr_lt(entryP, ntoks)) && kr_truthy(kr_neq(((char*(*)(char*,char*))tokAt)(tokens, entryP), kr_str("LBRACE"))) ? kr_str("1") : kr_str("0")))) {
+                    entryP = kr_plus(entryP, kr_str("1"));
+                }
+                char* depth = kr_str("0");
+                while (kr_truthy(kr_lt(entryP, ntoks))) {
+                    char* bt = ((char*(*)(char*,char*))tokAt)(tokens, entryP);
+                    if (kr_truthy(kr_eq(bt, kr_str("LBRACE")))) {
+                        depth = kr_plus(depth, kr_str("1"));
+                    }
+                    if (kr_truthy(kr_eq(bt, kr_str("RBRACE")))) {
+                        depth = kr_sub(depth, kr_str("1"));
+                        if (kr_truthy(kr_eq(depth, kr_str("0")))) {
+                            entryP = kr_plus(entryP, kr_str("1"));
+                            break;
+                        }
+                    }
+                    entryP = kr_plus(entryP, kr_str("1"));
+                }
+                iri = entryP;
+            } else if (kr_truthy((kr_truthy(kr_eq(irtok, kr_str("KW:let"))) || kr_truthy(kr_eq(irtok, kr_str("KW:const"))) ? kr_str("1") : kr_str("0")))) {
+                char* glp = ((char*(*)(char*,char*,char*,char*,char*,char*))irLetIR)(tokens, kr_plus(iri, kr_str("1")), ntoks, kr_str("0"), kr_str("0"), kr_str(""));
+                sbGlobInit = kr_sbappend(sbGlobInit, ((char*(*)(char*))pairVal)(glp));
+                iri = ((char*(*)(char*))pairPos)(glp);
             } else {
                 iri = kr_plus(iri, kr_str("1"));
             }
         }
+        char* lamI = kr_str("0");
+        while (kr_truthy(kr_lt(lamI, ntoks))) {
+            char* lamTok = ((char*(*)(char*,char*))tokAt)(tokens, lamI);
+            if (kr_truthy((kr_truthy((kr_truthy(kr_eq(lamTok, kr_str("KW:func"))) || kr_truthy(kr_eq(lamTok, kr_str("KW:fn"))) ? kr_str("1") : kr_str("0"))) && kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, kr_plus(lamI, kr_str("1"))), kr_str("LPAREN"))) ? kr_str("1") : kr_str("0")))) {
+                char* lampair = ((char*(*)(char*,char*,char*,char*))irLambdaIR)(tokens, lamI, ntoks, kr_plus(kr_str("_krlam"), lamI));
+                sbIR = kr_sbappend(sbIR, ((char*(*)(char*))pairVal)(lampair));
+                lamI = ((char*(*)(char*))pairPos)(lampair);
+            } else {
+                lamI = kr_plus(lamI, kr_str("1"));
+            }
+        }
         char* irEntry = ((char*(*)(char*,char*))findEntry)(tokens, ntoks);
         if (kr_truthy(kr_gte(irEntry, kr_str("0")))) {
-            char* ep = ((char*(*)(char*,char*,char*,char*,char*))irBlockIR)(tokens, irEntry, ntoks, kr_str("0"), kr_str("0"));
-            sbIR = kr_sbappend(sbIR, kr_plus(kr_plus(kr_str("FUNC __main__ 0\n"), ((char*(*)(char*))pairVal)(ep)), kr_str("END\n")));
+            char* mainTypes = kr_plus(((char*(*)(char*,char*))irScanStructTypes)(tokens, ntoks), ((char*(*)(char*,char*))irScanFuncTypes)(tokens, irEntry));
+            char* ep = ((char*(*)(char*,char*,char*,char*,char*,char*))irBlockIR)(tokens, irEntry, ntoks, kr_str("0"), kr_str("0"), mainTypes);
+            char* mainBody = kr_plus(kr_sbtostring(sbGlobInit), ((char*(*)(char*))pairVal)(ep));
+            mainBody = kr_plus(kr_plus(kr_str("LOCAL __sh_save\nBUILTIN gcShadowCount 0\nSTORE __sh_save\n"), mainBody), kr_str("BUILTIN gcShadowCount 0\nLOAD __sh_save\nSUB\nBUILTIN gcShadowPop 1\nPOP\n"));
+            sbIR = kr_sbappend(sbIR, kr_plus(kr_plus(kr_str("FUNC __main__ 0\n"), mainBody), kr_str("END\n")));
         }
         char* irText = kr_sbtostring(sbIR);
         if (kr_truthy(kr_gt(kr_len(outFile), kr_str("0")))) {
-            char* kompilerDir = kr_replace(headersDir, kr_str("headers"), kr_str("bin"));
+            char* compilerDir = kr_replace(headersDir, kr_str("headers"), kr_str("bin"));
             char* tmpIR = kr_str("C:\\krypton\\tmp_kcc_build.ir");
             char* tmpOpt = kr_str("C:\\krypton\\tmp_kcc_build_opt.ir");
             kr_writefile(tmpIR, irText);
-            char* optCmd = kr_plus(kr_plus(kr_plus(kr_plus(kompilerDir, kr_str("\\optimize_host.exe ")), tmpIR), kr_str(" > ")), tmpOpt);
-            char* codeCmd = kr_plus(kr_plus(kr_plus(kr_plus(kompilerDir, kr_str("\\x64_host_new.exe ")), tmpOpt), kr_str(" ")), outFile);
+            char* optCmd = kr_plus(kr_plus(kr_plus(kr_plus(compilerDir, kr_str("\\optimize_host.exe ")), tmpIR), kr_str(" > ")), tmpOpt);
+            char* codeCmd = kr_plus(kr_plus(kr_plus(kr_plus(compilerDir, kr_str("\\x64_host_new.exe ")), tmpOpt), kr_str(" ")), outFile);
             kr_shellrun(optCmd);
             kr_shellrun(codeCmd);
             kr_deletefile(tmpIR);

@@ -1089,11 +1089,187 @@ func compilePrimary(tokens, pos, ntoks) {
 
 // === Function/builtin call compiler ===
 
+// Win32 int-arg marshalling for the C-emit path.  Mirrors the table in
+// compiler/windows_x86/x64.k — when these names appear in user code that
+// goes through `kcc → C → gcc`, the bare-string Krypton arg has to be
+// atoi()'d to an int before being passed to the Win32 function (whose
+// real signature expects a DWORD, etc.).  Returns CSV of arg indices
+// (0-based), or "" if not marshalled.
+func compileWin32IntArgs(name) {
+    if name == "GetStdHandle"               { emit "0" }
+    if name == "SetConsoleOutputCP"         { emit "0" }
+    if name == "SetConsoleMode"             { emit "0,1" }
+    if name == "GetConsoleMode"             { emit "0" }
+    if name == "GetConsoleScreenBufferInfo" { emit "0" }
+    if name == "Sleep"                      { emit "0" }
+    if name == "GetTickCount"               { emit "" }
+    if name == "GetTickCount64"             { emit "" }
+    if name == "GetSystemMetrics"           { emit "0" }
+    if name == "ExitProcess"                { emit "0" }
+    if name == "WriteFile"                  { emit "0,2,4" }
+    if name == "ReadFile"                   { emit "0,2,4" }
+    if name == "CloseHandle"                { emit "0" }
+    if name == "CreateToolhelp32Snapshot"   { emit "0,1" }
+    if name == "Process32First"             { emit "0" }
+    if name == "Process32Next"              { emit "0" }
+    if name == "GetLogicalDrives"           { emit "" }
+    if name == "GetFileAttributesA"         { emit "" }
+    if name == "GetFileSizeEx"              { emit "0" }
+    if name == "FreeLibrary"                { emit "0" }
+    if name == "FindFirstFileA"             { emit "" }
+    if name == "FindNextFileA"              { emit "0" }
+    if name == "FindClose"                  { emit "0" }
+    if name == "CreateDirectoryA"           { emit "" }
+    if name == "DeleteFileA"                { emit "" }
+    if name == "RemoveDirectoryA"           { emit "" }
+    if name == "MoveFileA"                  { emit "" }
+    if name == "CopyFileA"                  { emit "2" }   // bFailIfExists is BOOL
+    // Process / pipe management
+    if name == "CreatePipe"                 { emit "3" }       // out, out, sa-ptr, size=DWORD
+    if name == "CreateProcessA"             { emit "4,5" }     // app=str, cmd=str, pa,ta=ptr, inherit=BOOL, flags=DWORD, env=ptr, dir=str, si=ptr, pi=ptr
+    if name == "PeekNamedPipe"              { emit "0,2" }     // handle, lpBuf=ptr, nBufSize=DWORD, lpRead=ptr, lpAvail=ptr, lpLeft=ptr
+    if name == "GetExitCodeProcess"         { emit "0" }       // process, lpExitCode=ptr
+    if name == "SetHandleInformation"       { emit "0,1,2" }   // handle, mask=DWORD, flags=DWORD
+    if name == "RegOpenKeyExA"              { emit "0,2,3" }
+    if name == "RegQueryValueExA"           { emit "0" }
+    if name == "RegEnumKeyExA"              { emit "0,1" }
+    if name == "RegCloseKey"                { emit "0" }
+    if name == "GetUserNameA"               { emit "" }
+    if name == "GlobalMemoryStatusEx"       { emit "" }
+    if name == "GetSystemPowerStatus"       { emit "" }
+    if name == "GetDiskFreeSpaceExA"        { emit "" }
+    if name == "GetCurrentProcessId"        { emit "" }
+    if name == "GetCurrentThreadId"         { emit "" }
+    if name == "GetLastError"               { emit "" }
+    if name == "SetLastError"               { emit "0" }
+    if name == "WaitForSingleObject"        { emit "0,1" }
+    if name == "TerminateProcess"           { emit "0,1" }
+    if name == "OpenProcess"                { emit "0,1,2" }
+    if name == "CreateFileA"                { emit "1,2,3,4,5,6" }
+    if name == "VirtualAlloc"               { emit "0,1,2,3" }
+    if name == "VirtualFree"                { emit "0,1,2" }
+    if name == "HeapAlloc"                  { emit "0,1,2" }
+    if name == "HeapReAlloc"                { emit "0,1,3" }
+    if name == "HeapFree"                   { emit "0,1" }
+    if name == "GetEnvironmentVariableA"    { emit "2" }
+    if name == "CreateFileMappingA"         { emit "0,1,2,3,4,5" }
+    if name == "MapViewOfFile"              { emit "0,1,2,3,4" }
+    if name == "MessageBoxA"                { emit "0,3" }
+    if name == "ShowWindow"                 { emit "0,1" }
+    if name == "SetTimer"                   { emit "0,1,2" }
+    if name == "KillTimer"                  { emit "0,1" }
+    if name == "SetForegroundWindow"        { emit "0" }
+    if name == "ShellExecuteA"              { emit "0,5" }
+    emit ""
+}
+
+// "1" if return is full 64-bit (HANDLE/HMODULE/HINSTANCE) — use itoa64.
+// Default for compileWin32IntReturn=="1" is BOOL/DWORD (32-bit).
+func compileWin32Return64(name) {
+    if name == "GetStdHandle"             { emit "1" }
+    if name == "GetProcessHeap"           { emit "1" }
+    if name == "CreateToolhelp32Snapshot" { emit "1" }
+    if name == "CreateFileA"              { emit "1" }
+    if name == "FindFirstFileA"           { emit "1" }
+    if name == "CreateFileMappingA"       { emit "1" }
+    if name == "MapViewOfFile"            { emit "1" }
+    if name == "GetForegroundWindow"      { emit "1" }
+    if name == "VirtualAlloc"             { emit "1" }
+    if name == "HeapAlloc"                { emit "1" }
+    if name == "HeapReAlloc"              { emit "1" }
+    emit ""
+}
+
+// "1" if Win32 function returns an int that should be itoa'd into a
+// Krypton string; "" otherwise.  By default 32-bit (BOOL/DWORD/LONG);
+// see compileWin32Return64 for HANDLE-typed (64-bit) returns.
+func compileWin32IntReturn(name) {
+    if name == "GetStdHandle"               { emit "1" }
+    if name == "GetTickCount"               { emit "1" }
+    if name == "GetTickCount64"             { emit "1" }
+    if name == "GetSystemMetrics"           { emit "1" }
+    if name == "WriteFile"                  { emit "1" }
+    if name == "ReadFile"                   { emit "1" }
+    if name == "CloseHandle"                { emit "1" }
+    if name == "CreateToolhelp32Snapshot"   { emit "1" }
+    if name == "Process32First"             { emit "1" }
+    if name == "Process32Next"              { emit "1" }
+    if name == "GetLogicalDrives"           { emit "1" }
+    if name == "GetFileAttributesA"         { emit "1" }
+    if name == "GetFileSizeEx"              { emit "1" }
+    if name == "FindFirstFileA"             { emit "1" }
+    if name == "FindNextFileA"              { emit "1" }
+    if name == "FindClose"                  { emit "1" }
+    if name == "CreateDirectoryA"           { emit "1" }
+    if name == "DeleteFileA"                { emit "1" }
+    if name == "RemoveDirectoryA"           { emit "1" }
+    if name == "MoveFileA"                  { emit "1" }
+    if name == "CopyFileA"                  { emit "1" }
+    if name == "CreateFileA"                { emit "1" }   // HANDLE
+    if name == "CreatePipe"                 { emit "1" }   // BOOL
+    if name == "CreateProcessA"             { emit "1" }   // BOOL
+    if name == "PeekNamedPipe"              { emit "1" }   // BOOL
+    if name == "GetExitCodeProcess"         { emit "1" }   // BOOL
+    if name == "SetHandleInformation"       { emit "1" }   // BOOL
+    if name == "RegOpenKeyExA"              { emit "1" }
+    if name == "RegQueryValueExA"           { emit "1" }
+    if name == "RegEnumKeyExA"              { emit "1" }
+    if name == "RegCloseKey"                { emit "1" }
+    if name == "GetUserNameA"               { emit "1" }
+    if name == "GlobalMemoryStatusEx"       { emit "1" }
+    if name == "GetSystemPowerStatus"       { emit "1" }
+    if name == "GetDiskFreeSpaceExA"        { emit "1" }
+    if name == "GetCurrentProcessId"        { emit "1" }
+    if name == "GetCurrentThreadId"         { emit "1" }
+    if name == "GetLastError"               { emit "1" }
+    if name == "WaitForSingleObject"        { emit "1" }
+    if name == "TerminateProcess"           { emit "1" }
+    if name == "GetProcessHeap"             { emit "1" }
+    if name == "SetConsoleMode"             { emit "1" }
+    if name == "GetConsoleMode"             { emit "1" }
+    if name == "SetConsoleOutputCP"         { emit "1" }
+    if name == "GetConsoleScreenBufferInfo" { emit "1" }
+    if name == "VirtualFree"                { emit "1" }
+    if name == "HeapFree"                   { emit "1" }
+    if name == "FreeLibrary"                { emit "1" }
+    if name == "MessageBoxA"                { emit "1" }
+    if name == "ShowWindow"                 { emit "1" }
+    if name == "SetTimer"                   { emit "1" }
+    if name == "KillTimer"                  { emit "1" }
+    if name == "GetForegroundWindow"        { emit "1" }
+    if name == "SetForegroundWindow"        { emit "1" }
+    if name == "CreateFileMappingA"         { emit "1" }
+    if name == "UnmapViewOfFile"            { emit "1" }
+    if name == "ShellExecuteA"              { emit "1" }
+    emit ""
+}
+
+// Check whether csv (e.g. "0,2,4") contains the integer idx.
+func compileCsvHas(csv, idx) {
+    if len(csv) == 0 { emit "0" }
+    let target = "" + idx
+    let i = 0
+    let cur = ""
+    while i <= len(csv) {
+        let ch = ""
+        if i < len(csv) { ch = substring(csv, i, i + 1) }
+        if i == len(csv) || ch == "," {
+            if cur == target { emit "1" }
+            cur = ""
+        } else {
+            cur = cur + ch
+        }
+        i += 1
+    }
+    emit "0"
+}
+
 func compileCall(tokens, pos, ntoks) {
     let fname = tokVal(tokAt(tokens, pos))
     let p = pos + 2
     // collect compiled argument expressions
     let args = ""
+    let argList = ""    // newline-separated, for Win32 marshalling rebuild
     let argc = 0
     while tokAt(tokens, p) != "RPAREN" {
         if argc > 0 {
@@ -1105,8 +1281,10 @@ func compileCall(tokens, pos, ntoks) {
         p = pairPos(ap)
         if argc > 0 {
             args = args + ", " + acode
+            argList = argList + "\n" + acode
         } else {
             args = acode
+            argList = acode
         }
         argc += 1
     }
@@ -1182,6 +1360,11 @@ func compileCall(tokens, pos, ntoks) {
         // structAddr(ptr) -> pass as void* to API functions
         emit "((char*)(" + args + "))," + p
     }
+    // Arena mark/reset — bump-allocator checkpoint for hot loops.
+    if fname == "arenaMark"     { emit "_alloc_mark()," + p }
+    if fname == "arenaReset"    { emit "_alloc_reset(" + args + ")," + p }
+    if fname == "intSlotStore"  { emit "intSlotStore(" + args + ")," + p }
+    if fname == "intSlotLoad"   { emit "intSlotLoad(" + args + ")," + p }
     if fname == "readFile" {
         emit "kr_readfile(" + args + ")," + p
     }
@@ -1518,7 +1701,7 @@ func compileCall(tokens, pos, ntoks) {
     if fname == "handleValid"  { emit "kr_handlevalid(" + args + ")," + p }
 
     // v1.1.3 buffer / handle builtins for native Windows API calls
-    if fname == "bufNew"      { emit "_alloc(atoi(" + args + "))," + p }
+    if fname == "bufNew"      { emit "({int _bn=atoi("+args+");char* _bp=_alloc(_bn);memset(_bp,0,_bn);_bp;})," + p }
     if fname == "bufStr"      { emit "kr_str(" + args + ")," + p }
     if fname == "bufGetDword" { emit "kr_bufgetdword(" + args + ")," + p }
     if fname == "bufSetDword" { emit "kr_bufsetdword(" + args + ")," + p }
@@ -1526,6 +1709,9 @@ func compileCall(tokens, pos, ntoks) {
     if fname == "bufGetQword"   { emit "kr_bufgetqword(" + args + ")," + p }
     if fname == "bufGetDwordAt"  { emit "kr_bufgetdwordat(" + args + ")," + p }
     if fname == "bufGetQwordAt"  { emit "kr_bufgetqwordat(" + args + ")," + p }
+    if fname == "bufSetQwordAt"  { emit "kr_bufsetqwordat(" + args + ")," + p }
+    if fname == "bufGetWordAt"   { emit "kr_bufgetwordat(" + args + ")," + p }
+    if fname == "bufSetWordAt"   { emit "kr_bufsetwordat(" + args + ")," + p }
     if fname == "bufSetByte"     { emit "kr_bufsetbyte(" + args + ")," + p }
     if fname == "bufGetByte"     { emit "kr_bufgetbyte(" + args + ")," + p }
     if fname == "bufSetDwordAt"  { emit "kr_bufsetdwordat(" + args + ")," + p }
@@ -1595,6 +1781,45 @@ func compileCall(tokens, pos, ntoks) {
     let ci = 1
     while ci < argc { castArgs = castArgs + ",char*"  ci += 1 }
     if argc == 0 { castArgs = "void" }
+
+    // Win32 marshalling: when fname is a marshalled Win32 function,
+    // wrap atoi() around int args + kr_itoa() around int returns so the
+    // C-emit path works the same as the native PE pipeline.
+    let intArgsCsv = compileWin32IntArgs(fname)
+    let intRet = compileWin32IntReturn(fname)
+    if len(intArgsCsv) > 0 || intRet == "1" {
+        // Build an arg-by-arg cast list (`int` for marshalled, `char*` for the rest).
+        let mCast = ""
+        let mArgs = ""
+        let mi = 0
+        while mi < argc {
+            let acode = getLine(argList, mi)
+            if compileCsvHas(intArgsCsv, mi) == "1" {
+                if mi == 0 { mCast = "void*"  mArgs = "(void*)(intptr_t)atoll("+acode+")" }
+                else       { mCast = mCast + ",void*"  mArgs = mArgs + ", (void*)(intptr_t)atoll("+acode+")" }
+            } else {
+                if mi == 0 { mCast = "char*"  mArgs = acode }
+                else       { mCast = mCast + ",char*"  mArgs = mArgs + ", " + acode }
+            }
+            mi += 1
+        }
+        if argc == 0 { mCast = "void" }
+        let retType = "char*"
+        let mCall = "((" + retType + "(*)(" + mCast + "))" + cIdent(fname) + ")(" + mArgs + ")"
+        if intRet == "1" {
+            // 64-bit returns (HANDLE etc.) need full width; 32-bit returns
+            // (BOOL/DWORD/LONG) need explicit truncation to avoid garbage
+            // in the upper 32 bits of RAX.
+            let is64 = compileWin32Return64(fname)
+            if is64 == "1" {
+                mCall = "kr_itoa64((long long)(intptr_t)(" + mCall + "))"
+            } else {
+                mCall = "kr_itoa((int)(intptr_t)(" + mCall + "))"
+            }
+        }
+        emit mCall + "," + p
+    }
+
     emit "((char*(*)("+castArgs+"))"+cIdent(fname)+")("+args+")," + p
 }
 
@@ -2609,6 +2834,53 @@ func cRuntime() {
     r = sbAppend(r, "        if (!b) { fprintf(stderr, \"out of memory\\n\"); exit(1); }\n")
     r = sbAppend(r, "        b->cap = cap; b->used = 0; b->next = _arena; _arena = b;\n    }\n    char* p = (char*)(_arena + 1) + _arena->used;\n    _arena->used += n;\n    return p;\n}\n\n")
 
+    // ── Arena mark/reset (Krypton 2.1 GC-for-C-emit) ──
+    // Lets long-running compiler loops reclaim per-iteration garbage in O(1).
+    // Caller MUST NOT hold pointers to memory allocated after the mark when
+    // calling reset — the arena rewinds and those addresses become reusable.
+    // Token is itself arena-allocated and is invalidated by the reset.
+    r = sbAppend(r, "typedef struct { ABlock* block; int used; } _AllocMark;\n")
+    r = sbAppend(r, "static char* _alloc_mark(void) {\n")
+    r = sbAppend(r, "    _AllocMark m;\n")
+    r = sbAppend(r, "    m.block = _arena;\n")
+    r = sbAppend(r, "    m.used = _arena ? _arena->used : 0;\n")
+    r = sbAppend(r, "    char* tok = _alloc(sizeof(_AllocMark));\n")
+    r = sbAppend(r, "    memcpy(tok, &m, sizeof(_AllocMark));\n")
+    r = sbAppend(r, "    return tok;\n")
+    r = sbAppend(r, "}\n")
+    r = sbAppend(r, "static char* _alloc_reset(const char* tok) {\n")
+    r = sbAppend(r, "    _AllocMark m;\n")
+    r = sbAppend(r, "    memcpy(&m, tok, sizeof(_AllocMark));\n")
+    r = sbAppend(r, "    while (_arena && _arena != m.block) {\n")
+    r = sbAppend(r, "        ABlock* dead = _arena;\n")
+    r = sbAppend(r, "        _arena = dead->next;\n")
+    r = sbAppend(r, "        free(dead);\n")
+    r = sbAppend(r, "    }\n")
+    r = sbAppend(r, "    if (_arena) _arena->used = m.used;\n")
+    r = sbAppend(r, "    return \"\";\n")
+    r = sbAppend(r, "}\n\n")
+
+    // Cross-reset int storage: 32 slots of static long memory. Lets a hot
+    // loop save loop-carried ints (e.g., realTextSize, fi2) before
+    // arenaReset() and restore them after. Slot index is a Krypton int
+    // string ("0"-"31"). Value is parsed via atoi on store, formatted via
+    // snprintf into a fresh kr_str on load.
+    r = sbAppend(r, "static long _intSlots[32];\n")
+    r = sbAppend(r, "static char* intSlotStore(const char* slot, const char* val) {\n")
+    r = sbAppend(r, "    int s = atoi(slot);\n")
+    r = sbAppend(r, "    if (s < 0 || s >= 32) return \"\";\n")
+    r = sbAppend(r, "    _intSlots[s] = atol(val);\n")
+    r = sbAppend(r, "    return \"\";\n")
+    r = sbAppend(r, "}\n")
+    r = sbAppend(r, "static char* kr_str(const char*);\n")
+    r = sbAppend(r, "static char* intSlotLoad(const char* slot) {\n")
+    r = sbAppend(r, "    int s = atoi(slot);\n")
+    r = sbAppend(r, "    char buf[32];\n")
+    r = sbAppend(r, "    if (s < 0 || s >= 32) { buf[0]='0'; buf[1]=0; return kr_str(buf); }\n")
+    r = sbAppend(r, "    snprintf(buf, sizeof(buf), \"%ld\", _intSlots[s]);\n")
+    r = sbAppend(r, "    return kr_str(buf);\n")
+    r = sbAppend(r, "}\n\n")
+
     // Pre-allocated constant strings — eliminates billions of allocations
     r = sbAppend(r, "static char _K_EMPTY[] = \"\";\nstatic char _K_ZERO[] = \"0\";\nstatic char _K_ONE[] = \"1\";\n\n")
 
@@ -2616,6 +2888,9 @@ func cRuntime() {
     r = sbAppend(r, "}\n\nstatic char* kr_cat(const char* a, const char* b) {\n    int la = (int)strlen(a), lb = (int)strlen(b);\n    char* p = _alloc(la + lb + 1);\n    memcpy(p, a, la);\n    memcpy(p + la, b, lb + 1);\n    return p;\n}\n\n")
     r = sbAppend(r, "static int kr_isnum(const char* s) {\n    if (!*s) return 0;\n    const char* p = s;\n    if (*p == '-') p++;\n    if (!*p) return 0;\n    while (*p) { if (*p < '0' || *p > '9') return 0; p++; }\n    return 1;\n}\n\n")
     r = sbAppend(r, "static char* kr_itoa(int v) {\n    if (v == 0) return _K_ZERO;\n    if (v == 1) return _K_ONE;\n    char buf[32];\n    snprintf(buf, sizeof(buf), \"%d\", v);\n    return kr_str(buf);\n}\n\nstatic int kr_atoi(const char* s) { return atoi(s); }\n\n")
+    // 64-bit int → string. Used by C-emit Win32 marshalling for HANDLE
+    // returns (which are 64-bit pointers — kr_itoa truncates).
+    r = sbAppend(r, "static char* kr_itoa64(long long v) {\n    char buf[32];\n    snprintf(buf, sizeof(buf), \"%lld\", v);\n    return kr_str(buf);\n}\n\n")
     r = sbAppend(r, "static char* kr_plus(const char* a, const char* b) {\n    if (kr_isnum(a) && kr_isnum(b))\n        return kr_itoa(atoi(a) + atoi(b));\n    return kr_cat(a, b);\n}\n\nstatic char* kr_sub(const char* a, const char* b) { return kr_itoa(atoi(a) - atoi(b)); }\nstatic char* kr_mul(const char* a, const char* b) { return kr_itoa(atoi(a) * atoi(b)); }\nstatic char* kr_div(const char* a, const char* b) { return kr_itoa(atoi(a) / atoi(b)); }\n")
     r = sbAppend(r, "static char* kr_mod(const char* a, const char* b) { return kr_itoa(atoi(a) % atoi(b)); }\nstatic char* kr_neg(const char* a) { return kr_itoa(-atoi(a)); }\nstatic char* kr_not(const char* a) { return atoi(a) ? _K_ZERO : _K_ONE; }\n\nstatic char* kr_eq(const char* a, const char* b) {\n    return strcmp(a, b) == 0 ? _K_ONE : _K_ZERO;\n}\nstatic char* kr_neq(const char* a, const char* b) {\n    return strcmp(a, b) != 0 ? _K_ONE : _K_ZERO;\n")
     r = sbAppend(r, "}\nstatic char* kr_lt(const char* a, const char* b) {\n    if (kr_isnum(a) && kr_isnum(b)) return atoi(a) < atoi(b) ? _K_ONE : _K_ZERO;\n    return strcmp(a, b) < 0 ? _K_ONE : _K_ZERO;\n}\nstatic char* kr_gt(const char* a, const char* b) {\n    if (kr_isnum(a) && kr_isnum(b)) return atoi(a) > atoi(b) ? _K_ONE : _K_ZERO;\n    return strcmp(a, b) > 0 ? _K_ONE : _K_ZERO;\n")
@@ -2756,6 +3031,7 @@ func cRuntime() {
 
     r = sbAppend(r, "static char* kr_printerr(const char* s) {\n")
     r = sbAppend(r, "    fprintf(stderr, \"%s\\n\", s);\n")
+    r = sbAppend(r, "    fflush(stderr);\n")
     r = sbAppend(r, "    return _K_EMPTY;\n}\n\n")
 
     r = sbAppend(r, "static char* kr_readline(const char* prompt) {\n    if (*prompt) printf(\"%s\", prompt);\n    fflush(stdout);\n    char buf[4096];\n    if (!fgets(buf, sizeof(buf), stdin)) return _K_EMPTY;\n    int len = (int)strlen(buf);\n")
@@ -2970,6 +3246,9 @@ func cRuntime() {
     r = sbAppend(r, "static char* kr_bufsetbyte(char* buf,const char* off,const char* val){buf[atoi(off)]=(unsigned char)atoi(val);return _K_EMPTY;}\n")
     r = sbAppend(r, "static char* kr_bufgetbyte(char* buf,const char* off){return kr_itoa((int)(unsigned char)buf[atoi(off)]);}\n")
     r = sbAppend(r, "static char* kr_bufsetdwordat(char* buf,const char* off,const char* val){*(unsigned int*)(buf+atoi(off))=(unsigned int)atoll(val);return _K_EMPTY;}\n")
+    r = sbAppend(r, "static char* kr_bufsetqwordat(char* buf,const char* off,const char* val){*(unsigned long long*)(buf+atoi(off))=(unsigned long long)atoll(val);return _K_EMPTY;}\n")
+    r = sbAppend(r, "static char* kr_bufgetwordat(char* buf,const char* off){unsigned short v=*(unsigned short*)(buf+atoi(off));return kr_itoa((int)v);}\n")
+    r = sbAppend(r, "static char* kr_bufsetwordat(char* buf,const char* off,const char* val){*(unsigned short*)(buf+atoi(off))=(unsigned short)atoi(val);return _K_EMPTY;}\n")
     r = sbAppend(r, "static char* kr_handleget(char* buf){return *(char**)buf;}\n")
     r = sbAppend(r, "static char* kr_handleint(char* ptr){char s[32];snprintf(s,32,\"%d\",(int)(intptr_t)ptr);return kr_str(s);}\n")
     r = sbAppend(r, "static char* kr_ptrderef(char* ptr){return *(char**)ptr;}\n")
@@ -5154,7 +5433,11 @@ just run {
                                         ijfPos += 2
                                     }
                                     let ijfCName = cIdent(ijfName)
-                                    if ijfRetType == "INT" || ijfRetType == "UINT" || ijfRetType == "DWORD" || ijfRetType == "LONG" || ijfRetType == "BOOL" {
+                                    // Skip wrapper if the new Win32 marshalling table covers this name.
+                                    let _iHasMarshal = "0"
+                                    if len(compileWin32IntReturn(ijfCName)) > 0 { _iHasMarshal = "1" }
+                                    if len(compileWin32IntArgs(ijfCName)) > 0 { _iHasMarshal = "1" }
+                                    if (ijfRetType == "INT" || ijfRetType == "UINT" || ijfRetType == "DWORD" || ijfRetType == "LONG" || ijfRetType == "BOOL") && _iHasMarshal == "0" {
                                         let iwd = "static char* _krw_" + ijfCName + "("
                                         let iwpi = 0
                                         while iwpi < ijfPc {
@@ -5173,7 +5456,7 @@ just run {
                                         iwd = iwd + "));}\n#define " + ijfCName + " _krw_" + ijfCName + "\n"
                                         iDecls = iDecls + iwd
                                     }
-                                    if ijfRetType == "UINT64" || ijfRetType == "ULONGLONG" {
+                                    if (ijfRetType == "UINT64" || ijfRetType == "ULONGLONG") && _iHasMarshal == "0" {
                                         let iwd = "static char* _krw_" + ijfCName + "("
                                         let iwpi = 0
                                         while iwpi < ijfPc {
@@ -5192,7 +5475,7 @@ just run {
                                         iwd = iwd + "));return kr_str(_b);}\n#define " + ijfCName + " _krw_" + ijfCName + "\n"
                                         iDecls = iDecls + iwd
                                     }
-                                    if ijfRetType == "zero" {
+                                    if ijfRetType == "zero" && _iHasMarshal == "0" {
                                         let iwd = "static char* _krw_" + ijfCName + "("
                                         let iwpi = 0
                                         while iwpi < ijfPc {
@@ -5451,10 +5734,18 @@ just run {
                         jfRetType = tokVal(tokAt(tokens, jfPos + 1))
                         jfPos += 2
                     }
+                    // Skip the legacy wrapper if this function is in the new
+                    // Win32 marshalling table — the inline marshalling at the
+                    // call site (compileCall) does the right thing for both
+                    // 32-bit and 64-bit returns and for atoi'd int args.
+                    let _hasNewMarshal = compileWin32IntReturn(jfCName)
+                    if len(_hasNewMarshal) > 0 || len(compileWin32IntArgs(jfCName)) > 0 {
+                        // No wrapper needed — fall through.
+                    }
                     // Generate static wrapper + #define for integer-returning APIs.
                     // Args passed as char* (no int cast) — C handles implicit conversion,
                     // which is safe for both pointer args and toHandle() integer args.
-                    if jfRetType == "INT" || jfRetType == "UINT" || jfRetType == "DWORD" || jfRetType == "LONG" || jfRetType == "BOOL" {
+                    if (jfRetType == "INT" || jfRetType == "UINT" || jfRetType == "DWORD" || jfRetType == "LONG" || jfRetType == "BOOL") && len(_hasNewMarshal) == 0 && len(compileWin32IntArgs(jfCName)) == 0 {
                         let wd = "static char* _krw_" + jfCName + "("
                         let wpi = 0
                         while wpi < jfPc {
@@ -5473,7 +5764,7 @@ just run {
                         wd = wd + ");}\n#define " + jfCName + " _krw_" + jfCName + "\n"
                         importFwdDecls = importFwdDecls + wd
                     }
-                    if jfRetType == "UINT64" || jfRetType == "ULONGLONG" {
+                    if (jfRetType == "UINT64" || jfRetType == "ULONGLONG") && len(_hasNewMarshal) == 0 && len(compileWin32IntArgs(jfCName)) == 0 {
                         let wd = "static char* _krw_" + jfCName + "("
                         let wpi = 0
                         while wpi < jfPc {
@@ -5492,7 +5783,7 @@ just run {
                         wd = wd + "));return kr_str(_b);}\n#define " + jfCName + " _krw_" + jfCName + "\n"
                         importFwdDecls = importFwdDecls + wd
                     }
-                    if jfRetType == "zero" {
+                    if jfRetType == "zero" && len(_hasNewMarshal) == 0 && len(compileWin32IntArgs(jfCName)) == 0 {
                         let wd = "static char* _krw_" + jfCName + "("
                         let wpi = 0
                         while wpi < jfPc {
