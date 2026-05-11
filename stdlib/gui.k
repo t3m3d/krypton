@@ -7110,7 +7110,32 @@ func guiSaveFile(title, filterCsv, defaultName) {
     if ok == "0" { emit "" }
     emit _guiBufToStr(pathBuf, 2048)
 }
-func guiPickFolder(title)                        { emit krGuiPickFolder(title) }
+// 2026-05-11 Phase D: dynamic load of shell32 (avoids adding a 15th IAT
+// DLL). BROWSEINFOA struct (64 bytes on x64):
+//   +0 hwndOwner  +8 pidlRoot=NULL  +16 pszDisplayName=NULL
+//   +24 lpszTitle  +32 ulFlags(4)  +40 lpfn=NULL  +48 lParam  +56 iImage
+// BIF_RETURNONLYFSDIRS=1. SHBrowseForFolderA → LPITEMIDLIST. SHGetPathFromIDListA(pidl,buf)
+// fills `buf` with the path. CoTaskMemFree(pidl) afterwards.
+// Use ptrToInt for NULL-safe comparison (LoadLibraryA returns raw HMODULE).
+func guiPickFolder(title) {
+    let shell32 = LoadLibraryA("shell32.dll")
+    if ptrToInt(shell32) == "0" { emit "" }
+    let browse = GetProcAddress(shell32, "SHBrowseForFolderA")
+    let getPath = GetProcAddress(shell32, "SHGetPathFromIDListA")
+    if ptrToInt(browse) == "0" { emit "" }
+    if ptrToInt(getPath) == "0" { emit "" }
+    let bi = bufNew("64")
+    let main = guiStateGet("main.hwnd")
+    if main != "" { bufSetQwordAt(bi, "0", main) }
+    bufSetQwordAt(bi, "24", ptrToInt(title))
+    bufSetDwordAt(bi, "32", "1")
+    let pidl = callPtr(browse, bi)
+    if ptrToInt(pidl) == "0" { emit "" }
+    let pathBuf = bufNew("260")
+    callPtr(getPath, pidl, pathBuf)
+    CoTaskMemFree(pidl)
+    emit _guiBufToStr(pathBuf, 260)
+}
 // 2026-05-11 Phase B ports — pure Krypton via head:user32.
 // Dispatch: "0x..."hex → direct HWND; bare-decimal id >= 1000 →
 // GetDlgItem(main_hwnd, id) → HWND.  Matches the cfunc legacy dual-format.
