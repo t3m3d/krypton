@@ -5863,6 +5863,40 @@ func _krkWndProc(hwnd, msg, wParam, lParam) {
         }
         emit "0"
     }
+    if msgInt == 78 {
+        // WM_NOTIFY: wParam = idFrom (same as NMHDR.idFrom for convenience).
+        // For subtype-specific code dispatch we'd need to deref lParam → NMHDR.code,
+        // but most consumers just need "something changed in <id>".
+        let cb = guiStateGet("cb.change." + wParam)
+        if cb != "" {
+            callPtr(cb, "")
+        }
+        emit "0"
+    }
+    if msgInt == 312 {
+        // WM_CTLCOLORSTATIC: wParam=HDC of label, lParam=HWND of label.
+        // Set text + bg color, return a transparent-or-themed brush.
+        let textHex = guiStateGet("ui.text.color")
+        if textHex != "" {
+            SetTextColor(wParam, _guiColorRefFromHex(textHex) + "")
+            SetBkMode(wParam, "1")
+        }
+        let brush = guiStateGet("ui.window.brush")
+        if brush != "" { emit brush }
+        emit GetStockObject("5")
+    }
+    if msgInt == 307 {
+        // WM_CTLCOLOREDIT
+        let textHex = guiStateGet("ui.text.color")
+        if textHex != "" { SetTextColor(wParam, _guiColorRefFromHex(textHex) + "") }
+        let brush = guiStateGet("ui.window.brush")
+        if brush != "" { emit brush }
+    }
+    if msgInt == 310 {
+        // WM_CTLCOLORDLG
+        let brush = guiStateGet("ui.window.brush")
+        if brush != "" { emit brush }
+    }
     emit DefWindowProcA(hwnd, msg, wParam, lParam)
 }
 
@@ -6010,9 +6044,50 @@ func guiRichEdit(parent, x, y, w, h) {
     if ctl == "0" { emit "0" }
     emit id
 }
-func guiRichSetFmt(rich, start, end, hexColor, bold) { emit krGuiRichSetFmt(rich, start + "", end + "", hexColor, bold + "") }
-func guiRichClearFmt(rich)                       { emit krGuiRichClearFmt(rich) }
-func guiRichAppend(rich, text, hexColor, bold)   { emit krGuiRichAppend(rich, text, hexColor, bold + "") }
+// 2026-05-11 Phase D: CHARFORMATA struct (60 B on x64).
+//   +0 cbSize(4) +4 dwMask +8 dwEffects +12 yHeight +16 yOffset
+//   +20 crTextColor +24 bCharSet +25 bPitchAndFamily +26 szFaceName[32]
+// EM_SETCHARFORMAT=1092. SCF_DEFAULT=0, SCF_SELECTION=1. CFM_BOLD=1,
+// CFM_COLOR=0x40000000, combined=1073741825. EM_SETSEL=177, EM_REPLACESEL=194, WM_GETTEXTLENGTH=14.
+func _krkCharFormat(mask, effects, color) {
+    let cf = bufNew("60")
+    bufSetDwordAt(cf, "0", "60")
+    bufSetDwordAt(cf, "4", mask)
+    bufSetDwordAt(cf, "8", effects)
+    bufSetDwordAt(cf, "20", color)
+    emit cf
+}
+func guiRichSetFmt(rich, start, end, hexColor, bold) {
+    let h = _guiResolveHwnd(rich)
+    if h == "0" { emit "0" }
+    SendMessageA(h, "177", start + "", end + "")
+    let eff = "0"
+    if bold != "0" && bold != "" { eff = "1" }
+    let cf = _krkCharFormat("1073741825", eff, _guiColorRefFromHex(hexColor) + "")
+    SendMessageA(h, "1092", "1", ptrToInt(cf))
+    emit "1"
+}
+func guiRichClearFmt(rich) {
+    let h = _guiResolveHwnd(rich)
+    if h == "0" { emit "0" }
+    let cf = _krkCharFormat("1073741825", "0", "0")
+    SendMessageA(h, "1092", "1", ptrToInt(cf))
+    emit "1"
+}
+func guiRichAppend(rich, text, hexColor, bold) {
+    let h = _guiResolveHwnd(rich)
+    if h == "0" { emit "0" }
+    let oldLen = SendMessageA(h, "14", "0", "0")
+    SendMessageA(h, "177", oldLen, oldLen)
+    SendMessageA(h, "194", "0", ptrToInt(text))
+    let newLen = SendMessageA(h, "14", "0", "0")
+    SendMessageA(h, "177", oldLen, newLen)
+    let eff = "0"
+    if bold != "0" && bold != "" { eff = "1" }
+    let cf = _krkCharFormat("1073741825", eff, _guiColorRefFromHex(hexColor) + "")
+    SendMessageA(h, "1092", "1", ptrToInt(cf))
+    emit "1"
+}
 // EM_SETREADONLY=207. Pure Krypton.
 func guiRichReadOnly(rich, on) {
     let h = _guiResolveHwnd(rich)
@@ -6075,7 +6150,14 @@ func guiRichSetBg(rich, hexColor) {
     SendMessageA(h, "1097", "0", cr + "")
     emit "1"
 }
-func guiRichSetFgDefault(rich, hexColor)         { emit krGuiRichSetFgDefault(rich, hexColor) }
+// EM_SETCHARFORMAT with SCF_DEFAULT(0), CFM_COLOR(0x40000000) only.
+func guiRichSetFgDefault(rich, hexColor) {
+    let h = _guiResolveHwnd(rich)
+    if h == "0" { emit "0" }
+    let cf = _krkCharFormat("1073741824", "0", _guiColorRefFromHex(hexColor) + "")
+    SendMessageA(h, "1092", "0", ptrToInt(cf))
+    emit "1"
+}
 // WM_SETREDRAW=11. wParam=0 to disable, =1 to enable. Pure Krypton.
 func guiRichBeginUpdate(rich) {
     let h = _guiResolveHwnd(rich)
@@ -6174,8 +6256,30 @@ func guiTreeView(parent, x, y, w, h) {
     if ctl == "0" { emit "0" }
     emit id
 }
-func guiTreeAdd(tree, parent_item, label)        { emit krGuiTreeAdd(tree, parent_item, label) }
-func guiTreeAddDir(tree, parent_item, label)     { emit krGuiTreeAddDir(tree, parent_item, label) }
+// 2026-05-11 Phase D: TVINSERTSTRUCT (72 B on x64).
+//   +0  HTREEITEM hParent
+//   +8  HTREEITEM hInsertAfter  (TVI_LAST = -65534)
+//   +16 TVITEMA (56 B) at this offset:
+//        +16 mask  +24 hItem (ignored on insert)
+//        +32 state, stateMask  +40 pszText  +48 cchTextMax, iImage
+//        +56 iSelectedImage, cChildren  +64 lParam
+// TVI_ROOT = -65536 (when parent_item is empty/"0"). TVM_INSERTITEMA = 4352.
+// TVIF_TEXT = 1.
+func _krkTreeInsert(tree, parent_item, label) {
+    let h = _guiResolveHwnd(tree)
+    if h == "0" { emit "" }
+    let tvi = bufNew("72")
+    let parentVal = parent_item
+    if parent_item == "" { parentVal = "-65536" }
+    if parent_item == "0" { parentVal = "-65536" }
+    bufSetQwordAt(tvi, "0", parentVal)
+    bufSetQwordAt(tvi, "8", "-65534")
+    bufSetDwordAt(tvi, "16", "1")
+    bufSetQwordAt(tvi, "40", ptrToInt(label))
+    emit SendMessageA(h, "4352", "0", ptrToInt(tvi))
+}
+func guiTreeAdd(tree, parent_item, label)    { emit _krkTreeInsert(tree, parent_item, label) }
+func guiTreeAddDir(tree, parent_item, label) { emit _krkTreeInsert(tree, parent_item, label) }
 // 2026-05-11 Phase B: TVM_DELETEITEM=4360 with item=TVI_ROOT (0xFFFF0000).
 // TVI_ROOT is a magic HTREEITEM constant. SendMessageA marshalling atois
 // all 4 args, so we pass the constant as its decimal form.
@@ -6195,8 +6299,30 @@ func guiTreeExpand(tree, item) {
     SendMessageA(h, "4354", "2", it + "")
     emit ""
 }
-func guiTreeSelected(tree)                       { emit krGuiTreeSelected(tree) }
-func guiTreeSelectedHandle(tree)                 { emit krGuiTreeSelectedHandle(tree) }
+// TVM_GETNEXTITEM=4362 (TV_FIRST+10). TVGN_CARET=9. Returns HTREEITEM as int string.
+func guiTreeSelectedHandle(tree) {
+    let h = _guiResolveHwnd(tree)
+    if h == "0" { emit "" }
+    let hItem = SendMessageA(h, "4362", "9", "0")
+    if hItem == "0" { emit "" }
+    emit hItem
+}
+// TVM_GETITEMA=4364 (TV_FIRST+12). Reads selected item's label via TVITEM:
+//   +0 mask=TVIF_TEXT(1) +8 hItem +24 pszText=buf +32 cchTextMax=260
+func guiTreeSelected(tree) {
+    let h = _guiResolveHwnd(tree)
+    if h == "0" { emit "" }
+    let hItem = SendMessageA(h, "4362", "9", "0")
+    if hItem == "0" { emit "" }
+    let buf = bufNew("260")
+    let item = bufNew("56")
+    bufSetDwordAt(item, "0", "1")
+    bufSetQwordAt(item, "8", hItem)
+    bufSetQwordAt(item, "24", ptrToInt(buf))
+    bufSetDwordAt(item, "32", "260")
+    SendMessageA(h, "4364", "0", ptrToInt(item))
+    emit _guiBufToStr(buf, 260)
+}
 // "SysTabControl32" class. WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_CLIPSIBLINGS = 1409351680.
 func guiTabs(parent, x, y, w, h) {
     let pHwnd = _guiHexToInt(parent)
@@ -6253,7 +6379,12 @@ func guiTabSelected(tabs) {
     if h == "0" { emit "-1" }
     emit SendMessageA(h, "4875", "0", "0")
 }
-func guiOnChange(hwnd, sinkPtr)                  { emit krGuiOnChange(hwnd, sinkPtr) }
+// 2026-05-11 Phase D: WM_NOTIFY callback registry. `hwnd` is the control id
+// (decimal); _krkWndProc reads wParam (idFrom) on WM_NOTIFY and looks up here.
+func guiOnChange(hwnd, sinkPtr) {
+    guiStateSet("cb.change." + hwnd, sinkPtr)
+    emit "1"
+}
 // 2026-05-11 Phase D: Menu construction via CreateMenu + AppendMenuA.
 // guiMenuBegin returns the HMENU of a fresh menubar attached to `window`.
 // guiMenu(menubar, label) creates a popup, appends it to menubar, returns HMENU.
@@ -6332,7 +6463,16 @@ func guiStatusGet(bar, idx) {
     SendMessageA(h, "1026", idx + "", ptrToInt(buf))
     emit _guiBufToStr(buf, 256)
 }
-func guiStatusIcon(bar, idx, iconName)           { emit krGuiStatusIcon(bar, idx + "", iconName) }
+// 2026-05-11 Phase D: SB_SETICON=1039 (WM_USER+15). LoadImageA(NULL, name,
+// IMAGE_ICON=1, 16x16, LR_LOADFROMFILE=16). wParam=part index, lParam=HICON.
+func guiStatusIcon(bar, idx, iconName) {
+    let h = _guiResolveHwnd(bar)
+    if h == "0" { emit "0" }
+    let hIcon = LoadImageA("0", iconName, "1", "16", "16", "16")
+    if hIcon == "0" { emit "0" }
+    SendMessageA(h, "1039", idx + "", hIcon)
+    emit "1"
+}
 // SB_SETBKCOLOR=1025 (WM_USER+1). wParam=0, lParam=COLORREF.
 func guiStatusBgColor(bar, hex) {
     let h = _guiResolveHwnd(bar)
@@ -6341,8 +6481,29 @@ func guiStatusBgColor(bar, hex) {
     SendMessageA(h, "1025", "0", cr + "")
     emit "1"
 }
-func guiImage(parent, path, x, y, w, h)          { emit krGuiImage(parent, path, x + "", y + "", w + "", h + "") }
-func guiImageSet(image, path)                    { emit krGuiImageSet(image, path) }
+// 2026-05-11 Phase D: Image widget = STATIC with SS_BITMAP, populated
+// via LoadImageA. SS_BITMAP=14, so style = WS_CHILD|WS_VISIBLE|SS_BITMAP = 1342177294.
+// LR_LOADFROMFILE=0x10=16. STM_SETIMAGE=370 (0x172) with IMAGE_BITMAP=0.
+func guiImage(parent, path, x, y, w, h) {
+    let pHwnd = _guiResolveHwnd(parent)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let ctl = CreateWindowExA("0", "STATIC", "", "1342177294", x + "", y + "", w + "", h + "", pHwnd, id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    let himg = LoadImageA("0", path, "0", "0", "0", "16")
+    if himg != "0" {
+        SendMessageA(ctl, "370", "0", himg)
+    }
+    emit id
+}
+func guiImageSet(image, path) {
+    let h = _guiResolveHwnd(image)
+    if h == "0" { emit "0" }
+    let himg = LoadImageA("0", path, "0", "0", "0", "16")
+    if himg == "0" { emit "0" }
+    SendMessageA(h, "370", "0", himg)
+    emit "1"
+}
 
 // ── Layout stacks ────────────────────────────────────────────
 //
@@ -6429,8 +6590,33 @@ func guiDockApply(dock) {
     }
     emit ""
 }
-func guiSplitter(parent, x, y, w, h, orientation) { emit krGuiSplitter(parent, x + "", y + "", w + "", h + "", orientation) }
-func guiSplitterPos(splitter)                    { emit krGuiSplitterPos(splitter) }
+// 2026-05-11 Phase D: visual splitter via STATIC + SS_ETCHEDHORZ/VERT.
+// Drag-resize behavior deferred (needs WindowProc subclass for WM_MOUSEMOVE).
+// Position is stored in state and returned by guiSplitterPos as-set.
+// SS_ETCHEDHORZ=16, SS_ETCHEDVERT=17.
+func guiSplitter(parent, x, y, w, h, orientation) {
+    let pHwnd = _guiResolveHwnd(parent)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let vert = "0"
+    if startsWith(orientation, "v") { vert = "1" }
+    if startsWith(orientation, "V") { vert = "1" }
+    let style = "1342177296"
+    if vert == "1" { style = "1342177297" }
+    let ctl = CreateWindowExA("0", "STATIC", "", style, x + "", y + "", w + "", h + "", pHwnd, id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    if vert == "1" {
+        guiStateSet("split." + id, x + "")
+    } else {
+        guiStateSet("split." + id, y + "")
+    }
+    emit id
+}
+func guiSplitterPos(splitter) {
+    let p = guiStateGet("split." + splitter)
+    if p == "" { emit "0" }
+    emit p
+}
 // "COMBOBOX" class. WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|CBS_DROPDOWNLIST(3) = 1344602115.
 func guiCombo(parent, x, y, w, h) {
     let pHwnd = _guiHexToInt(parent)
@@ -6740,15 +6926,44 @@ func guiSliderValue(slider) {
     if h == "0" { emit "0" }
     emit SendMessageA(h, "1024", "0", "0")
 }
-func guiSpinbox(parent, x, y, w, h)              { emit krGuiSpinbox(parent, x + "", y + "", w + "", h + "") }
-// UDM_SETRANGE32=1125 (wParam=lo, lParam=hi). UDM_SETPOS32=1127. UDM_GETPOS32=1128 (out-ptr).
-// Spinbox is paired with a buddy EDIT; the cfunc tracks the EDIT as the
-// user-visible handle, so guiSpinboxValue routes the buddy → spin via
-// guiState. For now port pass-through (state map still cfunc) — full
-// port lands when state helpers move out of cfunc.
-func guiSpinboxRange(spin, lo, hi)               { emit krGuiSpinboxRange(spin, lo + "", hi + "") }
-func guiSpinboxSet(spin, value)                  { emit krGuiSpinboxSet(spin, value + "") }
-func guiSpinboxValue(spin)                       { emit krGuiSpinboxValue(spin) }
+// 2026-05-11 Phase D: spinbox = EDIT + UpDown paired via UDM_SETBUDDY.
+// EDIT is the user-visible handle (returned id); UpDown is tracked via
+// state `spinpair.<edit_id>` → updown_id. UDM_SETRANGE32=1135 (WM_USER+111).
+// UDM_SETPOS32=1138 (WM_USER+114). UDM_GETPOS32=1140 (WM_USER+116).
+// UDM_SETBUDDY=1129 (WM_USER+105).
+// UpDown style: WS_CHILD|WS_VISIBLE|UDS_AUTOBUDDY(0x10)|UDS_SETBUDDYINT(0x2)|
+//               UDS_ALIGNRIGHT(0x4)|UDS_ARROWKEYS(0x20) = 0x50000036 = 1342177334.
+func guiSpinbox(parent, x, y, w, h) {
+    let pHwnd = _guiResolveHwnd(parent)
+    let hInst = GetModuleHandleA("0")
+    let editId = _guiNextId()
+    let edit = CreateWindowExA("512", "EDIT", "0", "1342242944", x + "", y + "", w + "", h + "", pHwnd, editId, hInst, "0")
+    if edit == "0" { emit "0" }
+    let upId = _guiNextId()
+    let up = CreateWindowExA("0", "msctls_updown32", "", "1342177334", "0", "0", "0", "0", pHwnd, upId, hInst, "0")
+    if up != "0" {
+        SendMessageA(up, "1129", edit, "0")
+        guiStateSet("spinpair." + editId, up)
+    }
+    emit editId
+}
+func guiSpinboxRange(spin, lo, hi) {
+    let up = guiStateGet("spinpair." + spin)
+    if up == "" { emit "0" }
+    SendMessageA(up, "1135", lo + "", hi + "")
+    emit "1"
+}
+func guiSpinboxSet(spin, value) {
+    let up = guiStateGet("spinpair." + spin)
+    if up == "" { emit "0" }
+    SendMessageA(up, "1138", "0", value + "")
+    emit "1"
+}
+func guiSpinboxValue(spin) {
+    let up = guiStateGet("spinpair." + spin)
+    if up == "" { emit "0" }
+    emit SendMessageA(up, "1140", "0", "0")
+}
 // "ToolbarWindow32" class. WS_CHILD|WS_VISIBLE|TBSTYLE_FLAT(0x800)|TBSTYLE_TOOLTIPS(0x100)|CCS_NODIVIDER(0x40)|CCS_NOPARENTALIGN(0x8) = 1342179656.
 // Sends TB_BUTTONSTRUCTSIZE=1054 with sizeof(TBBUTTON)=32 (x64 layout) so subsequent TB_ADDBUTTONS calls read the struct correctly.
 func guiToolbar(window) {
@@ -6760,7 +6975,22 @@ func guiToolbar(window) {
     SendMessageA(ctl, "1054", "32", "0")
     emit id
 }
-func guiToolButton(toolbar, label, iconName)     { emit krGuiToolButton(toolbar, label, iconName) }
+// 2026-05-11 Phase D: TBBUTTON with iString as a string pointer.
+// Win32 detects pointer mode by the high DWORD being non-zero (which is true
+// for 64-bit heap/rdata addresses). iconName ignored for now — icon support
+// needs ImageList integration (later port).
+func guiToolButton(toolbar, label, iconName) {
+    let h = _guiResolveHwnd(toolbar)
+    if h == "0" { emit "0" }
+    let id = _guiNextId()
+    let btn = bufNew("32")
+    bufSetDwordAt(btn, "4", id)
+    bufSetByte(btn, "8", "4")
+    bufSetByte(btn, "9", "0")
+    bufSetQwordAt(btn, "24", ptrToInt(label))
+    SendMessageA(h, "1044", "1", ptrToInt(btn))
+    emit id
+}
 // 2026-05-11 Phase D: TB_ADDBUTTONS=1044 (WM_USER+20). TBBUTTON struct (32 B on x64):
 //   +0 iBitmap (4)  +4 idCommand (4)
 //   +8 fsState (1)  +9 fsStyle (1)  +10 pad[6]
@@ -7009,8 +7239,33 @@ func guiSetUiFont(family, ptSize)                { emit krGuiSetUiFont(family, p
 // SetWindowBg paints behind the whole window via WM_ERASEBKGND;
 // SetUiTextColor controls the text color used in WM_CTLCOLORSTATIC
 // fall-throughs; TreeSetColors directly sets a TreeView's bg/fg.
-func guiSetWindowBg(hexColor)                    { emit krGuiSetWindowBg(hexColor) }
-func guiSetUiTextColor(hexColor)                 { emit krGuiSetUiTextColor(hexColor) }
+// 2026-05-11 Phase D: pure-Krypton. State keys read by _krkWndProc:
+//   ui.window.bg     — hex string of current window-bg color
+//   ui.window.brush  — cached HBRUSH (decimal) returned from WM_CTLCOLOR*
+//   ui.text.color    — hex string of text color
+// guiSetWindowBg also calls SetClassLongPtrA to swap the class brush so
+// WM_ERASEBKGND fills with our color (no need for a custom WM_ERASEBKGND
+// handler). GCLP_HBRBACKGROUND = -10.
+func guiSetWindowBg(hexColor) {
+    let color = _guiColorRefFromHex(hexColor)
+    let brush = CreateSolidBrush(color + "")
+    guiStateSet("ui.window.bg", hexColor)
+    guiStateSet("ui.window.brush", brush)
+    let main = guiStateGet("main.hwnd")
+    if main != "" {
+        SetClassLongPtrA(main, "-10", brush)
+        InvalidateRect(main, "0", "1")
+    }
+    emit "1"
+}
+func guiSetUiTextColor(hexColor) {
+    guiStateSet("ui.text.color", hexColor)
+    let main = guiStateGet("main.hwnd")
+    if main != "" {
+        InvalidateRect(main, "0", "1")
+    }
+    emit "1"
+}
 // TVM_SETBKCOLOR=4381 (TV_FIRST+29), TVM_SETTEXTCOLOR=4382 (TV_FIRST+30).
 // lParam = COLORREF (use -1 to reset to default).
 func guiTreeSetColors(tree, bgHex, fgHex) {
@@ -7022,7 +7277,14 @@ func guiTreeSetColors(tree, bgHex, fgHex) {
     SendMessageA(h, "4382", "0", fg + "")
     emit "1"
 }
-func guiStatusTextColor(bar, hexColor)           { emit krGuiStatusTextColor(bar, hexColor) }
+// 2026-05-11 Phase D: stash the color. NM_CUSTOMDRAW handling in WM_NOTIFY
+// is TODO — without it, the status bar uses the system text color, but the
+// cfunc dependency is eliminated.
+func guiStatusTextColor(bar, hexColor) {
+    let h = _guiResolveHwnd(bar)
+    guiStateSet("status.text." + h, hexColor)
+    emit ""
+}
 
 // Line-number gutter — a small column to the left of a RichEdit
 // that paints 1-based numbers for every visible line. The bound
@@ -7032,5 +7294,21 @@ func guiStatusTextColor(bar, hexColor)           { emit krGuiStatusTextColor(bar
 func guiLineNumberArea(parent, x, y, w, h, rich) {
     emit krGuiLineNumberArea(parent, x + "", y + "", w + "", h + "", rich)
 }
-func guiLineNumberRefresh(gutter)                { emit krGuiLineNumberRefresh(gutter) }
-func guiTabsSetActiveBg(tabs, hexColor)          { emit krGuiTabsSetActiveBg(tabs, hexColor) }
+// 2026-05-11 Phase D: simple invalidate+update. The actual line-number
+// rendering needs WM_PAINT custom drawing in `_krkWndProc` (TODO).
+// As-is, this triggers a repaint but the gutter remains blank.
+func guiLineNumberRefresh(gutter) {
+    let h = _guiResolveHwnd(gutter)
+    if h == "0" { emit "" }
+    InvalidateRect(h, "0", "1")
+    UpdateWindow(h)
+    emit ""
+}
+// 2026-05-11 Phase D: stash the color in state. Owner-draw via WM_DRAWITEM
+// in `_krkWndProc` is TODO — without it, the active-tab still renders with
+// the default theme color, but the cfunc dependency is eliminated.
+func guiTabsSetActiveBg(tabs, hexColor) {
+    let h = _guiResolveHwnd(tabs)
+    guiStateSet("tabs.bg." + h, hexColor)
+    emit ""
+}
