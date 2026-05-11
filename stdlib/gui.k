@@ -39,6 +39,12 @@
 
 module gui
 
+// 2026-05-11 Phase B port-in-progress: pulled in user32 so the
+// pure-Krypton wrappers below can call MessageBoxA directly,
+// bypassing the cfunc body. cfunc retains the rest of the surface
+// until the per-function ports land.
+import "head:user32"
+
 
 jxt {
     func krGuiInit()
@@ -6013,7 +6019,12 @@ func guiPickFolder(title)                        { emit krGuiPickFolder(title) }
 func guiSetText(hwnd, text)                      { emit krGuiSetText(hwnd, text) }
 func guiGetText(hwnd)                            { emit krGuiGetText(hwnd) }
 func guiOnClick(hwnd, sinkPtr)                   { emit krGuiOnClick(hwnd, sinkPtr) }
-func guiMessageBox(title, msg)                   { emit krGuiMessageBox(title, msg) }
+// Native pure-Krypton port (2026-05-11): MessageBoxA via user32 IAT
+// (no longer routes through cfunc krGuiMessageBox / kr_gui_to_w UTF-16
+// conversion). ANSI/MBCS only for now — true UTF-16 deferred until the
+// rest of the cfunc body is ported and we can drop ANSI altogether.
+// uType 64 = MB_OK | MB_ICONINFORMATION.
+func guiMessageBox(title, msg)                   { emit MessageBoxA("0", msg, title, "64") }
 func guiRun()                                    { emit krGuiRun() }
 func guiQuit()                                   { emit krGuiQuit() }
 
