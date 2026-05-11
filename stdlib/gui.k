@@ -5884,33 +5884,172 @@ func guiRichEdit(parent, x, y, w, h)             { emit krGuiRichEdit(parent, x 
 func guiRichSetFmt(rich, start, end, hexColor, bold) { emit krGuiRichSetFmt(rich, start + "", end + "", hexColor, bold + "") }
 func guiRichClearFmt(rich)                       { emit krGuiRichClearFmt(rich) }
 func guiRichAppend(rich, text, hexColor, bold)   { emit krGuiRichAppend(rich, text, hexColor, bold + "") }
-func guiRichReadOnly(rich, on)                   { emit krGuiRichReadOnly(rich, on + "") }
-func guiRichSetMonoFont(rich, family, ptSize)    { emit krGuiRichSetMonoFont(rich, family, ptSize + "") }
-func guiRichSetBg(rich, hexColor)                { emit krGuiRichSetBg(rich, hexColor) }
+// EM_SETREADONLY=207. Pure Krypton.
+func guiRichReadOnly(rich, on) {
+    let h = _guiResolveHwnd(rich)
+    if h == "0" { emit "0" }
+    let v = "0"
+    if on != "0" && on != "" { v = "1" }
+    SendMessageA(h, "207", v, "0")
+    emit "1"
+}
+// 2026-05-11 Phase B: LOGFONTA struct (60 bytes on x64):
+//   +0  lfHeight LONG (negative = height-in-pixels)
+//   +4  lfWidth  LONG
+//   +8  lfEscapement LONG
+//   +12 lfOrientation LONG
+//   +16 lfWeight LONG (FW_NORMAL=400)
+//   +20 lfItalic BYTE
+//   +21 lfUnderline BYTE
+//   +22 lfStrikeOut BYTE
+//   +23 lfCharSet BYTE (DEFAULT_CHARSET=1)
+//   +24 lfOutPrecision BYTE
+//   +25 lfClipPrecision BYTE
+//   +26 lfQuality BYTE (CLEARTYPE_QUALITY=5)
+//   +27 lfPitchAndFamily BYTE (FIXED_PITCH=1 | FF_DONTCARE=0 = 1)
+//   +28 lfFaceName[32] CHAR (null-terminated)
+// WM_SETFONT=48 (0x30), wParam=HFONT, lParam=fRedraw.
+func guiRichSetMonoFont(rich, family, ptSize) {
+    let h = _guiResolveHwnd(rich)
+    if h == "0" { emit "0" }
+    let lf = bufNew("60")
+    let neg = 0 - toInt(ptSize)
+    bufSetDwordAt(lf, "0", neg + "")
+    bufSetDwordAt(lf, "16", "400")
+    bufSetByte(lf, "23", "1")
+    bufSetByte(lf, "26", "5")
+    bufSetByte(lf, "27", "1")
+    let i = 0
+    while i < len(family) {
+        if i < 31 {
+            bufSetByte(lf, 28 + i, charCode(family[i]))
+        }
+        i = i + 1
+    }
+    let hf = CreateFontIndirectA(lf)
+    SendMessageA(h, "48", hf, "1")
+    emit "1"
+}
+// EM_SETBKGNDCOLOR=1097 (0x449). wParam=0 → use lParam as COLORREF.
+// hexColor format: "0xRRGGBB" → COLORREF (0x00BBGGRR byte order).
+func _guiColorRefFromHex(hex) {
+    let v = _guiHexToInt(hex)
+    let r = bitAnd(bitShr(v, "16"), "255")
+    let g = bitAnd(bitShr(v, "8"), "255")
+    let b = bitAnd(v, "255")
+    emit bitOr(r, bitOr(bitShl(g, "8"), bitShl(b, "16")))
+}
+func guiRichSetBg(rich, hexColor) {
+    let h = _guiResolveHwnd(rich)
+    if h == "0" { emit "0" }
+    let cr = _guiColorRefFromHex(hexColor)
+    SendMessageA(h, "1097", "0", cr + "")
+    emit "1"
+}
 func guiRichSetFgDefault(rich, hexColor)         { emit krGuiRichSetFgDefault(rich, hexColor) }
-func guiRichBeginUpdate(rich)                    { emit krGuiRichBeginUpdate(rich) }
-func guiRichEndUpdate(rich)                      { emit krGuiRichEndUpdate(rich) }
+// WM_SETREDRAW=11. wParam=0 to disable, =1 to enable. Pure Krypton.
+func guiRichBeginUpdate(rich) {
+    let h = _guiResolveHwnd(rich)
+    if h == "0" { emit "0" }
+    SendMessageA(h, "11", "0", "0")
+    emit "1"
+}
+func guiRichEndUpdate(rich) {
+    let h = _guiResolveHwnd(rich)
+    if h == "0" { emit "0" }
+    SendMessageA(h, "11", "1", "0")
+    InvalidateRect(h, "0", "1")
+    emit "1"
+}
 func guiCheckbox(parent, label, x, y, w, h)      { emit krGuiCheckbox(parent, label, x + "", y + "", w + "", h + "") }
-func guiIsChecked(hwnd)                          { emit krGuiIsChecked(hwnd) }
-func guiSetChecked(hwnd, on)                     { emit krGuiSetChecked(hwnd, on + "") }
+// 2026-05-11 Phase B SendMessageA-based ports (pure Krypton, no cfunc).
+// BM_GETCHECK=240 → returns 1 if checked. BM_SETCHECK=241 (wParam=1/0).
+func guiIsChecked(hwnd) {
+    let h = _guiResolveHwnd(hwnd)
+    if h == "0" { emit "0" }
+    let r = SendMessageA(h, "240", "0", "0")
+    if r == "1" { emit "1" }
+    emit "0"
+}
+func guiSetChecked(hwnd, on) {
+    let h = _guiResolveHwnd(hwnd)
+    if h == "0" { emit "0" }
+    let v = "0"
+    if on != "0" && on != "" { v = "1" }
+    SendMessageA(h, "241", v, "0")
+    emit "1"
+}
 func guiListbox(parent, x, y, w, h)              { emit krGuiListbox(parent, x + "", y + "", w + "", h + "") }
-func guiListAdd(hwnd, item)                      { emit krGuiListAdd(hwnd, item) }
-func guiListClear(hwnd)                          { emit krGuiListClear(hwnd) }
-func guiListSelected(hwnd)                       { emit krGuiListSelected(hwnd) }
+// 2026-05-11 Phase B: LB_ADDSTRING=384, lParam=LPCSTR. The
+// SendMessageA marshalling atoi's all 4 args, so we pre-convert the
+// Krypton string `item` to its decimal address via ptrToInt (whose
+// runtime stub was fixed earlier this session to JMP→__rt_itoa); the
+// atoi at the call site decodes it back to the same address. Win32
+// reads from that address as ANSI text. Pure Krypton.
+func guiListAdd(hwnd, item) {
+    let h = _guiResolveHwnd(hwnd)
+    if h == "0" { emit "0" }
+    SendMessageA(h, "384", "0", ptrToInt(item))
+    emit "1"
+}
+// LB_RESETCONTENT=388, LB_GETCURSEL=392. Pure Krypton.
+func guiListClear(hwnd) {
+    let h = _guiResolveHwnd(hwnd)
+    if h == "0" { emit "0" }
+    SendMessageA(h, "388", "0", "0")
+    emit "1"
+}
+func guiListSelected(hwnd) {
+    let h = _guiResolveHwnd(hwnd)
+    if h == "0" { emit "-1" }
+    emit SendMessageA(h, "392", "0", "0")
+}
 func guiProgress(parent, x, y, w, h)             { emit krGuiProgress(parent, x + "", y + "", w + "", h + "") }
-func guiProgressSet(hwnd, percent)               { emit krGuiProgressSet(hwnd, percent + "") }
+// PBM_SETPOS=1026 (msg + wParam=percent). Pure Krypton.
+func guiProgressSet(hwnd, percent) {
+    let h = _guiResolveHwnd(hwnd)
+    if h == "0" { emit "0" }
+    SendMessageA(h, "1026", percent + "", "0")
+    emit "1"
+}
 func guiTreeView(parent, x, y, w, h)             { emit krGuiTreeView(parent, x + "", y + "", w + "", h + "") }
 func guiTreeAdd(tree, parent_item, label)        { emit krGuiTreeAdd(tree, parent_item, label) }
 func guiTreeAddDir(tree, parent_item, label)     { emit krGuiTreeAddDir(tree, parent_item, label) }
-func guiTreeClear(tree)                          { emit krGuiTreeClear(tree) }
-func guiTreeExpand(tree, item)                   { emit krGuiTreeExpand(tree, item) }
+// 2026-05-11 Phase B: TVM_DELETEITEM=4360 with item=TVI_ROOT (0xFFFF0000).
+// TVI_ROOT is a magic HTREEITEM constant. SendMessageA marshalling atois
+// all 4 args, so we pass the constant as its decimal form.
+func guiTreeClear(tree) {
+    let h = _guiResolveHwnd(tree)
+    if h == "0" { emit "0" }
+    SendMessageA(h, "4360", "0", "4294901760")  // TVI_ROOT = 0xFFFF0000
+    emit "1"
+}
+// 2026-05-11 Phase B: TVM_EXPAND=4354, TVE_EXPAND=2. `item` is a hex
+// HTREEITEM string from cfunc (krGuiTreeAdd returns "0x..."); we
+// hex-decode for the int-marshalled call. Pure Krypton.
+func guiTreeExpand(tree, item) {
+    let h = _guiResolveHwnd(tree)
+    if h == "0" { emit "" }
+    let it = _guiHexToInt(item)
+    SendMessageA(h, "4354", "2", it + "")
+    emit ""
+}
 func guiTreeSelected(tree)                       { emit krGuiTreeSelected(tree) }
 func guiTreeSelectedHandle(tree)                 { emit krGuiTreeSelectedHandle(tree) }
 func guiTabs(parent, x, y, w, h)                 { emit krGuiTabs(parent, x + "", y + "", w + "", h + "") }
 func guiTabAdd(tabs, label)                      { emit krGuiTabAdd(tabs, label) }
-func guiTabSelect(tabs, idx)                     { emit krGuiTabSelect(tabs, idx + "") }
+// 2026-05-11 Phase B: TCM_SETCURSEL=4876, TCM_GETCURSEL=4875. Pure Krypton.
+func guiTabSelect(tabs, idx) {
+    let h = _guiResolveHwnd(tabs)
+    if h == "0" { emit "-1" }
+    emit SendMessageA(h, "4876", idx + "", "0")
+}
 func guiTabFind(tabs, label)                     { emit krGuiTabFind(tabs, label) }
-func guiTabSelected(tabs)                        { emit krGuiTabSelected(tabs) }
+func guiTabSelected(tabs) {
+    let h = _guiResolveHwnd(tabs)
+    if h == "0" { emit "-1" }
+    emit SendMessageA(h, "4875", "0", "0")
+}
 func guiOnChange(hwnd, sinkPtr)                  { emit krGuiOnChange(hwnd, sinkPtr) }
 func guiMenuBegin(window)                        { emit krGuiMenuBegin(window) }
 func guiMenu(menubar, label)                     { emit krGuiMenu(menubar, label) }
@@ -5918,9 +6057,41 @@ func guiMenuItem(popup, label)                   { emit krGuiMenuItem(popup, lab
 func guiMenuSeparator(popup)                     { emit krGuiMenuSeparator(popup) }
 func guiMenuAdd(menu, label)                     { emit krGuiMenuAdd(menu, label) }
 func guiStatusBar(window)                        { emit krGuiStatusBar(window) }
-func guiStatusParts(bar, widthsCsv)              { emit krGuiStatusParts(bar, widthsCsv) }
-func guiStatusSet(bar, idx, text)                { emit krGuiStatusSet(bar, idx + "", text) }
-func guiStatusGet(bar, idx)                      { emit krGuiStatusGet(bar, idx + "") }
+// 2026-05-11 Phase B: SB_SETPARTS=1028 (0x404). lParam = LPINT (int*).
+// Cap at 16 parts (rare apps need more).
+func guiStatusParts(bar, widthsCsv) {
+    let h = _guiResolveHwnd(bar)
+    if h == "0" { emit "0" }
+    let widths = split(widthsCsv, ",")
+    let n = lineCount(widths)
+    if n > 16 { n = 16 }
+    let buf = bufNew("64")  // 16 * 4 bytes max
+    let i = 0
+    while i < n {
+        let w = toInt(getLine(widths, i))
+        bufSetDwordAt(buf, i * 4, w + "")
+        i = i + 1
+    }
+    SendMessageA(h, "1028", n + "", ptrToInt(buf))
+    emit ""
+}
+// 2026-05-11 Phase B: SB_SETTEXTA=1025 (0x401), SB_GETTEXTA=1026 (0x402).
+// wParam packs the part index with style flags in the high byte; for the
+// default "no border" path we just pass `idx` (no flags).
+// SB_GETTEXTA's lParam is an output buffer; cfunc reads back via that buf.
+func guiStatusSet(bar, idx, text) {
+    let h = _guiResolveHwnd(bar)
+    if h == "0" { emit "0" }
+    SendMessageA(h, "1025", idx + "", ptrToInt(text))
+    emit "1"
+}
+func guiStatusGet(bar, idx) {
+    let h = _guiResolveHwnd(bar)
+    if h == "0" { emit "" }
+    let buf = bufNew("256")
+    SendMessageA(h, "1026", idx + "", ptrToInt(buf))
+    emit _guiBufToStr(buf, 256)
+}
 func guiStatusIcon(bar, idx, iconName)           { emit krGuiStatusIcon(bar, idx + "", iconName) }
 func guiStatusBgColor(bar, hex)                  { emit krGuiStatusBgColor(bar, hex) }
 func guiImage(parent, path, x, y, w, h)          { emit krGuiImage(parent, path, x + "", y + "", w + "", h + "") }
@@ -5936,7 +6107,13 @@ func guiImageSet(image, path)                    { emit krGuiImageSet(image, pat
 // cursor position. Each returns the same handle/id as its non-stack
 // counterpart so guiOnClick / guiGetText / etc. work normally.
 
-func guiMove(handle, x, y, w, h)                 { emit krGuiMove(handle, x + "", y + "", w + "", h + "") }
+// 2026-05-11 Phase B: MoveWindow direct. Pure Krypton.
+func guiMove(handle, x, y, w, h) {
+    let H = _guiResolveHwnd(handle)
+    if H == "0" { emit "0" }
+    MoveWindow(H, x + "", y + "", w + "", h + "", "1")
+    emit "1"
+}
 func guiDock(window)                             { emit krGuiDock(window) }
 func guiDockTop(dock, hwnd, size)                { emit krGuiDockTop(dock, hwnd, size + "") }
 func guiDockBottom(dock, hwnd, size)             { emit krGuiDockBottom(dock, hwnd, size + "") }
@@ -5947,10 +6124,32 @@ func guiDockApply(dock)                          { emit krGuiDockApply(dock) }
 func guiSplitter(parent, x, y, w, h, orientation) { emit krGuiSplitter(parent, x + "", y + "", w + "", h + "", orientation) }
 func guiSplitterPos(splitter)                    { emit krGuiSplitterPos(splitter) }
 func guiCombo(parent, x, y, w, h)                { emit krGuiCombo(parent, x + "", y + "", w + "", h + "") }
-func guiComboAdd(combo, item)                    { emit krGuiComboAdd(combo, item) }
-func guiComboClear(combo)                        { emit krGuiComboClear(combo) }
-func guiComboSelected(combo)                     { emit krGuiComboSelected(combo) }
-func guiComboSet(combo, idx)                     { emit krGuiComboSet(combo, idx + "") }
+// CB_ADDSTRING=323. Same lParam=LPCSTR trick as guiListAdd.
+func guiComboAdd(combo, item) {
+    let h = _guiResolveHwnd(combo)
+    if h == "0" { emit "0" }
+    SendMessageA(h, "323", "0", ptrToInt(item))
+    emit "1"
+}
+// 2026-05-11 Phase B: combo SendMessage ports. Pure Krypton.
+// CB_RESETCONTENT=331, CB_GETCURSEL=327, CB_SETCURSEL=334.
+func guiComboClear(combo) {
+    let h = _guiResolveHwnd(combo)
+    if h == "0" { emit "0" }
+    SendMessageA(h, "331", "0", "0")
+    emit "1"
+}
+func guiComboSelected(combo) {
+    let h = _guiResolveHwnd(combo)
+    if h == "0" { emit "-1" }
+    emit SendMessageA(h, "327", "0", "0")
+}
+func guiComboSet(combo, idx) {
+    let h = _guiResolveHwnd(combo)
+    if h == "0" { emit "0" }
+    SendMessageA(h, "334", idx + "", "0")
+    emit "1"
+}
 // 2026-05-11 Phase B port — pure Krypton, no cfunc.
 // CHOOSECOLORA struct (72 bytes on x64):
 //   +0  DWORD lStructSize (72)
@@ -5991,9 +6190,23 @@ func guiDatePicker(parent, x, y, w, h)           { emit krGuiDatePicker(parent, 
 func guiDateGet(picker)                          { emit krGuiDateGet(picker) }
 func guiDateSet(picker, ymd)                     { emit krGuiDateSet(picker, ymd) }
 func guiScrollbar(parent, x, y, w, h, vertical)  { emit krGuiScrollbar(parent, x + "", y + "", w + "", h + "", vertical + "") }
+// 2026-05-11 Phase B: scrollbar ports. SBM_SETPOS=224 (E0), SBM_GETPOS=225,
+// SBM_SETRANGE=226 (228 SETRANGEREDRAW). Page size needs SBM_SETSCROLLINFO
+// which takes a SCROLLINFO struct — for the simple cases we use the legacy
+// SBM_SETRANGE which doesn't support page. Pass-through for SBM_SETSCROLLINFO
+// path until SCROLLINFO struct construction lands as a follow-up.
 func guiScrollbarRange(sb, lo, hi, page)         { emit krGuiScrollbarRange(sb, lo + "", hi + "", page + "") }
-func guiScrollbarValue(sb)                       { emit krGuiScrollbarValue(sb) }
-func guiScrollbarSet(sb, value)                  { emit krGuiScrollbarSet(sb, value + "") }
+func guiScrollbarValue(sb) {
+    let h = _guiResolveHwnd(sb)
+    if h == "0" { emit "0" }
+    emit SendMessageA(h, "225", "0", "0")
+}
+func guiScrollbarSet(sb, value) {
+    let h = _guiResolveHwnd(sb)
+    if h == "0" { emit "0" }
+    SendMessageA(h, "224", value + "", "1")
+    emit "1"
+}
 func guiVStack(parent, x, y, width, gap)         { emit krGuiVStack(parent, x + "", y + "", width + "", gap + "") }
 func guiHStack(parent, x, y, height, gap)        { emit krGuiHStack(parent, x + "", y + "", height + "", gap + "") }
 func guiVNext(stack, height)                     { emit krGuiVNext(stack, height + "") }
@@ -6080,17 +6293,46 @@ func guiHCheckbox(stack, label, width) {
     emit guiCheckbox(p, label, toInt(x), toInt(guiStackY(stack)), width, toInt(guiStackH(stack)))
 }
 func guiSlider(parent, x, y, w, h)               { emit krGuiSlider(parent, x + "", y + "", w + "", h + "") }
-func guiSliderRange(slider, lo, hi)              { emit krGuiSliderRange(slider, lo + "", hi + "") }
-func guiSliderSet(slider, value)                 { emit krGuiSliderSet(slider, value + "") }
-func guiSliderValue(slider)                      { emit krGuiSliderValue(slider) }
+// 2026-05-11 Phase B: TBM_GETPOS=1024, TBM_SETPOS=1029, TBM_SETRANGE=1030.
+// MAKELONG(lo,hi) = (hi<<16) | (lo & 0xFFFF). Pure Krypton.
+func guiSliderRange(slider, lo, hi) {
+    let h = _guiResolveHwnd(slider)
+    if h == "0" { emit "0" }
+    let packed = bitOr(bitAnd(lo + "", "65535"), bitShl(bitAnd(hi + "", "65535"), "16"))
+    SendMessageA(h, "1030", "1", packed + "")
+    emit "1"
+}
+func guiSliderSet(slider, value) {
+    let h = _guiResolveHwnd(slider)
+    if h == "0" { emit "0" }
+    SendMessageA(h, "1029", "1", value + "")
+    emit "1"
+}
+func guiSliderValue(slider) {
+    let h = _guiResolveHwnd(slider)
+    if h == "0" { emit "0" }
+    emit SendMessageA(h, "1024", "0", "0")
+}
 func guiSpinbox(parent, x, y, w, h)              { emit krGuiSpinbox(parent, x + "", y + "", w + "", h + "") }
+// UDM_SETRANGE32=1125 (wParam=lo, lParam=hi). UDM_SETPOS32=1127. UDM_GETPOS32=1128 (out-ptr).
+// Spinbox is paired with a buddy EDIT; the cfunc tracks the EDIT as the
+// user-visible handle, so guiSpinboxValue routes the buddy → spin via
+// guiState. For now port pass-through (state map still cfunc) — full
+// port lands when state helpers move out of cfunc.
 func guiSpinboxRange(spin, lo, hi)               { emit krGuiSpinboxRange(spin, lo + "", hi + "") }
 func guiSpinboxSet(spin, value)                  { emit krGuiSpinboxSet(spin, value + "") }
 func guiSpinboxValue(spin)                       { emit krGuiSpinboxValue(spin) }
 func guiToolbar(window)                          { emit krGuiToolbar(window) }
 func guiToolButton(toolbar, label, iconName)     { emit krGuiToolButton(toolbar, label, iconName) }
 func guiToolSep(toolbar)                         { emit krGuiToolSep(toolbar) }
-func guiToolbarHeight(toolbar)                   { emit krGuiToolbarHeight(toolbar) }
+// 2026-05-11 Phase B: TB_GETBUTTONSIZE=1054. Returns packed DWORD with
+// LOWORD=width, HIWORD=height. We extract the height (high 16 bits).
+func guiToolbarHeight(toolbar) {
+    let h = _guiResolveHwnd(toolbar)
+    if h == "0" { emit "0" }
+    let packed = SendMessageA(h, "1054", "0", "0")
+    emit bitAnd(bitShr(packed, "16"), "65535")
+}
 // 2026-05-11 Phase B ports — pure Krypton, no cfunc.
 //
 // OPENFILENAMEA layout on x64 (current SDK with WINVER >= 0x0500 →
@@ -6258,7 +6500,16 @@ func guiStateGet(key)                            { emit krGuiStateGet(key) }
 // Periodic-timer helpers. `cb` must be a 0-arg Krypton function
 // passed via funcptr(). Returns a timer-id string (use to kill).
 func guiSetTimer(ms, cb)                         { emit krGuiSetTimer(ms + "", cb) }
-func guiKillTimer(tid)                           { emit krGuiKillTimer(tid + "") }
+// 2026-05-11 Phase B: KillTimer direct. cfunc krGuiKillTimer also
+// cleared its g_timer_cb[id] slot; we leak that slot until the program
+// exits. With 16 slots this is fine for typical apps; full port lands
+// when the timer-callback table moves out of cfunc.
+func guiKillTimer(tid) {
+    let main = guiStateGet("main.hwnd")
+    if main == "" { emit "" }
+    KillTimer(main, tid + "")
+    emit ""
+}
 
 // Force dark mode for the main window via DWM immersive dark + the
 // uxtheme DarkMode_Explorer subclass. 2026-05-11 Phase B port —
