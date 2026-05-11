@@ -57,35 +57,41 @@ func winioReadByte(h) {
     let nb = bufNew(8)
     let ok = ReadFile(h, buf, 1, nb, "0")
     if ok == "0" { emit "-1" }
-    let n = bufGetDword(nb, 0)
+    let n = bufGetDword(nb)
     if n == "0" { emit "-1" }
     emit bufGetByte(buf, 0)
 }
 
 // Read exactly n bytes from h. Returns the bytes as a Krypton string
-// (no NUL handling — caller's responsibility). Returns "" on early EOF.
+// (no NUL handling — JSON/text payloads only). Returns "" on early EOF.
+//
+// Multi-pass safe: ReadFile is called repeatedly into a small chunk
+// buffer until n bytes have been collected. Each chunk's bytes are
+// copied into the result buffer at the correct offset via bufSetByte.
+// This avoids needing pointer arithmetic at the Krypton call site.
 func winioReadBytes(h, n) {
     let nInt = toInt(n)
-    if nInt <= "0" { emit "" }
-    let buf = bufNew(nInt + 1)
-    let nb = bufNew(8)
-    let total = 0
-    let totalInt = 0
+    if nInt <= 0 { emit "" }
+    let result    = bufNew(nInt + 1)
+    let nb        = bufNew(8)
+    let chunkSize = 4096
+    let chunk     = bufNew(chunkSize)
+    let totalInt  = 0
     while totalInt < nInt {
         let want = nInt - totalInt
-        let ok = ReadFile(h, buf, want, nb, "0")
+        if want > chunkSize { want = chunkSize }
+        let ok = ReadFile(h, chunk, want, nb, "0")
         if ok == "0" { emit "" }
-        let got = toInt(bufGetDword(nb, 0))
-        if got == "0" { emit "" }
-        // Append 'got' bytes to total. We're reading into the SAME buf
-        // each iteration; the offset accumulation requires byte-level
-        // bookkeeping. For simplicity, this loop assumes ReadFile
-        // returns the full request in one call (Windows pipes usually do
-        // for small N). Multi-pass partial-read support is a TODO.
+        let got = toInt(bufGetDword(nb))
+        if got == 0 { emit "" }   // EOF before n bytes collected
+        let i = 0
+        while i < got {
+            bufSetByte(result, totalInt + i, bufGetByte(chunk, i))
+            i = i + 1
+        }
         totalInt = totalInt + got
-        emit bufStr(buf)
     }
-    emit bufStr(buf)
+    emit bufStr(result)
 }
 
 // Read a line (until \n; includes the \n, or EOF terminates the line).

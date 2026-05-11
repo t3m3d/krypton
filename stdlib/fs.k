@@ -1,9 +1,10 @@
 // stdlib/fs.k — filesystem helpers for Krypton.
 //
-// Things you can't do without a syscall: enumerate a directory,
-// stat-check whether a path is a dir, etc. Pure-Krypton string ops
-// (basename, dirname, join) live alongside the cfunc-backed ones —
-// no DLL dance needed for those.
+// 2.1: pure Krypton via direct Win32 IAT. No cfunc body, no
+// ckrypton_fs.dll.  Win32 ABI marshalling (atoi'd int args, itoa'd int
+// returns) at the call sites makes this work through both the native
+// PE pipeline (KR32_FUNCS in x64.k) and the C+gcc pipeline
+// (compileWin32IntArgs in compile.k).
 //
 // Wire format for fsListDir:
 //
@@ -14,238 +15,197 @@
 
 module fs
 
+import "head:windows"
+import "head:fileio"
 
-jxt {
-    func krFsListDir(path)              -> char_ptr
-    func krFsIsDir(path)                -> char_ptr
-    func krFsFileExists(path)           -> char_ptr
-    func krFsMkdir(path)                -> char_ptr
-    func krFsHexDump(path, maxBytes)    -> char_ptr
-    func krFsLooksBinary(path)          -> char_ptr
+
+// ── Native Win32 implementations ──────────────────────────────────
+
+// FILE_ATTRIBUTE_DIRECTORY = 0x10 = 16
+// INVALID_FILE_ATTRIBUTES  = 0xFFFFFFFF = 4294967295
+func fsListDir(path) {
+    if len(path) == 0 { emit "" }
+    let TAB = fromCharCode("9")
+    let LF  = fromCharCode("10")
+    let last = substring(path, len(path) - 1, len(path))
+    let pattern = path
+    if last != "\\" { if last != "/" { pattern = path + "\\" } }
+    pattern = pattern + "*"
+
+    let fd = structNew("WIN32_FIND_DATAA")
+    let h  = FindFirstFileA(pattern, fd)
+    if h == "0" { emit "" }
+    if h == "-1" { emit "" }
+    if h == "18446744073709551615" { emit "" }
+
+    let sb = sbNew()
+    let more = "1"
+    while more == "1" {
+        let attr = structGet(fd, "WIN32_FIND_DATAA", "dwFileAttributes")
+        let name = structGet(fd, "WIN32_FIND_DATAA", "cFileName")
+        let skip = "0"
+        if name == "."  { skip = "1" }
+        if name == ".." { skip = "1" }
+        if skip == "0" {
+            let typ = "F"
+            if bitAnd(attr, "16") != "0" { typ = "D" }
+            sb = sbAppend(sb, typ + TAB + name + LF)
+        }
+        more = FindNextFileA(h, fd)
+    }
+    FindClose(h)
+    emit sbToString(sb)
+}
+
+func fsIsDir(path) {
+    if len(path) == 0 { emit "0" }
+    let a = GetFileAttributesA(path)
+    if a == "4294967295" { emit "0" }
+    if a == "-1" { emit "0" }
+    if bitAnd(a, "16") != "0" { emit "1" }
+    emit "0"
+}
+
+func fsFileExists(path) {
+    if len(path) == 0 { emit "0" }
+    let a = GetFileAttributesA(path)
+    if a == "4294967295" { emit "0" }
+    if a == "-1" { emit "0" }
+    emit "1"
+}
+
+func fsMkdir(path) {
+    if len(path) == 0 { emit "0" }
+    emit CreateDirectoryA(path, toHandle("0"))
+}
+
+// CreateFileA with GENERIC_READ + OPEN_EXISTING for read-only access.
+//   GENERIC_READ        = 0x80000000 = 2147483648
+//   FILE_SHARE_READ     = 0x00000001
+//   OPEN_EXISTING       = 3
+//   FILE_ATTRIBUTE_NORMAL = 128
+//   INVALID_HANDLE_VALUE = (HANDLE)-1 = 18446744073709551615 unsigned
+func _fs_openRead(path) {
+    emit CreateFileA(path, "2147483648", "1", toHandle("0"), "3", "128", toHandle("0"))
+}
+
+func _fs_isInvalid(h) {
+    if h == "0" { emit "1" }
+    if h == "18446744073709551615" { emit "1" }
+    if h == "-1" { emit "1" }
+    emit "0"
+}
+
+// Sniff the first 1 KB for NUL bytes — if any present, treat
+// the file as binary. Cheap heuristic that handles UTF-8 text
+// (no embedded NULs) vs PE/object/image files (lots of NULs).
+func fsLooksBinary(path) {
+    let h = _fs_openRead(path)
+    if _fs_isInvalid(h) == "1" { emit "0" }
+    let buf = bufNew(1024)
+    let nb  = bufNew(8)
+    let ok  = ReadFile(h, buf, "1024", nb, toHandle("0"))
+    CloseHandle(h)
+    if ok == "0" { emit "0" }
+    let n = toInt(bufGetDword(nb))
+    let i = 0
+    while i < n {
+        if bufGetByte(buf, i) == "0" { emit "1" }
+        i += 1
+    }
+    emit "0"
+}
+
+// Hex-dump up to maxBytes of `path` as a multi-line string, classic format:
+//   00000000  4d 5a 90 00 03 00 00 00 04 00 00 00 ff ff 00 00  MZ..............
+// 16 bytes per row, ASCII gutter.
+func fsHexDump(path, maxBytes) {
+    let cap = toInt(maxBytes)
+    if cap <= 0 { cap = 65536 }
+    if cap > 4194304 { cap = 4194304 }
+
+    let h = _fs_openRead(path)
+    if _fs_isInvalid(h) == "1" { emit "" }
+    let buf = bufNew(cap)
+    let nb  = bufNew(8)
+    let ok  = ReadFile(h, buf, cap + "", nb, toHandle("0"))
+    CloseHandle(h)
+    if ok == "0" { emit "" }
+    let got = toInt(bufGetDword(nb))
+
+    let SP = " "
+    let SP2 = "  "
+    let CR = fromCharCode("13")
+    let LF = fromCharCode("10")
+    let CRLF = CR + LF
+    let DOT = "."
+
+    let HEX = "0123456789abcdef"
+    let sb = sbNew()
+    let i = 0
+    while i < got {
+        let rowLen = got - i
+        if rowLen > 16 { rowLen = 16 }
+        // 8-digit hex offset, manual nibble extraction.  (kr_plus on
+        // two all-digit strings does arithmetic, not concat — so the
+        // simpler `pad + "0"` loop returns "0" instead of "00000000".)
+        let off = i
+        let s = 28
+        while s >= 0 {
+            let div = 1
+            let dd = 0
+            while dd < s { div = div * 2  dd += 1 }
+            let nibV = (off / div) - ((off / div) / 16) * 16
+            sb = sbAppend(sb, substring(HEX, nibV, nibV + 1))
+            s -= 4
+        }
+        sb = sbAppend(sb, SP2)
+        // 16 bytes hex (manual 2-char format via HEX nibbles)
+        let b = 0
+        while b < 16 {
+            if b == 8 { sb = sbAppend(sb, SP) }
+            if b < rowLen {
+                let v = toInt(bufGetByte(buf, i + b))
+                let hi = v / 16
+                let lo = v - hi * 16
+                sb = sbAppend(sb, substring(HEX, hi, hi + 1))
+                sb = sbAppend(sb, substring(HEX, lo, lo + 1))
+                sb = sbAppend(sb, SP)
+            } else {
+                sb = sbAppend(sb, SP2 + SP)
+            }
+            b += 1
+        }
+        sb = sbAppend(sb, SP)
+        // ASCII gutter
+        let g = 0
+        while g < rowLen {
+            let v = toInt(bufGetByte(buf, i + g))
+            if v >= 32 {
+                if v < 127 { sb = sbAppend(sb, fromCharCode(v + "")) }
+                else { sb = sbAppend(sb, DOT) }
+            } else {
+                sb = sbAppend(sb, DOT)
+            }
+            g += 1
+        }
+        sb = sbAppend(sb, CRLF)
+        i += 16
+    }
+    if got >= cap {
+        sb = sbAppend(sb, CRLF + "[truncated]" + CRLF)
+    }
+    emit sbToString(sb)
 }
 
 
-cfunc {
-#if defined(_WIN32)
-
-    #ifndef _WIN32_WINNT
-    #define _WIN32_WINNT 0x0601
-    #endif
-    #include <windows.h>
-    #include <stdio.h>
-    #include <stdlib.h>
-    #include <string.h>
-
-    static char* kr_fs_dup(const char* s) {
-        size_t n = strlen(s);
-        char* p = (char*)malloc(n + 1);
-        if (!p) return (char*)"";
-        memcpy(p, s, n + 1);
-        return p;
-    }
-
-    __declspec(dllexport) char* krFsListDir(char* path) {
-        if (!path || !*path) return (char*)"";
-        // Build pattern: <path>\*
-        size_t n = strlen(path);
-        char* pattern = (char*)malloc(n + 4);
-        if (!pattern) return (char*)"";
-        memcpy(pattern, path, n);
-        // Tolerate trailing slash either way.
-        if (n > 0 && pattern[n - 1] != '\\' && pattern[n - 1] != '/') {
-            pattern[n++] = '\\';
-        }
-        pattern[n++] = '*';
-        pattern[n]   = '\0';
-
-        WIN32_FIND_DATAA fd;
-        HANDLE h = FindFirstFileA(pattern, &fd);
-        free(pattern);
-        if (h == INVALID_HANDLE_VALUE) return (char*)"";
-
-        // Build result string. Cap at 1 MB to keep things sane.
-        size_t cap = 4096, used = 0;
-        char* out = (char*)malloc(cap);
-        if (!out) { FindClose(h); return (char*)""; }
-        out[0] = '\0';
-
-        do {
-            const char* name = fd.cFileName;
-            if (name[0] == '.' && (name[1] == '\0' ||
-                (name[1] == '.' && name[2] == '\0'))) {
-                continue;
-            }
-            char type = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? 'D' : 'F';
-            size_t nl = strlen(name);
-            size_t need = used + 1 + 1 + nl + 1 + 1;   // type + \t + name + \n + NUL
-            if (need > cap) {
-                while (cap < need) cap *= 2;
-                if (cap > 1048576) break;
-                char* nu = (char*)realloc(out, cap);
-                if (!nu) break;
-                out = nu;
-            }
-            out[used++] = type;
-            out[used++] = '\t';
-            memcpy(out + used, name, nl);
-            used += nl;
-            out[used++] = '\n';
-            out[used]   = '\0';
-        } while (FindNextFileA(h, &fd));
-        FindClose(h);
-
-        char* dup = kr_fs_dup(out);
-        free(out);
-        return dup;
-    }
-
-    __declspec(dllexport) char* krFsIsDir(char* path) {
-        if (!path) return (char*)"0";
-        DWORD a = GetFileAttributesA(path);
-        if (a == INVALID_FILE_ATTRIBUTES) return (char*)"0";
-        return (a & FILE_ATTRIBUTE_DIRECTORY) ? (char*)"1" : (char*)"0";
-    }
-
-    __declspec(dllexport) char* krFsFileExists(char* path) {
-        if (!path) return (char*)"0";
-        DWORD a = GetFileAttributesA(path);
-        return (a == INVALID_FILE_ATTRIBUTES) ? (char*)"0" : (char*)"1";
-    }
-
-    __declspec(dllexport) char* krFsMkdir(char* path) {
-        if (!path) return (char*)"0";
-        return CreateDirectoryA(path, NULL) ? (char*)"1" : (char*)"0";
-    }
-
-    // Sniff the first 1 KB for NUL bytes — if any present, treat
-    // the file as binary. Cheap heuristic that handles UTF-8 text
-    // (no embedded NULs) vs PE/object/image files (lots of NULs).
-    __declspec(dllexport) char* krFsLooksBinary(char* path) {
-        if (!path) return (char*)"0";
-        FILE* f = fopen(path, "rb");
-        if (!f) return (char*)"0";
-        unsigned char buf[1024];
-        size_t got = fread(buf, 1, sizeof(buf), f);
-        fclose(f);
-        for (size_t i = 0; i < got; i++) {
-            if (buf[i] == 0) return (char*)"1";
-        }
-        return (char*)"0";
-    }
-
-    // Hex-dump up to maxBytes of `path` as a multi-line string in
-    // the classic format:
-    //
-    //   00000000  4d 5a 90 00 03 00 00 00 04 00 00 00 ff ff 00 00  MZ..............
-    //
-    // 16 bytes per row. ASCII gutter renders printable bytes as
-    // themselves and everything else as '.'. Caps maxBytes at
-    // 4 MB so the IDE doesn't try to render a 1 GB iso.
-    __declspec(dllexport) char* krFsHexDump(char* path, char* maxBytesStr) {
-        if (!path) return (char*)"";
-        int maxBytes = atoi(maxBytesStr ? maxBytesStr : "65536");
-        if (maxBytes <= 0)        maxBytes = 65536;
-        if (maxBytes > 4194304)   maxBytes = 4194304;
-
-        FILE* f = fopen(path, "rb");
-        if (!f) return (char*)"";
-
-        unsigned char* bytes = (unsigned char*)malloc(maxBytes);
-        if (!bytes) { fclose(f); return (char*)""; }
-        int got = (int)fread(bytes, 1, (size_t)maxBytes, f);
-        fclose(f);
-
-        // Each 16-byte row is ~75 chars including \r\n. Allocate
-        // accordingly.
-        size_t cap = (size_t)((got / 16 + 2) * 80) + 256;
-        char* out = (char*)malloc(cap);
-        if (!out) { free(bytes); return (char*)""; }
-        size_t pos = 0;
-
-        const char* hex = "0123456789abcdef";
-        int i = 0;
-        while (i < got) {
-            int rowLen = got - i;
-            if (rowLen > 16) rowLen = 16;
-
-            // 8-digit offset
-            unsigned int off = (unsigned int)i;
-            for (int s = 28; s >= 0; s -= 4) {
-                out[pos++] = hex[(off >> s) & 0xF];
-            }
-            out[pos++] = ' ';
-            out[pos++] = ' ';
-
-            // 16 bytes hex (extra space mid-row at byte 8 for
-            // readability).
-            for (int b = 0; b < 16; b++) {
-                if (b == 8) out[pos++] = ' ';
-                if (b < rowLen) {
-                    unsigned char v = bytes[i + b];
-                    out[pos++] = hex[v >> 4];
-                    out[pos++] = hex[v & 0xF];
-                } else {
-                    out[pos++] = ' ';
-                    out[pos++] = ' ';
-                }
-                out[pos++] = ' ';
-            }
-            out[pos++] = ' ';
-
-            // ASCII gutter
-            for (int b = 0; b < rowLen; b++) {
-                unsigned char v = bytes[i + b];
-                out[pos++] = (v >= 32 && v < 127) ? (char)v : '.';
-            }
-
-            out[pos++] = '\r';
-            out[pos++] = '\n';
-            i += 16;
-        }
-        if (got >= maxBytes) {
-            const char* tail = "\r\n[truncated]\r\n";
-            size_t tlen = strlen(tail);
-            if (pos + tlen < cap) { memcpy(out + pos, tail, tlen); pos += tlen; }
-        }
-        out[pos] = '\0';
-
-        free(bytes);
-        // Caller-managed: copy into a fresh small allocation, free
-        // the oversized scratch.
-        char* dup = (char*)malloc(pos + 1);
-        if (!dup) { free(out); return (char*)""; }
-        memcpy(dup, out, pos + 1);
-        free(out);
-        return dup;
-    }
-
-#else
-    __declspec(dllexport) char* krFsListDir(char* p)         { (void)p; return (char*)""; }
-    __declspec(dllexport) char* krFsIsDir(char* p)           { (void)p; return (char*)"0"; }
-    __declspec(dllexport) char* krFsFileExists(char* p)      { (void)p; return (char*)"0"; }
-    __declspec(dllexport) char* krFsMkdir(char* p)           { (void)p; return (char*)"0"; }
-    __declspec(dllexport) char* krFsLooksBinary(char* p)     { (void)p; return (char*)"0"; }
-    __declspec(dllexport) char* krFsHexDump(char* p, char* m){ (void)p;(void)m; return (char*)""; }
-#endif
-}
-
-
-// ── Krypton public API ─────────────────────────────────────────
-
-func fsListDir(path)         { emit krFsListDir(path) }
-func fsIsDir(path)           { emit krFsIsDir(path) }
-func fsFileExists(path)      { emit krFsFileExists(path) }
-func fsMkdir(path)           { emit krFsMkdir(path) }
-func fsLooksBinary(path)     { emit krFsLooksBinary(path) }
-func fsHexDump(path, maxBytes) { emit krFsHexDump(path, maxBytes + "") }
-
-
-// ── Pure-Krypton path helpers ─────────────────────────────────
+// ── Pure-Krypton path helpers (unchanged from 2.0) ──────────────
 
 func fsBaseName(path) {
     let i = len(path) - 1
     while i >= 0 {
-        if path[i] == "\\" || path[i] == "/" { emit substring(path, i + 1, len(path)) }
+        if path[i] == "\\" { emit substring(path, i + 1, len(path)) }
+        if path[i] == "/"  { emit substring(path, i + 1, len(path)) }
         i -= 1
     }
     emit path
@@ -254,7 +214,8 @@ func fsBaseName(path) {
 func fsDirName(path) {
     let i = len(path) - 1
     while i >= 0 {
-        if path[i] == "\\" || path[i] == "/" { emit substring(path, 0, i) }
+        if path[i] == "\\" { emit substring(path, 0, i) }
+        if path[i] == "/"  { emit substring(path, 0, i) }
         i -= 1
     }
     emit ""
@@ -264,7 +225,8 @@ func fsJoin(a, b) {
     if len(a) == 0 { emit b }
     if len(b) == 0 { emit a }
     let last = a[len(a) - 1]
-    if last == "\\" || last == "/" { emit a + b }
+    if last == "\\" { emit a + b }
+    if last == "/"  { emit a + b }
     emit a + "\\" + b
 }
 
