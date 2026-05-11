@@ -39,11 +39,14 @@
 
 module gui
 
-// 2026-05-11 Phase B port-in-progress: pulled in user32 so the
-// pure-Krypton wrappers below can call MessageBoxA directly,
+// 2026-05-11 Phase B port-in-progress: pulled in user32/dwmapi/uxtheme
+// so the pure-Krypton wrappers below can call Win32 APIs directly,
 // bypassing the cfunc body. cfunc retains the rest of the surface
 // until the per-function ports land.
 import "head:user32"
+import "head:dwmapi"
+import "head:uxtheme"
+import "head:comdlg32"
 
 
 jxt {
@@ -5830,9 +5833,49 @@ cfunc {
 // ── Krypton public API ─────────────────────────────────────────
 
 func guiInit()                                   { emit krGuiInit() }
-func guiWindow(title, w, h)                      { emit krGuiWindow(title, w + "", h + "") }
-func guiShow(hwnd)                               { emit krGuiShow(hwnd) }
-func guiHide(hwnd)                               { emit krGuiHide(hwnd) }
+// 2026-05-11 Phase B: cfunc krGuiWindow returns hwnd as "0x%llx" hex,
+// which __user_rt_atoi reads as 0 (atoi stops at the 'x'). All
+// pure-Krypton ports calling Win32 with an int-marshalled HWND need
+// a decimal version. Helper below + guiWindow now publishes both
+// the original (kept for cfunc consumers) AND a decimal copy for
+// the pure-Krypton ports to read.
+func _guiHexToInt(s) {
+    let p = s
+    if startsWith(p, "0x") { p = substring(p, 2, len(p)) }
+    if startsWith(p, "0X") { p = substring(p, 2, len(p)) }
+    let v = 0
+    let i = 0
+    while i < len(p) {
+        let c = charCode(p[i])
+        let d = 0
+        if c >= 48 && c <= 57  { d = c - 48 }
+        if c >= 65 && c <= 70  { d = c - 55 }
+        if c >= 97 && c <= 102 { d = c - 87 }
+        v = v * 16 + d
+        i = i + 1
+    }
+    emit v
+}
+func guiWindow(title, w, h) {
+    let hwndHex = krGuiWindow(title, w + "", h + "")
+    let hwndDec = _guiHexToInt(hwndHex)
+    guiStateSet("main.hwnd", hwndDec + "")
+    emit hwndHex
+}
+// 2026-05-11 Phase B ports — pure Krypton via head:user32.
+// SW_SHOW=5, SW_HIDE=0. krGuiWindow/Button/etc return hex-formatted
+// hwnd strings ("0x..."); we hex-decode for the int-marshalled call.
+func guiShow(hwnd) {
+    let h = _guiHexToInt(hwnd)
+    ShowWindow(h + "", "5")
+    UpdateWindow(h + "")
+    emit "1"
+}
+func guiHide(hwnd) {
+    let h = _guiHexToInt(hwnd)
+    ShowWindow(h + "", "0")
+    emit "1"
+}
 func guiButton(parent, label, x, y, w, h)        { emit krGuiButton(parent, label, x + "", y + "", w + "", h + "") }
 func guiLabel(parent, text, x, y, w, h)          { emit krGuiLabel(parent, text, x + "", y + "", w + "", h + "") }
 func guiTextInput(parent, x, y, w, h)            { emit krGuiTextInput(parent, x + "", y + "", w + "", h + "") }
@@ -5908,7 +5951,42 @@ func guiComboAdd(combo, item)                    { emit krGuiComboAdd(combo, ite
 func guiComboClear(combo)                        { emit krGuiComboClear(combo) }
 func guiComboSelected(combo)                     { emit krGuiComboSelected(combo) }
 func guiComboSet(combo, idx)                     { emit krGuiComboSet(combo, idx + "") }
-func guiColorPicker(initialHex)                  { emit krGuiColorPicker(initialHex) }
+// 2026-05-11 Phase B port — pure Krypton, no cfunc.
+// CHOOSECOLORA struct (72 bytes on x64):
+//   +0  DWORD lStructSize (72)
+//   +8  HWND  hwndOwner
+//   +24 COLORREF rgbResult (0x00BBGGRR byte order)
+//   +32 DWORD* lpCustColors  (→ 16 DWORDs)
+//   +40 DWORD Flags = CC_FULLOPEN(2) | CC_RGBINIT(1) | CC_ANYCOLOR(0x100) = 259
+// Initial-color parsing intentionally omitted (the caller's previous
+// "0xRRGGBB" tag isn't trivially scannable in pure Krypton until we
+// have hex parsing in stdlib; user re-picks from black until that
+// lands). Returns "0xRRGGBB" or "" on cancel — matches the cfunc API.
+func _guiHexNibble(n) {
+    if n < 10 { emit fromCharCode(48 + n + "") }
+    emit fromCharCode(55 + n + "")
+}
+func _guiHexByte(b) {
+    let hi = b / 16
+    let lo = b % 16
+    emit _guiHexNibble(hi) + _guiHexNibble(lo)
+}
+func guiColorPicker(initialHex) {
+    let hwnd = guiStateGet("main.hwnd")
+    let cc = bufNew("72")
+    bufSetDwordAt(cc, "0", "72")
+    if hwnd != "" { bufSetQwordAt(cc, "8", hwnd) }
+    let custom = bufNew("64")
+    bufSetQwordAt(cc, "32", ptrToInt(custom))
+    bufSetDwordAt(cc, "40", "259")
+    let ok = ChooseColorA(cc)
+    if ok == "0" { emit "" }
+    let v = bufGetDwordAt(cc, "24")
+    let r = bitAnd(v, "255")
+    let g = bitAnd(bitShr(v, "8"), "255")
+    let b = bitAnd(bitShr(v, "16"), "255")
+    emit "0x" + _guiHexByte(r) + _guiHexByte(g) + _guiHexByte(b)
+}
 func guiDatePicker(parent, x, y, w, h)           { emit krGuiDatePicker(parent, x + "", y + "", w + "", h + "") }
 func guiDateGet(picker)                          { emit krGuiDateGet(picker) }
 func guiDateSet(picker, ymd)                     { emit krGuiDateSet(picker, ymd) }
@@ -6013,11 +6091,133 @@ func guiToolbar(window)                          { emit krGuiToolbar(window) }
 func guiToolButton(toolbar, label, iconName)     { emit krGuiToolButton(toolbar, label, iconName) }
 func guiToolSep(toolbar)                         { emit krGuiToolSep(toolbar) }
 func guiToolbarHeight(toolbar)                   { emit krGuiToolbarHeight(toolbar) }
-func guiOpenFile(title, filterCsv)               { emit krGuiOpenFile(title, filterCsv) }
-func guiSaveFile(title, filterCsv, defaultName)  { emit krGuiSaveFile(title, filterCsv, defaultName) }
+// 2026-05-11 Phase B ports — pure Krypton, no cfunc.
+//
+// OPENFILENAMEA layout on x64 (current SDK with WINVER >= 0x0500 →
+// includes pvReserved/dwReserved/FlagsEx ext block → 176 bytes total):
+//   +0   DWORD  lStructSize
+//   +8   HWND   hwndOwner
+//   +24  LPCSTR lpstrFilter      (null-separated description/pattern pairs, double-null terminator)
+//   +56  LPSTR  lpstrFile        (output buffer)
+//   +64  DWORD  nMaxFile         (size of lpstrFile in chars)
+//   +96  LPCSTR lpstrTitle
+//   +104 DWORD  Flags
+// Filter CSV format: "Krypton|*.k,All Files|*.*" (entries comma-separated, label-and-pattern pipe-separated).
+func _guiFilterCopy(buf, pos, s) {
+    let i = 0
+    while i < len(s) {
+        bufSetByte(buf, pos + i, charCode(s[i]))
+        i = i + 1
+    }
+    bufSetByte(buf, pos + len(s), "0")
+    emit pos + len(s) + 1
+}
+func _guiBuildFilter(csv) {
+    let effective = csv
+    if len(effective) == 0 { effective = "All Files|*.*" }
+    let buf = bufNew("1024")
+    let pos = 0
+    let parts = split(effective, ",")
+    let n = lineCount(parts)
+    let i = 0
+    while i < n {
+        let entry = getLine(parts, i)
+        let pipe = indexOf(entry, "|")
+        let label = entry
+        let pattern = entry
+        if pipe >= 0 {
+            label = substring(entry, 0, pipe)
+            pattern = substring(entry, pipe + 1, len(entry))
+        }
+        pos = toInt(_guiFilterCopy(buf, pos, label))
+        pos = toInt(_guiFilterCopy(buf, pos, pattern))
+        i = i + 1
+    }
+    bufSetByte(buf, pos, "0")
+    emit buf
+}
+func _guiBufToStr(buf, maxLen) {
+    let sb = sbNew()
+    let i = 0
+    while i < maxLen {
+        let b = toInt(bufGetByte(buf, i))
+        if b == 0 { emit sbToString(sb) }
+        sb = sbAppend(sb, fromCharCode(b))
+        i = i + 1
+    }
+    emit sbToString(sb)
+}
+func guiOpenFile(title, filterCsv) {
+    let hwnd = guiStateGet("main.hwnd")
+    let ofn = bufNew("176")
+    bufSetDwordAt(ofn, "0", "176")
+    if hwnd != "" { bufSetQwordAt(ofn, "8", hwnd) }
+    let filterBuf = _guiBuildFilter(filterCsv)
+    bufSetQwordAt(ofn, "24", ptrToInt(filterBuf))
+    let pathBuf = bufNew("2048")
+    bufSetQwordAt(ofn, "56", ptrToInt(pathBuf))
+    bufSetDwordAt(ofn, "64", "2048")
+    let titleStr = title
+    if len(titleStr) == 0 { titleStr = "Open File" }
+    bufSetQwordAt(ofn, "96", ptrToInt(titleStr))
+    // OFN_FILEMUSTEXIST(0x1000) | OFN_PATHMUSTEXIST(0x800) | OFN_HIDEREADONLY(0x4) | OFN_NOCHANGEDIR(0x8) = 6156
+    bufSetDwordAt(ofn, "104", "6156")
+    let ok = GetOpenFileNameA(ofn)
+    if ok == "0" { emit "" }
+    emit _guiBufToStr(pathBuf, 2048)
+}
+func guiSaveFile(title, filterCsv, defaultName) {
+    let hwnd = guiStateGet("main.hwnd")
+    let ofn = bufNew("176")
+    bufSetDwordAt(ofn, "0", "176")
+    if hwnd != "" { bufSetQwordAt(ofn, "8", hwnd) }
+    let filterBuf = _guiBuildFilter(filterCsv)
+    bufSetQwordAt(ofn, "24", ptrToInt(filterBuf))
+    let pathBuf = bufNew("2048")
+    if len(defaultName) > 0 {
+        let _unused = _guiFilterCopy(pathBuf, 0, defaultName)
+    }
+    bufSetQwordAt(ofn, "56", ptrToInt(pathBuf))
+    bufSetDwordAt(ofn, "64", "2048")
+    let titleStr = title
+    if len(titleStr) == 0 { titleStr = "Save File" }
+    bufSetQwordAt(ofn, "96", ptrToInt(titleStr))
+    // OFN_OVERWRITEPROMPT(0x2) | OFN_PATHMUSTEXIST(0x800) | OFN_HIDEREADONLY(0x4) | OFN_NOCHANGEDIR(0x8) = 2062
+    bufSetDwordAt(ofn, "104", "2062")
+    let ok = GetSaveFileNameA(ofn)
+    if ok == "0" { emit "" }
+    emit _guiBufToStr(pathBuf, 2048)
+}
 func guiPickFolder(title)                        { emit krGuiPickFolder(title) }
-func guiSetText(hwnd, text)                      { emit krGuiSetText(hwnd, text) }
-func guiGetText(hwnd)                            { emit krGuiGetText(hwnd) }
+// 2026-05-11 Phase B ports — pure Krypton via head:user32.
+// Dispatch: "0x..."hex → direct HWND; bare-decimal id >= 1000 →
+// GetDlgItem(main_hwnd, id) → HWND.  Matches the cfunc legacy dual-format.
+func _guiResolveHwnd(hwnd) {
+    if startsWith(hwnd, "0x") || startsWith(hwnd, "0X") {
+        emit _guiHexToInt(hwnd) + ""
+    }
+    let id = toInt(hwnd)
+    if id >= 1000 {
+        let main = guiStateGet("main.hwnd")
+        if main != "" {
+            emit GetDlgItem(main, hwnd)
+        }
+    }
+    emit _guiHexToInt(hwnd) + ""
+}
+func guiSetText(hwnd, text) {
+    let h = _guiResolveHwnd(hwnd)
+    if h == "0" { emit "0" }
+    SetWindowTextA(h, text)
+    emit "1"
+}
+func guiGetText(hwnd) {
+    let h = _guiResolveHwnd(hwnd)
+    if h == "0" { emit "" }
+    let buf = bufNew("2048")
+    GetWindowTextA(h, buf, "2048")
+    emit _guiBufToStr(buf, 2048)
+}
 func guiOnClick(hwnd, sinkPtr)                   { emit krGuiOnClick(hwnd, sinkPtr) }
 // Native pure-Krypton port (2026-05-11): MessageBoxA via user32 IAT
 // (no longer routes through cfunc krGuiMessageBox / kr_gui_to_w UTF-16
@@ -6025,8 +6225,27 @@ func guiOnClick(hwnd, sinkPtr)                   { emit krGuiOnClick(hwnd, sinkP
 // rest of the cfunc body is ported and we can drop ANSI altogether.
 // uType 64 = MB_OK | MB_ICONINFORMATION.
 func guiMessageBox(title, msg)                   { emit MessageBoxA("0", msg, title, "64") }
-func guiRun()                                    { emit krGuiRun() }
-func guiQuit()                                   { emit krGuiQuit() }
+// 2026-05-11 Phase B ports — pure Krypton message pump.
+// MSG struct (x64): 48 bytes (hwnd@0, message@8, wParam@16, lParam@24,
+// time@32, pt@40). GetMessageA returns 0 on WM_QUIT, -1 on error,
+// >0 normally — Krypton compares the int-marshalled string forms.
+// DispatchMessageA fans out to the WindowProc registered by the
+// cfunc body's krGuiWindow; once the WindowProc itself is ported
+// (Phase D), this entire pump runs free of any cfunc dependency.
+func guiRun() {
+    let msg = bufNew("48")
+    let r = GetMessageA(msg, "0", "0", "0")
+    while r != "0" && r != "-1" {
+        TranslateMessage(msg)
+        DispatchMessageA(msg)
+        r = GetMessageA(msg, "0", "0", "0")
+    }
+    emit "0"
+}
+func guiQuit() {
+    PostQuitMessage("0")
+    emit "0"
+}
 
 // Shared state helpers — Krypton-side event handlers can stash
 // strings here so other handlers can read them back. Since Krypton
@@ -6041,11 +6260,22 @@ func guiStateGet(key)                            { emit krGuiStateGet(key) }
 func guiSetTimer(ms, cb)                         { emit krGuiSetTimer(ms + "", cb) }
 func guiKillTimer(tid)                           { emit krGuiKillTimer(tid + "") }
 
-// Force dark mode for all current + future widgets in this app.
-// Calls SetPreferredAppMode (uxtheme.dll ordinal 135) so system
-// chrome (menu bar, scrollbars, drop-down popups) renders dark
-// alongside our control colors.
-func guiEnableDarkMode()                         { emit krGuiEnableDarkMode() }
+// Force dark mode for the main window via DWM immersive dark + the
+// uxtheme DarkMode_Explorer subclass. 2026-05-11 Phase B port —
+// pure Krypton, no cfunc / no LoadLibrary / no ordinal-135 hack.
+// Scope is now the main hwnd only; child widgets need to be ported
+// individually (the cfunc's EnumChildWindows + SetWindowTheme loop
+// returns when WindowProc / widget creation moves out of cfunc).
+//   DWMWA_USE_IMMERSIVE_DARK_MODE = 20 ; value = 4-byte BOOL.
+func guiEnableDarkMode() {
+    let hwnd = guiStateGet("main.hwnd")
+    if hwnd == "" { emit "0" }
+    let buf = bufNew(4)
+    bufSetDwordAt(buf, "0", "1")
+    DwmSetWindowAttribute(hwnd, "20", buf, "4")
+    SetWindowTheme(hwnd, "DarkMode_Explorer", "0")
+    emit "1"
+}
 
 // Replace the UI font (Segoe UI 10pt by default) with the caller's
 // choice and propagate it to every existing child window.
