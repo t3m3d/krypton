@@ -7232,7 +7232,34 @@ func guiEnableDarkMode() {
 
 // Replace the UI font (Segoe UI 10pt by default) with the caller's
 // choice and propagate it to every existing child window.
-func guiSetUiFont(family, ptSize)                { emit krGuiSetUiFont(family, ptSize + "") }
+// 2026-05-11 Phase D: pure-Krypton. Create HFONT via LOGFONTA + CreateFontIndirectA,
+// then broadcast WM_SETFONT=48 to main window AND every direct child via
+// GetWindow(hwnd, GW_CHILD=5) → GetWindow(prev, GW_HWNDNEXT=2) chain.
+// Caches the HFONT in state for future widget creators to read.
+func guiSetUiFont(family, ptSize) {
+    let lf = bufNew("60")
+    let neg = 0 - toInt(ptSize)
+    bufSetDwordAt(lf, "0", neg + "")
+    bufSetDwordAt(lf, "16", "400")
+    bufSetByte(lf, "23", "1")
+    bufSetByte(lf, "26", "5")
+    let i = 0
+    while i < len(family) {
+        if i < 31 { bufSetByte(lf, 28 + i, charCode(family[i])) }
+        i = i + 1
+    }
+    let hf = CreateFontIndirectA(lf)
+    guiStateSet("ui.font.handle", hf)
+    let main = guiStateGet("main.hwnd")
+    if main == "" { emit "1" }
+    SendMessageA(main, "48", hf, "1")
+    let child = GetWindow(main, "5")
+    while child != "0" {
+        SendMessageA(child, "48", hf, "1")
+        child = GetWindow(child, "2")
+    }
+    emit "1"
+}
 
 // Direct color overrides — for when the OS-level dark mode flip
 // can't be relied on (older Win10, OS in light mode globally).
