@@ -5876,10 +5876,53 @@ func guiHide(hwnd) {
     ShowWindow(h + "", "0")
     emit "1"
 }
-func guiButton(parent, label, x, y, w, h)        { emit krGuiButton(parent, label, x + "", y + "", w + "", h + "") }
-func guiLabel(parent, text, x, y, w, h)          { emit krGuiLabel(parent, text, x + "", y + "", w + "", h + "") }
-func guiTextInput(parent, x, y, w, h)            { emit krGuiTextInput(parent, x + "", y + "", w + "", h + "") }
-func guiTextArea(parent, x, y, w, h)             { emit krGuiTextArea(parent, x + "", y + "", w + "", h + "") }
+// 2026-05-11 Phase D: "BUTTON" class, WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON = 1342242816.
+func guiButton(parent, label, x, y, w, h) {
+    let pHwnd = _guiHexToInt(parent)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let ctl = CreateWindowExA("0", "BUTTON", label, "1342242816", x + "", y + "", w + "", h + "", pHwnd + "", id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    emit id
+}
+// 2026-05-11 Phase D port — pure Krypton via CreateWindowExA.
+// STATIC class, WS_CHILD(0x40000000) | WS_VISIBLE(0x10000000) | SS_LEFT(0) = 0x50000000 = 1342177280.
+// Returns the child id as a decimal string; the cfunc returned an int
+// id (not a hex hwnd) too, so this matches caller expectations.
+func _guiNextId() {
+    let cur = guiStateGet("__krk_next_id")
+    let n = 1000
+    if cur != "" { n = toInt(cur) }
+    guiStateSet("__krk_next_id", (n + 1) + "")
+    emit n + ""
+}
+func guiLabel(parent, text, x, y, w, h) {
+    let pHwnd = _guiHexToInt(parent)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let ctl = CreateWindowExA("0", "STATIC", text, "1342177280", x + "", y + "", w + "", h + "", pHwnd + "", id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    emit id
+}
+// "EDIT" class, single-line. Style = WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL = 1342242944.
+// dwExStyle = WS_EX_CLIENTEDGE (512) for the sunken border.
+func guiTextInput(parent, x, y, w, h) {
+    let pHwnd = _guiHexToInt(parent)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let ctl = CreateWindowExA("512", "EDIT", "", "1342242944", x + "", y + "", w + "", h + "", pHwnd + "", id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    emit id
+}
+// "EDIT" multi-line. WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|ES_MULTILINE|ES_AUTOVSCROLL|ES_WANTRETURN = 1344606276.
+func guiTextArea(parent, x, y, w, h) {
+    let pHwnd = _guiHexToInt(parent)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let ctl = CreateWindowExA("512", "EDIT", "", "1344606276", x + "", y + "", w + "", h + "", pHwnd + "", id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    emit id
+}
 func guiRichEdit(parent, x, y, w, h)             { emit krGuiRichEdit(parent, x + "", y + "", w + "", h + "") }
 func guiRichSetFmt(rich, start, end, hexColor, bold) { emit krGuiRichSetFmt(rich, start + "", end + "", hexColor, bold + "") }
 func guiRichClearFmt(rich)                       { emit krGuiRichClearFmt(rich) }
@@ -5961,7 +6004,15 @@ func guiRichEndUpdate(rich) {
     InvalidateRect(h, "0", "1")
     emit "1"
 }
-func guiCheckbox(parent, label, x, y, w, h)      { emit krGuiCheckbox(parent, label, x + "", y + "", w + "", h + "") }
+// "BUTTON" class with BS_AUTOCHECKBOX style = 1342242819.
+func guiCheckbox(parent, label, x, y, w, h) {
+    let pHwnd = _guiHexToInt(parent)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let ctl = CreateWindowExA("0", "BUTTON", label, "1342242819", x + "", y + "", w + "", h + "", pHwnd + "", id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    emit id
+}
 // 2026-05-11 Phase B SendMessageA-based ports (pure Krypton, no cfunc).
 // BM_GETCHECK=240 → returns 1 if checked. BM_SETCHECK=241 (wParam=1/0).
 func guiIsChecked(hwnd) {
@@ -5979,7 +6030,15 @@ func guiSetChecked(hwnd, on) {
     SendMessageA(h, "241", v, "0")
     emit "1"
 }
-func guiListbox(parent, x, y, w, h)              { emit krGuiListbox(parent, x + "", y + "", w + "", h + "") }
+// "LISTBOX" class. WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|WS_BORDER|LBS_NOTIFY = 1352663041.
+func guiListbox(parent, x, y, w, h) {
+    let pHwnd = _guiHexToInt(parent)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let ctl = CreateWindowExA("0", "LISTBOX", "", "1352663041", x + "", y + "", w + "", h + "", pHwnd + "", id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    emit id
+}
 // 2026-05-11 Phase B: LB_ADDSTRING=384, lParam=LPCSTR. The
 // SendMessageA marshalling atoi's all 4 args, so we pre-convert the
 // Krypton string `item` to its decimal address via ptrToInt (whose
@@ -6004,7 +6063,15 @@ func guiListSelected(hwnd) {
     if h == "0" { emit "-1" }
     emit SendMessageA(h, "392", "0", "0")
 }
-func guiProgress(parent, x, y, w, h)             { emit krGuiProgress(parent, x + "", y + "", w + "", h + "") }
+// "msctls_progress32" class. WS_CHILD|WS_VISIBLE = 1342177280.
+func guiProgress(parent, x, y, w, h) {
+    let pHwnd = _guiHexToInt(parent)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let ctl = CreateWindowExA("0", "msctls_progress32", "", "1342177280", x + "", y + "", w + "", h + "", pHwnd + "", id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    emit id
+}
 // PBM_SETPOS=1026 (msg + wParam=percent). Pure Krypton.
 func guiProgressSet(hwnd, percent) {
     let h = _guiResolveHwnd(hwnd)
@@ -6012,7 +6079,15 @@ func guiProgressSet(hwnd, percent) {
     SendMessageA(h, "1026", percent + "", "0")
     emit "1"
 }
-func guiTreeView(parent, x, y, w, h)             { emit krGuiTreeView(parent, x + "", y + "", w + "", h + "") }
+// "SysTreeView32" class. WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_BORDER|TVS_HASBUTTONS|TVS_HASLINES|TVS_LINESATROOT|TVS_SHOWSELALWAYS = 1350631463.
+func guiTreeView(parent, x, y, w, h) {
+    let pHwnd = _guiHexToInt(parent)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let ctl = CreateWindowExA("0", "SysTreeView32", "", "1350631463", x + "", y + "", w + "", h + "", pHwnd + "", id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    emit id
+}
 func guiTreeAdd(tree, parent_item, label)        { emit krGuiTreeAdd(tree, parent_item, label) }
 func guiTreeAddDir(tree, parent_item, label)     { emit krGuiTreeAddDir(tree, parent_item, label) }
 // 2026-05-11 Phase B: TVM_DELETEITEM=4360 with item=TVI_ROOT (0xFFFF0000).
@@ -6036,7 +6111,15 @@ func guiTreeExpand(tree, item) {
 }
 func guiTreeSelected(tree)                       { emit krGuiTreeSelected(tree) }
 func guiTreeSelectedHandle(tree)                 { emit krGuiTreeSelectedHandle(tree) }
-func guiTabs(parent, x, y, w, h)                 { emit krGuiTabs(parent, x + "", y + "", w + "", h + "") }
+// "SysTabControl32" class. WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_CLIPSIBLINGS = 1409351680.
+func guiTabs(parent, x, y, w, h) {
+    let pHwnd = _guiHexToInt(parent)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let ctl = CreateWindowExA("0", "SysTabControl32", "", "1409351680", x + "", y + "", w + "", h + "", pHwnd + "", id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    emit id
+}
 func guiTabAdd(tabs, label)                      { emit krGuiTabAdd(tabs, label) }
 // 2026-05-11 Phase B: TCM_SETCURSEL=4876, TCM_GETCURSEL=4875. Pure Krypton.
 func guiTabSelect(tabs, idx) {
@@ -6056,7 +6139,16 @@ func guiMenu(menubar, label)                     { emit krGuiMenu(menubar, label
 func guiMenuItem(popup, label)                   { emit krGuiMenuItem(popup, label) }
 func guiMenuSeparator(popup)                     { emit krGuiMenuSeparator(popup) }
 func guiMenuAdd(menu, label)                     { emit krGuiMenuAdd(menu, label) }
-func guiStatusBar(window)                        { emit krGuiStatusBar(window) }
+// "msctls_statusbar32" class. WS_CHILD|WS_VISIBLE|SBARS_SIZEGRIP(0x100) = 1342177536.
+// 0 dims → auto-positioned by Win32.
+func guiStatusBar(window) {
+    let pHwnd = _guiHexToInt(window)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let ctl = CreateWindowExA("0", "msctls_statusbar32", "", "1342177536", "0", "0", "0", "0", pHwnd + "", id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    emit id
+}
 // 2026-05-11 Phase B: SB_SETPARTS=1028 (0x404). lParam = LPINT (int*).
 // Cap at 16 parts (rare apps need more).
 func guiStatusParts(bar, widthsCsv) {
@@ -6123,7 +6215,15 @@ func guiDockFill(dock, hwnd)                     { emit krGuiDockFill(dock, hwnd
 func guiDockApply(dock)                          { emit krGuiDockApply(dock) }
 func guiSplitter(parent, x, y, w, h, orientation) { emit krGuiSplitter(parent, x + "", y + "", w + "", h + "", orientation) }
 func guiSplitterPos(splitter)                    { emit krGuiSplitterPos(splitter) }
-func guiCombo(parent, x, y, w, h)                { emit krGuiCombo(parent, x + "", y + "", w + "", h + "") }
+// "COMBOBOX" class. WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|CBS_DROPDOWNLIST(3) = 1344602115.
+func guiCombo(parent, x, y, w, h) {
+    let pHwnd = _guiHexToInt(parent)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let ctl = CreateWindowExA("0", "COMBOBOX", "", "1344602115", x + "", y + "", w + "", h + "", pHwnd + "", id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    emit id
+}
 // CB_ADDSTRING=323. Same lParam=LPCSTR trick as guiListAdd.
 func guiComboAdd(combo, item) {
     let h = _guiResolveHwnd(combo)
@@ -6186,10 +6286,28 @@ func guiColorPicker(initialHex) {
     let b = bitAnd(bitShr(v, "16"), "255")
     emit "0x" + _guiHexByte(r) + _guiHexByte(g) + _guiHexByte(b)
 }
-func guiDatePicker(parent, x, y, w, h)           { emit krGuiDatePicker(parent, x + "", y + "", w + "", h + "") }
+// "SysDateTimePick32" class. WS_CHILD|WS_VISIBLE|WS_TABSTOP|DTS_SHORTDATEFORMAT(0) = 1342242816.
+func guiDatePicker(parent, x, y, w, h) {
+    let pHwnd = _guiHexToInt(parent)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let ctl = CreateWindowExA("0", "SysDateTimePick32", "", "1342242816", x + "", y + "", w + "", h + "", pHwnd + "", id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    emit id
+}
 func guiDateGet(picker)                          { emit krGuiDateGet(picker) }
 func guiDateSet(picker, ymd)                     { emit krGuiDateSet(picker, ymd) }
-func guiScrollbar(parent, x, y, w, h, vertical)  { emit krGuiScrollbar(parent, x + "", y + "", w + "", h + "", vertical + "") }
+// "SCROLLBAR" class. WS_CHILD|WS_VISIBLE|SBS_VERT(1)/SBS_HORZ(0).
+func guiScrollbar(parent, x, y, w, h, vertical) {
+    let pHwnd = _guiHexToInt(parent)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let style = "1342177280"
+    if vertical != "0" && vertical != "" { style = "1342177281" }
+    let ctl = CreateWindowExA("0", "SCROLLBAR", "", style, x + "", y + "", w + "", h + "", pHwnd + "", id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    emit id
+}
 // 2026-05-11 Phase B: scrollbar ports. SBM_SETPOS=224 (E0), SBM_GETPOS=225,
 // SBM_SETRANGE=226 (228 SETRANGEREDRAW). Page size needs SBM_SETSCROLLINFO
 // which takes a SCROLLINFO struct — for the simple cases we use the legacy
@@ -6292,7 +6410,15 @@ func guiHCheckbox(stack, label, width) {
     let x = guiHNext(stack, width)
     emit guiCheckbox(p, label, toInt(x), toInt(guiStackY(stack)), width, toInt(guiStackH(stack)))
 }
-func guiSlider(parent, x, y, w, h)               { emit krGuiSlider(parent, x + "", y + "", w + "", h + "") }
+// "msctls_trackbar32" class. WS_CHILD|WS_VISIBLE|WS_TABSTOP|TBS_AUTOTICKS(1) = 1342242817.
+func guiSlider(parent, x, y, w, h) {
+    let pHwnd = _guiHexToInt(parent)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let ctl = CreateWindowExA("0", "msctls_trackbar32", "", "1342242817", x + "", y + "", w + "", h + "", pHwnd + "", id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    emit id
+}
 // 2026-05-11 Phase B: TBM_GETPOS=1024, TBM_SETPOS=1029, TBM_SETRANGE=1030.
 // MAKELONG(lo,hi) = (hi<<16) | (lo & 0xFFFF). Pure Krypton.
 func guiSliderRange(slider, lo, hi) {
@@ -6322,7 +6448,15 @@ func guiSpinbox(parent, x, y, w, h)              { emit krGuiSpinbox(parent, x +
 func guiSpinboxRange(spin, lo, hi)               { emit krGuiSpinboxRange(spin, lo + "", hi + "") }
 func guiSpinboxSet(spin, value)                  { emit krGuiSpinboxSet(spin, value + "") }
 func guiSpinboxValue(spin)                       { emit krGuiSpinboxValue(spin) }
-func guiToolbar(window)                          { emit krGuiToolbar(window) }
+// "ToolbarWindow32" class. WS_CHILD|WS_VISIBLE|TBSTYLE_FLAT(0x800)|TBSTYLE_TOOLTIPS(0x100)|CCS_NODIVIDER(0x40)|CCS_NOPARENTALIGN(0x8) = 1342179656.
+func guiToolbar(window) {
+    let pHwnd = _guiHexToInt(window)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let ctl = CreateWindowExA("0", "ToolbarWindow32", "", "1342179656", "0", "0", "0", "0", pHwnd + "", id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    emit id
+}
 func guiToolButton(toolbar, label, iconName)     { emit krGuiToolButton(toolbar, label, iconName) }
 func guiToolSep(toolbar)                         { emit krGuiToolSep(toolbar) }
 // 2026-05-11 Phase B: TB_GETBUTTONSIZE=1054. Returns packed DWORD with

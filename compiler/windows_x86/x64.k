@@ -448,9 +448,9 @@ func emitStringTable(strs) {
 //         gdi32.dll + comctl32.dll + comdlg32.dll + ole32.dll + uxtheme.dll + dwmapi.dll
 // (The last 6 added 2026-05-11 for the gui.k cfunc → pure-Krypton port.)
 
-let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,GetCurrentThreadId,GetLastError,SetLastError,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA,WaitForSingleObject,TerminateProcess,OpenProcess,CreateFileMappingA,MapViewOfFile,UnmapViewOfFile"
-let KRUSER_FUNCS = "GetSystemMetrics,MessageBoxA,ShowWindow,SetTimer,KillTimer,GetForegroundWindow,SetForegroundWindow,GetMessageA,TranslateMessage,DispatchMessageA,PostQuitMessage,UpdateWindow,DestroyWindow,SetWindowTextA,GetWindowTextA,SendMessageA,GetDlgItem,InvalidateRect,MoveWindow,SetWindowPos,GetClientRect,GetWindowRect"
-let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword,kr_envnew,kr_envset,kr_envget,kr_hasfield,kr_structfields,kr_repeat,kr_padleft,kr_padright,kr_reverse,kr_abs,kr_min,kr_max,kr_endswith,kr_bin,kr_pow,kr_gc_allocated,kr_gc_limit,kr_gc_set_limit,kr_gc_collect,kr_arena_reset,kr_gc_checkpoint,kr_gc_restore,kr_gc_slab_count,kr_gc_slab_bytes,kr_bufgetbyte,kr_bufgetwordat,kr_bufsetwordat,kr_bufsetqwordat,kr_bufgetwordatbe,kr_bufgetdwordatbe,kr_bufgetqwordatbe,kr_gc_alloc_count,kr_gc_shadow_count,kr_gc_shadow_pop_n,kr_gc_shadow_push,kr_gc_walk_allocs,kr_rdtsc,kr_gc_mark,kr_gc_sweep,kr_pause,kr_mfence,kr_lfence,kr_sfence,kr_gc_freelist_count"
+let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,GetCurrentThreadId,GetLastError,SetLastError,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA,WaitForSingleObject,TerminateProcess,OpenProcess,CreateFileMappingA,MapViewOfFile,UnmapViewOfFile,GetModuleHandleA"
+let KRUSER_FUNCS = "GetSystemMetrics,MessageBoxA,ShowWindow,SetTimer,KillTimer,GetForegroundWindow,SetForegroundWindow,GetMessageA,TranslateMessage,DispatchMessageA,PostQuitMessage,UpdateWindow,DestroyWindow,SetWindowTextA,GetWindowTextA,SendMessageA,GetDlgItem,InvalidateRect,MoveWindow,SetWindowPos,GetClientRect,GetWindowRect,RegisterClassExA,CreateWindowExA,DefWindowProcA,LoadCursorA,LoadIconA"
+let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword,kr_envnew,kr_envset,kr_envget,kr_hasfield,kr_structfields,kr_repeat,kr_padleft,kr_padright,kr_reverse,kr_abs,kr_min,kr_max,kr_endswith,kr_bin,kr_pow,kr_gc_allocated,kr_gc_limit,kr_gc_set_limit,kr_gc_collect,kr_arena_reset,kr_gc_checkpoint,kr_gc_restore,kr_gc_slab_count,kr_gc_slab_bytes,kr_bufgetbyte,kr_bufgetwordat,kr_bufsetwordat,kr_bufsetqwordat,kr_bufgetwordatbe,kr_bufgetdwordatbe,kr_bufgetqwordatbe,kr_gc_alloc_count,kr_gc_shadow_count,kr_gc_shadow_pop_n,kr_gc_shadow_push,kr_gc_walk_allocs,kr_rdtsc,kr_gc_mark,kr_gc_sweep,kr_pause,kr_mfence,kr_lfence,kr_sfence,kr_gc_freelist_count,kr_set_wndproc,kr_wndproc_addr"
 let KRADV_FUNCS = "RegOpenKeyExA,RegQueryValueExA,RegEnumKeyExA,RegCloseKey,GetUserNameA"
 let KRPDH_FUNCS = "PdhOpenQueryA,PdhAddEnglishCounterA,PdhCollectQueryData,PdhGetFormattedCounterArrayA,PdhCloseQuery"
 // ckrypton_gui.dll exports — generated by scripts/build_ckrypton_gui_dll.sh
@@ -633,6 +633,12 @@ func win32IntArgs(name) {
     if name == "GetDlgItem"                  { emit "0,1" }         // hwnd, id
     if name == "InvalidateRect"              { emit "0,2" }         // hwnd, rect=ptr, erase=BOOL
     if name == "MoveWindow"                  { emit "0,1,2,3,4,5" } // hwnd, x, y, w, h, repaint
+    if name == "RegisterClassExA"            { emit "" }            // ptr only
+    if name == "CreateWindowExA"             { emit "0,3,4,5,6,7,8,9,10,11" } // exStyle, [className=str], [title=str], style, x, y, w, h, parent, menu, instance, lpParam
+    if name == "DefWindowProcA"              { emit "0,1,2,3" }     // hwnd, msg, wParam, lParam
+    if name == "LoadCursorA"                 { emit "0,1" }         // hInstance, lpCursorName
+    if name == "LoadIconA"                   { emit "0,1" }
+    if name == "GetModuleHandleA"            { emit "0" }           // lpModuleName=str/NULL — atoi means callers pass "0" for NULL; for named, use toHandle pattern (rare)
     if name == "SetWindowPos"                { emit "0,1,2,3,4,5,6" } // hwnd, after, x, y, w, h, flags
     if name == "GetClientRect"               { emit "0" }           // hwnd, rect=ptr
     if name == "GetWindowRect"               { emit "0" }           // hwnd, rect=ptr
@@ -744,6 +750,12 @@ func win32IntReturns(name) {
     if name == "GetDlgItem"                 { emit "1" }   // HWND
     if name == "InvalidateRect"             { emit "1" }   // BOOL
     if name == "MoveWindow"                 { emit "1" }   // BOOL
+    if name == "RegisterClassExA"           { emit "1" }   // ATOM
+    if name == "CreateWindowExA"            { emit "1" }   // HWND
+    if name == "DefWindowProcA"             { emit "1" }   // LRESULT
+    if name == "LoadCursorA"                { emit "1" }   // HCURSOR
+    if name == "LoadIconA"                  { emit "1" }
+    if name == "GetModuleHandleA"           { emit "1" }   // HMODULE
     if name == "SetWindowPos"               { emit "1" }
     if name == "GetClientRect"              { emit "1" }
     if name == "GetWindowRect"              { emit "1" }
@@ -931,6 +943,8 @@ func resolveBuiltin(name) {
     if name == "gcMark"         { emit "kr_gc_mark" }
     if name == "gcSweep"        { emit "kr_gc_sweep" }
     if name == "gcFreelistCount" { emit "kr_gc_freelist_count" }
+    if name == "setWindowProc"   { emit "kr_set_wndproc" }
+    if name == "windowProcAddr"  { emit "kr_wndproc_addr" }
     if name == "pause"          { emit "kr_pause" }
     if name == "mfence"         { emit "kr_mfence" }
     if name == "lfence"         { emit "kr_lfence" }
@@ -2485,7 +2499,7 @@ func emitSectionHeader(name, virtSize, virtAddr, rawSize, rawOffset, characteris
 //   OFF_ARGP=3407   OFF_ARGC=3607  OFF_ARG=3657
 //   TOTAL=3737
 
-func bsHelperBlockSize() { emit 8971 }   // 1.8.1: +44 kr_bufgetbyte. 1.7.8: kr_gc_checkpoint 52→62 (warmup fix). 1.8.0: +35 kr_gc_slab_count + 21 kr_gc_slab_bytes   // 5681 → 5803 (kr_print/'\n' + kr_environ) → 5845 (+42 kr_count_commas) → 5888 (+43 __rt_truthy_int_v2) → 6037 (+149 kr_split_commas) → 6093 (+56 kr_linecount_smart) → 6210 (+3 kr_envnew + 45 kr_envset + 69 kr_envget) → 6322 (+86 kr_hasfield + 26 kr_structfields stub) → 6775 (+66 kr_reverse + 111 kr_repeat + 137 kr_padleft + 139 kr_padright) → 7025 (+32 kr_abs + 48 kr_min + 48 kr_max + 122 kr_endswith) → 7137 (+112 kr_bin) → 7201 (+64 kr_pow) → 7368 (1.7.5: +76 __rt_alloc_v2 + 21 kr_gc_allocated + 21 kr_gc_limit + 23 kr_gc_set_limit + 26 kr_gc_collect) → 7485 (1.7.6: __rt_alloc_v2 grew 76→172 = +96, +21 kr_arena_reset) → 7666 (1.7.7: __rt_alloc_v2 grew 172→277 = +105, kr_arena_reset grew 21→97 = +76) → 7874 (1.8.0) → 7918 (1.8.1)
+func bsHelperBlockSize() { emit 9116 }   // 2026-05-11: +145 Phase C (kr_set_wndproc 12 + kr_wndtramp 121 + kr_wndproc_addr 12). 1.8.1: +44 kr_bufgetbyte. 1.7.8: kr_gc_checkpoint 52→62 (warmup fix). 1.8.0: +35 kr_gc_slab_count + 21 kr_gc_slab_bytes   // 5681 → 5803 (kr_print/'\n' + kr_environ) → 5845 (+42 kr_count_commas) → 5888 (+43 __rt_truthy_int_v2) → 6037 (+149 kr_split_commas) → 6093 (+56 kr_linecount_smart) → 6210 (+3 kr_envnew + 45 kr_envset + 69 kr_envget) → 6322 (+86 kr_hasfield + 26 kr_structfields stub) → 6775 (+66 kr_reverse + 111 kr_repeat + 137 kr_padleft + 139 kr_padright) → 7025 (+32 kr_abs + 48 kr_min + 48 kr_max + 122 kr_endswith) → 7137 (+112 kr_bin) → 7201 (+64 kr_pow) → 7368 (1.7.5: +76 __rt_alloc_v2 + 21 kr_gc_allocated + 21 kr_gc_limit + 23 kr_gc_set_limit + 26 kr_gc_collect) → 7485 (1.7.6: __rt_alloc_v2 grew 76→172 = +96, +21 kr_arena_reset) → 7666 (1.7.7: __rt_alloc_v2 grew 172→277 = +105, kr_arena_reset grew 21→97 = +76) → 7874 (1.8.0) → 7918 (1.8.1)
 
 // Export offset lookup for bootstrap mode: returns "kr_name:offset\n..." table
 func bootstrapExportOffsets() {
@@ -2530,6 +2544,13 @@ func bootstrapExportOffsets() {
     t = t + "kr_writefile:3351\n"
     t = t + "kr_argcount:3681\n"
     t = t + "kr_arg:3731\n"
+    // NOTE: kr_set_wndproc and kr_wndproc_addr offsets are computed
+    // dynamically by emitBootstrapHelpers (added at end of helper block
+    // 2026-05-11). They're picked up via the offsets table the helper
+    // emitter returns; this static export list isn't actually used for
+    // resolving call targets, only as a hand-maintained reference for
+    // legacy exports. The new functions get resolved through the
+    // dynamic offsets table.
     emit t
 }
 
@@ -7007,6 +7028,73 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     sb2 = sbAppend(sb2, hexByte(0xC3))                                                          // [103]   RET
     pos = pos + 104
 
+    // ── kr_set_wndproc(RCX=funcptr) → "" ────────────────────────────
+    // 2026-05-11 Phase C: stores the Krypton funcptr at gcGlobals[+80]
+    // so kr_wndtramp can dispatch to it when Win32 calls the trampoline
+    // (as registered via wc.lpfnWndProc = windowProcAddr()).
+    // 12 bytes: MOV[RIP+slot],RCX (7) + JMP __rt_return_empty (5).
+    offsets = offsets + "kr_set_wndproc:" + pos + "\n"
+    let swp_slot = (gcGlobalsRva + 80) - (textRva + pos + 7)
+    let swp_emp  = emp_pos - (pos + 7 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x0D)+hexDword(swp_slot))           // [0-6]  MOV [RIP+slot], RCX
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(swp_emp))                                        // [7-11] JMP __rt_return_empty
+    pos = pos + 12
+
+    // ── kr_wndtramp(RCX=hwnd, RDX=msg, R8=wParam, R9=lParam) → RAX=LRESULT ──
+    // 2026-05-11 Phase C: Win32 WNDPROC trampoline. Win32 calls this
+    // with int args; we itoa them into Krypton strings, dispatch to the
+    // funcptr stored at gcGlobals[+80], atoi the char* result back to
+    // LRESULT. 121 bytes.
+    offsets = offsets + "kr_wndtramp:" + pos + "\n"
+    let tramp_pos = pos
+    let wt_itoa1 = 266 - (tramp_pos + 36)
+    let wt_itoa2 = 266 - (tramp_pos + 49)
+    let wt_itoa3 = 266 - (tramp_pos + 62)
+    let wt_itoa4 = 266 - (tramp_pos + 75)
+    let wt_slot  = (gcGlobalsRva + 80) - (textRva + tramp_pos + 102)
+    let wt_atoi  = 197 - (tramp_pos + 112)
+    sb2 = sbAppend(sb2, hexByte(0x55))                                                          // [0]    PUSH RBP
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xE5))                              // [1-3]  MOV RBP, RSP
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x81)+hexByte(0xEC)+hexDword(80))                 // [4-10] SUB RSP, 80
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x4D)+hexByte(0xF8))                // [11-14] MOV [RBP-8], RCX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x55)+hexByte(0xF0))                // [15-18] MOV [RBP-16], RDX
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0x45)+hexByte(0xE8))                // [19-22] MOV [RBP-24], R8
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x89)+hexByte(0x4D)+hexByte(0xE0))                // [23-26] MOV [RBP-32], R9
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x4D)+hexByte(0xF8))                // [27-30] MOV RCX, [RBP-8]
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(wt_itoa1))                                       // [31-35] CALL __rt_itoa
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x45)+hexByte(0xF8))                // [36-39] MOV [RBP-8], RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x4D)+hexByte(0xF0))                // [40-43] MOV RCX, [RBP-16]
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(wt_itoa2))                                       // [44-48] CALL __rt_itoa
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x45)+hexByte(0xF0))                // [49-52] MOV [RBP-16], RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x4D)+hexByte(0xE8))                // [53-56] MOV RCX, [RBP-24]
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(wt_itoa3))                                       // [57-61] CALL __rt_itoa
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x45)+hexByte(0xE8))                // [62-65] MOV [RBP-24], RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x4D)+hexByte(0xE0))                // [66-69] MOV RCX, [RBP-32]
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(wt_itoa4))                                       // [70-74] CALL __rt_itoa
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x45)+hexByte(0xE0))                // [75-78] MOV [RBP-32], RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x4D)+hexByte(0xF8))                // [79-82] MOV RCX, [RBP-8]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x55)+hexByte(0xF0))                // [83-86] MOV RDX, [RBP-16]
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x8B)+hexByte(0x45)+hexByte(0xE8))                // [87-90] MOV R8, [RBP-24]
+    sb2 = sbAppend(sb2, hexByte(0x4C)+hexByte(0x8B)+hexByte(0x4D)+hexByte(0xE0))                // [91-94] MOV R9, [RBP-32]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x05)+hexDword(wt_slot))            // [95-101] MOV RAX, [RIP+slot]
+    sb2 = sbAppend(sb2, hexByte(0xFF)+hexByte(0xD0))                                            // [102-103] CALL RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))                              // [104-106] MOV RCX, RAX
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(wt_atoi))                                        // [107-111] CALL __rt_atoi
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x81)+hexByte(0xC4)+hexDword(80))                 // [112-118] ADD RSP, 80
+    sb2 = sbAppend(sb2, hexByte(0x5D))                                                          // [119]    POP RBP
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                                          // [120]    RET
+    pos = pos + 121
+
+    // ── kr_wndproc_addr() → RAX = decimal string of kr_wndtramp's address ──
+    // Tail-jumps to __rt_itoa with RCX = trampoline address.
+    // 12 bytes: LEA RCX, [RIP+tramp] (7) + JMP __rt_itoa (5).
+    offsets = offsets + "kr_wndproc_addr:" + pos + "\n"
+    let wpa_tramp = tramp_pos - (pos + 7)
+    let wpa_itoa  = 266 - (pos + 7 + 5)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8D)+hexByte(0x0D)+hexDword(wpa_tramp))          // [0-6]  LEA RCX, [RIP+tramp]
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(wpa_itoa))                                       // [7-11] JMP __rt_itoa
+    pos = pos + 12
+
     emit sb_good + sbToString(sb2) + "\nOFFSETS\n" + offsets
 }
 
@@ -7826,10 +7914,11 @@ just run {
         //   +56 shadow_sp    (NEW in 2.0-alpha-2 stage 2; bytes used in shadow_base)
         //   +64 allocs_head  (NEW in 2.0-alpha-3 stage 1.5; head of per-alloc linked list)
         //   +72 free_head    (NEW in 2.0-alpha-3 stage 6; head of freed-alloc reuse list)
+        //   +80 wndproc_funcptr (NEW 2026-05-11 Phase C; Krypton funcptr that kr_wndtramp dispatches to)
         let gcGlobalsRva = bsRdataRvaB
 
-        // Build kernel32-only import table (starting at .rdata+80)
-        let bsImpData = buildBootstrapImportTable(bsRdataRvaB, 80)
+        // Build kernel32-only import table (starting at .rdata+88)
+        let bsImpData = buildBootstrapImportTable(bsRdataRvaB, 88)
         let bsImpHex = split(bsImpData, 0)
         let bsIatK32B = toInt(split(bsImpData, 1))
         let bsIatDescRvaB = toInt(split(bsImpData, 2))
@@ -7868,14 +7957,14 @@ just run {
         printErr("bs debug: bsImpSz=" + bsImpSz + " exportNames.lines=" + lineCount(bsExportNames) + " offsets.lines=" + lineCount(bsOffsets))
         printErr("bs debug: bsRdataRvaB=" + bsRdataRvaB + " bsIatK32B=" + bsIatK32B)
         printErr("bs debug: first exportName=" + getLine(bsExportNames, 0) + " first offset=" + getLine(bsOffsets, 0))
-        // Export table lives after globals(80) + imports(bsImpSz). Pass exportBase = 80 + bsImpSz.
-        let bsExpHex = buildExportTable(bsExportNames, bsOffsets, PE_TEXT_RVA2, bsRdataRvaB, 80 + bsImpSz, "krypton_rt.dll")
-        let bsExpRva = bsRdataRvaB + 80 + bsImpSz
+        // Export table lives after globals(88) + imports(bsImpSz). Pass exportBase = 88 + bsImpSz.
+        let bsExpHex = buildExportTable(bsExportNames, bsOffsets, PE_TEXT_RVA2, bsRdataRvaB, 88 + bsImpSz, "krypton_rt.dll")
+        let bsExpRva = bsRdataRvaB + 88 + bsImpSz
         let bsExpSz = len(bsExpHex) / 3
         printErr("bs debug: bsExpSz=" + bsExpSz + " bsExpRva=" + bsExpRva)
 
-        // .rdata = globals(48) + imports + exports
-        let bsRdataSz = 80 + bsImpSz + bsExpSz
+        // .rdata = globals(88) + imports + exports
+        let bsRdataSz = 88 + bsImpSz + bsExpSz
         let bsRdataFileSz = alignUp(bsRdataSz, PE_FILE_ALIGN)
         let bsRdataFileOffB = PE_TEXT_FILE_OFF + bsTextFileSz
         let bsImgSz = bsRdataRvaB + alignUp(bsRdataSz, PE_SECT_ALIGN)
@@ -7895,11 +7984,11 @@ just run {
         let bsTxtPad = bsTextFileSz - bsFullText
         let bsRdPad = bsRdataFileSz - bsRdataSz
 
-        // Build the 80-byte zero-initialised GC globals slot
-        // (2.0-alpha-3 stage 6: 72→80 adds free_head for sweep reuse list).
+        // Build the 88-byte zero-initialised GC globals slot
+        // (2026-05-11 Phase C: 80→88 adds wndproc_funcptr at +80).
         let bsGcGlobalsSb = sbNew()
         let bsGcI = 0
-        while bsGcI < 80 { bsGcGlobalsSb = sbAppend(bsGcGlobalsSb, hexByte(0))  bsGcI = bsGcI + 1 }
+        while bsGcI < 88 { bsGcGlobalsSb = sbAppend(bsGcGlobalsSb, hexByte(0))  bsGcI = bsGcI + 1 }
         let bsGcGlobalsHex = sbToString(bsGcGlobalsSb)
 
         let bsPE = bsHdrHex + hexPad(bsHdrPad) + bsCodeHex + bsDllMain + hexPad(bsTxtPad) + bsGcGlobalsHex + bsImpHex + bsExpHex + hexPad(bsRdPad)
