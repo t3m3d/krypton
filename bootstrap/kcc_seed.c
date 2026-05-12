@@ -23,6 +23,9 @@ static long _gc_arena_bytes = 0;
 static long _gc_threshold = 268435456L;
 static int _gc_enabled = -1;
 static void _gc_collect(void);
+static char* _arena_addr_lo = (char*)~(uintptr_t)0;
+static char* _arena_addr_hi = 0;
+static char* _alloc(int n) __attribute__((noinline));
 static char* _alloc(int n) {
     n = (n + 7) & ~7;
     if (_gc_enabled < 0) {
@@ -49,7 +52,10 @@ static char* _alloc(int n) {
     h->mark = 0;
     _alloc_head = h;
     _arena->used += total;
-    return (char*)(h + 1);
+    char* user = (char*)(h + 1);
+    if (user < _arena_addr_lo) _arena_addr_lo = user;
+    if (user + n > _arena_addr_hi) _arena_addr_hi = user + n;
+    return user;
 }
 
 #include <setjmp.h>
@@ -57,25 +63,46 @@ static int _gc_in_range(ABlock* b, char* p) {
     char* base = (char*)(b + 1);
     return p >= base && p < base + b->cap;
 }
+static AllocHdr** _gc_sorted = 0;
+static int _gc_sorted_cap = 0;
+static int _gc_sorted_n = 0;
+static int _gc_alloc_cmp(const void* a, const void* b) {
+    char* pa = (char*)*(AllocHdr* const*)a;
+    char* pb = (char*)*(AllocHdr* const*)b;
+    return pa < pb ? -1 : (pa > pb ? 1 : 0);
+}
 static void _gc_mark_word(void* word) {
     char* p = (char*)word;
-    // Quick reject: is p inside any current arena block?
-    ABlock* b = _arena;
-    while (b) { if (_gc_in_range(b, p)) break; b = b->next; }
-    if (!b) return;
-    // Walk allocation list looking for one whose user range contains p.
-    AllocHdr* a = _alloc_head;
-    while (a) {
-        char* user = (char*)(a + 1);
-        if (p >= user && p < user + a->size) { a->mark = 1; return; }
-        a = a->next;
+    if (p < _arena_addr_lo || p >= _arena_addr_hi) return;
+    if (_gc_sorted_n == 0) return;
+    // Binary search for greatest alloc with start <= p.
+    int lo = 0, hi = _gc_sorted_n;
+    while (lo < hi) {
+        int mid = (lo + hi) / 2;
+        char* mid_start = (char*)_gc_sorted[mid];
+        if (mid_start <= p) lo = mid + 1; else hi = mid;
     }
+    if (lo == 0) return;
+    AllocHdr* a = _gc_sorted[lo - 1];
+    char* user = (char*)(a + 1);
+    if (p >= user && p < user + a->size) a->mark = 1;
 }
 static void _gc_collect(void) {
-    // Clear all marks.
+    // Clear all marks + count.
     AllocHdr* a = _alloc_head;
     long n_total = 0, n_live = 0;
     while (a) { a->mark = 0; n_total++; a = a->next; }
+    // Build sorted-by-address index for binary-search mark phase.
+    if (n_total > _gc_sorted_cap) {
+        int newcap = _gc_sorted_cap ? _gc_sorted_cap : 1024;
+        while (newcap < n_total) newcap *= 2;
+        _gc_sorted = (AllocHdr**)realloc(_gc_sorted, newcap * sizeof(AllocHdr*));
+        _gc_sorted_cap = newcap;
+    }
+    int idx = 0;
+    for (a = _alloc_head; a; a = a->next) _gc_sorted[idx++] = a;
+    _gc_sorted_n = idx;
+    qsort(_gc_sorted, idx, sizeof(AllocHdr*), _gc_alloc_cmp);
     // Mark roots: spill regs to jmp_buf, then scan stack.
     jmp_buf regs;
     setjmp(regs);
@@ -112,7 +139,7 @@ static void _gc_collect(void) {
     long live_bytes = 0;
     a = _alloc_head; while (a) { live_bytes += a->size; a = a->next; }
     _gc_threshold = live_bytes * 4;
-    if (_gc_threshold < 67108864L) _gc_threshold = 67108864L;
+    if (_gc_threshold < 536870912L) _gc_threshold = 536870912L;
     if (getenv("KR_GC_LOG")) fprintf(stderr, "[gc] swept %ld/%ld allocs, %ldMB live, threshold->%ldMB\n", n_total - n_live, n_total, live_bytes/1048576, _gc_threshold/1048576);
 }
 
@@ -6623,7 +6650,7 @@ int main(int argc, char** argv) {
     char _stack_anchor; _stack_bottom = &_stack_anchor;
     _argc = argc; _argv = argv;
     srand((unsigned)time(NULL));
-    char* kccVer = ((char*)"1.8.0");
+    char* kccVer = ((char*)"2.0");
     char* irMode = ((char*)"0");
     char* portMode = ((char*)"0");
     char* installRoot = ((char*)"C:\\krypton");
