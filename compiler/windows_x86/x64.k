@@ -451,7 +451,7 @@ func emitStringTable(strs) {
 // ckrypton_proc.dll dropped 2026-05-11 after stdlib/fs.k + stdlib/proc.k
 // were already pure Krypton via head:windows + head:fileio.)
 
-let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,GetCurrentThreadId,GetLastError,SetLastError,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA,WaitForSingleObject,TerminateProcess,OpenProcess,CreateFileMappingA,MapViewOfFile,UnmapViewOfFile,GetModuleHandleA,SetEnvironmentVariableA"
+let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,GetCurrentThreadId,GetLastError,SetLastError,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA,WaitForSingleObject,TerminateProcess,OpenProcess,CreateFileMappingA,MapViewOfFile,UnmapViewOfFile,GetModuleHandleA,SetEnvironmentVariableA,CreatePipe,PeekNamedPipe,CreateProcessA,InitializeProcThreadAttributeList,UpdateProcThreadAttribute,DeleteProcThreadAttributeList,CreatePseudoConsole,ResizePseudoConsole,ClosePseudoConsole,GetExitCodeProcess"
 let KRUSER_FUNCS = "GetSystemMetrics,MessageBoxA,ShowWindow,SetTimer,KillTimer,GetForegroundWindow,SetForegroundWindow,GetMessageA,TranslateMessage,DispatchMessageA,PostQuitMessage,UpdateWindow,DestroyWindow,SetWindowTextA,GetWindowTextA,SendMessageA,GetDlgItem,InvalidateRect,MoveWindow,SetWindowPos,GetClientRect,GetWindowRect,RegisterClassExA,CreateWindowExA,DefWindowProcA,LoadCursorA,LoadIconA,CreateMenu,CreatePopupMenu,AppendMenuA,SetMenu,DrawMenuBar,DestroyMenu,LoadImageA,SetClassLongPtrA,FillRect,GetWindow"
 let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword,kr_envnew,kr_envset,kr_envget,kr_hasfield,kr_structfields,kr_repeat,kr_padleft,kr_padright,kr_reverse,kr_abs,kr_min,kr_max,kr_endswith,kr_bin,kr_pow,kr_gc_allocated,kr_gc_limit,kr_gc_set_limit,kr_gc_collect,kr_arena_reset,kr_gc_checkpoint,kr_gc_restore,kr_gc_slab_count,kr_gc_slab_bytes,kr_bufgetbyte,kr_bufgetwordat,kr_bufsetwordat,kr_bufsetqwordat,kr_bufgetwordatbe,kr_bufgetdwordatbe,kr_bufgetqwordatbe,kr_gc_alloc_count,kr_gc_shadow_count,kr_gc_shadow_pop_n,kr_gc_shadow_push,kr_gc_walk_allocs,kr_rdtsc,kr_gc_mark,kr_gc_sweep,kr_pause,kr_mfence,kr_lfence,kr_sfence,kr_gc_freelist_count,kr_set_wndproc,kr_wndproc_addr,kr_inttoptr"
 let KRADV_FUNCS = "RegOpenKeyExA,RegQueryValueExA,RegEnumKeyExA,RegCloseKey,GetUserNameA"
@@ -687,6 +687,23 @@ func win32IntArgs(name) {
     if name == "DwmGetWindowAttribute"       { emit "0,1,3" }
     if name == "DwmExtendFrameIntoClientArea"{ emit "0" }           // hwnd, margins=ptr
     if name == "DwmEnableBlurBehindWindow"   { emit "0" }
+    // ── ConPTY / pipes / CreateProcess (2026-05-12 for terk) ────────
+    // CreatePipe(hRead*, hWrite*, sa, size) — 2 ptrs OUT, sa nullable, size int
+    if name == "CreatePipe"                  { emit "2,3" }
+    // PeekNamedPipe(h, buf, n, *read, *avail, *msg) — handle + buf-size int
+    if name == "PeekNamedPipe"               { emit "0,2" }
+    // CreateProcessA — args 4(bInheritHandles), 5(dwCreationFlags) are DWORDs;
+    // 2,3(security attrs) and 6(env) accept "0" for NULL via atoi marshalling
+    if name == "CreateProcessA"              { emit "2,3,4,5,6" }
+    if name == "InitializeProcThreadAttributeList" { emit "0,1,2" }     // list,count,flags ; 3=*size real ptr
+    if name == "UpdateProcThreadAttribute"   { emit "0,1,2,4,5,6" }     // list(via ptrToInt),flags,attribute,cbSize,prev,retSize ; 3=*value real ptr
+    if name == "DeleteProcThreadAttributeList" { emit "0" }
+    // CreatePseudoConsole(COORD, hIn, hOut, dwFlags, *hPC) — COORD passed by
+    // value fits in low/high 16 bits of int. Args 0..3 all int; 4=*hPC real ptr.
+    if name == "CreatePseudoConsole"         { emit "0,1,2,3" }
+    if name == "ResizePseudoConsole"         { emit "0,1" }              // hPC, COORD
+    if name == "ClosePseudoConsole"          { emit "0" }                // hPC
+    if name == "GetExitCodeProcess"          { emit "0" }                // hProc ; 1=*code real ptr
     emit ""
 }
 
@@ -831,9 +848,18 @@ func win32IntReturns(name) {
     if name == "DwmExtendFrameIntoClientArea"{ emit "1" }  // HRESULT
     if name == "DwmIsCompositionEnabled"    { emit "1" }   // HRESULT
     if name == "DwmEnableBlurBehindWindow"  { emit "1" }   // HRESULT
+    // ── ConPTY / pipes / CreateProcess (2026-05-12 for terk) ────────
+    if name == "CreatePipe"                 { emit "1" }   // BOOL
+    if name == "PeekNamedPipe"              { emit "1" }   // BOOL
+    if name == "CreateProcessA"             { emit "1" }   // BOOL
+    if name == "InitializeProcThreadAttributeList" { emit "1" }  // BOOL
+    if name == "UpdateProcThreadAttribute"  { emit "1" }   // BOOL
+    if name == "CreatePseudoConsole"        { emit "1" }   // HRESULT
+    if name == "ResizePseudoConsole"        { emit "1" }   // HRESULT
+    if name == "GetExitCodeProcess"         { emit "1" }   // BOOL
+    // void-return (no itoa needed): DeleteProcThreadAttributeList, ClosePseudoConsole
     // Excluded (returns ptr or special):
     //   MapViewOfFile         — returns LPVOID (raw mmap pointer; treat as char*)
-    //   GetExitCodeProcess    — BOOL but writes int via OUT-ptr; user reads OUT
     //   HeapAlloc / VirtualAlloc — returns LPVOID (opaque pointer; treat as char*)
     //   LoadLibraryA          — returns HMODULE (also a pointer; treat as char*)
     //   GetProcAddress        — returns FARPROC (function pointer)
