@@ -901,6 +901,127 @@ func emitAllocN(n, instrIdx, textVaddr, textOff) {
     emit s
 }
 
+// Polymorphic string concat — emits 111 arm64 instructions assuming the two
+// operands are already in x3 (a) and x6 (b). Either may be an int (raw, less
+// than 0x100000000) or a pointer to a NUL-terminated string. Ints are itoa'd
+// into a 64-byte stack scratch buffer. Result is alloc'd via emitAllocVar and
+// pushed onto the eval stack. Shared by both CAT and ADD's concat path.
+func emitPolyConcat(instrIdx, textVaddr, textOff) {
+    let s = ""
+    s = s + arm64_sub_imm(31, 31, 64)             // 0: reserve 64B scratch (2×24-byte bufs + pad)
+    s = s + arm64_movz_x_imm_lsl32(14, 1)         // 1: 0x100000000 ptr/int boundary
+    s = s + arm64_cmp_xx(3, 14)                   // 2
+    s = s + arm64_b_cond(0xa, 27)                 // 3: b.ge A_AFTER (idx 30)
+    // itoa a → buf [sp..sp+23] (26 instr)
+    s = s + arm64_add_imm(4, 31, 23)              // 4: p = sp+23
+    s = s + arm64_strb_imm(31, 4, 0)              // 5: *p = NUL
+    s = s + arm64_movz_x_imm(5, 0)                // 6: neg = 0
+    s = s + arm64_cmp_imm(3, 0)                   // 7
+    s = s + arm64_b_cond(0xa, 3)                  // 8: b.ge A_POS (idx 11)
+    s = s + arm64_movz_x_imm(5, 1)                // 9
+    s = s + arm64_neg(3, 3)                       // 10
+    // A_POS @ 11:
+    s = s + arm64_cbnz(3, 5)                      // 11: → A_LOOP (idx 16)
+    s = s + arm64_sub_imm(4, 4, 1)                // 12: zero path
+    s = s + arm64_movz_w_imm(7, 0x30)             // 13
+    s = s + arm64_strb_imm(7, 4, 0)               // 14
+    s = s + arm64_b(10)                           // 15: → A_SIGN (idx 25)
+    // A_LOOP @ 16:
+    s = s + arm64_cbz(3, 9)                       // 16: → A_SIGN (idx 25)
+    s = s + arm64_movz_x_imm(7, 10)               // 17
+    s = s + arm64_udiv_xxx(8, 3, 7)               // 18
+    s = s + arm64_msub_xxxx(9, 8, 7, 3)           // 19
+    s = s + arm64_add_imm(9, 9, 0x30)             // 20
+    s = s + arm64_sub_imm(4, 4, 1)                // 21
+    s = s + arm64_strb_imm(9, 4, 0)               // 22
+    s = s + arm64_mov_xx(3, 8)                    // 23
+    s = s + arm64_b(0 - 8)                        // 24: → A_LOOP
+    // A_SIGN @ 25:
+    s = s + arm64_cbz(5, 4)                       // 25: → A_DONE (idx 29)
+    s = s + arm64_sub_imm(4, 4, 1)                // 26
+    s = s + arm64_movz_w_imm(7, 0x2D)             // 27: '-'
+    s = s + arm64_strb_imm(7, 4, 0)               // 28
+    // A_DONE @ 29:
+    s = s + arm64_mov_xx(3, 4)                    // 29: x3 = stack-buf ptr
+    // A_AFTER @ 30:
+    s = s + arm64_cmp_xx(6, 14)                   // 30
+    s = s + arm64_b_cond(0xa, 27)                 // 31: b.ge B_AFTER (idx 58)
+    // itoa b → buf [sp+32..sp+55] (26 instr)
+    s = s + arm64_add_imm(4, 31, 55)              // 32
+    s = s + arm64_strb_imm(31, 4, 0)              // 33
+    s = s + arm64_movz_x_imm(5, 0)                // 34
+    s = s + arm64_cmp_imm(6, 0)                   // 35
+    s = s + arm64_b_cond(0xa, 3)                  // 36: b.ge B_POS (idx 39)
+    s = s + arm64_movz_x_imm(5, 1)                // 37
+    s = s + arm64_neg(6, 6)                       // 38
+    // B_POS @ 39:
+    s = s + arm64_cbnz(6, 5)                      // 39: → B_LOOP (idx 44)
+    s = s + arm64_sub_imm(4, 4, 1)                // 40
+    s = s + arm64_movz_w_imm(7, 0x30)             // 41
+    s = s + arm64_strb_imm(7, 4, 0)               // 42
+    s = s + arm64_b(10)                           // 43: → B_SIGN (idx 53)
+    // B_LOOP @ 44:
+    s = s + arm64_cbz(6, 9)                       // 44: → B_SIGN (idx 53)
+    s = s + arm64_movz_x_imm(7, 10)               // 45
+    s = s + arm64_udiv_xxx(8, 6, 7)               // 46
+    s = s + arm64_msub_xxxx(9, 8, 7, 6)           // 47
+    s = s + arm64_add_imm(9, 9, 0x30)             // 48
+    s = s + arm64_sub_imm(4, 4, 1)                // 49
+    s = s + arm64_strb_imm(9, 4, 0)               // 50
+    s = s + arm64_mov_xx(6, 8)                    // 51
+    s = s + arm64_b(0 - 8)                        // 52: → B_LOOP
+    // B_SIGN @ 53:
+    s = s + arm64_cbz(5, 4)                       // 53: → B_DONE (idx 57)
+    s = s + arm64_sub_imm(4, 4, 1)                // 54
+    s = s + arm64_movz_w_imm(7, 0x2D)             // 55
+    s = s + arm64_strb_imm(7, 4, 0)               // 56
+    // B_DONE @ 57:
+    s = s + arm64_mov_xx(6, 4)                    // 57: x6 = stack-buf ptr
+    // B_AFTER @ 58: strlen a (5 instr)
+    s = s + arm64_mov_xx(1, 3)                    // 58
+    s = s + arm64_ldrb_post(13, 1, 1)             // 59
+    s = s + arm64_cbnz(13, 0 - 1)                 // 60
+    s = s + arm64_sub_xxx(7, 1, 3)                // 61
+    s = s + arm64_sub_imm(7, 7, 1)                // 62: la
+    // strlen b (5 instr)
+    s = s + arm64_mov_xx(1, 6)                    // 63
+    s = s + arm64_ldrb_post(13, 1, 1)             // 64
+    s = s + arm64_cbnz(13, 0 - 1)                 // 65
+    s = s + arm64_sub_xxx(8, 1, 6)                // 66
+    s = s + arm64_sub_imm(8, 8, 1)                // 67: lb
+    // alloc size = la + lb + 1
+    s = s + arm64_add_xxx(4, 7, 8)                // 68
+    s = s + arm64_add_imm(4, 4, 1)                // 69
+    // emitAllocVar at absolute idx (instrIdx + 70)
+    s = s + emitAllocVar(instrIdx + 70, textVaddr, textOff)
+    // Copy + NUL + sp restore + push (relative 91..110)
+    s = s + arm64_movz_x_imm(13, 0)               // 91: i = 0
+    // LOOP_A @ rel 92:
+    s = s + arm64_cmp_xx(13, 7)                   // 92
+    s = s + arm64_b_cond(0xa, 5)                  // 93: b.ge → AFTER_A (rel 98)
+    s = s + arm64_ldrb_reg(14, 3, 13)             // 94
+    s = s + arm64_strb_reg(14, 0, 13)             // 95
+    s = s + arm64_add_imm(13, 13, 1)              // 96
+    s = s + arm64_b(0 - 5)                        // 97
+    // AFTER_A @ 98:
+    s = s + arm64_movz_x_imm(13, 0)               // 98
+    s = s + arm64_add_xxx(15, 0, 7)               // 99: x15 = dest + la
+    // LOOP_B @ 100:
+    s = s + arm64_cmp_xx(13, 8)                   // 100
+    s = s + arm64_b_cond(0xa, 5)                  // 101: → AFTER_B (rel 106)
+    s = s + arm64_ldrb_reg(14, 6, 13)             // 102
+    s = s + arm64_strb_reg(14, 15, 13)            // 103
+    s = s + arm64_add_imm(13, 13, 1)              // 104
+    s = s + arm64_b(0 - 5)                        // 105
+    // AFTER_B @ 106:
+    s = s + arm64_add_xxx(15, 0, 7)               // 106
+    s = s + arm64_add_xxx(15, 15, 8)              // 107: dest+la+lb
+    s = s + arm64_strb_imm(31, 15, 0)             // 108: NUL terminator
+    s = s + arm64_add_imm(31, 31, 64)             // 109: restore sp
+    s = s + arm64_push_x0()                       // 110
+    emit s
+}
+
 // ── full IR parser (slice 3e: multi-function) ──────────────────────────────
 // Supports: FUNC <name> <argc> / PARAM <name> / LOCAL <name> / PUSH "literal"
 // or PUSH <int> / STORE <name> / LOAD <name> / arithmetic / comparisons /
@@ -1512,8 +1633,8 @@ func opInstrCount(opTok) {
     if opTok == "PUSH_INT"     { emit 2 }
     if opTok == "LOAD_SLOT"    { emit 2 }
     if opTok == "STORE_SLOT"   { emit 2 }
-    if opTok == "ADD"          { emit 4 }
-    if opTok == "CAT"          { emit 113 } // polymorphic: int→itoa×2 + strlen×2 + alloc(21) + copy×2 + NUL + push
+    if opTok == "ADD"          { emit 121 } // polymorphic: int+int fast path (8) or full concat (113)
+    if opTok == "CAT"          { emit 113 } // 2 pops + emitPolyConcat (111)
     if opTok == "SUB"          { emit 4 }
     if opTok == "MUL"          { emit 4 }
     if opTok == "DIV"          { emit 4 }
@@ -1822,133 +1943,35 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_push_x0()
             instrIdx = instrIdx + 2
         } else if opTok == "ADD" {
-            s = s + arm64_pop(0)
-            s = s + arm64_pop(1)
-            s = s + arm64_add_xxx(0, 1, 0)
-            s = s + arm64_push(0)
-            instrIdx = instrIdx + 4
-        } else if opTok == "CAT" {
-            // Polymorphic string concatenation: pop b, pop a. Each operand may
-            // be an int (< 0x100000000) or a heap/text pointer (>= 0x100000000).
-            // Int operands get itoa'd into a 24-byte stack scratch buffer; then
-            // a standard string+string concat allocates the result via
-            // emitAllocVar and copies both source ranges in. 113 instructions.
+            // Polymorphic ADD: int+int → arithmetic; else string concat (with
+            // inline itoa for any int operand). Pops both, decides path, jumps
+            // around the 111-instruction concat body for the int+int fast path.
+            // 121 instructions total.
             s = s + arm64_pop(6)                          // 0: b
             s = s + arm64_pop(3)                          // 1: a
-            s = s + arm64_sub_imm(31, 31, 64)             // 2: reserve 64B (2×24-byte bufs)
-            s = s + arm64_movz_x_imm_lsl32(14, 1)         // 3: 0x100000000 ptr/int boundary
-            // ── A: itoa or already-string ──
-            s = s + arm64_cmp_xx(3, 14)                   // 4
-            s = s + arm64_b_cond(0xa, 27)                 // 5: b.ge A_AFTER (idx 32)
-            //   itoa a into buf [sp..sp+23] (26 instr)
-            s = s + arm64_add_imm(4, 31, 23)              // 6: p = sp+23
-            s = s + arm64_strb_imm(31, 4, 0)              // 7: *p = NUL
-            s = s + arm64_movz_x_imm(5, 0)                // 8: neg = 0
-            s = s + arm64_cmp_imm(3, 0)                   // 9
-            s = s + arm64_b_cond(0xa, 3)                  // 10: b.ge A_POS (idx 13)
-            s = s + arm64_movz_x_imm(5, 1)                // 11
-            s = s + arm64_neg(3, 3)                       // 12: n = -n
-            // A_POS @ 13:
-            s = s + arm64_cbnz(3, 5)                      // 13: → A_LOOP (idx 18)
-            s = s + arm64_sub_imm(4, 4, 1)                // 14: zero path
-            s = s + arm64_movz_w_imm(7, 0x30)             // 15
-            s = s + arm64_strb_imm(7, 4, 0)               // 16
-            s = s + arm64_b(10)                           // 17: → A_SIGN (idx 27)
-            // A_LOOP @ 18:
-            s = s + arm64_cbz(3, 9)                       // 18: → A_SIGN (idx 27)
-            s = s + arm64_movz_x_imm(7, 10)               // 19
-            s = s + arm64_udiv_xxx(8, 3, 7)               // 20: q = n/10
-            s = s + arm64_msub_xxxx(9, 8, 7, 3)           // 21: r = n - q*10
-            s = s + arm64_add_imm(9, 9, 0x30)             // 22
-            s = s + arm64_sub_imm(4, 4, 1)                // 23
-            s = s + arm64_strb_imm(9, 4, 0)               // 24
-            s = s + arm64_mov_xx(3, 8)                    // 25: n = q
-            s = s + arm64_b(0 - 8)                        // 26: → A_LOOP
-            // A_SIGN @ 27:
-            s = s + arm64_cbz(5, 4)                       // 27: → A_DONE (idx 31)
-            s = s + arm64_sub_imm(4, 4, 1)                // 28
-            s = s + arm64_movz_w_imm(7, 0x2D)             // 29: '-'
-            s = s + arm64_strb_imm(7, 4, 0)               // 30
-            // A_DONE @ 31:
-            s = s + arm64_mov_xx(3, 4)                    // 31: x3 = stack-buf ptr
-            // A_AFTER @ 32:
-            s = s + arm64_cmp_xx(6, 14)                   // 32
-            s = s + arm64_b_cond(0xa, 27)                 // 33: b.ge B_AFTER (idx 60)
-            //   itoa b into buf [sp+32..sp+55] (26 instr)
-            s = s + arm64_add_imm(4, 31, 55)              // 34: p = sp+55
-            s = s + arm64_strb_imm(31, 4, 0)              // 35
-            s = s + arm64_movz_x_imm(5, 0)                // 36
-            s = s + arm64_cmp_imm(6, 0)                   // 37
-            s = s + arm64_b_cond(0xa, 3)                  // 38: b.ge B_POS (idx 41)
-            s = s + arm64_movz_x_imm(5, 1)                // 39
-            s = s + arm64_neg(6, 6)                       // 40
-            // B_POS @ 41:
-            s = s + arm64_cbnz(6, 5)                      // 41: → B_LOOP (idx 46)
-            s = s + arm64_sub_imm(4, 4, 1)                // 42
-            s = s + arm64_movz_w_imm(7, 0x30)             // 43
-            s = s + arm64_strb_imm(7, 4, 0)               // 44
-            s = s + arm64_b(10)                           // 45: → B_SIGN (idx 55)
-            // B_LOOP @ 46:
-            s = s + arm64_cbz(6, 9)                       // 46
-            s = s + arm64_movz_x_imm(7, 10)               // 47
-            s = s + arm64_udiv_xxx(8, 6, 7)               // 48
-            s = s + arm64_msub_xxxx(9, 8, 7, 6)           // 49
-            s = s + arm64_add_imm(9, 9, 0x30)             // 50
-            s = s + arm64_sub_imm(4, 4, 1)                // 51
-            s = s + arm64_strb_imm(9, 4, 0)               // 52
-            s = s + arm64_mov_xx(6, 8)                    // 53
-            s = s + arm64_b(0 - 8)                        // 54
-            // B_SIGN @ 55:
-            s = s + arm64_cbz(5, 4)                       // 55
-            s = s + arm64_sub_imm(4, 4, 1)                // 56
-            s = s + arm64_movz_w_imm(7, 0x2D)             // 57
-            s = s + arm64_strb_imm(7, 4, 0)               // 58
-            // B_DONE @ 59:
-            s = s + arm64_mov_xx(6, 4)                    // 59: x6 = stack-buf ptr
-            // B_AFTER @ 60: strlen a (5 instr)
-            s = s + arm64_mov_xx(1, 3)                    // 60
-            s = s + arm64_ldrb_post(13, 1, 1)             // 61
-            s = s + arm64_cbnz(13, 0 - 1)                 // 62
-            s = s + arm64_sub_xxx(7, 1, 3)                // 63
-            s = s + arm64_sub_imm(7, 7, 1)                // 64: la
-            // strlen b (5 instr)
-            s = s + arm64_mov_xx(1, 6)                    // 65
-            s = s + arm64_ldrb_post(13, 1, 1)             // 66
-            s = s + arm64_cbnz(13, 0 - 1)                 // 67
-            s = s + arm64_sub_xxx(8, 1, 6)                // 68
-            s = s + arm64_sub_imm(8, 8, 1)                // 69: lb
-            // alloc size = la + lb + 1
-            s = s + arm64_add_xxx(4, 7, 8)                // 70
-            s = s + arm64_add_imm(4, 4, 1)                // 71
-            instrIdx = instrIdx + 72
-            s = s + emitAllocVar(instrIdx, textVaddr, textOff)  // x0 = dest
-            instrIdx = instrIdx + 21
-            // Copy loops + NUL + sp-restore + push (relative idx 0..19)
-            s = s + arm64_movz_x_imm(13, 0)               // 0: i = 0
-            // LOOP_A @ rel 1:
-            s = s + arm64_cmp_xx(13, 7)                   // 1
-            s = s + arm64_b_cond(0xa, 5)                  // 2: → AFTER_A (rel 7)
-            s = s + arm64_ldrb_reg(14, 3, 13)             // 3
-            s = s + arm64_strb_reg(14, 0, 13)             // 4
-            s = s + arm64_add_imm(13, 13, 1)              // 5
-            s = s + arm64_b(0 - 5)                        // 6
-            // AFTER_A @ rel 7:
-            s = s + arm64_movz_x_imm(13, 0)               // 7
-            s = s + arm64_add_xxx(15, 0, 7)               // 8: x15 = dest+la
-            // LOOP_B @ rel 9:
-            s = s + arm64_cmp_xx(13, 8)                   // 9
-            s = s + arm64_b_cond(0xa, 5)                  // 10: → AFTER_B (rel 15)
-            s = s + arm64_ldrb_reg(14, 6, 13)             // 11
-            s = s + arm64_strb_reg(14, 15, 13)            // 12
-            s = s + arm64_add_imm(13, 13, 1)              // 13
-            s = s + arm64_b(0 - 5)                        // 14
-            // AFTER_B @ rel 15:
-            s = s + arm64_add_xxx(15, 0, 7)               // 15
-            s = s + arm64_add_xxx(15, 15, 8)              // 16: dest+la+lb
-            s = s + arm64_strb_imm(31, 15, 0)             // 17: NUL
-            s = s + arm64_add_imm(31, 31, 64)             // 18: restore sp
-            s = s + arm64_push_x0()                       // 19
-            instrIdx = instrIdx + 20
+            s = s + arm64_movz_x_imm_lsl32(14, 1)         // 2: 0x100000000
+            s = s + arm64_cmp_xx(3, 14)                   // 3
+            s = s + arm64_b_cond(0xa, 6)                  // 4: b.ge → CONCAT (idx 10)
+            s = s + arm64_cmp_xx(6, 14)                   // 5
+            s = s + arm64_b_cond(0xa, 4)                  // 6: b.ge → CONCAT (idx 10)
+            // INT_INT @ 7:
+            s = s + arm64_add_xxx(0, 3, 6)                // 7: x0 = a + b
+            s = s + arm64_push_x0()                       // 8
+            s = s + arm64_b(112)                          // 9: → ADD_DONE (skip 111-instr concat)
+            // CONCAT @ idx 10: shared polymorphic concat body
+            instrIdx = instrIdx + 10
+            s = s + emitPolyConcat(instrIdx, textVaddr, textOff)  // emits 111 instr
+            instrIdx = instrIdx + 111
+            // ADD_DONE @ idx 121 (target of b at idx 9; nothing emitted here)
+        } else if opTok == "CAT" {
+            // String concatenation IR op — compile.k emits this for known
+            // string contexts (backtick interpolation, etc.). Body is the same
+            // polymorphic concat as ADD's else branch. 113 instructions.
+            s = s + arm64_pop(6)                          // 0: b
+            s = s + arm64_pop(3)                          // 1: a
+            instrIdx = instrIdx + 2
+            s = s + emitPolyConcat(instrIdx, textVaddr, textOff)
+            instrIdx = instrIdx + 111
         } else if opTok == "SUB" {
             s = s + arm64_pop(0)
             s = s + arm64_pop(1)
