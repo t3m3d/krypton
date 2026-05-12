@@ -65,3 +65,4 @@ runtime/krypton_rt_legacy.dll
 lsp/test_kls.py
 kompiler/.DS_Store
 .DS_Store
+releasenotes/RELEASE_NOTES_2.0_macos_arm64.md
