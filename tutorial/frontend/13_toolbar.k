@@ -6,14 +6,15 @@
 //
 // Available icons: new, open, save, cut, copy, paste, undo, redo,
 // delete, print, find, replace, help, props.
+//
+// Note: cross-handler state goes through `guiStateSet`/`guiStateGet`
+// rather than module-level `let` (which is broken in the native
+// pipeline — see Krypton's own --port-1to2 warning).
 
 import "k:gui"
 
 
-let g_label = ""
-
-
-func say(msg) { guiSetText(g_label, msg) }
+func say(msg) { guiSetText(guiStateGet("demo.label"), msg) }
 
 func onNew()  { say("File: New")  }
 func onOpen() { say("File: Open") }
@@ -38,8 +39,9 @@ just run {
     guiOnClick(guiToolButton(tb, "Help", "help"), funcptr(onHelp))
 
     let tbH = toInt(guiToolbarHeight(tb))
-    g_label = guiLabel(win, "Click any toolbar button.",
+    let label = guiLabel(win, "Click any toolbar button.",
                       24, tbH + 16, 600, 22)
+    guiStateSet("demo.label", label)
 
     guiShow(win)
     guiRun()
