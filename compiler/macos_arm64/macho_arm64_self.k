@@ -1375,6 +1375,22 @@ func parseFullIR(ir) {
                         // split(list, idx) — i-th comma-separated element.
                         curOps = sbAppend(curOps, "BUILTIN_SPLIT\n")
                         nOps += 1
+                    } else if bname == "count" {
+                        // count(s) — like length but base case is 1 (even for empty string).
+                        curOps = sbAppend(curOps, "BUILTIN_COUNT\n")
+                        nOps += 1
+                    } else if bname == "isTruthy" {
+                        // isTruthy(v) — returns 1 if v is truthy, 0 otherwise.
+                        curOps = sbAppend(curOps, "BUILTIN_ISTRUTHY\n")
+                        nOps += 1
+                    } else if bname == "lineCount" {
+                        // lineCount(s) — count of \n-separated lines.
+                        curOps = sbAppend(curOps, "BUILTIN_LINECOUNT\n")
+                        nOps += 1
+                    } else if bname == "getLine" {
+                        // getLine(s, idx) — extract the idx-th \n-separated line.
+                        curOps = sbAppend(curOps, "BUILTIN_GETLINE\n")
+                        nOps += 1
                     } else if bname == "contains" {
                         curOps = sbAppend(curOps, "BUILTIN_CONTAINS\n")
                         nOps += 1
@@ -1684,6 +1700,10 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_LENGTH"       { emit 13 }   // empty-check + comma-counter loop
     if opTok == "BUILTIN_SPLIT"        { emit 50 }   // scan + alloc(21) + copy + NUL + push
     if opTok == "BUILTIN_RANGE"        { emit 75 }   // alloc(21) + inline itoa loop with stack scratch
+    if opTok == "BUILTIN_COUNT"        { emit 10 }   // walk string, cnt = 1 + commas
+    if opTok == "BUILTIN_ISTRUTHY"     { emit 15 }   // int=nonzero / ptr=non-empty (simplified, no "0"/"false" check)
+    if opTok == "BUILTIN_LINECOUNT"    { emit 18 }   // \n counter with trailing-NL adjustment (matches C kr_linecount)
+    if opTok == "BUILTIN_GETLINE"      { emit 50 }   // identical structure to SPLIT, \n delimiter
     if opTok == "BUILTIN_GCALLOCATED"  { emit 4 }   // adrp + add + ldr [x1,#24] + push
     if opTok == "BUILTIN_GCLIMIT"      { emit 4 }   // adrp + add + ldr [x1,#32] + push
     if opTok == "BUILTIN_GCSETLIMIT"   { emit 5 }   // pop + adrp + add + str [x1,#32] + push
@@ -2407,7 +2427,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_movz_x_imm(16, 5)             // sys_open
             s = s + arm64_svc(0x80)
             s = s + arm64_mov_xx(19, 0)                 // save fd
-            s = s + arm64_movz_x_imm_lsl16(4, 16)       // x4 = 16 << 16 = 1 MB
+            s = s + arm64_movz_x_imm(4, 0x8000)         // x4 = 32 KB (must fit in our 64 KB heap; raise once heap grows past Tahoe's clamp)
             instrIdx = instrIdx + 7
             s = s + emitAllocVar(instrIdx, textVaddr, textOff)
             instrIdx = instrIdx + 21
@@ -2626,6 +2646,116 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             // PUSH @ 74:
             s = s + arm64_push_x0()                       // 74
             instrIdx = instrIdx + 45
+        } else if opTok == "BUILTIN_COUNT" {
+            // count(s): 1 + comma-count. Always at least 1, even for empty. 10 instr.
+            s = s + arm64_pop(3)                          // 0
+            s = s + arm64_movz_x_imm(0, 1)                // 1: cnt = 1
+            s = s + arm64_mov_xx(1, 3)                    // 2: scan = list
+            // LOOP @ 3:
+            s = s + arm64_ldrb_post(4, 1, 1)              // 3
+            s = s + arm64_cbz(4, 5)                       // 4: NUL → DONE (idx 9, rel +5)
+            s = s + arm64_cmp_imm(4, 0x2c)                // 5
+            s = s + arm64_b_cond(0x1, 0 - 3)              // 6: b.ne LOOP (idx 3, rel -3)
+            s = s + arm64_add_imm(0, 0, 1)                // 7: cnt++
+            s = s + arm64_b(0 - 5)                        // 8: b LOOP (idx 3, rel -5)
+            // DONE @ 9:
+            s = s + arm64_push_x0()                       // 9
+            instrIdx = instrIdx + 10
+        } else if opTok == "BUILTIN_ISTRUTHY" {
+            // isTruthy(v):
+            //   int (< 0x100000000): truthy if nonzero
+            //   ptr (>= 0x100000000): truthy if first byte != NUL
+            // Doesn't yet detect "0" or "false" strings as falsy — they're rare in
+            // compile.k's actual flow control (which uses ints for booleans).
+            // 15 instructions.
+            s = s + arm64_pop(3)                          // 0: v
+            s = s + arm64_movz_x_imm_lsl32(14, 1)         // 1: 0x100000000
+            s = s + arm64_cmp_xx(3, 14)                   // 2
+            s = s + arm64_b_cond(0xa, 4)                  // 3: b.ge PTR_PATH (idx 7)
+            // int path
+            s = s + arm64_cbz(3, 8)                       // 4: zero → FALSY (idx 12)
+            s = s + arm64_movz_x_imm(0, 1)                // 5: truthy
+            s = s + arm64_b(8)                            // 6: → PUSH (idx 14)
+            // PTR_PATH @ 7:
+            s = s + arm64_ldrb_zero(4, 3)                 // 7: first byte
+            s = s + arm64_cbz(4, 4)                       // 8: empty → FALSY (idx 12)
+            s = s + arm64_movz_x_imm(0, 1)                // 9
+            s = s + arm64_b(4)                            // 10: → PUSH (idx 14)
+            s = s + arm64_movz_x_imm(0, 0)                // 11: pad (unreachable)
+            // FALSY @ 12:
+            s = s + arm64_movz_x_imm(0, 0)                // 12
+            s = s + arm64_b(1)                            // 13: fallthrough
+            // PUSH @ 14:
+            s = s + arm64_push_x0()                       // 14
+            instrIdx = instrIdx + 15
+        } else if opTok == "BUILTIN_LINECOUNT" {
+            // lineCount(s): 0 if empty, else 1 + \n-count, minus 1 if last char
+            // was \n (matches C kr_linecount). 18 instructions.
+            s = s + arm64_pop(3)                          // 0
+            s = s + arm64_ldrb_zero(4, 3)                 // 1
+            s = s + arm64_cbz(4, 14)                      // 2: empty → EMPTY (idx 16)
+            s = s + arm64_movz_x_imm(0, 1)                // 3: cnt = 1
+            s = s + arm64_mov_xx(1, 3)                    // 4: scan
+            s = s + arm64_movz_x_imm(5, 0)                // 5: last_was_nl = 0
+            // LOOP @ 6:
+            s = s + arm64_ldrb_post(4, 1, 1)              // 6
+            s = s + arm64_cbz(4, 7)                       // 7: NUL → DONE (idx 14)
+            s = s + arm64_movz_x_imm(5, 0)                // 8: reset flag
+            s = s + arm64_cmp_imm(4, 0x0a)                // 9
+            s = s + arm64_b_cond(0x1, 0 - 4)              // 10: b.ne LOOP (rel -4)
+            s = s + arm64_add_imm(0, 0, 1)                // 11: cnt++
+            s = s + arm64_movz_x_imm(5, 1)                // 12: last_was_nl = 1
+            s = s + arm64_b(0 - 7)                        // 13: b LOOP (rel -7)
+            // DONE @ 14:
+            s = s + arm64_sub_xxx(0, 0, 5)                // 14: cnt -= last_was_nl
+            s = s + arm64_b(2)                            // 15: → PUSH (idx 17)
+            // EMPTY @ 16:
+            s = s + arm64_movz_x_imm(0, 0)                // 16
+            // PUSH @ 17:
+            s = s + arm64_push_x0()                       // 17
+            instrIdx = instrIdx + 18
+        } else if opTok == "BUILTIN_GETLINE" {
+            // getLine(s, idx) → idx-th \n-separated line. Identical structure to
+            // SPLIT but with 0x0a delimiter instead of 0x2c. 50 instructions.
+            s = s + arm64_pop(4)                          // 0: idx
+            s = s + arm64_pop(3)                          // 1: s
+            s = s + arm64_movz_x_imm(5, 0)                // 2: count = 0
+            s = s + arm64_mov_xx(10, 3)                   // 3: start = s
+            s = s + arm64_mov_xx(1, 3)                    // 4: scan = s
+            // SCAN @ 5:
+            s = s + arm64_ldrb_zero(6, 1)                 // 5
+            s = s + arm64_cbz(6, 9)                       // 6: NUL → END_SCAN (idx 15)
+            s = s + arm64_cmp_imm(6, 0x0a)                // 7
+            s = s + arm64_b_cond(0x1, 5)                  // 8: b.ne NEXT (idx 13)
+            s = s + arm64_cmp_xx(5, 4)                    // 9
+            s = s + arm64_b_cond(0x0, 8)                  // 10: b.eq FOUND (idx 18)
+            s = s + arm64_add_imm(5, 5, 1)                // 11
+            s = s + arm64_add_imm(10, 1, 1)               // 12: start = p+1
+            // NEXT @ 13:
+            s = s + arm64_add_imm(1, 1, 1)                // 13
+            s = s + arm64_b(0 - 9)                        // 14: → SCAN
+            // END_SCAN @ 15:
+            s = s + arm64_cmp_xx(5, 4)                    // 15
+            s = s + arm64_b_cond(0x0, 2)                  // 16: → FOUND (rel +2)
+            s = s + arm64_mov_xx(10, 1)                   // 17: not found → len 0
+            // FOUND @ 18:
+            s = s + arm64_sub_xxx(7, 1, 10)               // 18: len = p - start
+            s = s + arm64_add_imm(4, 7, 1)                // 19: alloc size
+            instrIdx = instrIdx + 20
+            s = s + emitAllocVar(instrIdx, textVaddr, textOff)
+            instrIdx = instrIdx + 21
+            s = s + arm64_movz_x_imm(13, 0)               // 0: i
+            // COPY @ rel 1:
+            s = s + arm64_cmp_xx(13, 7)                   // 1
+            s = s + arm64_b_cond(0xa, 5)                  // 2: b.ge AFTER (rel 7)
+            s = s + arm64_ldrb_reg(14, 10, 13)            // 3
+            s = s + arm64_strb_reg(14, 0, 13)             // 4
+            s = s + arm64_add_imm(13, 13, 1)              // 5
+            s = s + arm64_b(0 - 5)                        // 6
+            // AFTER @ rel 7:
+            s = s + arm64_strb_reg(31, 0, 7)              // 7
+            s = s + arm64_push_x0()                       // 8
+            instrIdx = instrIdx + 9
         } else if opTok == "BUILTIN_GCALLOCATED" {
             // Read alloc_total at bump_cell + 24, push as int. 4 instructions.
             let bumpVaddr = g_DATA_VADDR + 0x4000
