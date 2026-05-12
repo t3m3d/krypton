@@ -19,10 +19,12 @@ cd "$(dirname "$0")/.."
 [[ "$(uname -m)" == "arm64" ]]  || { echo "build_pkg.sh: arm64 only (this script bundles kcc-arm64)"; exit 1; }
 command -v pkgbuild >/dev/null || { echo "build_pkg.sh: pkgbuild not found (install Xcode Command Line Tools)"; exit 1; }
 
-[[ -x "kcc-arm64" ]] || { echo "build_pkg.sh: missing ./kcc-arm64 — run ./build.sh first"; exit 1; }
+[[ -x "compiler/macos_arm64/kcc-arm64" ]] || { echo "build_pkg.sh: missing compiler/macos_arm64/kcc-arm64 — run ./build.sh first"; exit 1; }
 [[ -x "kcc" ]]       || { echo "build_pkg.sh: missing ./kcc dispatcher"; exit 1; }
 [[ -x "kcc.sh" ]]    || { echo "build_pkg.sh: missing ./kcc.sh driver"; exit 1; }
-[[ -x "kls" ]]       || { echo "build_pkg.sh: missing ./kls — build with: ./kcc --headers headers/ lsp/kls.k > /tmp/_kls.c && cc /tmp/_kls.c -o kls"; exit 1; }
+KLS_BIN=""
+[[ -x "compiler/macos_arm64/kls" ]] && KLS_BIN="compiler/macos_arm64/kls"
+[[ -z "$KLS_BIN" && -x "kls" ]]     && KLS_BIN="kls"
 
 # ── Version ────────────────────────────────────────────────────────────────
 VERSION=$(./kcc --version 2>&1 | sed -E 's/^kcc version //;s/[[:space:]]+.*$//')
@@ -40,20 +42,21 @@ ROOT="$STAGE$PREFIX"
 mkdir -p "$ROOT"
 
 echo "staging payload..."
-# Top-level binaries / wrappers
+# Top-level wrappers
 install -m 0755 kcc       "$ROOT/kcc"
-install -m 0755 kcc-arm64 "$ROOT/kcc-arm64"
 install -m 0755 kcc.sh    "$ROOT/kcc.sh"
-install -m 0755 kls       "$ROOT/kls"
 
-# Compiler sources (kcc.sh's --native and host rebuilds need these)
+# Compiler sources + per-platform binary (kcc dispatcher resolves to this)
 mkdir -p "$ROOT/compiler/macos_arm64"
+install -m 0755 compiler/macos_arm64/kcc-arm64                  "$ROOT/compiler/macos_arm64/kcc-arm64"
+[[ -n "$KLS_BIN" ]] && install -m 0755 "$KLS_BIN"               "$ROOT/compiler/macos_arm64/kls"
 install -m 0644 compiler/compile.k                              "$ROOT/compiler/compile.k"
 install -m 0644 compiler/optimize.k                             "$ROOT/compiler/optimize.k"
-install -m 0644 compiler/llvm.k                                 "$ROOT/compiler/llvm.k"
-install -m 0644 compiler/run.k                                  "$ROOT/compiler/run.k"
 install -m 0644 compiler/macos_arm64/macho_arm64_self.k         "$ROOT/compiler/macos_arm64/macho_arm64_self.k"
-install -m 0644 compiler/macos_arm64/macho.k                    "$ROOT/compiler/macos_arm64/macho.k"
+[[ -f compiler/macos_arm64/macho.k ]] && \
+    install -m 0644 compiler/macos_arm64/macho.k                "$ROOT/compiler/macos_arm64/macho.k"
+[[ -f compiler/llvm.k ]] && install -m 0644 compiler/llvm.k     "$ROOT/compiler/llvm.k"
+[[ -f compiler/run.k ]] && install -m 0644 compiler/run.k       "$ROOT/compiler/run.k"
 
 # Header files (used by --headers flag, and by kls)
 mkdir -p "$ROOT/headers"
@@ -104,7 +107,8 @@ chmod 0644 /etc/paths.d/krypton
 mkdir -p /usr/local/bin
 ln -sf /usr/local/krypton/kcc    /usr/local/bin/kcc
 ln -sf /usr/local/krypton/kcc.sh /usr/local/bin/kcc.sh
-ln -sf /usr/local/krypton/kls    /usr/local/bin/kls
+[[ -e /usr/local/krypton/compiler/macos_arm64/kls ]] && \
+    ln -sf /usr/local/krypton/compiler/macos_arm64/kls /usr/local/bin/kls
 exit 0
 EOF
 chmod 0755 "$SCRIPTS_DIR/postinstall"
