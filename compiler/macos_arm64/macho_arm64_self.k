@@ -1215,44 +1215,26 @@ func parseFullIR(ir) {
                 } else if op == "PUSH" {
                     if len(rest) > 0 {
                         if rest[0] == "\"" {
-                            // Build content via sb. Krypton's IR uses `\\` (two
-                            // backslashes) as the escape opener:
-                            //   \\n / \\t / \\r → newline / tab / CR
-                            //   \\           → single backslash (lone `\\`, no escape kind)
-                            //   \"           → literal quote (single backslash + quote)
+                            // Decode the IR-text escape sequences. The IR uses
+                            // single-backslash escapes (verified via od -c):
+                            //   \n / \t / \r → newline / tab / CR
+                            //   \\           → single backslash
+                            //   \"           → literal quote
+                            //   \0           → skipped (null escape)
+                            // Any other \X falls through as a literal backslash.
                             let contentSb = sbNew()
                             let k = 1
                             while k < len(rest) && rest[k] != "\"" {
-                                if rest[k] == "\\" {
-                                    if (k + 1) < len(rest) {
-                                        let nxt = rest[k + 1]
-                                        if nxt == "\\" {
-                                            // \\ + kind? Look at rest[k+2].
-                                            if (k + 2) < len(rest) {
-                                                let c = rest[k + 2]
-                                                if c == "n"      { contentSb = sbAppend(contentSb, "\n"); k += 3 }
-                                                else if c == "t" { contentSb = sbAppend(contentSb, "\t"); k += 3 }
-                                                else if c == "r" { contentSb = sbAppend(contentSb, "\r"); k += 3 }
-                                                else if c == "0" { k += 3 }   // skip null escape
-                                                else {
-                                                    // Lone `\\` (not followed by an escape kind) = single backslash
-                                                    contentSb = sbAppend(contentSb, "\\")
-                                                    k += 2
-                                                }
-                                            } else {
-                                                contentSb = sbAppend(contentSb, "\\")
-                                                k += 2
-                                            }
-                                        } else if nxt == "\"" {
-                                            contentSb = sbAppend(contentSb, "\"")
-                                            k += 2
-                                        } else {
-                                            // Lone `\` followed by something — treat as literal
-                                            contentSb = sbAppend(contentSb, rest[k])
-                                            k += 1
-                                        }
-                                    } else {
-                                        contentSb = sbAppend(contentSb, rest[k])
+                                if rest[k] == "\\" && (k + 1) < len(rest) {
+                                    let nxt = rest[k + 1]
+                                    if nxt == "n"       { contentSb = sbAppend(contentSb, "\n"); k += 2 }
+                                    else if nxt == "t"  { contentSb = sbAppend(contentSb, "\t"); k += 2 }
+                                    else if nxt == "r"  { contentSb = sbAppend(contentSb, "\r"); k += 2 }
+                                    else if nxt == "\\" { contentSb = sbAppend(contentSb, "\\"); k += 2 }
+                                    else if nxt == "\"" { contentSb = sbAppend(contentSb, "\""); k += 2 }
+                                    else if nxt == "0"  { k += 2 }
+                                    else {
+                                        contentSb = sbAppend(contentSb, "\\")
                                         k += 1
                                     }
                                 } else {
@@ -1713,7 +1695,7 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_SPLIT"        { emit 50 }   // scan + alloc(21) + copy + NUL + push
     if opTok == "BUILTIN_RANGE"        { emit 75 }   // alloc(21) + inline itoa loop with stack scratch
     if opTok == "BUILTIN_COUNT"        { emit 10 }   // walk string, cnt = 1 + commas
-    if opTok == "BUILTIN_ISTRUTHY"     { emit 15 }   // int=nonzero / ptr=non-empty (simplified, no "0"/"false" check)
+    if opTok == "BUILTIN_ISTRUTHY"     { emit 35 }   // int=nonzero / ptr: empty / "0" / "false" → falsy, else truthy
     if opTok == "BUILTIN_LINECOUNT"    { emit 18 }   // \n counter with trailing-NL adjustment (matches C kr_linecount)
     if opTok == "BUILTIN_GETLINE"      { emit 50 }   // identical structure to SPLIT, \n delimiter
     if opTok == "BUILTIN_REPLACE"      { emit 95 }   // strlens + occurrence count + alloc(21) + substituting copy
@@ -2263,9 +2245,13 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_push_x0()
             instrIdx = instrIdx + 16
         } else if opTok == "BUILTIN_SBNEW" {
-            // sbNew(): alloc 32 KB, init length=0, return ptr.
+            // sbNew(): alloc 4 KB, init length=0, return ptr.
             // Layout of sb buffer: [8-byte length][data ...].
-            s = s + arm64_movz_x_imm(4, 32768)      // size = 32 KB
+            // 4 KB rather than the 32 KB of the original because our heap is
+            // only ~40 KB usable; two 32 KB sbs would overflow. Raise back to
+            // 32 KB once the heap-size constraint (Tahoe DATA_VMSIZE cap) is
+            // worked around with mmap or freelist reuse.
+            s = s + arm64_movz_x_imm(4, 4096)       // size = 4 KB
             instrIdx = instrIdx + 1
             s = s + emitAllocVar(instrIdx, textVaddr, textOff)
             instrIdx = instrIdx + 21
@@ -2735,32 +2721,57 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_push_x0()                       // 9
             instrIdx = instrIdx + 10
         } else if opTok == "BUILTIN_ISTRUTHY" {
-            // isTruthy(v):
-            //   int (< 0x100000000): truthy if nonzero
-            //   ptr (>= 0x100000000): truthy if first byte != NUL
-            // Doesn't yet detect "0" or "false" strings as falsy — they're rare in
-            // compile.k's actual flow control (which uses ints for booleans).
-            // 15 instructions.
+            // isTruthy(v) — full semantics matching the C runtime kr_istruthy:
+            //   int 0 → falsy, int nonzero → truthy
+            //   ""        → falsy
+            //   "0"       → falsy
+            //   "false"   → falsy
+            //   anything else (ptr) → truthy
+            // Uses x5 as a scratch ptr to byte-walk the string.  35 instructions.
             s = s + arm64_pop(3)                          // 0: v
             s = s + arm64_movz_x_imm_lsl32(14, 1)         // 1: 0x100000000
             s = s + arm64_cmp_xx(3, 14)                   // 2
             s = s + arm64_b_cond(0xa, 4)                  // 3: b.ge PTR_PATH (idx 7)
-            // int path
-            s = s + arm64_cbz(3, 8)                       // 4: zero → FALSY (idx 12)
-            s = s + arm64_movz_x_imm(0, 1)                // 5: truthy
-            s = s + arm64_b(8)                            // 6: → PUSH (idx 14)
+            // INT path
+            s = s + arm64_cbz(3, 29)                      // 4: zero → FALSY (idx 33, rel +29)
+            s = s + arm64_movz_x_imm(0, 1)                // 5
+            s = s + arm64_b(28)                           // 6: → PUSH (idx 34)
             // PTR_PATH @ 7:
-            s = s + arm64_ldrb_zero(4, 3)                 // 7: first byte
-            s = s + arm64_cbz(4, 4)                       // 8: empty → FALSY (idx 12)
-            s = s + arm64_movz_x_imm(0, 1)                // 9
-            s = s + arm64_b(4)                            // 10: → PUSH (idx 14)
-            s = s + arm64_movz_x_imm(0, 0)                // 11: pad (unreachable)
-            // FALSY @ 12:
-            s = s + arm64_movz_x_imm(0, 0)                // 12
-            s = s + arm64_b(1)                            // 13: fallthrough
-            // PUSH @ 14:
-            s = s + arm64_push_x0()                       // 14
-            instrIdx = instrIdx + 15
+            s = s + arm64_mov_xx(5, 3)                    // 7: scan ptr
+            s = s + arm64_ldrb_post(4, 5, 1)              // 8: first byte (scan++)
+            s = s + arm64_cbz(4, 24)                      // 9: NUL → FALSY (idx 33, rel +24)
+            // Check "0\0"
+            s = s + arm64_cmp_imm(4, 0x30)                // 10: '0'?
+            s = s + arm64_b_cond(0x1, 3)                  // 11: b.ne CHECK_FALSE (idx 14)
+            s = s + arm64_ldrb_zero(6, 5)                 // 12: next byte ([sp+1])
+            s = s + arm64_cbz(6, 20)                      // 13: NUL → FALSY (idx 33, rel +20)
+            // CHECK_FALSE @ 14:
+            s = s + arm64_cmp_imm(4, 0x66)                // 14: 'f'?
+            s = s + arm64_b_cond(0x1, 16)                 // 15: b.ne TRUTHY (idx 31)
+            s = s + arm64_ldrb_post(6, 5, 1)              // 16: 'a'?
+            s = s + arm64_cmp_imm(6, 0x61)
+            s = s + arm64_b_cond(0x1, 13)                 // 18: b.ne TRUTHY
+            s = s + arm64_ldrb_post(6, 5, 1)              // 19: 'l'?
+            s = s + arm64_cmp_imm(6, 0x6c)
+            s = s + arm64_b_cond(0x1, 10)                 // 21: b.ne TRUTHY
+            s = s + arm64_ldrb_post(6, 5, 1)              // 22: 's'?
+            s = s + arm64_cmp_imm(6, 0x73)
+            s = s + arm64_b_cond(0x1, 7)                  // 24: b.ne TRUTHY
+            s = s + arm64_ldrb_post(6, 5, 1)              // 25: 'e'?
+            s = s + arm64_cmp_imm(6, 0x65)
+            s = s + arm64_b_cond(0x1, 4)                  // 27: b.ne TRUTHY
+            s = s + arm64_ldrb_zero(6, 5)                 // 28: byte after "false"?
+            s = s + arm64_cbnz(6, 2)                      // 29: not NUL → TRUTHY (idx 31)
+            // Falls through to FALSY since matched "false\0"
+            s = s + arm64_b(3)                            // 30: → FALSY (idx 33, rel +3)
+            // TRUTHY @ 31:
+            s = s + arm64_movz_x_imm(0, 1)                // 31
+            s = s + arm64_b(2)                            // 32 — wait, this was FALSY idx
+            // The above two are at idx 31 (TRUTHY movz) and idx 32 (b PUSH).
+            // FALSY @ 32 then conflicts. Let me re-layout below.
+            s = s + arm64_movz_x_imm(0, 0)                // 33: FALSY
+            s = s + arm64_push_x0()                       // 34: PUSH
+            instrIdx = instrIdx + 35
         } else if opTok == "BUILTIN_LINECOUNT" {
             // lineCount(s): 0 if empty, else 1 + \n-count, minus 1 if last char
             // was \n (matches C kr_linecount). 18 instructions.
