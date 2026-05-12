@@ -337,17 +337,12 @@ if [[ -z "$OUTFILE" ]]; then
 fi
 
 if [[ "$GCC_MODE" -ne 1 ]]; then
-    # macOS native (macho_arm64_self.k) is slice-3f — handles a useful subset
-    # but lacks CAT, range, list-iteration, polymorphic ADD, and ~100 more
-    # builtins. For full feature parity (template strings, for-in, etc.) the
-    # implicit default on macOS is the C+clang path. Use --native to opt
-    # into the self-hosted path explicitly.
-    if [[ "$PLATFORM" == "macos" ]]; then
-        GCC_MODE=1
-    else
-        NATIVE_MODE=1
-        exec "$0" --native -o "$OUTFILE" "$SRCFILE"
-    fi
+    # Native is the default on every platform. macho_arm64_self.k now covers
+    # the core surface (CAT/ADD polymorphism, range/length/split, GC primitives,
+    # 30+ builtins). Programs needing builtins not yet ported (replace, sort,
+    # struct ops, maps, etc.) can still opt out with `--gcc`.
+    NATIVE_MODE=1
+    exec "$0" --native -o "$OUTFILE" "$SRCFILE"
 fi
 
 # ──────────────────────────────────────────────────────────────────────────
