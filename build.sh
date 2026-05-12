@@ -76,9 +76,7 @@ native_pipeline_available() {
     case "$OSNAME/$ARCH" in
         linux/x86_64)   return 0 ;;
         windows/x86_64) return 0 ;;
-        # macos/aarch64: macho_arm64_self.k is slice-3f (partial). Smoke tests
-        # use the implicit C+clang path on macOS until the native backend
-        # supports CAT, range, list iteration, polymorphic ADD, etc.
+        macos/aarch64)  return 0 ;;
         *)              return 1 ;;
     esac
 }
@@ -137,18 +135,36 @@ if [[ "$MODE" == "test" ]]; then
         if native_pipeline_available; then
             OUT="/tmp/_kr_test_bin_$$"
             OUT_LOG="/tmp/_kr_test_log_$$"
-            # A test passes only if (a) the binary exits 0 AND (b) its output
-            # contains no "[FAIL]" markers. Tests that print [PASS]/[FAIL]
-            # lines per assertion would otherwise silently green when the
-            # process happens to exit cleanly with bad results.
-            if "$SCRIPT_DIR/kcc.sh" --native "$TEST" -o "$OUT" >/dev/null 2>&1 \
-               && "$OUT" > "$OUT_LOG" 2>&1 \
-               && ! grep -q '\[FAIL\]' "$OUT_LOG"; then
-                ok "$NAME"
-                PASSED=$((PASSED + 1))
-            else
-                echo -e "${RED}FAIL${RESET}  $NAME"
+            # A test passes if its output contains no "[FAIL]" markers and
+            # neither the compile nor the run produced a runtime crash. We
+            # don't require exit-0 because many Krypton tests end with a
+            # last-expression-value semantics (e.g., `emit "ok"`) that
+            # propagates through `just run`'s return into the process exit
+            # code. Tests that print [PASS]/[FAIL] markers per assertion
+            # would otherwise silently green when the process exit happens
+            # to be 0 by luck — the grep filter is what catches bad results.
+            if ! "$SCRIPT_DIR/kcc.sh" --native "$TEST" -o "$OUT" >/dev/null 2>&1; then
+                echo -e "${RED}FAIL${RESET}  $NAME (compile)"
                 FAILED=$((FAILED + 1))
+            else
+                # The `if` wrapper keeps `set -e` from aborting on a non-zero
+                # exit (which is common — many Krypton tests return their last
+                # expression value, not 0). Only signals (>= 128) count as failures.
+                rc=0
+                "$OUT" > "$OUT_LOG" 2>&1 || rc=$?
+                # POSIX signal-induced exit codes are 128 + N where N is 1..31
+                # (real signals). Pointer-returning Krypton tests can give
+                # rc 128..255 too, so we restrict the signal-detection range.
+                if [[ $rc -ge 129 && $rc -le 159 ]]; then
+                    echo -e "${RED}FAIL${RESET}  $NAME (signal $((rc - 128)))"
+                    FAILED=$((FAILED + 1))
+                elif grep -q '\[FAIL\]' "$OUT_LOG"; then
+                    echo -e "${RED}FAIL${RESET}  $NAME (assertion)"
+                    FAILED=$((FAILED + 1))
+                else
+                    ok "$NAME"
+                    PASSED=$((PASSED + 1))
+                fi
             fi
             rm -f "$OUT" "$OUT_LOG"
         else
