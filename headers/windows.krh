@@ -216,4 +216,50 @@ jxt {
     func PdhCollectQueryData(query)
     func PdhGetFormattedCounterArrayA(counter, format, bufSize, itemCount, items)
     func PdhCloseQuery(query)
+
+    // ── Pipes / process spawn (added 2026-05-12 for terk) ─────
+    struct STARTUPINFOA {
+        field cb                DWORD
+        field lpReserved        LPSTR
+        field lpDesktop         LPSTR
+        field lpTitle           LPSTR
+        field dwX               DWORD
+        field dwY               DWORD
+        field dwXSize           DWORD
+        field dwYSize           DWORD
+        field dwXCountChars     DWORD
+        field dwYCountChars     DWORD
+        field dwFillAttribute   DWORD
+        field dwFlags           DWORD
+        field wShowWindow       WORD
+        field cbReserved2       WORD
+        field lpReserved2       LPBYTE
+        field hStdInput         HANDLE
+        field hStdOutput        HANDLE
+        field hStdError         HANDLE
+    }
+
+    struct PROCESS_INFORMATION {
+        field hProcess          HANDLE
+        field hThread           HANDLE
+        field dwProcessId       DWORD
+        field dwThreadId        DWORD
+    }
+
+    func CreatePipe(hReadPipe, hWritePipe, sa, size)                                -> BOOL
+    func PeekNamedPipe(handle, buffer, size, read, totalAvail, leftThisMessage)     -> BOOL
+    func CreateProcessA(appName, cmdLine, procAttr, threadAttr, inherit, flags, env, dir, si, pi) -> BOOL
+    func GetExitCodeProcess(handle, exitCode)                                       -> BOOL
+    func TerminateProcess(handle, exitCode)                                         -> BOOL
+
+    // ── ConPTY (Windows pseudoconsole, Win10 1809+) ───────────
+    // Process-thread attribute lists carry PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE.
+    // CreatePseudoConsole takes a COORD by value packed into an int
+    // (low16=X=cols, high16=Y=rows); Krypton's Win32 marshalling table atois it.
+    func InitializeProcThreadAttributeList(list, count, flags, size)                -> BOOL
+    func UpdateProcThreadAttribute(list, flags, attribute, value, size, prev, ret)  -> BOOL
+    func DeleteProcThreadAttributeList(list)
+    func CreatePseudoConsole(size, hInput, hOutput, flags, hPC)                     -> LONG
+    func ResizePseudoConsole(hPC, size)                                             -> LONG
+    func ClosePseudoConsole(hPC)
 }
