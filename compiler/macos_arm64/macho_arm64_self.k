@@ -729,6 +729,14 @@ func arm64_movz_x_imm_lsl48(rd, imm16) {
 func arm64_movz_x_imm_lsl32(rd, imm16) {
     emit hexDword(0xd2c00000 + (imm16 * 0x20) + rd)
 }
+// movk Xd, #imm16, LSL #16 — preserves other bits (unlike movz). Used to
+// load the high 16 bits of a 32-bit positive constant after a movz of the low.
+// Encoding: 0xf2a00000 | (imm16 << 5) | Rd  (sf=1, opc=11 movk, hw=01 LSL #16)
+func arm64_movk_x_imm_lsl16(rd, imm16) {
+    emit hexDword(0xf2a00000 + (imm16 * 0x20) + rd)
+}
+// nop — does nothing. 0xd503201f.
+func arm64_nop() { emit hexDword(0xd503201f) }
 // orr Xd, Xn, Xm  (bitwise OR, no shift) → 0xaa000000 | (Rm<<16) | (Rn<<5) | Rd
 func arm64_orr_xxx(rd, rn, rm) {
     emit hexDword(0xaa000000 + (rm * 0x10000) + (rn * 0x20) + rd)
@@ -1391,6 +1399,10 @@ func parseFullIR(ir) {
                         // getLine(s, idx) — extract the idx-th \n-separated line.
                         curOps = sbAppend(curOps, "BUILTIN_GETLINE\n")
                         nOps += 1
+                    } else if bname == "replace" {
+                        // replace(s, old, new) — substitute every occurrence.
+                        curOps = sbAppend(curOps, "BUILTIN_REPLACE\n")
+                        nOps += 1
                     } else if bname == "contains" {
                         curOps = sbAppend(curOps, "BUILTIN_CONTAINS\n")
                         nOps += 1
@@ -1653,7 +1665,7 @@ func computeFrameSizeF(parsed, fIdx) {
 // are handled at the caller because they depend on frame size or argc).
 func opInstrCount(opTok) {
     if opTok == "PUSH_STR"     { emit 3 }
-    if opTok == "PUSH_INT"     { emit 2 }
+    if opTok == "PUSH_INT"     { emit 3 }   // movz low / movk high or nop / push
     if opTok == "LOAD_SLOT"    { emit 2 }
     if opTok == "STORE_SLOT"   { emit 2 }
     if opTok == "ADD"          { emit 121 } // polymorphic: int+int fast path (8) or full concat (113)
@@ -1666,8 +1678,8 @@ func opInstrCount(opTok) {
     if opTok == "GT"           { emit 5 }
     if opTok == "LE"           { emit 5 }
     if opTok == "GE"           { emit 5 }
-    if opTok == "EQ"           { emit 5 }
-    if opTok == "NE"           { emit 5 }
+    if opTok == "EQ"           { emit 25 }  // polymorphic: int+int cmp / ptr+ptr strcmp / mixed=unequal
+    if opTok == "NE"           { emit 25 }  // same code path with EQ-cond → NE-cond + flipped results
     if opTok == "JUMP"             { emit 1 }
     if opTok == "JUMPIFNOT"        { emit 2 }
     if opTok == "JUMPIF"           { emit 2 }
@@ -1704,6 +1716,7 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_ISTRUTHY"     { emit 15 }   // int=nonzero / ptr=non-empty (simplified, no "0"/"false" check)
     if opTok == "BUILTIN_LINECOUNT"    { emit 18 }   // \n counter with trailing-NL adjustment (matches C kr_linecount)
     if opTok == "BUILTIN_GETLINE"      { emit 50 }   // identical structure to SPLIT, \n delimiter
+    if opTok == "BUILTIN_REPLACE"      { emit 95 }   // strlens + occurrence count + alloc(21) + substituting copy
     if opTok == "BUILTIN_GCALLOCATED"  { emit 4 }   // adrp + add + ldr [x1,#24] + push
     if opTok == "BUILTIN_GCLIMIT"      { emit 4 }   // adrp + add + ldr [x1,#32] + push
     if opTok == "BUILTIN_GCSETLIMIT"   { emit 5 }   // pop + adrp + add + str [x1,#32] + push
@@ -1964,14 +1977,25 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_push_x0()
             instrIdx = instrIdx + 3
         } else if opTok == "PUSH_INT" {
+            // Load 32-bit signed int into x0 then push. movz only handles 16 bits,
+            // so for any positive >= 65536 we need movk for the high 16. Negative
+            // values stay in the small-magnitude range (movn handles -65536..-1);
+            // beyond that, values aren't correctly representable without sign extension.
+            // Always 3 instructions for layout consistency (3rd is nop when not needed).
             let n = toInt(restTok)
             if n >= 0 {
                 s = s + arm64_movz_x_imm(0, n % 65536)
+                if n >= 65536 {
+                    s = s + arm64_movk_x_imm_lsl16(0, (n / 65536) % 65536)
+                } else {
+                    s = s + arm64_nop()
+                }
             } else {
                 s = s + arm64_movn_x_imm(0, (0 - n - 1) % 65536)
+                s = s + arm64_nop()
             }
             s = s + arm64_push_x0()
-            instrIdx = instrIdx + 2
+            instrIdx = instrIdx + 3
         } else if opTok == "ADD" {
             // Polymorphic ADD: int+int → arithmetic; else string concat (with
             // inline itoa for any int operand). Pops both, decides path, jumps
@@ -2034,13 +2058,62 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_movz_w_imm(0, 0)
             s = s + arm64_push_x0()
             instrIdx = instrIdx + 5
-        } else if opTok == "LT" || opTok == "GT" || opTok == "LE" || opTok == "GE" || opTok == "EQ" || opTok == "NE" {
+        } else if opTok == "LT" || opTok == "GT" || opTok == "LE" || opTok == "GE" {
+            // Ordering comparisons — int-only. (Compile.k doesn't emit these
+            // for string operands; strings compare with EQ/NE only.)
             s = s + arm64_pop(0)
             s = s + arm64_pop(1)
             s = s + arm64_cmp_xx(1, 0)
             s = s + arm64_cset(0, irCmpToCond(opTok))
             s = s + arm64_push(0)
             instrIdx = instrIdx + 5
+        } else if opTok == "EQ" || opTok == "NE" {
+            // Polymorphic equality: int+int → cmp; ptr+ptr → strcmp byte-by-byte;
+            // mixed (int vs ptr) → always unequal. The opTok-driven branches pick
+            // EQ-cond (0x0) vs NE-cond (0x1) so the same code emits both flavors.
+            // 25 instructions for either EQ or NE.
+            let eqCond = 0x0   // cond for cset (default EQ)
+            let unequalResult = 0    // mismatch path result for EQ
+            let equalResult = 1      // match path result for EQ
+            if opTok == "NE" {
+                eqCond = 0x1
+                unequalResult = 1
+                equalResult = 0
+            }
+            s = s + arm64_pop(4)                          // 0: b
+            s = s + arm64_pop(3)                          // 1: a
+            s = s + arm64_movz_x_imm_lsl32(14, 1)         // 2: threshold
+            s = s + arm64_cmp_xx(3, 14)                   // 3
+            s = s + arm64_b_cond(0xa, 6)                  // 4: b.ge PTR_PATH (idx 10)
+            // INT path — a is int. Check b.
+            s = s + arm64_cmp_xx(4, 14)                   // 5
+            s = s + arm64_b_cond(0xa, 16)                 // 6: b.ge UNEQUAL (idx 22)
+            // Both int — direct cmp + cset
+            s = s + arm64_cmp_xx(3, 4)                    // 7
+            s = s + arm64_cset(0, eqCond)                 // 8: x0 = (a cmp b)
+            s = s + arm64_b(15)                           // 9: → PUSH (idx 24)
+            // PTR_PATH @ 10:
+            s = s + arm64_cmp_xx(4, 14)                   // 10
+            s = s + arm64_b_cond(0xb, 11)                 // 11: b.lt UNEQUAL (idx 22) — b is int, mixed
+            // Both ptr — strcmp inline
+            s = s + arm64_mov_xx(5, 3)                    // 12: pa
+            s = s + arm64_mov_xx(6, 4)                    // 13: pb
+            // STRCMP_LOOP @ 14:
+            s = s + arm64_ldrb_post(7, 5, 1)              // 14
+            s = s + arm64_ldrb_post(8, 6, 1)              // 15
+            s = s + arm64_cmp_xx(7, 8)                    // 16
+            s = s + arm64_b_cond(0x1, 5)                  // 17: b.ne UNEQUAL (idx 22, rel +5)
+            s = s + arm64_cbz(7, 2)                       // 18: w7 NUL → EQUAL (idx 20, rel +2)
+            s = s + arm64_b(0 - 5)                        // 19: → STRCMP_LOOP
+            // EQUAL @ 20:
+            s = s + arm64_movz_x_imm(0, equalResult)      // 20
+            s = s + arm64_b(3)                            // 21: → PUSH (idx 24, rel +3)
+            // UNEQUAL @ 22:
+            s = s + arm64_movz_x_imm(0, unequalResult)    // 22
+            s = s + arm64_nop()                           // 23: pad (so PUSH always at idx 24)
+            // PUSH @ 24:
+            s = s + arm64_push_x0()                       // 24
+            instrIdx = instrIdx + 25
         } else if opTok == "LABEL" {
             // No instructions
         } else if opTok == "JUMP" {
@@ -2756,6 +2829,109 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_strb_reg(31, 0, 7)              // 7
             s = s + arm64_push_x0()                       // 8
             instrIdx = instrIdx + 9
+        } else if opTok == "BUILTIN_REPLACE" {
+            // replace(s, old, new): substitute every occurrence of `old` in `s`
+            // with `new`. Returns a new heap-allocated string. Three-arg builtin —
+            // TOS = new, next = old, next = s. 95 instructions.
+            // Registers preserved across emitAllocVar (which clobbers x0/1/2/4/5/9/11):
+            //   x3=s, x6=new, x7=old, x8=rlen, x10=olen, x12=slen, x13=count
+            s = s + arm64_pop(6)                          // 0: new
+            s = s + arm64_pop(7)                          // 1: old
+            s = s + arm64_pop(3)                          // 2: s
+            // strlen new → x8 (5 instr)
+            s = s + arm64_mov_xx(1, 6)                    // 3
+            s = s + arm64_ldrb_post(14, 1, 1)             // 4
+            s = s + arm64_cbnz(14, 0 - 1)                 // 5
+            s = s + arm64_sub_xxx(8, 1, 6)                // 6
+            s = s + arm64_sub_imm(8, 8, 1)                // 7: rlen
+            // strlen old → x10 (5 instr)
+            s = s + arm64_mov_xx(1, 7)                    // 8
+            s = s + arm64_ldrb_post(14, 1, 1)             // 9
+            s = s + arm64_cbnz(14, 0 - 1)                 // 10
+            s = s + arm64_sub_xxx(10, 1, 7)               // 11
+            s = s + arm64_sub_imm(10, 10, 1)              // 12: olen
+            // strlen s → x12 (5 instr)
+            s = s + arm64_mov_xx(1, 3)                    // 13
+            s = s + arm64_ldrb_post(14, 1, 1)             // 14
+            s = s + arm64_cbnz(14, 0 - 1)                 // 15
+            s = s + arm64_sub_xxx(12, 1, 3)               // 16
+            s = s + arm64_sub_imm(12, 12, 1)              // 17: slen
+            // olen == 0 fast path → push s and jump past everything
+            s = s + arm64_cbnz(10, 4)                     // 18: olen != 0 → CONTINUE (idx 22)
+            s = s + arm64_mov_xx(0, 3)                    // 19
+            s = s + arm64_push_x0()                       // 20
+            s = s + arm64_b(74)                           // 21: → DONE (idx 95, rel +74)
+            // CONTINUE @ 22: count occurrences
+            s = s + arm64_movz_x_imm(13, 0)               // 22: count = 0
+            s = s + arm64_mov_xx(1, 3)                    // 23: p = s
+            // COUNT_LOOP @ 24:
+            s = s + arm64_ldrb_zero(14, 1)                // 24: *p
+            s = s + arm64_cbz(14, 15)                     // 25: NUL → COUNT_DONE (idx 40, rel +15)
+            s = s + arm64_movz_x_imm(2, 0)                // 26: j = 0
+            // INNER @ 27: strncmp p with old
+            s = s + arm64_cmp_xx(2, 10)                   // 27
+            s = s + arm64_b_cond(0xa, 7)                  // 28: b.ge MATCH (idx 35)
+            s = s + arm64_ldrb_reg(14, 1, 2)              // 29: p[j]
+            s = s + arm64_ldrb_reg(15, 7, 2)              // 30: old[j]
+            s = s + arm64_cmp_xx(14, 15)                  // 31
+            s = s + arm64_b_cond(0x1, 6)                  // 32: b.ne NO_MATCH (idx 38)
+            s = s + arm64_add_imm(2, 2, 1)                // 33: j++
+            s = s + arm64_b(0 - 7)                        // 34: → INNER (rel -7)
+            // MATCH @ 35:
+            s = s + arm64_add_imm(13, 13, 1)              // 35: count++
+            s = s + arm64_add_xxx(1, 1, 10)               // 36: p += olen
+            s = s + arm64_b(0 - 13)                       // 37: → COUNT_LOOP (rel -13)
+            // NO_MATCH @ 38:
+            s = s + arm64_add_imm(1, 1, 1)                // 38: p++
+            s = s + arm64_b(0 - 15)                       // 39: → COUNT_LOOP (rel -15)
+            // COUNT_DONE @ 40:
+            s = s + arm64_sub_xxx(4, 8, 10)               // 40: rlen - olen (may be negative)
+            s = s + arm64_mul_xxx(4, 13, 4)               // 41: count * (rlen - olen)
+            s = s + arm64_add_xxx(4, 12, 4)               // 42: slen + delta
+            s = s + arm64_add_imm(4, 4, 1)                // 43: + NUL
+            instrIdx = instrIdx + 44
+            s = s + emitAllocVar(instrIdx, textVaddr, textOff)  // 21 instr, x0 = out
+            instrIdx = instrIdx + 21
+            // POST_ALLOC @ rel 0 = absolute idx 65:
+            s = s + arm64_mov_xx(1, 0)                    // 0: dst = out
+            s = s + arm64_mov_xx(2, 3)                    // 1: sp = s
+            // COPY_LOOP @ rel 2:
+            s = s + arm64_ldrb_zero(14, 2)                // 2: *sp
+            s = s + arm64_cbz(14, 25)                     // 3: NUL → COPY_DONE (rel +25 → rel 28)
+            s = s + arm64_movz_x_imm(5, 0)                // 4: j = 0
+            // ICOPY @ rel 5: match-check
+            s = s + arm64_cmp_xx(5, 10)                   // 5
+            s = s + arm64_b_cond(0xa, 7)                  // 6: b.ge DO_REPLACE (rel 13)
+            s = s + arm64_ldrb_reg(14, 2, 5)              // 7
+            s = s + arm64_ldrb_reg(15, 7, 5)              // 8
+            s = s + arm64_cmp_xx(14, 15)                  // 9
+            s = s + arm64_b_cond(0x1, 13)                 // 10: b.ne CHAR_COPY (rel 23)
+            s = s + arm64_add_imm(5, 5, 1)                // 11
+            s = s + arm64_b(0 - 7)                        // 12: → ICOPY (rel -7)
+            // DO_REPLACE @ rel 13:
+            s = s + arm64_movz_x_imm(5, 0)                // 13
+            // RCOPY @ rel 14:
+            s = s + arm64_cmp_xx(5, 8)                    // 14
+            s = s + arm64_b_cond(0xa, 5)                  // 15: b.ge AFTER_REPLACE (rel 20)
+            s = s + arm64_ldrb_reg(14, 6, 5)              // 16
+            s = s + arm64_strb_reg(14, 1, 5)              // 17
+            s = s + arm64_add_imm(5, 5, 1)                // 18
+            s = s + arm64_b(0 - 5)                        // 19: → RCOPY
+            // AFTER_REPLACE @ rel 20:
+            s = s + arm64_add_xxx(1, 1, 8)                // 20: dst += rlen
+            s = s + arm64_add_xxx(2, 2, 10)               // 21: sp += olen
+            s = s + arm64_b(0 - 20)                       // 22: → COPY_LOOP (rel -20)
+            // CHAR_COPY @ rel 23:
+            s = s + arm64_ldrb_zero(14, 2)                // 23
+            s = s + arm64_strb_imm(14, 1, 0)              // 24
+            s = s + arm64_add_imm(1, 1, 1)                // 25
+            s = s + arm64_add_imm(2, 2, 1)                // 26
+            s = s + arm64_b(0 - 25)                       // 27: → COPY_LOOP (rel -25)
+            // COPY_DONE @ rel 28: write NUL, push
+            s = s + arm64_strb_imm(31, 1, 0)              // 28
+            s = s + arm64_push_x0()                       // 29
+            // DONE @ rel 30 (= absolute 95). Landing point for the cbnz olen==0 path.
+            instrIdx = instrIdx + 30
         } else if opTok == "BUILTIN_GCALLOCATED" {
             // Read alloc_total at bump_cell + 24, push as int. 4 instructions.
             let bumpVaddr = g_DATA_VADDR + 0x4000
