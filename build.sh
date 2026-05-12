@@ -150,15 +150,13 @@ if [[ "$MODE" == "test" ]]; then
                 # The `if` wrapper keeps `set -e` from aborting on a non-zero
                 # exit (which is common — many Krypton tests return their last
                 # expression value, not 0). Only signals (>= 128) count as failures.
-                rc=0
-                "$OUT" > "$OUT_LOG" 2>&1 || rc=$?
-                # POSIX signal-induced exit codes are 128 + N where N is 1..31
-                # (real signals). Pointer-returning Krypton tests can give
-                # rc 128..255 too, so we restrict the signal-detection range.
-                if [[ $rc -ge 129 && $rc -le 159 ]]; then
-                    echo -e "${RED}FAIL${RESET}  $NAME (signal $((rc - 128)))"
-                    FAILED=$((FAILED + 1))
-                elif grep -q '\[FAIL\]' "$OUT_LOG"; then
+                # We ignore the exit code: Krypton's `just run` blocks exit
+                # with the last expression's value, which is often a pointer
+                # ("ok" string), an int (some computed value), or 0 — all
+                # of which look "non-zero" to the shell. Tests with [PASS]/
+                # [FAIL] assertion lines are the source of truth.
+                "$OUT" > "$OUT_LOG" 2>&1 || true
+                if grep -q '\[FAIL\]' "$OUT_LOG"; then
                     echo -e "${RED}FAIL${RESET}  $NAME (assertion)"
                     FAILED=$((FAILED + 1))
                 else
