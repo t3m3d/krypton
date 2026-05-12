@@ -724,6 +724,11 @@ func arm64_str_reg_lsl3(rt, rn, rm) {
 func arm64_movz_x_imm_lsl48(rd, imm16) {
     emit hexDword(0xd2e00000 + (imm16 * 0x20) + rd)
 }
+// movz Xd, #imm16, LSL #32 — hw=10 → 0xd2c00000 base. Used for the 1<<32
+// boundary between small ints and pointers in BUILTIN_KP's dispatch.
+func arm64_movz_x_imm_lsl32(rd, imm16) {
+    emit hexDword(0xd2c00000 + (imm16 * 0x20) + rd)
+}
 // orr Xd, Xn, Xm  (bitwise OR, no shift) → 0xaa000000 | (Rm<<16) | (Rn<<5) | Rd
 func arm64_orr_xxx(rd, rn, rm) {
     emit hexDword(0xaa000000 + (rm * 0x10000) + (rn * 0x20) + rd)
@@ -1525,7 +1530,7 @@ func opInstrCount(opTok) {
     if opTok == "NEG"              { emit 3 }   // pop, neg, push
     if opTok == "NOT"              { emit 4 }   // pop, cmp, cset, push
     if opTok == "INDEX"            { emit 27 }  // pop i, pop s, alloc(21), ldrb, strb char, strb NUL, push
-    if opTok == "BUILTIN_KP"       { emit 21 }  // direct write() + write("\n") via syscall, survives explicit exit()
+    if opTok == "BUILTIN_KP"       { emit 69 }  // string or int dispatch; inline itoa for ints
     if opTok == "BUILTIN_EXIT"     { emit 5 }
     if opTok == "BUILTIN_LEN"      { emit 7 }   // pop, mov, ldrb-post, cbnz, sub-reg, sub-imm, push
     if opTok == "BUILTIN_CHARCODE" { emit 3 }   // pop, ldrb, push
@@ -2723,31 +2728,89 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_stur(0, 29, off)
             instrIdx = instrIdx + 2
         } else if opTok == "BUILTIN_KP" {
-            // kp(s): write(1,s,strlen(s)) + write(1,"\n",1) via raw syscalls.
-            // Direct write() bypasses libc stdio buffering — kp output survives
-            // explicit exit() (which svc's _exit and skips libc fini handlers).
-            s = s + arm64_pop(3)                      // x3 = str
-            s = s + arm64_mov_xx(1, 3)                // x1 = scan ptr
-            s = s + arm64_ldrb_post(4, 1, 1)          // ldrb w4, [x1], #1
-            s = s + arm64_cbnz(4, 0 - 1)              // loop until NUL
-            s = s + arm64_sub_xxx(2, 1, 3)            // x2 = len incl NUL
-            s = s + arm64_sub_imm(2, 2, 1)            // x2 = real len
-            s = s + arm64_movz_x_imm(0, 1)            // x0 = stdout
-            s = s + arm64_mov_xx(1, 3)                // x1 = str ptr
-            s = s + arm64_movz_x_imm(16, 4)           // x16 = SYS_write
-            s = s + arm64_svc(0x80)                   // write(1, str, len)
-            s = s + arm64_movz_w_imm(4, 0x0A)         // w4 = '\n'
-            s = s + arm64_sub_imm(31, 31, 16)         // sub sp, sp, #16
-            s = s + arm64_strb_imm(4, 31, 0)          // strb w4, [sp]
-            s = s + arm64_add_imm(1, 31, 0)           // x1 = sp (mov from SP must use ADD form)
-            s = s + arm64_movz_x_imm(2, 1)            // x2 = 1 byte
-            s = s + arm64_movz_x_imm(0, 1)            // x0 = stdout
-            s = s + arm64_movz_x_imm(16, 4)           // x16 = SYS_write
-            s = s + arm64_svc(0x80)                   // write(1, "\n", 1)
-            s = s + arm64_add_imm(31, 31, 16)         // restore sp
-            s = s + arm64_movz_w_imm(0, 0)            // kp returns 0
-            s = s + arm64_push_x0()
-            instrIdx = instrIdx + 21
+            // kp(v): write v to stdout + newline. Handles both strings and ints.
+            // Dispatch: if v < 0x100000000 it's an int; else a pointer (heap or __TEXT).
+            // String path = 19 instr (was 21 — same as before, sans pop).
+            // Int path = inline itoa + write. 69 instructions total.
+            s = s + arm64_pop(3)                          // 0: x3 = arg
+            s = s + arm64_movz_x_imm_lsl32(14, 1)         // 1: x14 = 1<<32
+            s = s + arm64_cmp_xx(3, 14)                   // 2
+            s = s + arm64_b_cond(0xb, 20)                 // 3: b.lt INT_PATH (idx 23)
+            // ── STRING PATH (idx 4..22) ──
+            s = s + arm64_mov_xx(1, 3)                    // 4
+            s = s + arm64_ldrb_post(4, 1, 1)              // 5
+            s = s + arm64_cbnz(4, 0 - 1)                  // 6: scan NUL
+            s = s + arm64_sub_xxx(2, 1, 3)                // 7
+            s = s + arm64_sub_imm(2, 2, 1)                // 8: len
+            s = s + arm64_movz_x_imm(0, 1)                // 9: stdout
+            s = s + arm64_mov_xx(1, 3)                    // 10
+            s = s + arm64_movz_x_imm(16, 4)               // 11: SYS_write
+            s = s + arm64_svc(0x80)                       // 12
+            s = s + arm64_movz_w_imm(4, 0x0A)             // 13: '\n'
+            s = s + arm64_sub_imm(31, 31, 16)             // 14: sub sp, sp, #16
+            s = s + arm64_strb_imm(4, 31, 0)              // 15: strb '\n', [sp]
+            s = s + arm64_add_imm(1, 31, 0)               // 16: x1 = sp
+            s = s + arm64_movz_x_imm(2, 1)                // 17
+            s = s + arm64_movz_x_imm(0, 1)                // 18
+            s = s + arm64_movz_x_imm(16, 4)               // 19
+            s = s + arm64_svc(0x80)                       // 20: write \n
+            s = s + arm64_add_imm(31, 31, 16)             // 21: restore sp
+            s = s + arm64_b(46)                           // 22: → DONE (idx 68)
+            // ── INT PATH @ idx 23 ── itoa to stack buffer, then print ──
+            s = s + arm64_sub_imm(31, 31, 32)             // 23: 24-byte buf + 16B align
+            s = s + arm64_add_imm(4, 31, 23)              // 24: x4 = sp+23 (end-1)
+            s = s + arm64_strb_imm(31, 4, 0)              // 25: *p = NUL (Rt=31 = xzr)
+            s = s + arm64_movz_x_imm(5, 0)                // 26: neg = 0
+            s = s + arm64_cmp_imm(3, 0)                   // 27: cmp n, 0
+            s = s + arm64_b_cond(0xa, 3)                  // 28: b.ge POSITIVE (idx 31)
+            s = s + arm64_movz_x_imm(5, 1)                // 29: neg = 1
+            s = s + arm64_neg(3, 3)                       // 30: n = -n
+            // POSITIVE @ idx 31:
+            s = s + arm64_cbnz(3, 5)                      // 31: → INT_LOOP (idx 36)
+            // n == 0 case: write single '0'
+            s = s + arm64_sub_imm(4, 4, 1)                // 32
+            s = s + arm64_movz_w_imm(6, 0x30)             // 33: '0'
+            s = s + arm64_strb_imm(6, 4, 0)               // 34
+            s = s + arm64_b(10)                           // 35: → INT_SIGN (idx 45)
+            // INT_LOOP @ idx 36:
+            s = s + arm64_cbz(3, 9)                       // 36: → INT_SIGN (idx 45)
+            s = s + arm64_movz_x_imm(7, 10)               // 37
+            s = s + arm64_udiv_xxx(8, 3, 7)               // 38: q = n / 10
+            s = s + arm64_msub_xxxx(9, 8, 7, 3)           // 39: r = n - q*10
+            s = s + arm64_add_imm(9, 9, 0x30)             // 40: r += '0'
+            s = s + arm64_sub_imm(4, 4, 1)                // 41
+            s = s + arm64_strb_imm(9, 4, 0)               // 42
+            s = s + arm64_mov_xx(3, 8)                    // 43: n = q
+            s = s + arm64_b(0 - 8)                        // 44: → INT_LOOP
+            // INT_SIGN @ idx 45:
+            s = s + arm64_cbz(5, 4)                       // 45: → INT_PRINT (idx 49)
+            s = s + arm64_sub_imm(4, 4, 1)                // 46
+            s = s + arm64_movz_w_imm(6, 0x2D)             // 47: '-'
+            s = s + arm64_strb_imm(6, 4, 0)               // 48
+            // INT_PRINT @ idx 49: x4 = start of string
+            s = s + arm64_mov_xx(1, 4)                    // 49: scan from buf start
+            s = s + arm64_ldrb_post(6, 1, 1)              // 50
+            s = s + arm64_cbnz(6, 0 - 1)                  // 51: scan to NUL
+            s = s + arm64_sub_xxx(2, 1, 4)                // 52
+            s = s + arm64_sub_imm(2, 2, 1)                // 53: real len
+            s = s + arm64_movz_x_imm(0, 1)                // 54: stdout
+            s = s + arm64_mov_xx(1, 4)                    // 55
+            s = s + arm64_movz_x_imm(16, 4)               // 56
+            s = s + arm64_svc(0x80)                       // 57: write digits
+            // newline (reuse NUL byte at buf[23])
+            s = s + arm64_movz_w_imm(6, 0x0A)             // 58
+            s = s + arm64_add_imm(10, 31, 23)             // 59: x10 = sp+23
+            s = s + arm64_strb_imm(6, 10, 0)              // 60: *(sp+23) = '\n'
+            s = s + arm64_mov_xx(1, 10)                   // 61
+            s = s + arm64_movz_x_imm(2, 1)                // 62
+            s = s + arm64_movz_x_imm(0, 1)                // 63
+            s = s + arm64_movz_x_imm(16, 4)               // 64
+            s = s + arm64_svc(0x80)                       // 65: write \n
+            s = s + arm64_add_imm(31, 31, 32)             // 66: restore sp
+            // DONE @ idx 67:
+            s = s + arm64_movz_w_imm(0, 0)                // 67
+            s = s + arm64_push_x0()                       // 68
+            instrIdx = instrIdx + 69
         } else if opTok == "CALL_FUNC" {
             // restTok = "<name> <argc>"
             let s2 = 0
