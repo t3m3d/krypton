@@ -1365,8 +1365,15 @@ func parseFullIR(ir) {
                         curOps = sbAppend(curOps, "BUILTIN_SBTOSTRING\n")
                         nOps += 1
                     } else if bname == "length" {
-                        // length() on lists; for compile.k usage on strings it's same as len
-                        curOps = sbAppend(curOps, "BUILTIN_LEN\n")
+                        // length(list) — counts comma-separated elements (empty → 0).
+                        curOps = sbAppend(curOps, "BUILTIN_LENGTH\n")
+                        nOps += 1
+                    } else if bname == "range" {
+                        curOps = sbAppend(curOps, "BUILTIN_RANGE\n")
+                        nOps += 1
+                    } else if bname == "split" {
+                        // split(list, idx) — i-th comma-separated element.
+                        curOps = sbAppend(curOps, "BUILTIN_SPLIT\n")
                         nOps += 1
                     } else if bname == "contains" {
                         curOps = sbAppend(curOps, "BUILTIN_CONTAINS\n")
@@ -1674,6 +1681,9 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_READFILE"     { emit 41 }   // alloc(21) +6 from 35
     if opTok == "BUILTIN_WRITEFILE"    { emit 22 }
     if opTok == "BUILTIN_TRIM"         { emit 56 }   // alloc(21) +6 from 50
+    if opTok == "BUILTIN_LENGTH"       { emit 13 }   // empty-check + comma-counter loop
+    if opTok == "BUILTIN_SPLIT"        { emit 50 }   // scan + alloc(21) + copy + NUL + push
+    if opTok == "BUILTIN_RANGE"        { emit 75 }   // alloc(21) + inline itoa loop with stack scratch
     if opTok == "BUILTIN_GCALLOCATED"  { emit 4 }   // adrp + add + ldr [x1,#24] + push
     if opTok == "BUILTIN_GCLIMIT"      { emit 4 }   // adrp + add + ldr [x1,#32] + push
     if opTok == "BUILTIN_GCSETLIMIT"   { emit 5 }   // pop + adrp + add + str [x1,#32] + push
@@ -2474,6 +2484,148 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_strb_reg(31, 0, 10)
             s = s + arm64_push_x0()
             instrIdx = instrIdx + 10
+        } else if opTok == "BUILTIN_LENGTH" {
+            // length(list): count comma-separated elements.
+            //  ""           → 0
+            //  "hello"      → 1
+            //  "1,2,3"      → 3
+            // 13 instructions.
+            s = s + arm64_pop(3)                          // 0: x3 = list ptr
+            s = s + arm64_ldrb_zero(4, 3)                 // 1: w4 = first byte
+            s = s + arm64_cbz(4, 9)                       // 2: empty → EMPTY (idx 11)
+            s = s + arm64_movz_x_imm(0, 1)                // 3: cnt = 1
+            s = s + arm64_mov_xx(1, 3)                    // 4: scan = list
+            // LOOP @ 5:
+            s = s + arm64_ldrb_post(4, 1, 1)              // 5: load byte, post-inc
+            s = s + arm64_cbz(4, 6)                       // 6: NUL → DONE (idx 12)
+            s = s + arm64_cmp_imm(4, 0x2c)                // 7
+            s = s + arm64_b_cond(0x1, 0 - 3)              // 8: b.ne LOOP (back 3 → idx 5)
+            s = s + arm64_add_imm(0, 0, 1)                // 9: cnt++
+            s = s + arm64_b(0 - 5)                        // 10: b LOOP (back 5 → idx 5)
+            // EMPTY @ 11:
+            s = s + arm64_movz_x_imm(0, 0)                // 11: x0 = 0
+            // DONE @ 12:
+            s = s + arm64_push_x0()                       // 12
+            instrIdx = instrIdx + 13
+        } else if opTok == "BUILTIN_SPLIT" {
+            // split(list, idx) → idx-th comma-element as a new heap string.
+            // TOS = idx (int), next = list (ptr). 50 instructions.
+            s = s + arm64_pop(4)                          // 0: x4 = idx
+            s = s + arm64_pop(3)                          // 1: x3 = list
+            s = s + arm64_movz_x_imm(5, 0)                // 2: count = 0
+            s = s + arm64_mov_xx(10, 3)                   // 3: start = list (x10 — preserved across emitAllocVar)
+            s = s + arm64_mov_xx(1, 3)                    // 4: scan = list
+            // SCAN @ 5:
+            s = s + arm64_ldrb_zero(6, 1)                 // 5
+            s = s + arm64_cbz(6, 9)                       // 6: NUL → END_SCAN (idx 15, rel +9)
+            s = s + arm64_cmp_imm(6, 0x2c)                // 7
+            s = s + arm64_b_cond(0x1, 5)                  // 8: b.ne NEXT_CHAR (idx 13)
+            // comma hit
+            s = s + arm64_cmp_xx(5, 4)                    // 9: count == idx?
+            s = s + arm64_b_cond(0x0, 8)                  // 10: b.eq FOUND (idx 18)
+            s = s + arm64_add_imm(5, 5, 1)                // 11: count++
+            s = s + arm64_add_imm(10, 1, 1)               // 12: start = p+1
+            // NEXT_CHAR @ 13:
+            s = s + arm64_add_imm(1, 1, 1)                // 13
+            s = s + arm64_b(0 - 9)                        // 14: → SCAN (back 9 = idx 5)
+            // END_SCAN @ 15: check last
+            s = s + arm64_cmp_xx(5, 4)                    // 15
+            s = s + arm64_b_cond(0x0, 2)                  // 16: b.eq FOUND (idx 18, rel +2)
+            s = s + arm64_mov_xx(10, 1)                   // 17: not found → start = scan_end (len 0)
+            // FOUND @ 18:
+            s = s + arm64_sub_xxx(7, 1, 10)               // 18: len = p - start
+            s = s + arm64_add_imm(4, 7, 1)                // 19: alloc size = len+1
+            instrIdx = instrIdx + 20
+            s = s + emitAllocVar(instrIdx, textVaddr, textOff)  // x0 = dest (21 instr)
+            instrIdx = instrIdx + 21
+            // Copy + NUL + push (9 instr, relative)
+            s = s + arm64_movz_x_imm(13, 0)               // 0: i = 0
+            // COPY @ rel 1:
+            s = s + arm64_cmp_xx(13, 7)                   // 1
+            s = s + arm64_b_cond(0xa, 5)                  // 2: b.ge AFTER (rel 7)
+            s = s + arm64_ldrb_reg(14, 10, 13)            // 3
+            s = s + arm64_strb_reg(14, 0, 13)             // 4
+            s = s + arm64_add_imm(13, 13, 1)              // 5
+            s = s + arm64_b(0 - 5)                        // 6
+            // AFTER @ rel 7:
+            s = s + arm64_strb_reg(31, 0, 7)              // 7: NUL at dest+len
+            s = s + arm64_push_x0()                       // 8
+            instrIdx = instrIdx + 9
+        } else if opTok == "BUILTIN_RANGE" {
+            // range(s, e): produce comma-separated decimal string for [s..e).
+            // s >= e returns empty string. Allocates (e-s)*12 bytes (max
+            // for 64-bit decimals + commas). 75 instructions.
+            s = s + arm64_pop(6)                          // 0: end
+            s = s + arm64_pop(3)                          // 1: start
+            s = s + arm64_cmp_xx(3, 6)                    // 2
+            s = s + arm64_b_cond(0xb, 3)                  // 3: b.lt NONEMPTY (idx 6)
+            s = s + arm64_movz_x_imm(4, 1)                // 4: empty path, size=1
+            s = s + arm64_b(4)                            // 5: → ALLOC (idx 9, rel +4)
+            // NONEMPTY @ 6:
+            s = s + arm64_sub_xxx(9, 6, 3)                // 6: n = end-start
+            s = s + arm64_movz_x_imm(10, 12)              // 7
+            s = s + arm64_mul_xxx(4, 9, 10)               // 8: size = n*12
+            // ALLOC @ 9:
+            instrIdx = instrIdx + 9
+            s = s + emitAllocVar(instrIdx, textVaddr, textOff)  // 21 instr → x0 = dest
+            instrIdx = instrIdx + 21
+            // POST_ALLOC @ 30: empty check again
+            s = s + arm64_cmp_xx(3, 6)                    // 30
+            s = s + arm64_b_cond(0xa, 42)                 // 31: b.ge JUST_NUL (idx 73)
+            s = s + arm64_sub_imm(31, 31, 32)             // 32: reserve stack scratch
+            s = s + arm64_mov_xx(8, 0)                    // 33: write_ptr = dest
+            s = s + arm64_mov_xx(9, 3)                    // 34: cur = start
+            // OUTER @ 35:
+            s = s + arm64_cmp_xx(9, 6)                    // 35
+            s = s + arm64_b_cond(0xa, 34)                 // 36: b.ge OUTER_END (idx 70, rel +34)
+            s = s + arm64_cmp_xx(9, 3)                    // 37
+            s = s + arm64_b_cond(0x0, 4)                  // 38: b.eq SKIP_COMMA (idx 42)
+            s = s + arm64_movz_w_imm(13, 0x2c)            // 39
+            s = s + arm64_strb_imm(13, 8, 0)              // 40: store ','
+            s = s + arm64_add_imm(8, 8, 1)                // 41: write_ptr++
+            // SKIP_COMMA @ 42:
+            s = s + arm64_add_imm(11, 31, 23)             // 42: p = sp+23
+            s = s + arm64_strb_imm(31, 11, 0)             // 43: *p = NUL
+            s = s + arm64_mov_xx(12, 9)                   // 44: tmp = cur
+            s = s + arm64_cbnz(12, 5)                     // 45: nonzero → ITOA_BODY (idx 50)
+            // tmp == 0 case
+            s = s + arm64_sub_imm(11, 11, 1)              // 46
+            s = s + arm64_movz_w_imm(13, 0x30)            // 47
+            s = s + arm64_strb_imm(13, 11, 0)             // 48
+            s = s + arm64_b(10)                           // 49: → ITOA_COPY (idx 59)
+            // ITOA_BODY @ 50:
+            s = s + arm64_cbz(12, 9)                      // 50: → ITOA_COPY (idx 59)
+            s = s + arm64_movz_x_imm(13, 10)              // 51
+            s = s + arm64_udiv_xxx(14, 12, 13)            // 52
+            s = s + arm64_msub_xxxx(15, 14, 13, 12)       // 53
+            s = s + arm64_add_imm(15, 15, 0x30)           // 54
+            s = s + arm64_sub_imm(11, 11, 1)              // 55
+            s = s + arm64_strb_imm(15, 11, 0)             // 56
+            s = s + arm64_mov_xx(12, 14)                  // 57
+            s = s + arm64_b(0 - 8)                        // 58: → ITOA_BODY (back 8)
+            // ITOA_COPY @ 59:
+            s = s + arm64_add_imm(13, 31, 23)             // 59: x13 = sp+23 (end+1)
+            s = s + arm64_sub_xxx(14, 13, 11)             // 60: copy_len = end - start_ptr
+            // COPY_LOOP @ 61:
+            s = s + arm64_cbz(14, 7)                      // 61: → COPY_END (idx 68)
+            s = s + arm64_ldrb_zero(15, 11)               // 62
+            s = s + arm64_strb_imm(15, 8, 0)              // 63
+            s = s + arm64_add_imm(11, 11, 1)              // 64
+            s = s + arm64_add_imm(8, 8, 1)                // 65
+            s = s + arm64_sub_imm(14, 14, 1)              // 66
+            s = s + arm64_b(0 - 6)                        // 67: → COPY_LOOP (back 6 to 61)
+            // COPY_END @ 68:
+            s = s + arm64_add_imm(9, 9, 1)                // 68: cur++
+            s = s + arm64_b(0 - 34)                       // 69: → OUTER (back 34 to 35)
+            // OUTER_END @ 70:
+            s = s + arm64_strb_imm(31, 8, 0)              // 70: final NUL
+            s = s + arm64_add_imm(31, 31, 32)             // 71: restore sp
+            s = s + arm64_b(2)                            // 72: → PUSH (idx 74)
+            // JUST_NUL @ 73:
+            s = s + arm64_strb_imm(31, 0, 0)              // 73: NUL at dest
+            // PUSH @ 74:
+            s = s + arm64_push_x0()                       // 74
+            instrIdx = instrIdx + 45
         } else if opTok == "BUILTIN_GCALLOCATED" {
             // Read alloc_total at bump_cell + 24, push as int. 4 instructions.
             let bumpVaddr = g_DATA_VADDR + 0x4000
