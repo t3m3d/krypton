@@ -355,17 +355,25 @@ func guiRichSetMonoFont(rich, family, ptSize) {
 // EM_SETBKGNDCOLOR=1097 (0x449). wParam=0 → use lParam as COLORREF.
 // hexColor format: "0xRRGGBB" → COLORREF (0x00BBGGRR byte order).
 func _guiColorRefFromHex(hex) {
+    // 2026-05-12: rewritten in arithmetic (no bitShr/bitAnd) to dodge the
+    // Windows-native string-operand codegen bug documented in
+    // feedback_native_codegen_bugs.md. v is an int; r/g/b extracted via
+    // integer division and modulo; result packed as little-endian BGR
+    // (which is the Win32 COLORREF byte order).
     let v = _guiHexToInt(hex)
-    let r = bitAnd(bitShr(v, "16"), "255")
-    let g = bitAnd(bitShr(v, "8"), "255")
-    let b = bitAnd(v, "255")
-    emit bitOr(r, bitOr(bitShl(g, "8"), bitShl(b, "16")))
+    let r = (v / 65536) % 256
+    let g = (v / 256) % 256
+    let b = v % 256
+    emit r + g * 256 + b * 65536
 }
 func guiRichSetBg(rich, hexColor) {
+    // EM_SETBKGNDCOLOR = WM_USER + 67 = 0x443 = 1091. (Was wrongly 1097
+    // before 2026-05-12, which is EM_STREAMIN — silently a no-op for
+    // background color setting.)
     let h = _guiResolveHwnd(rich)
     if h == "0" { emit "0" }
     let cr = _guiColorRefFromHex(hexColor)
-    SendMessageA(h, "1097", "0", cr + "")
+    SendMessageA(h, "1091", "0", cr + "")
     emit "1"
 }
 // EM_SETCHARFORMAT with SCF_DEFAULT(0), CFM_COLOR(0x40000000) only.
