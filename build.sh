@@ -23,7 +23,7 @@ cd "$SCRIPT_DIR"
 # ── Config ──────────────────────────────────────────────────────────────────
 SEED_C="bootstrap/kcc_seed.c"
 COMPILE_K="compiler/compile.k"
-# KCC is the platform-specific binary (./kcc-arm64, ./kcc-x64, ...).
+# KCC is the platform-specific binary (compiler/<arch>/kcc-<arch>, kcc.exe on Windows).
 # ./kcc itself is a thin dispatcher script that picks the right one at runtime.
 # Set after platform detection below.
 # Default C compiler: $CC env var, then gcc, then clang (macOS default).
@@ -53,16 +53,16 @@ esac
 SEED_BIN="bootstrap/kcc_seed_${OSNAME}_${ARCH}"
 [[ "$OSNAME" == "windows" ]] && SEED_BIN="${SEED_BIN}.exe"
 
-# Platform-specific binary name (kcc itself is a dispatcher).
-# Disambiguate macOS arm64 (kcc-arm64) from Linux arm64 (kcc-linux-arm64),
-# matching the dispatcher's case in ./kcc.
+# Platform-specific binary path (kcc itself is a dispatcher).
+# Binaries live under compiler/<arch>/ since the 2026-05-11 cleanup;
+# matches the dispatcher's case in ./kcc.
 case "$OSNAME/$ARCH" in
-    macos/aarch64)    KCC="./kcc-arm64" ;;
-    linux/aarch64)    KCC="./kcc-linux-arm64" ;;
-    linux/x86_64)     KCC="./kcc-x64" ;;
-    macos/x86_64)     KCC="./kcc-x64" ;;       # Intel Mac fallback (legacy macho.k path)
-    windows/x86_64)   KCC="./kcc-x64.exe" ;;
-    *)                KCC="./kcc-${ARCH}" ;;
+    macos/aarch64)    KCC="./compiler/macos_arm64/kcc-arm64" ;;
+    linux/aarch64)    KCC="./compiler/linux_arm64/kcc-linux-arm64" ;;
+    linux/x86_64)     KCC="./compiler/linux_x86/kcc-x64" ;;
+    macos/x86_64)     KCC="./compiler/linux_x86/kcc-x64" ;;  # Intel Mac fallback (legacy macho.k path)
+    windows/x86_64)   KCC="./kcc.exe" ;;
+    *)                KCC="./compiler/${OSNAME}_${ARCH}/kcc-${ARCH}" ;;
 esac
 
 MODE="${1:-build}"
@@ -244,6 +244,7 @@ info "seed:      $SEED_C ($(wc -l < "$SEED_C") lines)"
 echo ""
 
 echo "[1/3] Building kcc from bootstrap seed..."
+mkdir -p "$(dirname "$KCC")"
 "$CC" "$SEED_C" -o "$KCC" $CFLAGS || fail "gcc compilation of seed failed"
 ok "$KCC built ($(stat -c%s "$KCC" 2>/dev/null || stat -f%z "$KCC") bytes)"
 

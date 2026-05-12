@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 # kcc — platform dispatcher for the Krypton compiler binary.
-# build.sh installs/builds the platform-specific binary (kcc-x64,
-# kcc-arm64, kcc-x64.exe). This script picks the right one at run time
-# so callers can keep invoking ./kcc uniformly.
+# build.sh installs/builds the platform-specific binary into
+# compiler/<arch>/. This script picks the right one at run time so
+# callers can keep invoking ./kcc uniformly.
+#
+# Layout (post 2026-05-11 cleanup):
+#   compiler/linux_x86/kcc-x64
+#   compiler/linux_arm64/kcc-linux-arm64
+#   compiler/macos_arm64/kcc-arm64
+#   kcc.exe                       (root — Windows entry, what installer + PATH use)
 set -e
-# Resolve through symlinks so /usr/local/bin/kcc → repo/kcc finds repo/kcc-arm64
+# Resolve through symlinks so /usr/local/bin/kcc → repo/kcc finds the binary.
 SOURCE="${BASH_SOURCE[0]}"
 while [ -L "$SOURCE" ]; do
     DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
@@ -13,10 +19,10 @@ while [ -L "$SOURCE" ]; do
 done
 DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 case "$(uname -s)/$(uname -m)" in
-    Darwin/arm64|Darwin/aarch64)             BIN="kcc-arm64" ;;
-    Linux/x86_64|Linux/amd64)                BIN="kcc-x64" ;;
-    Linux/aarch64|Linux/arm64)               BIN="kcc-linux-arm64" ;;
-    MINGW*/x86_64|MSYS*/x86_64|CYGWIN*/x86_64) BIN="kcc-x64.exe" ;;
+    Darwin/arm64|Darwin/aarch64)             BIN="compiler/macos_arm64/kcc-arm64" ;;
+    Linux/x86_64|Linux/amd64)                BIN="compiler/linux_x86/kcc-x64" ;;
+    Linux/aarch64|Linux/arm64)               BIN="compiler/linux_arm64/kcc-linux-arm64" ;;
+    MINGW*/x86_64|MSYS*/x86_64|CYGWIN*/x86_64) BIN="kcc.exe" ;;
     *) echo "kcc: no binary mapping for $(uname -s)/$(uname -m). Run ./build.sh." >&2; exit 1 ;;
 esac
 [[ -x "$DIR/$BIN" ]] || { echo "kcc: $DIR/$BIN missing or not executable — run ./build.sh." >&2; exit 1; }
