@@ -63,3 +63,4 @@ lsp/test_extension.js
 lsp/test_rle.js
 runtime/krypton_rt_legacy.dll
 lsp/test_kls.py
+kompiler/.DS_Store
