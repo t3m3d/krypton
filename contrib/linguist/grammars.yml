@@ -1,0 +1,4 @@
+- language: "Krypton"
+  scope: source.krypton
+  path: krypton-lang/syntaxes/krypton.tmLanguage.json
+  repo: krypton

@@ -1,0 +1,27 @@
+diff --git a/lib/linguist/languages.yml b/lib/linguist/languages.yml
+index 0000000..0000000 100644
+--- a/lib/linguist/languages.yml
++++ b/lib/linguist/languages.yml
+@@
++# Krypton language
++Krypton:
++  type: programming
++  color: "#4F5AA8"
++  tm_scope: source.krypton
++  ace_mode: krypton
++  extensions:
++    - .k
++  filenames: []
++  interpreters: []
+
+diff --git a/grammars.yml b/grammars.yml
+index 0000000..0000000 100644
+--- a/grammars.yml
++++ b/grammars.yml
+@@
++- language: "Krypton"
++  scope: source.krypton
++  # `repo` set to your GitHub username/repo
++  repo: t3m3d/krypton
++  # Path to the TextMate grammar file within the Krypton repository
++  path: krypton/krypton-lang/syntaxes/krypton.tmLanguage.json

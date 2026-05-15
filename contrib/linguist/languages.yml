@@ -1,0 +1,9 @@
+Krypton:
+  type: programming
+  color: "#4F5AA8"
+  tm_scope: source.krypton
+  ace_mode: krypton
+  extensions:
+    - .k
+  filenames: []
+  interpreters: []
