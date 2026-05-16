@@ -90,6 +90,16 @@ The pipeline is `compile.k → .kir → optimize.k → compiler/linux_x86/elf.k 
 
 ### Windows x86_64
 
+**Install via Chocolatey (recommended):**
+
+```
+choco install krypton
+```
+
+Then use `krypton` (or `kcc`) from any terminal.
+
+**Or build from source:**
+
 ```
 git clone https://github.com/t3m3d/krypton
 cd krypton
@@ -108,6 +118,17 @@ The pipeline is `compile.k → .kir → optimize.k → compiler/windows_x86/x64.
 For a from-source rebuild of the seed binaries, `build_v141.bat` uses [TDM-GCC](https://jmeubank.github.io/tdm-gcc/) or MSYS2 mingw-w64. End users don't need it.
 
 ### macOS arm64
+
+**Install via Homebrew (recommended):**
+
+```bash
+brew tap t3m3d/krypton
+brew install krypton
+```
+
+Then use `kcc` (or `krypton`) from any terminal.
+
+**Or build from source:**
 
 ```bash
 git clone https://github.com/t3m3d/krypton && cd krypton && ./build.sh
