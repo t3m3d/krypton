@@ -1,0 +1,3 @@
+just run {
+  emit "ok"
+}
