@@ -1,0 +1,50 @@
+// String Matching (Naive Pattern Matching)
+
+func findPattern(text, pattern) {
+    let results = ""
+    let count = 0
+    let i = 0
+    let tLen = len(text)
+    let pLen = len(pattern)
+    while i <= tLen - pLen {
+        let matched = 1
+        let j = 0
+        while j < pLen {
+            if text[i + j] != pattern[j] {
+                matched = 0
+                break
+            }
+            j += 1
+        }
+        if matched {
+            if count > 0 {
+                results = results + ","
+            }
+            results = results + "" + i
+            count += 1
+        }
+        i += 1
+    }
+    emit results
+}
+
+just run {
+    let text = "AABAACAADAABAABA"
+    let pattern = "AABA"
+    kp("Text: " + text)
+    kp("Pattern: " + pattern)
+
+    let positions = findPattern(text, pattern)
+    if len(positions) > 0 {
+        kp("Found at positions: " + positions)
+        let n = count(positions)
+        let i = 0
+        while i < n {
+            let pos = toInt(split(positions, i))
+            kp("  Position " + pos + ": " + substring(text, pos, pos + len(pattern)))
+            i += 1
+        }
+    } else {
+        kp("Pattern not found")
+    }
+}
