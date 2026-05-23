@@ -867,6 +867,109 @@ func win32IntReturns(name) {
     emit ""
 }
 
+// ── Inline-emitted builtins (mirror macOS arm64 BUILTIN_* pattern) ───
+// CRITICAL: inlineBuiltinSize MUST exactly equal bytes emitted.
+func inlineBuiltinSize(name) {
+    if name == "readLine" { emit 195 }
+    if name == "shellRun" { emit 28 }
+    emit 0
+}
+
+func emitInlineBuiltin(name, iatBases, funcBaseRva, callPos) {
+    if name == "readLine" { emit emitReadLineInline(iatBases, funcBaseRva, callPos) }
+    if name == "shellRun" { emit emitShellRunInline(iatBases, funcBaseRva, callPos) }
+    emit ""
+}
+
+// readLine(prompt) → string. 195 bytes inline body.
+func emitReadLineInline(iatBases, funcBaseRva, callPos) {
+    let iatGSH = iatEntryRvaFor("GetStdHandle",   iatBases)
+    let iatWF  = iatEntryRvaFor("WriteFile",      iatBases)
+    let iatRF  = iatEntryRvaFor("ReadFile",       iatBases)
+    let iatGPH = iatEntryRvaFor("GetProcessHeap", iatBases)
+    let iatHA  = iatEntryRvaFor("HeapAlloc",      iatBases)
+    let d_gsh1 = iatGSH - (funcBaseRva + callPos + 31  + 6)
+    let d_wf   = iatWF  - (funcBaseRva + callPos + 67  + 6)
+    let d_gsh2 = iatGSH - (funcBaseRva + callPos + 78  + 6)
+    let d_gph  = iatGPH - (funcBaseRva + callPos + 89  + 6)
+    let d_ha   = iatHA  - (funcBaseRva + callPos + 106 + 6)
+    let d_rf   = iatRF  - (funcBaseRva + callPos + 143 + 6)
+    let s = ""
+    s = s + hexByte(0x53)
+    s = s + hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x40)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0xCB)
+    s = s + hexByte(0x33)+hexByte(0xC0)
+    s = s + hexByte(0x80)+hexByte(0x3C)+hexByte(0x03)+hexByte(0x00)
+    s = s + hexByte(0x74)+hexByte(0x05)
+    s = s + hexByte(0x48)+hexByte(0xFF)+hexByte(0xC0)
+    s = s + hexByte(0xEB)+hexByte(0xF5)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0x44)+hexByte(0x24)+hexByte(0x38)
+    s = s + hexByte(0xB9)+hexByte(0xF5)+hexByte(0xFF)+hexByte(0xFF)+hexByte(0xFF)
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_gsh1)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0x44)+hexByte(0x24)+hexByte(0x30)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0xC1)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0xDA)
+    s = s + hexByte(0x4C)+hexByte(0x8B)+hexByte(0x44)+hexByte(0x24)+hexByte(0x38)
+    s = s + hexByte(0x4C)+hexByte(0x8D)+hexByte(0x4C)+hexByte(0x24)+hexByte(0x28)
+    s = s + hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x20)+hexDword(0)
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_wf)
+    s = s + hexByte(0xB9)+hexByte(0xF6)+hexByte(0xFF)+hexByte(0xFF)+hexByte(0xFF)
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_gsh2)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0x44)+hexByte(0x24)+hexByte(0x30)
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_gph)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0xC1)
+    s = s + hexByte(0x33)+hexByte(0xD2)
+    s = s + hexByte(0x41)+hexByte(0xB8)+hexDword(4096)
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_ha)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0xC3)
+    s = s + hexByte(0x48)+hexByte(0x8B)+hexByte(0x4C)+hexByte(0x24)+hexByte(0x30)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0xDA)
+    s = s + hexByte(0x41)+hexByte(0xB8)+hexDword(4096)
+    s = s + hexByte(0x4C)+hexByte(0x8D)+hexByte(0x4C)+hexByte(0x24)+hexByte(0x28)
+    s = s + hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x20)+hexDword(0)
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_rf)
+    s = s + hexByte(0x8B)+hexByte(0x44)+hexByte(0x24)+hexByte(0x28)
+    s = s + hexByte(0x48)+hexByte(0x85)+hexByte(0xC0)
+    s = s + hexByte(0x74)+hexByte(0x19)
+    s = s + hexByte(0x80)+hexByte(0x7C)+hexByte(0x03)+hexByte(0xFF)+hexByte(0x0A)
+    s = s + hexByte(0x75)+hexByte(0x08)
+    s = s + hexByte(0x48)+hexByte(0xFF)+hexByte(0xC8)
+    s = s + hexByte(0x48)+hexByte(0x85)+hexByte(0xC0)
+    s = s + hexByte(0x74)+hexByte(0x0A)
+    s = s + hexByte(0x80)+hexByte(0x7C)+hexByte(0x03)+hexByte(0xFF)+hexByte(0x0D)
+    s = s + hexByte(0x75)+hexByte(0x03)
+    s = s + hexByte(0x48)+hexByte(0xFF)+hexByte(0xC8)
+    s = s + hexByte(0xC6)+hexByte(0x04)+hexByte(0x03)+hexByte(0x00)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0xD8)
+    s = s + hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x40)
+    s = s + hexByte(0x5B)
+    emit s
+}
+
+// shellRun(cmd) → "0". 288 bytes. Builds "cmd /C <cmd>" via HeapAlloc,
+// spawns child via CreateProcessA (inheriting parent stdout/stderr),
+// waits for exit, closes handles, returns "0".
+// Stack after SUB RSP, 0xE0: [+0..1F]=shadow, [+20..47]=stack args 5-10
+// of CreateProcessA, [+50..B7]=STARTUPINFOA (104B), [+B8..CF]=PROCESS_INFORMATION.
+// STUB for isolation testing — just HeapAlloc a 2-byte buffer, write "0", return.
+// Replace with full impl once GetProcessHeap+HeapAlloc path is confirmed working.
+func emitShellRunInline(iatBases, funcBaseRva, callPos) {
+    let iatGPH = iatEntryRvaFor("GetProcessHeap", iatBases)
+    let iatHA  = iatEntryRvaFor("HeapAlloc",      iatBases)
+    let d_gph  = iatGPH - (funcBaseRva + callPos + 0  + 6)
+    let d_ha   = iatHA  - (funcBaseRva + callPos + 17 + 6)
+    // 28 bytes: CALL GetProcessHeap(6) + MOV RCX,RAX(3) + XOR EDX,EDX(2) + MOV R8D,2(6)
+    //          + CALL HeapAlloc(6) + MOV word[RAX],"0\0"(5)
+    let s = ""
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_gph)  // offset 0: CALL GetProcessHeap
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0xC1)    // offset 6: MOV RCX, RAX
+    s = s + hexByte(0x33)+hexByte(0xD2)                  // offset 9: XOR EDX, EDX (flags=0)
+    s = s + hexByte(0x41)+hexByte(0xB8)+hexDword(2)      // offset 11: MOV R8D, 2 (size)
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_ha)   // offset 17: CALL HeapAlloc
+    s = s + hexByte(0x66)+hexByte(0xC7)+hexByte(0x00)+hexByte(0x30)+hexByte(0x00)  // offset 23: MOV word[RAX], "0\0"
+    emit s
+}
+
 // Map IR builtin names to krypton_rt.dll function names
 func resolveBuiltin(name) {
     if name == "kp"             { emit "kr_print" }
@@ -1218,6 +1321,12 @@ func instrSize(op, a1, a2) {
         let retSz = 0
         if win32IntReturns(a1) == "1" {
             retSz = 5
+        }
+        // Inline-emission override (mirror macOS arm64): readLine et al
+        // emit their body inline at the call site instead of CALL [IAT].
+        let inlineSz = inlineBuiltinSize(a1)
+        if inlineSz > 0 {
+            emit loads * 8 + extraArgSz + inlineSz + 8
         }
         emit convSz + loads * 8 + extraArgSz + callSz + retSz + 8
     }
@@ -2012,6 +2121,16 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
             }
             vsp -= argc2
 
+            // Inline-emission override (mirror macOS arm64): readLine et al
+            // emit their body at the call site, no CALL [IAT].
+            let inlineSz3 = inlineBuiltinSize(a1)
+            if inlineSz3 > 0 {
+                let inlineBody = emitInlineBuiltin(a1, iatBases, funcBaseRva, pos + loadSz)
+                sbOut = sbAppend(sbOut, inlineBody)
+                sbOut = sbAppend(sbOut, movRspFromRax(vstBase + vsp * 8))
+                vsp += 1
+                pos += loadSz + inlineSz3 + 8
+            } else {
             let callCode = ""
             let callSz = 0
             let resolvedName = resolveBuiltin(a1)
@@ -2056,6 +2175,7 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
             sbOut = sbAppend(sbOut,movRspFromRax(vstBase + vsp * 8))   // store result  (8)
             vsp += 1
             pos += loadSz + callSz + retSz0 + 8
+            }
         }
 
         if op == "LABEL" {
