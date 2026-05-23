@@ -872,7 +872,7 @@ func win32IntReturns(name) {
 func inlineBuiltinSize(name) {
     if name == "readLine" { emit 195 }
     if name == "shellRun" { emit 314 }
-    if name == "exec"     { emit 594 }
+    if name == "exec"     { emit 613 }
     emit 0
 }
 
@@ -1135,6 +1135,7 @@ func emitExecInline(iatBases, funcBaseRva, callPos) {
     let iatWFSO = iatEntryRvaFor("WaitForSingleObject", iatBases)
     let iatCH   = iatEntryRvaFor("CloseHandle",         iatBases)
     let iatGSH  = iatEntryRvaFor("GetStdHandle",        iatBases)
+    let iatTP   = iatEntryRvaFor("TerminateProcess",    iatBases)
     let d_gph1  = iatGPH  - (funcBaseRva + callPos + 40)
     let d_ha1   = iatHA   - (funcBaseRva + callPos + 63)
     let d_cpipe = iatCPP  - (funcBaseRva + callPos + 188)
@@ -1144,10 +1145,11 @@ func emitExecInline(iatBases, funcBaseRva, callPos) {
     let d_gph2  = iatGPH  - (funcBaseRva + callPos + 374)
     let d_ha2   = iatHA   - (funcBaseRva + callPos + 391)
     let d_rf    = iatRF   - (funcBaseRva + callPos + 480)
-    let d_wfso  = iatWFSO - (funcBaseRva + callPos + 526)
-    let d_ch2   = iatCH   - (funcBaseRva + callPos + 540)
-    let d_ch3   = iatCH   - (funcBaseRva + callPos + 554)
-    let d_ch4   = iatCH   - (funcBaseRva + callPos + 568)
+    let d_tp    = iatTP   - (funcBaseRva + callPos + 526)
+    let d_wfso  = iatWFSO - (funcBaseRva + callPos + 545)
+    let d_ch2   = iatCH   - (funcBaseRva + callPos + 559)
+    let d_ch3   = iatCH   - (funcBaseRva + callPos + 573)
+    let d_ch4   = iatCH   - (funcBaseRva + callPos + 587)
     let s = ""
     // [0] PUSH RBX
     s = s + hexByte(0x53)
@@ -1342,11 +1344,20 @@ func emitExecInline(iatBases, funcBaseRva, callPos) {
     s = s + hexByte(0x48)+hexByte(0x01)+hexByte(0x84)+hexByte(0x24)+hexDword(0x100)
     // [447] JMP -101 -> 348  (back to .rfl)
     s = s + hexByte(0xEB)+hexByte(0x9B)
-    // [449] .rfdone: MOV RCX, [RSP+0xB8]  (hProcess, disp32)
+    // .rfdone: TerminateProcess first to prevent deadlock when output exceeds buf cap
+    // (child blocks on WriteFile waiting for parent to drain pipe; force-kill unblocks it).
+    // No-op if process already exited normally.
+    // MOV RCX, [RSP+0xB8]  (hProcess, disp32)
     s = s + hexByte(0x48)+hexByte(0x8B)+hexByte(0x8C)+hexByte(0x24)+hexDword(0xB8)
-    // [457] MOV EDX, -1
+    // MOV EDX, 1  (uExitCode)
+    s = s + hexByte(0xBA)+hexDword(1)
+    // CALL [TerminateProcess]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_tp)
+    // MOV RCX, [RSP+0xB8]  (hProcess again — TerminateProcess clobbered RCX)
+    s = s + hexByte(0x48)+hexByte(0x8B)+hexByte(0x8C)+hexByte(0x24)+hexDword(0xB8)
+    // MOV EDX, -1
     s = s + hexByte(0xBA)+hexByte(0xFF)+hexByte(0xFF)+hexByte(0xFF)+hexByte(0xFF)
-    // [462] CALL [WaitForSingleObject]
+    // CALL [WaitForSingleObject]
     s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_wfso)
     // [468] MOV RCX, [RSP+0xB8]  (hProcess, disp32)
     s = s + hexByte(0x48)+hexByte(0x8B)+hexByte(0x8C)+hexByte(0x24)+hexDword(0xB8)
