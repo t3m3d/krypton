@@ -871,13 +871,15 @@ func win32IntReturns(name) {
 // CRITICAL: inlineBuiltinSize MUST exactly equal bytes emitted.
 func inlineBuiltinSize(name) {
     if name == "readLine" { emit 195 }
-    if name == "shellRun" { emit 28 }
+    if name == "shellRun" { emit 314 }
+    if name == "exec"     { emit 594 }
     emit 0
 }
 
 func emitInlineBuiltin(name, iatBases, funcBaseRva, callPos) {
     if name == "readLine" { emit emitReadLineInline(iatBases, funcBaseRva, callPos) }
     if name == "shellRun" { emit emitShellRunInline(iatBases, funcBaseRva, callPos) }
+    if name == "exec"     { emit emitExecInline(iatBases, funcBaseRva, callPos) }
     emit ""
 }
 
@@ -951,22 +953,425 @@ func emitReadLineInline(iatBases, funcBaseRva, callPos) {
 // waits for exit, closes handles, returns "0".
 // Stack after SUB RSP, 0xE0: [+0..1F]=shadow, [+20..47]=stack args 5-10
 // of CreateProcessA, [+50..B7]=STARTUPINFOA (104B), [+B8..CF]=PROCESS_INFORMATION.
-// STUB for isolation testing — just HeapAlloc a 2-byte buffer, write "0", return.
-// Replace with full impl once GetProcessHeap+HeapAlloc path is confirmed working.
+// Full 314-byte impl. Builds "cmd /C <cmd>" buffer, CreateProcessA,
+// WaitForSingleObject, CloseHandle×2, returns "0".
+// SUB RSP, 0xE8 (232B) chosen so RSP stays 16-aligned at every CALL
+// (Krypton frame leaves RSP mod 16 = 0; PUSH RBX→8; SUB 0xE8 (8 mod 16)→0).
+// Stack layout after PUSH+SUB:
+//   [+0x00..0x1F] shadow space (32B)
+//   [+0x20..0x4F] CreateProcessA stack args 5-10 (48B)
+//   [+0x50..0xB7] STARTUPINFOA (104B = 0x68, contiguous with PI)
+//   [+0xB8..0xCF] PROCESS_INFORMATION (24B)
+//   [+0xD0]       cmdline buf ptr
+//   [+0xD8]       strlen(cmd)
 func emitShellRunInline(iatBases, funcBaseRva, callPos) {
-    let iatGPH = iatEntryRvaFor("GetProcessHeap", iatBases)
-    let iatHA  = iatEntryRvaFor("HeapAlloc",      iatBases)
-    let d_gph  = iatGPH - (funcBaseRva + callPos + 0  + 6)
-    let d_ha   = iatHA  - (funcBaseRva + callPos + 17 + 6)
-    // 28 bytes: CALL GetProcessHeap(6) + MOV RCX,RAX(3) + XOR EDX,EDX(2) + MOV R8D,2(6)
-    //          + CALL HeapAlloc(6) + MOV word[RAX],"0\0"(5)
+    let iatGPH  = iatEntryRvaFor("GetProcessHeap",      iatBases)
+    let iatHA   = iatEntryRvaFor("HeapAlloc",           iatBases)
+    let iatCP   = iatEntryRvaFor("CreateProcessA",      iatBases)
+    let iatWFSO = iatEntryRvaFor("WaitForSingleObject", iatBases)
+    let iatCH   = iatEntryRvaFor("CloseHandle",         iatBases)
+    let d_gph1 = iatGPH  - (funcBaseRva + callPos + 38)
+    let d_ha1  = iatHA   - (funcBaseRva + callPos + 61)
+    let d_cp   = iatCP   - (funcBaseRva + callPos + 231)
+    let d_wfso = iatWFSO - (funcBaseRva + callPos + 250)
+    let d_ch1  = iatCH   - (funcBaseRva + callPos + 264)
+    let d_ch2  = iatCH   - (funcBaseRva + callPos + 278)
+    let d_gph2 = iatGPH  - (funcBaseRva + callPos + 284)
+    let d_ha2  = iatHA   - (funcBaseRva + callPos + 301)
     let s = ""
-    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_gph)  // offset 0: CALL GetProcessHeap
-    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0xC1)    // offset 6: MOV RCX, RAX
-    s = s + hexByte(0x33)+hexByte(0xD2)                  // offset 9: XOR EDX, EDX (flags=0)
-    s = s + hexByte(0x41)+hexByte(0xB8)+hexDword(2)      // offset 11: MOV R8D, 2 (size)
-    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_ha)   // offset 17: CALL HeapAlloc
-    s = s + hexByte(0x66)+hexByte(0xC7)+hexByte(0x00)+hexByte(0x30)+hexByte(0x00)  // offset 23: MOV word[RAX], "0\0"
+    // [0] PUSH RBX
+    s = s + hexByte(0x53)
+    // [1] SUB RSP, 0xE8
+    s = s + hexByte(0x48)+hexByte(0x81)+hexByte(0xEC)+hexDword(0xE8)
+    // [8] MOV RBX, RCX  (RBX = cmd ptr, save before clobber)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0xCB)
+    // [11] XOR EAX, EAX
+    s = s + hexByte(0x33)+hexByte(0xC0)
+    // [13] .sl: CMP byte [RBX+RAX], 0
+    s = s + hexByte(0x80)+hexByte(0x3C)+hexByte(0x03)+hexByte(0x00)
+    // [17] JZ +5 -> 24
+    s = s + hexByte(0x74)+hexByte(0x05)
+    // [19] INC RAX
+    s = s + hexByte(0x48)+hexByte(0xFF)+hexByte(0xC0)
+    // [22] JMP -11 -> 13
+    s = s + hexByte(0xEB)+hexByte(0xF5)
+    // [24] MOV [RSP+0xD8], RAX  (strlen, disp32 because 0xD8>127)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0x84)+hexByte(0x24)+hexDword(0xD8)
+    // [32] CALL [GetProcessHeap]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_gph1)
+    // [38] MOV RCX, RAX  (arg1 = hHeap)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0xC1)
+    // [41] XOR EDX, EDX  (arg2 = 0)
+    s = s + hexByte(0x33)+hexByte(0xD2)
+    // [43] MOV R8, [RSP+0xD8]  (arg3 = strlen, disp32)
+    s = s + hexByte(0x4C)+hexByte(0x8B)+hexByte(0x84)+hexByte(0x24)+hexDword(0xD8)
+    // [51] ADD R8, 8  (size = strlen + 8 for "cmd /C " + NUL)
+    s = s + hexByte(0x49)+hexByte(0x83)+hexByte(0xC0)+hexByte(0x08)
+    // [55] CALL [HeapAlloc]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_ha1)
+    // [61] MOV [RSP+0xD0], RAX  (save buf ptr, disp32)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0x84)+hexByte(0x24)+hexDword(0xD0)
+    // [69] MOV DWORD [RAX], "cmd "  (0x20646D63 little-endian)
+    s = s + hexByte(0xC7)+hexByte(0x00)+hexByte(0x63)+hexByte(0x6D)+hexByte(0x64)+hexByte(0x20)
+    // [75] MOV WORD [RAX+4], "/C"  (0x432F)
+    s = s + hexByte(0x66)+hexByte(0xC7)+hexByte(0x40)+hexByte(0x04)+hexByte(0x2F)+hexByte(0x43)
+    // [81] MOV BYTE [RAX+6], " "  (0x20)
+    s = s + hexByte(0xC6)+hexByte(0x40)+hexByte(0x06)+hexByte(0x20)
+    // [85] LEA RDX, [RAX+7]  (dst for copy)
+    s = s + hexByte(0x48)+hexByte(0x8D)+hexByte(0x50)+hexByte(0x07)
+    // [89] MOV R9, [RSP+0xD8]  (len, disp32)
+    s = s + hexByte(0x4C)+hexByte(0x8B)+hexByte(0x8C)+hexByte(0x24)+hexDword(0xD8)
+    // [97] XOR ECX, ECX  (i = 0)
+    s = s + hexByte(0x33)+hexByte(0xC9)
+    // [99] .cl: CMP RCX, R9
+    s = s + hexByte(0x4C)+hexByte(0x39)+hexByte(0xC9)
+    // [102] JAE +11 -> 115
+    s = s + hexByte(0x73)+hexByte(0x0B)
+    // [104] MOV AL, [RBX+RCX]
+    s = s + hexByte(0x8A)+hexByte(0x04)+hexByte(0x0B)
+    // [107] MOV [RDX+RCX], AL
+    s = s + hexByte(0x88)+hexByte(0x04)+hexByte(0x0A)
+    // [110] INC RCX
+    s = s + hexByte(0x48)+hexByte(0xFF)+hexByte(0xC1)
+    // [113] JMP -16 -> 99
+    s = s + hexByte(0xEB)+hexByte(0xF0)
+    // [115] MOV BYTE [RDX+RCX], 0  (NUL-term)
+    s = s + hexByte(0xC6)+hexByte(0x04)+hexByte(0x0A)+hexByte(0x00)
+    // [119] LEA RCX, [RSP+0x50]  (STARTUPINFOA + PI base)
+    s = s + hexByte(0x48)+hexByte(0x8D)+hexByte(0x4C)+hexByte(0x24)+hexByte(0x50)
+    // [124] MOV EDX, 16  (qwords to zero — covers SI(104) + PI(24) = 128 B)
+    s = s + hexByte(0xBA)+hexDword(16)
+    // [129] XOR EAX, EAX
+    s = s + hexByte(0x33)+hexByte(0xC0)
+    // [131] .zl: MOV [RCX], RAX
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0x01)
+    // [134] ADD RCX, 8
+    s = s + hexByte(0x48)+hexByte(0x83)+hexByte(0xC1)+hexByte(0x08)
+    // [138] DEC EDX
+    s = s + hexByte(0xFF)+hexByte(0xCA)
+    // [140] JNZ -11 -> 131
+    s = s + hexByte(0x75)+hexByte(0xF5)
+    // [142] MOV DWORD [RSP+0x50], 104  (STARTUPINFOA.cb = 104 = 0x68)
+    s = s + hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x50)+hexDword(104)
+    // [150] MOV qword [RSP+0x20], 1  (arg5 bInheritHandles = TRUE)
+    s = s + hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x20)+hexDword(1)
+    // [159] MOV qword [RSP+0x28], 0  (arg6 dwCreationFlags)
+    s = s + hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x28)+hexDword(0)
+    // [168] MOV qword [RSP+0x30], 0  (arg7 lpEnvironment NULL)
+    s = s + hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x30)+hexDword(0)
+    // [177] MOV qword [RSP+0x38], 0  (arg8 lpCurrentDirectory NULL)
+    s = s + hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x38)+hexDword(0)
+    // [186] LEA RAX, [RSP+0x50]  (&SI)
+    s = s + hexByte(0x48)+hexByte(0x8D)+hexByte(0x44)+hexByte(0x24)+hexByte(0x50)
+    // [191] MOV [RSP+0x40], RAX  (arg9 lpStartupInfo)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0x44)+hexByte(0x24)+hexByte(0x40)
+    // [196] LEA RAX, [RSP+0xB8]  (&PI, disp32)
+    s = s + hexByte(0x48)+hexByte(0x8D)+hexByte(0x84)+hexByte(0x24)+hexDword(0xB8)
+    // [204] MOV [RSP+0x48], RAX  (arg10 lpProcessInformation)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0x44)+hexByte(0x24)+hexByte(0x48)
+    // [209] XOR ECX, ECX  (arg1 lpApplicationName NULL)
+    s = s + hexByte(0x33)+hexByte(0xC9)
+    // [211] MOV RDX, [RSP+0xD0]  (arg2 lpCommandLine, disp32)
+    s = s + hexByte(0x48)+hexByte(0x8B)+hexByte(0x94)+hexByte(0x24)+hexDword(0xD0)
+    // [219] XOR R8, R8  (arg3 NULL)
+    s = s + hexByte(0x4D)+hexByte(0x33)+hexByte(0xC0)
+    // [222] XOR R9, R9  (arg4 NULL)
+    s = s + hexByte(0x4D)+hexByte(0x33)+hexByte(0xC9)
+    // [225] CALL [CreateProcessA]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_cp)
+    // [231] MOV RCX, [RSP+0xB8]  (hProcess, disp32)
+    s = s + hexByte(0x48)+hexByte(0x8B)+hexByte(0x8C)+hexByte(0x24)+hexDword(0xB8)
+    // [239] MOV EDX, -1  (INFINITE)
+    s = s + hexByte(0xBA)+hexByte(0xFF)+hexByte(0xFF)+hexByte(0xFF)+hexByte(0xFF)
+    // [244] CALL [WaitForSingleObject]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_wfso)
+    // [250] MOV RCX, [RSP+0xB8]  (hProcess, disp32)
+    s = s + hexByte(0x48)+hexByte(0x8B)+hexByte(0x8C)+hexByte(0x24)+hexDword(0xB8)
+    // [258] CALL [CloseHandle]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_ch1)
+    // [264] MOV RCX, [RSP+0xC0]  (hThread, disp32)
+    s = s + hexByte(0x48)+hexByte(0x8B)+hexByte(0x8C)+hexByte(0x24)+hexDword(0xC0)
+    // [272] CALL [CloseHandle]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_ch2)
+    // [278] CALL [GetProcessHeap]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_gph2)
+    // [284] MOV RCX, RAX
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0xC1)
+    // [287] XOR EDX, EDX
+    s = s + hexByte(0x33)+hexByte(0xD2)
+    // [289] MOV R8D, 2
+    s = s + hexByte(0x41)+hexByte(0xB8)+hexDword(2)
+    // [295] CALL [HeapAlloc]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_ha2)
+    // [301] MOV WORD [RAX], 0x0030  ("0\0")
+    s = s + hexByte(0x66)+hexByte(0xC7)+hexByte(0x00)+hexByte(0x30)+hexByte(0x00)
+    // [306] ADD RSP, 0xE8
+    s = s + hexByte(0x48)+hexByte(0x81)+hexByte(0xC4)+hexDword(0xE8)
+    // [313] POP RBX
+    s = s + hexByte(0x5B)
+    emit s
+}
+
+// exec(cmd) → captured stdout string. 575 bytes.
+// CreatePipe(with SECURITY_ATTRIBUTES bInheritHandle=TRUE) + CreateProcessA
+// (STARTF_USESTDHANDLES, bInherit=TRUE) + ReadFile loop.
+// Output capped at 65536 bytes (no realloc). NUL-terminated, returned in RAX.
+// Stack: SUB RSP, 0x150 (336B) — with PUSH RBX + PUSH R12, leaves RSP 16-aligned at CALLs.
+// Layout:
+//   [+0x00..0x1F] shadow (32B)
+//   [+0x20..0x4F] CreateProcessA stack args 5-10 (48B)
+//   [+0x50..0xB7] STARTUPINFOA (104B): cb@+0x50, dwFlags@+0x8C, hStdInput@+0xA0,
+//                                       hStdOutput@+0xA8, hStdError@+0xB0
+//   [+0xB8..0xCF] PROCESS_INFORMATION (24B): hProcess@+0xB8, hThread@+0xC0
+//   [+0xD0] hReadPipe   [+0xD8] hWritePipe   [+0xE0] cmdline buf   [+0xE8] strlen
+//   [+0x100] out_off    [+0x108] bytesRead   R12 = out_buf
+//   [+0x110..0x127] SECURITY_ATTRIBUTES (24B): nLength@+0x110, lpSD@+0x118, bInherit@+0x120
+func emitExecInline(iatBases, funcBaseRva, callPos) {
+    let iatGPH  = iatEntryRvaFor("GetProcessHeap",      iatBases)
+    let iatHA   = iatEntryRvaFor("HeapAlloc",           iatBases)
+    let iatCPP  = iatEntryRvaFor("CreatePipe",          iatBases)
+    let iatCP   = iatEntryRvaFor("CreateProcessA",      iatBases)
+    let iatRF   = iatEntryRvaFor("ReadFile",            iatBases)
+    let iatWFSO = iatEntryRvaFor("WaitForSingleObject", iatBases)
+    let iatCH   = iatEntryRvaFor("CloseHandle",         iatBases)
+    let iatGSH  = iatEntryRvaFor("GetStdHandle",        iatBases)
+    let d_gph1  = iatGPH  - (funcBaseRva + callPos + 40)
+    let d_ha1   = iatHA   - (funcBaseRva + callPos + 63)
+    let d_cpipe = iatCPP  - (funcBaseRva + callPos + 188)
+    let d_gsh   = iatGSH  - (funcBaseRva + callPos + 230)
+    let d_cp    = iatCP   - (funcBaseRva + callPos + 354)
+    let d_ch1   = iatCH   - (funcBaseRva + callPos + 368)
+    let d_gph2  = iatGPH  - (funcBaseRva + callPos + 374)
+    let d_ha2   = iatHA   - (funcBaseRva + callPos + 391)
+    let d_rf    = iatRF   - (funcBaseRva + callPos + 480)
+    let d_wfso  = iatWFSO - (funcBaseRva + callPos + 526)
+    let d_ch2   = iatCH   - (funcBaseRva + callPos + 540)
+    let d_ch3   = iatCH   - (funcBaseRva + callPos + 554)
+    let d_ch4   = iatCH   - (funcBaseRva + callPos + 568)
+    let s = ""
+    // [0] PUSH RBX
+    s = s + hexByte(0x53)
+    // [1] PUSH R12
+    s = s + hexByte(0x41)+hexByte(0x54)
+    // [3] SUB RSP, 0x150
+    s = s + hexByte(0x48)+hexByte(0x81)+hexByte(0xEC)+hexDword(0x150)
+    // [10] MOV RBX, RCX  (cmd ptr save)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0xCB)
+    // [13] XOR EAX, EAX
+    s = s + hexByte(0x33)+hexByte(0xC0)
+    // [15] .sl: CMP byte [RBX+RAX], 0
+    s = s + hexByte(0x80)+hexByte(0x3C)+hexByte(0x03)+hexByte(0x00)
+    // [19] JZ +5 -> 26
+    s = s + hexByte(0x74)+hexByte(0x05)
+    // [21] INC RAX
+    s = s + hexByte(0x48)+hexByte(0xFF)+hexByte(0xC0)
+    // [24] JMP -11 -> 15
+    s = s + hexByte(0xEB)+hexByte(0xF5)
+    // [26] MOV [RSP+0xE8], RAX  (strlen, disp32)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0x84)+hexByte(0x24)+hexDword(0xE8)
+    // [34] CALL [GetProcessHeap]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_gph1)
+    // [40] MOV RCX, RAX
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0xC1)
+    // [43] XOR EDX, EDX
+    s = s + hexByte(0x33)+hexByte(0xD2)
+    // [45] MOV R8, [RSP+0xE8]  (disp32)
+    s = s + hexByte(0x4C)+hexByte(0x8B)+hexByte(0x84)+hexByte(0x24)+hexDword(0xE8)
+    // [53] ADD R8, 8
+    s = s + hexByte(0x49)+hexByte(0x83)+hexByte(0xC0)+hexByte(0x08)
+    // [57] CALL [HeapAlloc]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_ha1)
+    // [63] MOV [RSP+0xE0], RAX  (cmdline ptr, disp32)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0x84)+hexByte(0x24)+hexDword(0xE0)
+    // [71] MOV DWORD [RAX], "cmd "  (0x20646D63)
+    s = s + hexByte(0xC7)+hexByte(0x00)+hexByte(0x63)+hexByte(0x6D)+hexByte(0x64)+hexByte(0x20)
+    // [77] MOV WORD [RAX+4], "/C"  (0x432F)
+    s = s + hexByte(0x66)+hexByte(0xC7)+hexByte(0x40)+hexByte(0x04)+hexByte(0x2F)+hexByte(0x43)
+    // [83] MOV BYTE [RAX+6], " "
+    s = s + hexByte(0xC6)+hexByte(0x40)+hexByte(0x06)+hexByte(0x20)
+    // [87] LEA RDX, [RAX+7]
+    s = s + hexByte(0x48)+hexByte(0x8D)+hexByte(0x50)+hexByte(0x07)
+    // [91] MOV R9, [RSP+0xE8]  (disp32)
+    s = s + hexByte(0x4C)+hexByte(0x8B)+hexByte(0x8C)+hexByte(0x24)+hexDword(0xE8)
+    // [99] XOR ECX, ECX
+    s = s + hexByte(0x33)+hexByte(0xC9)
+    // [101] .cl: CMP RCX, R9
+    s = s + hexByte(0x4C)+hexByte(0x39)+hexByte(0xC9)
+    // [104] JAE +11 -> 117
+    s = s + hexByte(0x73)+hexByte(0x0B)
+    // [106] MOV AL, [RBX+RCX]
+    s = s + hexByte(0x8A)+hexByte(0x04)+hexByte(0x0B)
+    // [109] MOV [RDX+RCX], AL
+    s = s + hexByte(0x88)+hexByte(0x04)+hexByte(0x0A)
+    // [112] INC RCX
+    s = s + hexByte(0x48)+hexByte(0xFF)+hexByte(0xC1)
+    // [115] JMP -16 -> 101
+    s = s + hexByte(0xEB)+hexByte(0xF0)
+    // [117] MOV BYTE [RDX+RCX], 0
+    s = s + hexByte(0xC6)+hexByte(0x04)+hexByte(0x0A)+hexByte(0x00)
+    // [121] LEA RCX, [RSP+0xD0]  (&hReadPipe, disp32)
+    s = s + hexByte(0x48)+hexByte(0x8D)+hexByte(0x8C)+hexByte(0x24)+hexDword(0xD0)
+    // [129] LEA RDX, [RSP+0xD8]  (&hWritePipe, disp32)
+    s = s + hexByte(0x48)+hexByte(0x8D)+hexByte(0x94)+hexByte(0x24)+hexDword(0xD8)
+    // [137] MOV DWORD [RSP+0x110], 24  (SA.nLength)
+    s = s + hexByte(0xC7)+hexByte(0x84)+hexByte(0x24)+hexDword(0x110)+hexDword(24)
+    // [148] MOV qword [RSP+0x118], 0  (SA.lpSecurityDescriptor = NULL)
+    s = s + hexByte(0x48)+hexByte(0xC7)+hexByte(0x84)+hexByte(0x24)+hexDword(0x118)+hexDword(0)
+    // [160] MOV DWORD [RSP+0x120], 1  (SA.bInheritHandle = TRUE)
+    s = s + hexByte(0xC7)+hexByte(0x84)+hexByte(0x24)+hexDword(0x120)+hexDword(1)
+    // [171] LEA R8, [RSP+0x110]  (arg3 = &SA)
+    s = s + hexByte(0x4C)+hexByte(0x8D)+hexByte(0x84)+hexByte(0x24)+hexDword(0x110)
+    // [179] XOR R9, R9  (arg4 = 0)
+    s = s + hexByte(0x4D)+hexByte(0x33)+hexByte(0xC9)
+    // [182] CALL [CreatePipe]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_cpipe)
+    // [149] LEA RCX, [RSP+0x50]
+    s = s + hexByte(0x48)+hexByte(0x8D)+hexByte(0x4C)+hexByte(0x24)+hexByte(0x50)
+    // [154] MOV EDX, 16
+    s = s + hexByte(0xBA)+hexDword(16)
+    // [159] XOR EAX, EAX
+    s = s + hexByte(0x33)+hexByte(0xC0)
+    // [161] .zl: MOV [RCX], RAX
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0x01)
+    // [164] ADD RCX, 8
+    s = s + hexByte(0x48)+hexByte(0x83)+hexByte(0xC1)+hexByte(0x08)
+    // [168] DEC EDX
+    s = s + hexByte(0xFF)+hexByte(0xCA)
+    // [170] JNZ -11 -> 161
+    s = s + hexByte(0x75)+hexByte(0xF5)
+    // [172] MOV DWORD [RSP+0x50], 104  (STARTUPINFOA.cb)
+    s = s + hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x50)+hexDword(104)
+    // [219] MOV ECX, STD_INPUT_HANDLE (-10 = 0xFFFFFFF6)
+    s = s + hexByte(0xB9)+hexByte(0xF6)+hexByte(0xFF)+hexByte(0xFF)+hexByte(0xFF)
+    // [224] CALL [GetStdHandle]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_gsh)
+    // [230] MOV [RSP+0xA0], RAX  (STARTUPINFOA.hStdInput = parent's stdin handle, disp32)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0x84)+hexByte(0x24)+hexDword(0xA0)
+    // [180] MOV DWORD [RSP+0x8C], 0x100  (STARTUPINFOA.dwFlags = STARTF_USESTDHANDLES, disp32)
+    s = s + hexByte(0xC7)+hexByte(0x84)+hexByte(0x24)+hexDword(0x8C)+hexDword(0x100)
+    // [191] MOV RAX, [RSP+0xD8]  (hWritePipe, disp32)
+    s = s + hexByte(0x48)+hexByte(0x8B)+hexByte(0x84)+hexByte(0x24)+hexDword(0xD8)
+    // [199] MOV [RSP+0xA8], RAX  (hStdOutput, disp32)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0x84)+hexByte(0x24)+hexDword(0xA8)
+    // [207] MOV [RSP+0xB0], RAX  (hStdError, disp32)
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0x84)+hexByte(0x24)+hexDword(0xB0)
+    // [215] MOV qword [RSP+0x20], 1  (bInheritHandles=TRUE — required for STARTF_USESTDHANDLES)
+    s = s + hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x20)+hexDword(1)
+    // [224] MOV qword [RSP+0x28], 0
+    s = s + hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x28)+hexDword(0)
+    // [233] MOV qword [RSP+0x30], 0
+    s = s + hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x30)+hexDword(0)
+    // [242] MOV qword [RSP+0x38], 0
+    s = s + hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x38)+hexDword(0)
+    // [251] LEA RAX, [RSP+0x50]
+    s = s + hexByte(0x48)+hexByte(0x8D)+hexByte(0x44)+hexByte(0x24)+hexByte(0x50)
+    // [256] MOV [RSP+0x40], RAX
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0x44)+hexByte(0x24)+hexByte(0x40)
+    // [261] LEA RAX, [RSP+0xB8]  (disp32)
+    s = s + hexByte(0x48)+hexByte(0x8D)+hexByte(0x84)+hexByte(0x24)+hexDword(0xB8)
+    // [269] MOV [RSP+0x48], RAX
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0x44)+hexByte(0x24)+hexByte(0x48)
+    // [274] XOR ECX, ECX
+    s = s + hexByte(0x33)+hexByte(0xC9)
+    // [276] MOV RDX, [RSP+0xE0]  (cmdline, disp32)
+    s = s + hexByte(0x48)+hexByte(0x8B)+hexByte(0x94)+hexByte(0x24)+hexDword(0xE0)
+    // [284] XOR R8, R8
+    s = s + hexByte(0x4D)+hexByte(0x33)+hexByte(0xC0)
+    // [287] XOR R9, R9
+    s = s + hexByte(0x4D)+hexByte(0x33)+hexByte(0xC9)
+    // [290] CALL [CreateProcessA]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_cp)
+    // [296] MOV RCX, [RSP+0xD8]  (hWritePipe, disp32)
+    s = s + hexByte(0x48)+hexByte(0x8B)+hexByte(0x8C)+hexByte(0x24)+hexDword(0xD8)
+    // [304] CALL [CloseHandle]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_ch1)
+    // [310] CALL [GetProcessHeap]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_gph2)
+    // [316] MOV RCX, RAX
+    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0xC1)
+    // [319] XOR EDX, EDX
+    s = s + hexByte(0x33)+hexByte(0xD2)
+    // [321] MOV R8D, 65536
+    s = s + hexByte(0x41)+hexByte(0xB8)+hexDword(65536)
+    // [327] CALL [HeapAlloc]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_ha2)
+    // [333] MOV R12, RAX
+    s = s + hexByte(0x49)+hexByte(0x89)+hexByte(0xC4)
+    // [336] MOV qword [RSP+0x100], 0  (out_off, disp32)
+    s = s + hexByte(0x48)+hexByte(0xC7)+hexByte(0x84)+hexByte(0x24)+hexDword(0x100)+hexDword(0)
+    // [348] .rfl: MOV EAX, 65536
+    s = s + hexByte(0xB8)+hexDword(65536)
+    // [353] SUB RAX, [RSP+0x100]  (disp32)
+    s = s + hexByte(0x48)+hexByte(0x2B)+hexByte(0x84)+hexByte(0x24)+hexDword(0x100)
+    // [361] TEST RAX, RAX
+    s = s + hexByte(0x48)+hexByte(0x85)+hexByte(0xC0)
+    // [364] JLE +83 -> 449  (rfdone)
+    s = s + hexByte(0x7E)+hexByte(0x53)
+    // [366] MOV R8D, 4096
+    s = s + hexByte(0x41)+hexByte(0xB8)+hexDword(4096)
+    // [372] CMP RAX, R8
+    s = s + hexByte(0x4C)+hexByte(0x39)+hexByte(0xC0)
+    // [375] JAE +3 -> 380  (skip clamp if RAX >= R8)
+    s = s + hexByte(0x73)+hexByte(0x03)
+    // [377] MOV R8, RAX
+    s = s + hexByte(0x49)+hexByte(0x89)+hexByte(0xC0)
+    // [380] MOV RCX, [RSP+0xD0]  (hReadPipe, disp32)
+    s = s + hexByte(0x48)+hexByte(0x8B)+hexByte(0x8C)+hexByte(0x24)+hexDword(0xD0)
+    // [388] MOV RDX, R12
+    s = s + hexByte(0x4C)+hexByte(0x89)+hexByte(0xE2)
+    // [391] ADD RDX, [RSP+0x100]  (disp32)
+    s = s + hexByte(0x48)+hexByte(0x03)+hexByte(0x94)+hexByte(0x24)+hexDword(0x100)
+    // [399] LEA R9, [RSP+0x108]  (&bytesRead, disp32)
+    s = s + hexByte(0x4C)+hexByte(0x8D)+hexByte(0x8C)+hexByte(0x24)+hexDword(0x108)
+    // [407] MOV qword [RSP+0x20], 0  (lpOverlapped NULL)
+    s = s + hexByte(0x48)+hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x20)+hexDword(0)
+    // [416] CALL [ReadFile]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_rf)
+    // [422] TEST EAX, EAX
+    s = s + hexByte(0x85)+hexByte(0xC0)
+    // [424] JZ +23 -> 449  (FALSE return = pipe done)
+    s = s + hexByte(0x74)+hexByte(0x17)
+    // [426] MOV EAX, [RSP+0x108] + NOP  (zero-extends DWORD to RAX; ReadFile only writes
+    //       low 4B and upper would otherwise hold stack garbage from prior call)
+    s = s + hexByte(0x8B)+hexByte(0x84)+hexByte(0x24)+hexDword(0x108)+hexByte(0x90)
+    // [434] TEST RAX, RAX
+    s = s + hexByte(0x48)+hexByte(0x85)+hexByte(0xC0)
+    // [437] JZ +10 -> 449  (EOF)
+    s = s + hexByte(0x74)+hexByte(0x0A)
+    // [439] ADD [RSP+0x100], RAX  (off += br, disp32)
+    s = s + hexByte(0x48)+hexByte(0x01)+hexByte(0x84)+hexByte(0x24)+hexDword(0x100)
+    // [447] JMP -101 -> 348  (back to .rfl)
+    s = s + hexByte(0xEB)+hexByte(0x9B)
+    // [449] .rfdone: MOV RCX, [RSP+0xB8]  (hProcess, disp32)
+    s = s + hexByte(0x48)+hexByte(0x8B)+hexByte(0x8C)+hexByte(0x24)+hexDword(0xB8)
+    // [457] MOV EDX, -1
+    s = s + hexByte(0xBA)+hexByte(0xFF)+hexByte(0xFF)+hexByte(0xFF)+hexByte(0xFF)
+    // [462] CALL [WaitForSingleObject]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_wfso)
+    // [468] MOV RCX, [RSP+0xB8]  (hProcess, disp32)
+    s = s + hexByte(0x48)+hexByte(0x8B)+hexByte(0x8C)+hexByte(0x24)+hexDword(0xB8)
+    // [476] CALL [CloseHandle]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_ch2)
+    // [482] MOV RCX, [RSP+0xC0]  (hThread, disp32)
+    s = s + hexByte(0x48)+hexByte(0x8B)+hexByte(0x8C)+hexByte(0x24)+hexDword(0xC0)
+    // [490] CALL [CloseHandle]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_ch3)
+    // [496] MOV RCX, [RSP+0xD0]  (hReadPipe, disp32)
+    s = s + hexByte(0x48)+hexByte(0x8B)+hexByte(0x8C)+hexByte(0x24)+hexDword(0xD0)
+    // [504] CALL [CloseHandle]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_ch4)
+    // [510] MOV RAX, [RSP+0x100]  (off, disp32)
+    s = s + hexByte(0x48)+hexByte(0x8B)+hexByte(0x84)+hexByte(0x24)+hexDword(0x100)
+    // [518] MOV BYTE [R12+RAX], 0  (NUL-term)
+    s = s + hexByte(0x41)+hexByte(0xC6)+hexByte(0x04)+hexByte(0x04)+hexByte(0x00)
+    // [523] MOV RAX, R12  (result)
+    s = s + hexByte(0x4C)+hexByte(0x89)+hexByte(0xE0)
+    // [526] ADD RSP, 0x150
+    s = s + hexByte(0x48)+hexByte(0x81)+hexByte(0xC4)+hexDword(0x150)
+    // [533] POP R12
+    s = s + hexByte(0x41)+hexByte(0x5C)
+    // [535] POP RBX
+    s = s + hexByte(0x5B)
     emit s
 }
 
