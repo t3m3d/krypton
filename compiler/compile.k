@@ -188,6 +188,13 @@ func tokenize(text) {
     let out = sbNew()
     let i = 0
 
+    // Skip shebang line at start of file: `#!/usr/bin/env kcc` etc.
+    // Lets `.k` files be `chmod +x`'d and run directly via a kcc -r shebang.
+    if len(text) >= 2 && text[0] == "#" && text[1] == "!" {
+        while i < len(text) && text[i] != "\n" { i += 1 }
+        if i < len(text) { i += 1 }
+    }
+
     while i < len(text) {
         i = skipWS(text, i)
 
@@ -1127,6 +1134,9 @@ func compileWin32IntArgs(name) {
     if name == "RemoveDirectoryA"           { emit "" }
     if name == "MoveFileA"                  { emit "" }
     if name == "CopyFileA"                  { emit "2" }   // bFailIfExists is BOOL
+    if name == "GetCurrentDirectoryA"       { emit "0" }   // size = DWORD
+    if name == "SetCurrentDirectoryA"       { emit "" }    // (string only)
+    if name == "GetTempPathA"               { emit "0" }   // size = DWORD
     // Process / pipe management
     if name == "CreatePipe"                 { emit "3" }       // out, out, sa-ptr, size=DWORD
     if name == "CreateProcessA"             { emit "4,5" }     // app=str, cmd=str, pa,ta=ptr, inherit=BOOL, flags=DWORD, env=ptr, dir=str, si=ptr, pi=ptr
@@ -1208,6 +1218,9 @@ func compileWin32IntReturn(name) {
     if name == "RemoveDirectoryA"           { emit "1" }
     if name == "MoveFileA"                  { emit "1" }
     if name == "CopyFileA"                  { emit "1" }
+    if name == "GetCurrentDirectoryA"       { emit "1" }   // DWORD count returned
+    if name == "SetCurrentDirectoryA"       { emit "1" }   // BOOL
+    if name == "GetTempPathA"               { emit "1" }   // DWORD count returned
     if name == "CreateFileA"                { emit "1" }   // HANDLE
     if name == "CreatePipe"                 { emit "1" }   // BOOL
     if name == "CreateProcessA"             { emit "1" }   // BOOL

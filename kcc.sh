@@ -74,6 +74,8 @@ LLVM_MODE=0
 GCC_MODE=0
 GCC_EXPLICIT=0  # tracks whether --gcc was passed (vs. implicit default on macOS)
 C_MODE=0       # --c: emit C source (legacy; default is native binary now)
+EVAL_CODE=""   # -e: compile + run + delete an inline code snippet
+RUN_MODE=0     # -r: compile + run + delete the source's resulting exe
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -83,19 +85,74 @@ while [[ $# -gt 0 ]]; do
         --gcc)     GCC_MODE=1; GCC_EXPLICIT=1; shift ;;
         --c)       C_MODE=1; shift ;;
         -o)        OUTFILE="$2"; shift 2 ;;
+        -e)        EVAL_CODE="$2"; shift 2 ;;
+        -r)        RUN_MODE=1; shift
+                   # In run mode, the next arg is SRCFILE and EVERYTHING after
+                   # gets passed through to the script (like `python a.py arg1 arg2`).
+                   SRCFILE="$1"; shift
+                   SCRIPT_ARGS=("$@")
+                   set --   # consume remaining so the parser loop ends
+                   ;;
         -l*|-L*|-W*) LIBS="$LIBS $1"; shift ;;
         *)         SRCFILE="$1"; shift ;;
     esac
 done
 
+# ── -e EVAL mode ──────────────────────────────────────────────────
+# Compile + run + delete a one-liner. Mirrors `python -c "expr"`.
+# Wraps the user code in `just run { ... }` automatically.
+# Anything after `-e` is the code; the snippet must be a complete
+# Krypton statement / block body.
+if [[ -n "$EVAL_CODE" ]]; then
+    _KCC_EVAL_TMPK="/tmp/_kcc_eval_$$.k"
+    _KCC_EVAL_TMPEXE="/tmp/_kcc_eval_$$"
+    if [[ "$PLATFORM" == "windows" ]]; then
+        _KCC_EVAL_TMPEXE="${_KCC_EVAL_TMPEXE}.exe"
+    fi
+    printf 'just run {\n%s\n}\n' "$EVAL_CODE" > "$_KCC_EVAL_TMPK"
+    _KCC_LOG="/tmp/_kcc_eval_${$}_log"
+    "$SCRIPT_DIR/kcc.sh" -o "$_KCC_EVAL_TMPEXE" "$_KCC_EVAL_TMPK" >"$_KCC_LOG" 2>&1
+    _KCC_RC=$?
+    if [[ $_KCC_RC -eq 0 ]]; then
+        "$_KCC_EVAL_TMPEXE"
+        _KCC_RC=$?
+    else
+        cat "$_KCC_LOG" >&2
+    fi
+    rm -f "$_KCC_EVAL_TMPK" "$_KCC_EVAL_TMPEXE" "$_KCC_LOG"
+    exit $_KCC_RC
+fi
+
 if [[ -z "$SRCFILE" ]]; then
     echo "kcc: no input file" >&2; exit 1
 fi
 
-HEADERS_FLAG=""
-if [[ -d "$KCC_HEADERS_UNIX" ]]; then
-    HEADERS_FLAG="--headers $KCC_HEADERS"
+# ── -r RUN mode ────────────────────────────────────────────────────
+# Compile + run + delete the exe. Mirrors `python script.py`.
+# Combine with a `#!/usr/bin/env kcc -r` shebang line to make `.k`
+# files directly executable via `chmod +x ./script.k && ./script.k`.
+if [[ $RUN_MODE -eq 1 ]]; then
+    _KCC_RUN_TMP="/tmp/_kcc_run_$$"
+    if [[ "$PLATFORM" == "windows" ]]; then
+        _KCC_RUN_TMP="${_KCC_RUN_TMP}.exe"
+    fi
+    _KCC_LOG="/tmp/_kcc_run_${$}_log"
+    "$SCRIPT_DIR/kcc.sh" -o "$_KCC_RUN_TMP" "$SRCFILE" >"$_KCC_LOG" 2>&1
+    _KCC_RC=$?
+    if [[ $_KCC_RC -eq 0 ]]; then
+        "$_KCC_RUN_TMP" "${SCRIPT_ARGS[@]}"
+        _KCC_RC=$?
+    else
+        cat "$_KCC_LOG" >&2
+    fi
+    rm -f "$_KCC_RUN_TMP" "$_KCC_LOG"
+    exit $_KCC_RC
 fi
+
+HEADERS_FLAG=""
+# Note: --headers flag was removed in 1.8.4; install root fixed at C:\krypton.
+# Variable kept empty for backwards compat with all the `$HEADERS_FLAG` call sites
+# below — passing nothing is now the correct behavior.
 
 # ── --ir only: emit IR ────────────────────────────────────────────
 if [[ -n "$IRFLAG" && -z "$OUTFILE" ]]; then
