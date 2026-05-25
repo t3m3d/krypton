@@ -2,6 +2,65 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [2.1-dev] - 2026-05-24 — Python-replacement push
+
+Focus: make Krypton viable as a scripting alternative to small Python
+utility scripts. **97/97 regression** throughout.
+
+### Compiler / driver
+
+- **`kcc -e "code"`** — one-liner mode. Wraps in `just run { ... }`,
+  compiles to temp, runs, deletes both temp `.k` and exe. Build chatter
+  suppressed unless compile fails. Mirrors `python -c "expr"`.
+- **`kcc -r script.k [args...]`** — run mode. Compile, run with args
+  passed through, delete exe. `arg(N)` / `argCount()` see the args.
+- **Shebang support** — tokenizer skips a leading `#!` line. Combined
+  with `#!/usr/bin/env kr`, makes `.k` files `chmod +x`'d-runnable.
+- **`kr` wrapper script** — `exec kcc.sh -r "$@"`. Lets the shebang line
+  stay short.
+
+### Native IO helpers — round 2
+
+- **shellRun now returns the real child exit code** as a string
+  (previously hardcoded `"0"`). Inline body grew 314→320 bytes:
+  `GetExitCodeProcess(hProcess, &slot)` after the wait, `MOV EAX` to
+  zero-extend the DWORD, `CALL __user_rt_itoa` for the int→string
+  conversion. Test: `tests/test_shellrun_exit.k`.
+
+### KR32_FUNCS additions (Win32 fs)
+
+Indices 60–67 appended (no existing indices shift). All routed through
+both arg-marshalling and int-return tables:
+`CreateDirectoryA`, `DeleteFileA`, `RemoveDirectoryA`, `MoveFileA`,
+`CopyFileA`, `GetCurrentDirectoryA`, `SetCurrentDirectoryA`,
+`GetTempPathA`.
+
+### stdlib additions
+
+- **`stdlib/fs.k`** — new wrappers: `fsDelete`, `fsRmdir`, `fsRename`,
+  `fsCopy`, `fsCwd`, `fsChdir`, `fsTempDir`, `fsHomeDir`. Replaces
+  Python's `os.makedirs/remove/rename`, `shutil.copy`, `os.getcwd/chdir`,
+  `os.environ['TEMP'/'USERPROFILE']`. Test: `tests/test_fs_extended.k`.
+- **`stdlib/http.k`** — curl-backed HTTP client. `httpGet`,
+  `httpGetWithHeaders`, `httpPost`, `httpStatus`, `httpDownload`. POST
+  body goes through a tempfile + `curl --data-binary @file` to skirt
+  cmd.exe quoting issues. Win10 1803+ ships curl at
+  `C:\Windows\System32\curl.exe`.
+- **`stdlib/settings.k`** — JSON-backed app settings under
+  `%APPDATA%\<app>\settings.json`. `settingsLoad/Save/Get/GetInt/Dir`
+  + a `findTool(explicit, exeName, hintsCsv)` that walks explicit →
+  hints → `%PATH%`. Drop-in for `kcode-win/settings.py`. Example port:
+  `examples/settings_kcode_win.k`. Test: `tests/test_settings.k`.
+
+### Known limitation
+
+- `import "k:other_stdlib"` from inside a stdlib module does NOT
+  chain-pull functions into the user's IR. Workaround: either `import`
+  both at the top of the user file, or have the second stdlib inline
+  what it needs via `import "head:..."`. Fix would require refactoring
+  the import block in `compiler/compile.k` into a queue-based loop
+  with recursion; deferred.
+
 ## [2.0-final] - 2026-05-09 (in repo, installer not yet cut)
 
 The lean 2.0 ship. Theme: **long-running programs become viable.** Mark-sweep
