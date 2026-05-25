@@ -1,6 +1,10 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 
+# Shell scripts MUST stay LF — kernel exec rejects CRLF in shebang lines.
+kr      text eol=lf
+*.sh    text eol=lf
+
 # ── Krypton (.k) is the primary language ──
 # Override detection so GitHub shows .k files as Krypton (not KCL)
 *.k linguist-language=Krypton
