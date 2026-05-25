@@ -1,40 +1,15 @@
-// stdlib/settings.k — persistent app settings + tool path resolution.
-//
-// Replaces the Python `settings.py` pattern: a JSON file under
-// %APPDATA%\<appName>\settings.json with load / save / get / set
-// helpers and a `findTool` for resolving exe locations.
-//
-// Designed so a real-world IDE / tool config can live entirely in
-// Krypton — no Python helper. Compatible on-disk format with
-// Python's `json.dumps(d, indent=2)`, so existing Python-side
-// configs are picked up unchanged.
-//
-// Public API:
-//   settingsDir(appName)               → %APPDATA%\<appName>
-//   settingsPath(appName, fileName)    → full path to a config file
-//   settingsLoad(appName)              → raw JSON text from settings.json
-//                                          ("{}" if missing/invalid)
-//   settingsSave(appName, jsonText)    → mkdirs + writes settings.json
-//                                          atomically via tmp-rename
-//   settingsGet(jsonText, key, def)    → string lookup with default
-//   settingsGetInt(jsonText, key, def) → integer-as-string with default
-//   findTool(explicit, exeName, hintsCsv) → first existing path or ""
-//
-// Hints CSV is a comma-separated list of directories to search.
-// findTool also walks PATH after the hints.
-
+// Persistent app settings under %APPDATA%\<app>\settings.json,
+// compatible with json.dumps(d, indent=2). Public API:
+//   settingsDir, settingsPath, settingsLoad, settingsSave,
+//   settingsGet, settingsGetInt, findTool.
 module settings
 
 import "head:fileio"
 import "head:windows"
 
-// ── env / path helpers ───────────────────────────────────────────
-
 func _settings_env(name) {
-    // PATH can be very long on Windows (32k+); size accordingly. If even
-    // 32k is too small, GetEnvironmentVariableA returns the required size,
-    // and bufStr would read into uninitialized space — we'd rather return
-    // nothing than corrupt the caller.
+    // PATH on Windows can be >4KB; cap = 32K. Larger and bufStr would
+    // read uninitialized space — return "" instead.
     let cap = 32768
     let buf = bufNew(cap)
     let n = GetEnvironmentVariableA(name, buf, cap + "")
@@ -71,12 +46,9 @@ func _settings_mkdir(path) {
     emit CreateDirectoryA(path, toHandle("0"))
 }
 
-// ── directory + file path computation ────────────────────────────
-
 func settingsDir(appName) {
     let appdata = _settings_env("APPDATA")
     if len(appdata) == 0 {
-        // Fallback to %TEMP%
         emit _settings_join(_settings_tempdir(), appName)
     }
     emit _settings_join(appdata, appName)
@@ -86,10 +58,6 @@ func settingsPath(appName, fileName) {
     emit _settings_join(settingsDir(appName), fileName)
 }
 
-// ── load / save ─────────────────────────────────────────────────
-
-// Returns raw JSON text; "{}" if missing or empty. Caller can pass
-// through json_parse for structured access.
 func settingsLoad(appName) {
     let p = settingsPath(appName, "settings.json")
     if _settings_exists(p) == "0" { emit "{}" }
@@ -98,8 +66,6 @@ func settingsLoad(appName) {
     emit txt
 }
 
-// Persist JSON text. Creates %APPDATA%\<appName> if needed.
-// Returns "1" on success, "0" on failure.
 func settingsSave(appName, jsonText) {
     let dir = settingsDir(appName)
     _settings_mkdir(dir)
@@ -109,11 +75,8 @@ func settingsSave(appName, jsonText) {
     emit "0"
 }
 
-// ── shallow get with default ─────────────────────────────────────
-// These avoid pulling in jpParse machinery for simple cases.
-// They do a "good-enough" scan for `"key":` and grab the following
-// string literal or numeric literal. Sufficient for flat config files.
-
+// Shallow scan for `"key":` followed by a string or numeric literal.
+// Avoids pulling in jpParse for simple flat configs.
 func _settings_findKey(jsonText, key) {
     let needle = "\"" + key + "\""
     emit indexOf(jsonText, needle)
@@ -131,7 +94,6 @@ func settingsGet(jsonText, key, defaultVal) {
     if i >= len(jsonText) { emit defaultVal }
     let c = jsonText[i]
     if c == "\"" {
-        // string literal — read until closing quote, honoring \"
         let sb = sbNew()
         i += 1
         while i < len(jsonText) {
@@ -149,7 +111,7 @@ func settingsGet(jsonText, key, defaultVal) {
         }
         emit sbToString(sb)
     }
-    // numeric / true / false / null — read until , } whitespace
+    // numeric / true / false / null: read until terminator.
     let sb2 = sbNew()
     while i < len(jsonText) {
         let ch2 = jsonText[i]
@@ -166,13 +128,7 @@ func settingsGetInt(jsonText, key, defaultInt) {
     emit toInt(v)
 }
 
-// ── tool resolution ──────────────────────────────────────────────
-// findTool(explicit_path, exe_name, hints_csv)
-//   - if explicit_path is given and exists, return its absolute form
-//   - try each directory in hints_csv joined with exe_name
-//   - finally walk %PATH%, semicolon-separated on Windows
-// Returns "" if nothing found.
-
+// findTool: explicit → hints (CSV of dirs) → %PATH%. "" if none found.
 func findTool(explicitPath, exeName, hintsCsv) {
     if len(explicitPath) > 0 {
         if _settings_exists(explicitPath) == "1" { emit explicitPath }
