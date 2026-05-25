@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
-# kcc - Krypton compiler driver
+# kcc — Krypton compiler driver.
 #
-# Usage: kcc source.k [-o output] [--native | --llvm | --c | --ir]
+# Usage: kcc source.k [-o output] [--native | --llvm | --c | --ir | -e | -r]
 #
-# DEFAULT (no flag, no -o):  produce a native binary at ./<basename>
-# DEFAULT (no flag, with -o): produce a native binary at <output>
-#   The native pipeline is elf.k → ELF on Linux, x64.k → PE/COFF on Windows,
-#   macho_arm64_self.k → Mach-O on macOS arm64. NO C compiler involved at
-#   user-invocation time on any of those platforms.
+# Default (no flag): native binary. Pipeline = elf.k (Linux), x64.k (Windows),
+# macho_arm64_self.k (macOS). NO C compiler at user-invocation time on any
+# of those platforms — that's the project goal.
 #
-# --native:  explicit native pipeline (same as default)
-# --c:       emit C source — to stdout if no -o, to <output> if -o (debug aid)
-# --llvm:    emit LLVM IR — to stdout if no -o, to <output> if -o
-# --ir:      emit Krypton IR (.kir) to stdout
+# Flags:
+#   --native  explicit native pipeline (same as default)
+#   --c       emit C source (debug aid)
+#   --llvm    emit LLVM IR
+#   --ir      emit Krypton IR (.kir) to stdout
+#   -e CODE   compile + run + delete an inline snippet (like python -c)
+#   -r FILE   compile + run + delete; remaining args pass through to FILE
 #
-# DEPRECATED:
-# --gcc:     C+gcc/clang fallback. Krypton's stated goal is no C-language
-#            tools in operations. This flag will be removed once every
-#            platform's native pipeline is verified stable. Don't use it
-#            for new work; if native fails, file a bug.
+# DEPRECATED — DO NOT REINTRODUCE NEW USES:
+#   --gcc     C+gcc/clang fallback. Krypton's goal is no C-language tools in
+#             operations. Flag stays only until every native pipeline is
+#             verified stable. If native fails, file a bug — don't fall back.
 
 # Resolve through symlinks so /usr/local/bin/kcc.sh → repo/kcc.sh finds repo files.
 SOURCE="${BASH_SOURCE[0]}"
@@ -29,9 +29,6 @@ while [ -L "$SOURCE" ]; do
 done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 
-# ── Platform detection ─────────────────────────────────────────────
-# On Linux: ./kcc (ELF), --native uses elf.k → ELF
-# On Windows / MSYS: ./kcc.exe, --native uses x64.k → PE/COFF
 case "$(uname -s 2>/dev/null)" in
     Linux*)  PLATFORM=linux ;;
     Darwin*) PLATFORM=macos ;;
@@ -47,7 +44,8 @@ else
     KCC_HEADERS="$(echo "$KCC_HEADERS_UNIX" | sed 's|^/\([a-zA-Z]\)/|\1:/|')"
 fi
 
-# Find a C compiler. Prefer $CC env var, then gcc, then clang (macOS default).
+# C compiler lookup: $CC > gcc > clang > common Windows MinGW paths. Only used
+# during the one-time bootstrap of native hosts, never on user invocation.
 GCC_EXE="${CC:-}"
 if [[ -z "$GCC_EXE" ]]; then GCC_EXE="$(command -v gcc 2>/dev/null)"; fi
 if [[ -z "$GCC_EXE" ]]; then GCC_EXE="$(command -v clang 2>/dev/null)"; fi
@@ -72,10 +70,10 @@ IRFLAG=""
 NATIVE_MODE=0
 LLVM_MODE=0
 GCC_MODE=0
-GCC_EXPLICIT=0  # tracks whether --gcc was passed (vs. implicit default on macOS)
-C_MODE=0       # --c: emit C source (legacy; default is native binary now)
-EVAL_CODE=""   # -e: compile + run + delete an inline code snippet
-RUN_MODE=0     # -r: compile + run + delete the source's resulting exe
+GCC_EXPLICIT=0  # --gcc explicitly passed (vs implicit macOS fallback)
+C_MODE=0
+EVAL_CODE=""
+RUN_MODE=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -87,22 +85,18 @@ while [[ $# -gt 0 ]]; do
         -o)        OUTFILE="$2"; shift 2 ;;
         -e)        EVAL_CODE="$2"; shift 2 ;;
         -r)        RUN_MODE=1; shift
-                   # In run mode, the next arg is SRCFILE and EVERYTHING after
-                   # gets passed through to the script (like `python a.py arg1 arg2`).
+                   # -r consumes the next arg as SRCFILE and everything after
+                   # as script args (python script.py arg1 arg2 semantics).
                    SRCFILE="$1"; shift
                    SCRIPT_ARGS=("$@")
-                   set --   # consume remaining so the parser loop ends
+                   set --
                    ;;
         -l*|-L*|-W*) LIBS="$LIBS $1"; shift ;;
         *)         SRCFILE="$1"; shift ;;
     esac
 done
 
-# ── -e EVAL mode ──────────────────────────────────────────────────
-# Compile + run + delete a one-liner. Mirrors `python -c "expr"`.
-# Wraps the user code in `just run { ... }` automatically.
-# Anything after `-e` is the code; the snippet must be a complete
-# Krypton statement / block body.
+# -e: wrap snippet in `just run { ... }`, recurse via -o, run, clean up.
 if [[ -n "$EVAL_CODE" ]]; then
     _KCC_EVAL_TMPK="/tmp/_kcc_eval_$$.k"
     _KCC_EVAL_TMPEXE="/tmp/_kcc_eval_$$"
@@ -127,10 +121,8 @@ if [[ -z "$SRCFILE" ]]; then
     echo "kcc: no input file" >&2; exit 1
 fi
 
-# ── -r RUN mode ────────────────────────────────────────────────────
-# Compile + run + delete the exe. Mirrors `python script.py`.
-# Combine with a `#!/usr/bin/env kcc -r` shebang line to make `.k`
-# files directly executable via `chmod +x ./script.k && ./script.k`.
+# -r: same recursion as -e but with an on-disk SRCFILE and arg passthrough.
+# Pair with `#!/usr/bin/env kr` to make .k files chmod +x'd executable.
 if [[ $RUN_MODE -eq 1 ]]; then
     _KCC_RUN_TMP="/tmp/_kcc_run_$$"
     if [[ "$PLATFORM" == "windows" ]]; then
@@ -149,23 +141,21 @@ if [[ $RUN_MODE -eq 1 ]]; then
     exit $_KCC_RC
 fi
 
+# --headers flag was removed in 1.8.4; install root fixed at C:\krypton.
+# Keep $HEADERS_FLAG empty so the existing call sites stay no-ops.
 HEADERS_FLAG=""
-# Note: --headers flag was removed in 1.8.4; install root fixed at C:\krypton.
-# Variable kept empty for backwards compat with all the `$HEADERS_FLAG` call sites
-# below — passing nothing is now the correct behavior.
 
-# ── --ir only: emit IR ────────────────────────────────────────────
+# --ir alone: emit IR to stdout.
 if [[ -n "$IRFLAG" && -z "$OUTFILE" ]]; then
     "$KCC_EXE" --ir $HEADERS_FLAG "$SRCFILE"
     exit $?
 fi
 
-# ── --native pipeline ───────────────────────────────────────────────
-# Linux:   .k → .kir → elf.k → ELF binary (no gcc, no libc)
-# Windows: .k → .kir → optimize → x64.k → .exe (no gcc, needs krypton_rt.dll)
-# macOS:   .k → .kir → macho.k → .s → clang → Mach-O (clang+ld required;
-#                                                    AMFI on Tahoe forbids
-#                                                    self-emitted Mach-O)
+# --native pipeline by platform:
+#   Linux:   .k → kir → elf.k → ELF (no gcc, no libc)
+#   Windows: .k → kir → optimize → x64.k → PE (no gcc; needs krypton_rt.dll)
+#   macOS:   .k → kir → macho_arm64_self.k → Mach-O (no clang/as/ld/codesign;
+#            self-emits load commands + ad-hoc SHA-256 signature)
 if [[ $NATIVE_MODE -eq 1 ]]; then
     if [[ -z "$OUTFILE" ]]; then
         if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
@@ -177,17 +167,12 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
     TMPIR="/tmp/_kcc_native_$$.kir"
 
     if [[ "$PLATFORM" == "macos" ]]; then
-        # macOS arm64: compiler/macos_arm64/macho_arm64_self.k writes a
-        # signed Mach-O directly (load commands, __TEXT/__DATA/__LINKEDIT,
-        # chained fixups, ad-hoc SHA-256 code signature — all in Krypton).
-        # NO clang, no `as`, no `ld`, no external codesign.
         MACHO_DIR="$SCRIPT_DIR/compiler/macos_arm64"
         MACHO_BIN="$MACHO_DIR/macho_host"
         MACHO_SRC="$MACHO_DIR/macho_arm64_self.k"
 
-        # Build macho host if missing or stale (one-time bootstrap; uses kcc
-        # itself + the host C compiler that built kcc). Subsequent runs reuse
-        # the binary directly.
+        # One-time gcc/clang bootstrap of macho host. Goal: replace this with
+        # a self-rebuild once macho_arm64_self.k is fully self-host.
         if [[ ! -f "$MACHO_BIN" || "$MACHO_SRC" -nt "$MACHO_BIN" ]]; then
             CC_HOST="${CC:-clang}"
             command -v "$CC_HOST" >/dev/null || {
@@ -212,14 +197,12 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
     fi
 
     if [[ "$PLATFORM" == "linux" ]]; then
-        # Linux: .k → kir → optimize.k → kir' → elf.k → ELF
         LINUX_DIR="$SCRIPT_DIR/compiler/linux_x86"
         ELF_BIN="$LINUX_DIR/elf_host"
         OPT_BIN="$LINUX_DIR/optimize_host"
         ELF_SRC="$LINUX_DIR/elf.k"
-        OPT_SRC="$SCRIPT_DIR/compiler/optimize.k"   # shared source
+        OPT_SRC="$SCRIPT_DIR/compiler/optimize.k"
 
-        # Detect arch for prebuilt seed lookup
         case "$(uname -m 2>/dev/null)" in
             x86_64|amd64) _ARCH=x86_64 ;;
             aarch64|arm64) _ARCH=aarch64 ;;
@@ -228,12 +211,10 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
         ELF_SEED="$SCRIPT_DIR/bootstrap/elf_host_${PLATFORM}_${_ARCH}"
         OPT_SEED="$SCRIPT_DIR/bootstrap/optimize_host_${PLATFORM}_${_ARCH}"
 
-        # Build / restore elf_host
-        # Native rebuild path (preferred): use existing elf_host (or seed) to
-        # compile the new elf.k via the .k → .kir → ELF pipeline. Currently
-        # blocked by elf.k-self-host bug at >66 funcs (see REBUILD_SEED.md);
-        # until that's fixed, the gcc rebuild stays as a one-time bootstrap
-        # for users who edit elf.k. End users with prebuilt seeds never hit it.
+        # Rebuild elf_host. Native rebuild is the goal but blocked by the
+        # elf.k self-host bug at >66 funcs (bootstrap/REBUILD_SEED.md). Until
+        # that lands, fall back to a one-shot gcc bootstrap for elf.k editors;
+        # end users with a prebuilt seed never hit this path.
         if [[ ! -f "$ELF_BIN" || "$ELF_SRC" -nt "$ELF_BIN" ]]; then
             if [[ -f "$ELF_SEED" && "$ELF_SEED" -nt "$ELF_SRC" ]]; then
                 cp "$ELF_SEED" "$ELF_BIN"
@@ -251,9 +232,8 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
             fi
         fi
 
-        # Build / restore optimize_host (best-effort — if it fails to build we
-        # fall through to skip-optimize mode rather than blocking the build).
-        # Same one-time-gcc situation as elf_host above.
+        # optimize_host is best-effort; if rebuild fails we skip optimization
+        # silently rather than blocking the build.
         if [[ ! -f "$OPT_BIN" || "$OPT_SRC" -nt "$OPT_BIN" ]]; then
             if [[ -f "$OPT_SEED" && "$OPT_SEED" -nt "$OPT_SRC" ]]; then
                 cp "$OPT_SEED" "$OPT_BIN"
@@ -265,11 +245,9 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
             fi
         fi
 
-        # Generate IR
         "$KCC_EXE" --ir $HEADERS_FLAG "$SRCFILE" > "$TMPIR"
         if [[ $? -ne 0 ]]; then echo "kcc --native: IR emission failed" >&2; rm -f "$TMPIR"; exit 1; fi
 
-        # Optimize (skip silently if host not available)
         if [[ -x "$OPT_BIN" ]]; then
             TMPOPT="/tmp/_kcc_native_opt_$$.kir"
             "$OPT_BIN" "$TMPIR" > "$TMPOPT" 2>/dev/null
@@ -288,20 +266,18 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
         exit 0
     fi
 
-    # Windows: PE/COFF backend
+    # Windows: PE/COFF backend.
     TMPOPT="/tmp/_kcc_native_opt_$$.kir"
     WIN_DIR="$SCRIPT_DIR/compiler/windows_x86"
     OPT_BIN="$WIN_DIR/optimize_host.exe"
     X64_BIN="$WIN_DIR/x64_host.exe"
     X64_SRC="$WIN_DIR/x64.k"
-    OPT_SRC="$SCRIPT_DIR/compiler/optimize.k"   # shared source
+    OPT_SRC="$SCRIPT_DIR/compiler/optimize.k"
     OPT_SEED="$SCRIPT_DIR/bootstrap/optimize_host_windows_x86_64.exe"
     X64_SEED="$SCRIPT_DIR/bootstrap/x64_host_windows_x86_64.exe"
 
-    # One-time gcc bootstrap (Windows side). Same situation as Linux: end
-    # users with prebuilt seeds don't hit this; only triggered if you edit
-    # x64.k or optimize.k. Goal is to drop these by routing rebuild through
-    # the native pipeline once x64.k self-host parity is verified.
+    # One-time gcc bootstrap (same situation as Linux above). Goal: route
+    # this through the native pipeline once x64.k self-host parity is verified.
     if [[ ! -f "$OPT_BIN" || "$OPT_SRC" -nt "$OPT_BIN" ]]; then
         if [[ -f "$OPT_SEED" && "$OPT_SEED" -nt "$OPT_SRC" ]]; then
             cp "$OPT_SEED" "$OPT_BIN"
@@ -343,7 +319,7 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
     exit 0
 fi
 
-# ── --llvm pipeline: .k → .kir → optimize → llvm IR (.ll) ────────
+# --llvm: .k → kir → optimize → LLVM IR
 if [[ $LLVM_MODE -eq 1 ]]; then
     TMPIR="/tmp/_kcc_llvm_$$.kir"
     TMPOPT="/tmp/_kcc_llvm_opt_$$.kir"
@@ -354,7 +330,6 @@ if [[ $LLVM_MODE -eq 1 ]]; then
     "$KCC_EXE" "$SCRIPT_DIR/compiler/optimize.k" "$TMPIR" > "$TMPOPT"
     if [[ $? -ne 0 ]]; then echo "kcc --llvm: optimizer failed" >&2; rm -f "$TMPIR" "$TMPOPT"; exit 1; fi
 
-    # Emit LLVM IR
     if [[ -n "$OUTFILE" ]]; then
         "$KCC_EXE" "$SCRIPT_DIR/compiler/llvm.k" "$TMPOPT" > "$OUTFILE"
     else
@@ -365,10 +340,8 @@ if [[ $LLVM_MODE -eq 1 ]]; then
     exit $RET
 fi
 
-# ── --c (legacy): emit C source ──────────────────────────────────
-# Without -o, prints to stdout. With -o, writes to file.
-# Same as the old default behaviour of `kcc.sh foo.k`. Kept for users who
-# still want C output (porting to other platforms, debugging codegen, etc.).
+# --c (legacy): emit C source. Kept for porting/debugging only; native is the
+# goal everywhere. Don't add new code paths that rely on this.
 if [[ $C_MODE -eq 1 ]]; then
     if [[ -z "$OUTFILE" ]]; then
         "$KCC_EXE" $HEADERS_FLAG "$SRCFILE"
@@ -379,12 +352,8 @@ if [[ $C_MODE -eq 1 ]]; then
     fi
 fi
 
-# ── Default: produce a native binary ─────────────────────────────
-# No -o: derive output name from source basename (e.g. hello.k → hello on
-#        Linux/macOS, hello.exe on Windows).
-# Linux/Windows: native pipeline (elf.k / x64.k → ELF/PE, no gcc).
-# macOS:         falls back to C+clang internally (Mach-O backend in progress).
-# --gcc:         force C+gcc on any platform.
+# Default path: derive output name, then re-exec as --native. Falls through
+# to the gcc block below only when --gcc was passed explicitly.
 if [[ -z "$OUTFILE" ]]; then
     if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
         OUTFILE="${SRCFILE%.k}"
@@ -394,26 +363,17 @@ if [[ -z "$OUTFILE" ]]; then
 fi
 
 if [[ "$GCC_MODE" -ne 1 ]]; then
-    # Native is the default on every platform. macho_arm64_self.k now covers
-    # the core surface (CAT/ADD polymorphism, range/length/split, GC primitives,
-    # 30+ builtins). Programs needing builtins not yet ported (replace, sort,
-    # struct ops, maps, etc.) can still opt out with `--gcc`.
     NATIVE_MODE=1
     exec "$0" --native -o "$OUTFILE" "$SRCFILE"
 fi
 
-# ──────────────────────────────────────────────────────────────────────────
-# C+clang/gcc path. Used when:
-#   - --gcc was passed explicitly (deprecation warning shown)
-#   - macOS implicit default (no warning — until macho_arm64_self.k catches up)
-# Krypton's stated long-term goal is no C-language tools in operations;
-# native pipelines are the future:
-#   - Linux:   elf.k self-host bug at >66 funcs (bug #3 in REBUILD_SEED.md)
-#   - Windows: x64.k self-host parity not yet verified
-#   - macOS:   macho_arm64_self.k handles slice 3f surface only
-# Once each platform's native rebuild path replaces gcc in kcc.sh's lazy
-# host-rebuild block, --gcc gets removed entirely.
-# ──────────────────────────────────────────────────────────────────────────
+# ─── C+gcc/clang path — DEPRECATED ─────────────────────────────────────────
+# Reached only when --gcc was passed explicitly. The goal is to remove this
+# block entirely once all platforms' native pipelines are verified stable:
+#   - Linux:   elf.k self-host bug at >66 funcs (bootstrap/REBUILD_SEED.md)
+#   - Windows: x64.k self-host parity unverified
+#   - macOS:   macho_arm64_self.k covers only the core surface
+# Do NOT introduce new callers of this path. If native fails, fix native.
 if [[ "$GCC_EXPLICIT" -eq 1 ]]; then
     echo "kcc: warning: --gcc is deprecated; native is the default and goal." >&2
     echo "kcc: see bootstrap/REBUILD_SEED.md for the path to gcc-free." >&2
