@@ -11,11 +11,12 @@
 3. **~512 LOC bash/Python → ~470 LOC Krypton** so far (cumulative across day's work).
 4. **No risky changes** — compiler / x64.k / sibling repos all untouched.
 5. **First thing tomorrow:** I'll bring up the Krypton-equivalent-of-batch-files discussion (saved in memory). User said this is a real interest, not a deprecation of `.bat`.
-6. **Comment-trim pass done.** You asked for less comment bloat — applied to:
+6. **Comment-trim pass done.** Applied to:
    - All 7 new files (scripts/*.k, lsp/build.k, lsp/test_kls.k)
-   - Light trim on stdlib/settings.k + stdlib/http.k (kept WHY notes + API docstrings)
-   - `kcc.sh` itself: 434 → 393 LOC (-10%). **Every gcc-deprecation guardrail preserved** (you said: never go back to C). Trimmed: divider comments, narrative paragraphs, what-does-this-line comments. Kept: `--gcc DEPRECATED` block, "do NOT introduce new callers" warnings, REBUILD_SEED.md references, platform-by-platform architecture notes.
-   Saved rule as `feedback_less_comments.md`. The `feedback_less_comments.md` has a special "don't-backslide comments are LOAD-BEARING" clause covering the gcc-deprecated style of guardrail.
+   - Light trim on stdlib/settings.k + stdlib/http.k. Kept WHY notes + API docstrings; **re-added** load-bearing guardrails to http.k (don't-simplify-POST warning, no-WinHTTP-yet note, fromCharCode-DQ explanation).
+   - `kcc.sh`: 434 → 393 LOC (-10%). Every gcc-deprecation guardrail preserved. Trimmed: divider comments, narrative paragraphs, what-does-this-line comments. Kept: `--gcc DEPRECATED` block, "do NOT introduce new callers" warnings, REBUILD_SEED.md references, platform-by-platform architecture notes.
+   - `lsp/build.k`: added a DEPRECATED-path guardrail (it currently uses gcc, which is the path we're killing — comment flags the migration as soon as kls.k builds via native).
+   Saved rule as `feedback_less_comments.md`. The rule has a "don't-backslide comments are LOAD-BEARING" clause covering the gcc-deprecation style of guardrail — so any future trim won't accidentally strip them.
 
 ## What to look at, in order
 
