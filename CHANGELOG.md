@@ -52,7 +52,37 @@ both arg-marshalling and int-return tables:
   hints → `%PATH%`. Drop-in for `kcode-win/settings.py`. Example port:
   `examples/settings_kcode_win.k`. Test: `tests/test_settings.k`.
 
-### Known limitation
+### Script ports (round 2, same day)
+
+Bash and Python utility scripts replaced with Krypton equivalents.
+Originals snapshotted in `backup/` (gitignored).
+
+- `scripts/check_headers.k` ← `scripts/check_headers.sh` (36/36 PASS)
+- `scripts/sweep.k` ← `sweep_examples.sh` + `sweep_algorithms.sh` +
+  `sweep_stdlib.sh` (single generic tool, `kr scripts/sweep.k <dir> [run|ir]`)
+- `scripts/sweep_tools.k` ← `scripts/sweep_tools.sh` (20/20)
+- `scripts/diag_failures.k` ← `scripts/diag_failures.sh`
+- `scripts/test_kbackend.k` ← `kcode-win/backend/test_kbackend.py`
+- `lsp/test_kls.k` ← `lsp/test_kls.py` (~181 LOC Python → ~140 Krypton)
+- `lsp/build.k` ← `lsp/build.bat` (flagged: still uses gcc deprecated path,
+  migration TODO)
+- `examples/settings_kcode_win.k` — proof port of `kcode-win/settings.py`
+
+**Net replaced: ~512 LOC bash/Python → ~470 LOC Krypton**, plus 190 LOC of
+reusable `stdlib/settings.k` infrastructure usable from any future Krypton
+app's config layer.
+
+### Comment-density cleanup (same day)
+
+- `kcc.sh` slimmed 434 → 393 LOC. **Every gcc-deprecation guardrail
+  preserved** — the "never go back to C" intent is explicit user
+  direction. Trimmed: divider comments, narrative paragraphs,
+  what-does-this-line comments. Kept: `--gcc DEPRECATED` block,
+  REBUILD_SEED.md references, platform architecture notes,
+  "do NOT introduce new callers" warnings.
+- All round-2 ports and stdlib/http.k re-trimmed with the same lens.
+
+### Known limitations
 
 - `import "k:other_stdlib"` from inside a stdlib module does NOT
   chain-pull functions into the user's IR. Workaround: either `import`
@@ -60,6 +90,11 @@ both arg-marshalling and int-return tables:
   what it needs via `import "head:..."`. Fix would require refactoring
   the import block in `compiler/compile.k` into a queue-based loop
   with recursion; deferred.
+- `fsListDir` segfaults on real directories (pre-existing struct-iterator
+  bug). All new scripts use `exec("cmd /C dir /b ...")` as a workaround.
+- `shellRun` has no timeout primitive; long-hanging child processes
+  block forever. `scripts/diag_failures.k` works around this with a
+  hardcoded HANG skip list.
 
 ## [2.0-final] - 2026-05-09 (in repo, installer not yet cut)
 
