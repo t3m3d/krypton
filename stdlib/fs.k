@@ -79,6 +79,64 @@ func fsMkdir(path) {
     emit CreateDirectoryA(path, toHandle("0"))
 }
 
+// Delete a file. Returns "1" on success, "0" on failure.
+func fsDelete(path) {
+    if len(path) == 0 { emit "0" }
+    emit DeleteFileA(path)
+}
+
+// Remove an empty directory. Returns "1" on success, "0" on failure.
+func fsRmdir(path) {
+    if len(path) == 0 { emit "0" }
+    emit RemoveDirectoryA(path)
+}
+
+// Move/rename file or directory. Returns "1" on success, "0" on failure.
+func fsRename(from, to) {
+    if len(from) == 0 { emit "0" }
+    if len(to)   == 0 { emit "0" }
+    emit MoveFileA(from, to)
+}
+
+// Copy file. If overwrite is "1", existing dest is replaced. Returns "1" on success.
+func fsCopy(from, to, overwrite) {
+    if len(from) == 0 { emit "0" }
+    if len(to)   == 0 { emit "0" }
+    let fail = "1"
+    if overwrite == "1" { fail = "0" }
+    emit CopyFileA(from, to, fail)
+}
+
+// Get current working directory. Returns absolute path string (no trailing slash).
+func fsCwd() {
+    let buf = bufNew(1024)
+    let n = GetCurrentDirectoryA("1024", buf)
+    if n == "0" { emit "" }
+    emit bufStr(buf)
+}
+
+// Change current working directory. Returns "1" on success, "0" on failure.
+func fsChdir(path) {
+    if len(path) == 0 { emit "0" }
+    emit SetCurrentDirectoryA(path)
+}
+
+// Get system temp directory path (with trailing backslash, per Win32 convention).
+func fsTempDir() {
+    let buf = bufNew(1024)
+    let n = GetTempPathA("1024", buf)
+    if n == "0" { emit "" }
+    emit bufStr(buf)
+}
+
+// Get user home directory. Reads %USERPROFILE% env var.
+func fsHomeDir() {
+    let buf = bufNew(1024)
+    let n = GetEnvironmentVariableA("USERPROFILE", buf, "1024")
+    if n == "0" { emit "" }
+    emit bufStr(buf)
+}
+
 // CreateFileA with GENERIC_READ + OPEN_EXISTING for read-only access.
 //   GENERIC_READ        = 0x80000000 = 2147483648
 //   FILE_SHARE_READ     = 0x00000001

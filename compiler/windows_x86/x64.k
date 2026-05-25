@@ -451,7 +451,7 @@ func emitStringTable(strs) {
 // ckrypton_proc.dll dropped 2026-05-11 after stdlib/fs.k + stdlib/proc.k
 // were already pure Krypton via head:windows + head:fileio.)
 
-let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,GetCurrentThreadId,GetLastError,SetLastError,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA,WaitForSingleObject,TerminateProcess,OpenProcess,CreateFileMappingA,MapViewOfFile,UnmapViewOfFile,GetModuleHandleA,SetEnvironmentVariableA,CreatePipe,PeekNamedPipe,CreateProcessA,InitializeProcThreadAttributeList,UpdateProcThreadAttribute,DeleteProcThreadAttributeList,CreatePseudoConsole,ResizePseudoConsole,ClosePseudoConsole,GetExitCodeProcess"
+let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,GetCurrentThreadId,GetLastError,SetLastError,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA,WaitForSingleObject,TerminateProcess,OpenProcess,CreateFileMappingA,MapViewOfFile,UnmapViewOfFile,GetModuleHandleA,SetEnvironmentVariableA,CreatePipe,PeekNamedPipe,CreateProcessA,InitializeProcThreadAttributeList,UpdateProcThreadAttribute,DeleteProcThreadAttributeList,CreatePseudoConsole,ResizePseudoConsole,ClosePseudoConsole,GetExitCodeProcess,CreateDirectoryA,DeleteFileA,RemoveDirectoryA,MoveFileA,CopyFileA,GetCurrentDirectoryA,SetCurrentDirectoryA,GetTempPathA"
 let KRUSER_FUNCS = "GetSystemMetrics,MessageBoxA,ShowWindow,SetTimer,KillTimer,GetForegroundWindow,SetForegroundWindow,GetMessageA,TranslateMessage,DispatchMessageA,PostQuitMessage,UpdateWindow,DestroyWindow,SetWindowTextA,GetWindowTextA,SendMessageA,GetDlgItem,InvalidateRect,MoveWindow,SetWindowPos,GetClientRect,GetWindowRect,RegisterClassExA,CreateWindowExA,DefWindowProcA,LoadCursorA,LoadIconA,CreateMenu,CreatePopupMenu,AppendMenuA,SetMenu,DrawMenuBar,DestroyMenu,LoadImageA,SetClassLongPtrA,FillRect,GetWindow"
 let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword,kr_envnew,kr_envset,kr_envget,kr_hasfield,kr_structfields,kr_repeat,kr_padleft,kr_padright,kr_reverse,kr_abs,kr_min,kr_max,kr_endswith,kr_bin,kr_pow,kr_gc_allocated,kr_gc_limit,kr_gc_set_limit,kr_gc_collect,kr_arena_reset,kr_gc_checkpoint,kr_gc_restore,kr_gc_slab_count,kr_gc_slab_bytes,kr_bufgetbyte,kr_bufgetwordat,kr_bufsetwordat,kr_bufsetqwordat,kr_bufgetwordatbe,kr_bufgetdwordatbe,kr_bufgetqwordatbe,kr_gc_alloc_count,kr_gc_shadow_count,kr_gc_shadow_pop_n,kr_gc_shadow_push,kr_gc_walk_allocs,kr_rdtsc,kr_gc_mark,kr_gc_sweep,kr_pause,kr_mfence,kr_lfence,kr_sfence,kr_gc_freelist_count,kr_set_wndproc,kr_wndproc_addr,kr_inttoptr"
 let KRADV_FUNCS = "RegOpenKeyExA,RegQueryValueExA,RegEnumKeyExA,RegCloseKey,GetUserNameA"
@@ -592,6 +592,14 @@ func win32IntArgs(name) {
     if name == "ReadFile"                    { emit "0,2,4" }  // handle, nBytes, lpOverlapped=NULL
     if name == "GetFileSizeEx"               { emit "0" }      // handle (size is OUT-ptr)
     if name == "GetFileAttributesA"          { emit "" }       // str arg
+    if name == "CreateDirectoryA"            { emit "" }       // path=str, sa=ptr-or-NULL (atoi-marshalled "0")
+    if name == "DeleteFileA"                 { emit "" }       // path=str
+    if name == "RemoveDirectoryA"            { emit "" }       // path=str
+    if name == "MoveFileA"                   { emit "" }       // from=str, to=str
+    if name == "CopyFileA"                   { emit "2" }      // from=str, to=str, failIfExists=BOOL
+    if name == "GetCurrentDirectoryA"        { emit "0" }      // size=DWORD, buf=ptr
+    if name == "SetCurrentDirectoryA"        { emit "" }       // path=str
+    if name == "GetTempPathA"                { emit "0" }      // size=DWORD, buf=ptr
     // Heap
     if name == "HeapFree"                    { emit "0,1" }    // handle, flags
     if name == "GetProcessHeap"              { emit "" }       // no args (returns HANDLE)
@@ -748,6 +756,14 @@ func win32IntReturns(name) {
     // DWORD returns
     if name == "GetLogicalDrives"           { emit "1" }
     if name == "GetFileAttributesA"         { emit "1" }
+    if name == "CreateDirectoryA"           { emit "1" }   // BOOL
+    if name == "DeleteFileA"                { emit "1" }   // BOOL
+    if name == "RemoveDirectoryA"           { emit "1" }   // BOOL
+    if name == "MoveFileA"                  { emit "1" }   // BOOL
+    if name == "CopyFileA"                  { emit "1" }   // BOOL
+    if name == "GetCurrentDirectoryA"       { emit "1" }   // DWORD (chars written)
+    if name == "SetCurrentDirectoryA"       { emit "1" }   // BOOL
+    if name == "GetTempPathA"               { emit "1" }   // DWORD (chars written)
     // File / virtual memory
     if name == "CreateFileA"                { emit "1" }   // HANDLE
     if name == "VirtualFree"                { emit "1" }   // BOOL
@@ -871,7 +887,7 @@ func win32IntReturns(name) {
 // CRITICAL: inlineBuiltinSize MUST exactly equal bytes emitted.
 func inlineBuiltinSize(name) {
     if name == "readLine" { emit 195 }
-    if name == "shellRun" { emit 314 }
+    if name == "shellRun" { emit 320 }
     if name == "exec"     { emit 613 }
     emit 0
 }
@@ -970,14 +986,18 @@ func emitShellRunInline(iatBases, funcBaseRva, callPos) {
     let iatCP   = iatEntryRvaFor("CreateProcessA",      iatBases)
     let iatWFSO = iatEntryRvaFor("WaitForSingleObject", iatBases)
     let iatCH   = iatEntryRvaFor("CloseHandle",         iatBases)
+    let iatGEX  = iatEntryRvaFor("GetExitCodeProcess",  iatBases)
+    // __user_rt_itoa lives at PE_TEXT_RVA + 69 (it's the second of two
+    // reserved helpers; __user_rt_atoi is 69 bytes and precedes it).
+    let itoaRva = 4096 + 69
     let d_gph1 = iatGPH  - (funcBaseRva + callPos + 38)
     let d_ha1  = iatHA   - (funcBaseRva + callPos + 61)
     let d_cp   = iatCP   - (funcBaseRva + callPos + 231)
     let d_wfso = iatWFSO - (funcBaseRva + callPos + 250)
-    let d_ch1  = iatCH   - (funcBaseRva + callPos + 264)
-    let d_ch2  = iatCH   - (funcBaseRva + callPos + 278)
-    let d_gph2 = iatGPH  - (funcBaseRva + callPos + 284)
-    let d_ha2  = iatHA   - (funcBaseRva + callPos + 301)
+    let d_gex  = iatGEX  - (funcBaseRva + callPos + 272)
+    let d_ch1  = iatCH   - (funcBaseRva + callPos + 286)
+    let d_ch2  = iatCH   - (funcBaseRva + callPos + 300)
+    let d_itoa = itoaRva - (funcBaseRva + callPos + 312)
     let s = ""
     // [0] PUSH RBX
     s = s + hexByte(0x53)
@@ -1085,29 +1105,27 @@ func emitShellRunInline(iatBases, funcBaseRva, callPos) {
     s = s + hexByte(0xBA)+hexByte(0xFF)+hexByte(0xFF)+hexByte(0xFF)+hexByte(0xFF)
     // [244] CALL [WaitForSingleObject]
     s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_wfso)
-    // [250] MOV RCX, [RSP+0xB8]  (hProcess, disp32)
+    // [250] MOV RCX, [RSP+0xB8]  (hProcess for GetExitCodeProcess, disp32)
     s = s + hexByte(0x48)+hexByte(0x8B)+hexByte(0x8C)+hexByte(0x24)+hexDword(0xB8)
-    // [258] CALL [CloseHandle]
+    // [258] LEA RDX, [RSP+0xD8]  (&exitCode — reuse strlen slot, free now, disp32)
+    s = s + hexByte(0x48)+hexByte(0x8D)+hexByte(0x94)+hexByte(0x24)+hexDword(0xD8)
+    // [266] CALL [GetExitCodeProcess]
+    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_gex)
+    // [272] MOV RCX, [RSP+0xB8]  (hProcess for CloseHandle, disp32)
+    s = s + hexByte(0x48)+hexByte(0x8B)+hexByte(0x8C)+hexByte(0x24)+hexDword(0xB8)
+    // [280] CALL [CloseHandle]  (hProcess)
     s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_ch1)
-    // [264] MOV RCX, [RSP+0xC0]  (hThread, disp32)
+    // [286] MOV RCX, [RSP+0xC0]  (hThread, disp32)
     s = s + hexByte(0x48)+hexByte(0x8B)+hexByte(0x8C)+hexByte(0x24)+hexDword(0xC0)
-    // [272] CALL [CloseHandle]
+    // [294] CALL [CloseHandle]  (hThread)
     s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_ch2)
-    // [278] CALL [GetProcessHeap]
-    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_gph2)
-    // [284] MOV RCX, RAX
-    s = s + hexByte(0x48)+hexByte(0x89)+hexByte(0xC1)
-    // [287] XOR EDX, EDX
-    s = s + hexByte(0x33)+hexByte(0xD2)
-    // [289] MOV R8D, 2
-    s = s + hexByte(0x41)+hexByte(0xB8)+hexDword(2)
-    // [295] CALL [HeapAlloc]
-    s = s + hexByte(0xFF)+hexByte(0x15)+hexDword(d_ha2)
-    // [301] MOV WORD [RAX], 0x0030  ("0\0")
-    s = s + hexByte(0x66)+hexByte(0xC7)+hexByte(0x00)+hexByte(0x30)+hexByte(0x00)
-    // [306] ADD RSP, 0xE8
+    // [300] MOV EAX, [RSP+0xD8]  (exitCode DWORD, zero-extends to RAX)
+    s = s + hexByte(0x8B)+hexByte(0x84)+hexByte(0x24)+hexDword(0xD8)
+    // [307] CALL __user_rt_itoa (E8 + rel32) — converts RAX int → RAX char*
+    s = s + hexByte(0xE8)+hexDword(d_itoa)
+    // [312] ADD RSP, 0xE8
     s = s + hexByte(0x48)+hexByte(0x81)+hexByte(0xC4)+hexDword(0xE8)
-    // [313] POP RBX
+    // [319] POP RBX
     s = s + hexByte(0x5B)
     emit s
 }
