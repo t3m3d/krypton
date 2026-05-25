@@ -11,7 +11,11 @@
 3. **~512 LOC bash/Python → ~470 LOC Krypton** so far (cumulative across day's work).
 4. **No risky changes** — compiler / x64.k / sibling repos all untouched.
 5. **First thing tomorrow:** I'll bring up the Krypton-equivalent-of-batch-files discussion (saved in memory). User said this is a real interest, not a deprecation of `.bat`.
-6. **Comment-trim pass done.** You asked for less comment bloat — applied to all 7 new files I wrote tonight (scripts/*.k, lsp/build.k, lsp/test_kls.k) plus light trim on stdlib/settings.k + stdlib/http.k. Kept only WHY-comments. Saved as `feedback_less_comments.md` so it sticks going forward. Smoke + regression re-verified clean post-trim. `kcc.sh` deliberately left alone (already committed; separate cleanup if you want).
+6. **Comment-trim pass done.** You asked for less comment bloat — applied to:
+   - All 7 new files (scripts/*.k, lsp/build.k, lsp/test_kls.k)
+   - Light trim on stdlib/settings.k + stdlib/http.k (kept WHY notes + API docstrings)
+   - `kcc.sh` itself: 434 → 393 LOC (-10%). **Every gcc-deprecation guardrail preserved** (you said: never go back to C). Trimmed: divider comments, narrative paragraphs, what-does-this-line comments. Kept: `--gcc DEPRECATED` block, "do NOT introduce new callers" warnings, REBUILD_SEED.md references, platform-by-platform architecture notes.
+   Saved rule as `feedback_less_comments.md`. The `feedback_less_comments.md` has a special "don't-backslide comments are LOAD-BEARING" clause covering the gcc-deprecated style of guardrail.
 
 ## What to look at, in order
 
