@@ -1,6 +1,11 @@
 compiler/linux_x86/elf_host
 compiler/linux_x86/optimize_host
 compiler/macos_arm64/macho_host
+
+# Local backups of original Python/bash scripts that have been ported
+# to Krypton equivalents. Reference-only — not for distribution.
+backup/
+
 *.bak
 *.res
 *.obj
