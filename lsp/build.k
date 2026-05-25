@@ -1,6 +1,10 @@
 #!/usr/bin/env kr
-// kr lsp/build.k
-// Replaces lsp/build.bat. Compiles lsp/kls.k → kls.exe via kcc + gcc.
+// kr lsp/build.k — build kls.exe from lsp/kls.k.
+//
+// CURRENTLY USES C+gcc — this is the deprecated path. Migrate to
+// `kcc.exe -o kls.exe lsp/kls.k` (native pipeline) as soon as kls.k
+// builds cleanly that way. Same goal as kcc.sh's --gcc deprecation:
+// no C compiler in the user-invocation path, ever.
 import "k:fs"
 
 just run {
@@ -13,6 +17,8 @@ just run {
         exit("1")
     }
 
+    // DEPRECATED step — when kls.k builds via native, drop steps 1+2
+    // and replace with a single `kcc.exe -o kls.exe lsp/kls.k`.
     kp("[2/2] gcc lsp/_kls.c -> kls.exe")
     let rcGcc = shellRun("gcc lsp\\_kls.c -o kls.exe -w")
     if rcGcc != "0" {
