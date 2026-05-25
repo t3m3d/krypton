@@ -1,24 +1,8 @@
-// lsp/test_kls.k — Krypton port of lsp/test_kls.py.
-//
-// Smoke test for kls.exe (Krypton Language Server). Pipes a sequence
-// of framed LSP requests into kls and prints the framed responses.
-//
-// Run from repo root:
-//   kr lsp/test_kls.k
-//   (or:  bash kcc.sh -r lsp/test_kls.k)
-//
-// The Python original was ~181 LOC. This port is ~140 LOC and does
-// the same job using:
-//   - stdlib/proc.k          (procSpawn/Write/Read instead of subprocess.Popen)
-//   - stdlib/json.k          (jsonStr / jsonObject for request frames)
-//   - manual Content-Length  (no Python `headers={}` dict needed)
-//
-// No PySide6, no shutil — pure Krypton.
-
+#!/usr/bin/env kr
+// kr lsp/test_kls.k
+// Replaces lsp/test_kls.py. LSP smoke test for kls.exe.
 import "k:proc"
 import "k:fs"
-
-// ── test fixtures: code snippets to drive diagnostics ─────────────
 
 let BAD_CODE = "func main() {\n    let x = \"unterminated\n    if (x > 5  {\n        kp(x)\n    }\n"
 
@@ -26,16 +10,10 @@ let GOOD_CODE = "module sample\n\nfunc add(a, b) {\n    emit a + b\n}\n\nfunc gr
 
 let DUP_CODE = "func foo() { emit 1 }\nfunc bar() { emit 2 }\nfunc foo() { emit 3 }\n"
 
-
-// ── LSP framing ────────────────────────────────────────────────────
-
-// Wrap a JSON body as a Content-Length-framed LSP message.
 func frame(body) {
     emit "Content-Length: " + len(body) + "\r\n\r\n" + body
 }
 
-// Find the start of a framed body after the \r\n\r\n separator.
-// Returns -1 if not found in the given buffer.
 func _findBodyStart(buf) {
     let i = 0
     while i + 3 < len(buf) {
@@ -51,13 +29,11 @@ func _findBodyStart(buf) {
     emit -1
 }
 
-// Parse Content-Length from the headers block (before \r\n\r\n).
 func _contentLength(headers) {
     let pfx = "Content-Length:"
     let p = indexOf(headers, pfx)
     if p < 0 { emit 0 }
     let i = p + len(pfx)
-    // skip whitespace
     while i < len(headers) && (headers[i] == " " || headers[i] == "\t") { i += 1 }
     let sb = sbNew()
     while i < len(headers) && headers[i] >= "0" && headers[i] <= "9" {
@@ -66,9 +42,6 @@ func _contentLength(headers) {
     }
     emit toInt(sbToString(sb))
 }
-
-
-// ── JSON helpers (tiny — request shapes are fixed) ────────────────
 
 func jstr(s) {
     let out = sbNew()
@@ -147,19 +120,13 @@ func dumpResponses(buf) {
 }
 
 
-// ── main ──────────────────────────────────────────────────────────
-
 just run {
     let badUri  = "file:///tmp/bad.k"
     let goodUri = "file:///tmp/good.k"
     let dupUri  = "file:///tmp/dup.k"
 
-    // Locate kls.exe — try install root first, then PATH.
     let klsPath = "C:\\krypton\\kls.exe"
     if fsFileExists(klsPath) != "1" { klsPath = "kls.exe" }
-    if klsPath == "kls.exe" {
-        kp("kls.exe not found at C:\\krypton; relying on PATH")
-    }
 
     let p = procSpawn(klsPath, "")
     if p == "0" {
@@ -167,7 +134,6 @@ just run {
         exit("1")
     }
 
-    // Send a sequence of LSP requests, framed.
     procWrite(p, frame(reqInit()))
     procWrite(p, frame(reqInitialized()))
     procWrite(p, frame(reqDidOpen(badUri, "krypton", "1", BAD_CODE)))
@@ -178,8 +144,7 @@ just run {
     procWrite(p, frame(reqShutdown("99")))
     procWrite(p, frame(reqExit()))
 
-    // Drain stdout — kls writes diagnostics + responses asynchronously,
-    // so give it a moment to flush, then read everything available.
+    // kls writes diagnostics async; let it flush before draining.
     procSleep(500)
     let buf = procRead(p, 65536)
 
