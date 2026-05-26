@@ -2,10 +2,31 @@
 
 All notable changes to the Krypton language and compiler.
 
-## [2.1-dev] - 2026-05-24 — Python-replacement push
+## [2.1.0] - 2026-05-25 — Python-replacement push
 
-Focus: make Krypton viable as a scripting alternative to small Python
-utility scripts. **97/97 regression** throughout.
+Theme: **make Krypton viable as a scripting alternative to small Python
+utility scripts.** Windows + Linux release; macOS arm64 parity port
+deferred to 2.1.1 (see `docs/HANDOFF_MACOS_2026_05_23.md`).
+
+**Cross-platform support matrix:**
+
+| Feature                         | Windows | Linux  | macOS |
+|---------------------------------|---------|--------|-------|
+| `kcc -e "code"` one-liner       | ✅      | ✅     | ✅    |
+| `kcc -r script.k` run mode      | ✅      | ✅     | ✅    |
+| `#!/usr/bin/env kr` shebang     | ✅      | ✅     | ✅    |
+| `shellRun` real exit code       | ✅      | (n/a — see below) | (n/a) |
+| Win32 IO inline helpers         | ✅      | n/a    | (already had macOS inline equivalents) |
+| KR32_FUNCS fs additions         | ✅      | n/a    | n/a    |
+| `stdlib/fs.k` (Win32-backed)    | ✅      | ❌ (needs POSIX port) | ❌ |
+| `stdlib/http.k` (curl-shellout) | ✅      | ✅ (curl on PATH) | ✅ |
+| `stdlib/settings.k` (%APPDATA%) | ✅      | ❌ (needs XDG port) | ❌ |
+
+Linux users get the driver-level improvements (one-liner, run mode,
+shebang, comment-trimmed kcc.sh) plus `stdlib/http.k`. Native Linux
+ports of `stdlib/fs.k` and `stdlib/settings.k` are open work for 2.1.1.
+
+**99/99 regression** maintained throughout.
 
 ### Compiler / driver
 
