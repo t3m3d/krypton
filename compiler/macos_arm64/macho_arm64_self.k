@@ -1125,7 +1125,49 @@ func appendFunc(sb, name, params, nParams, locals, nLocals, opsStr, nOps) {
     emit sb
 }
 
+// Collect unique LOCAL variable names from __main__ — these are module globals
+// shared across all functions. Returns a newline-separated list of names.
+func collectModuleGlobals(ir) {
+    let sb = sbNew()
+    let n = 0
+    let nl = lineCount(ir)
+    let i = 0
+    let inMain = "0"
+    while i < nl {
+        let line = trim(getLine(ir, i))
+        if len(line) > 0 && line[0] != ";" {
+            let j = 0
+            while j < len(line) && line[j] != " " { j += 1 }
+            let op = substring(line, 0, j)
+            let rest = ""
+            if j < len(line) { rest = trim(substring(line, j + 1, len(line))) }
+            if op == "FUNC" {
+                let sp = 0
+                while sp < len(rest) && rest[sp] != " " { sp += 1 }
+                let fname = substring(rest, 0, sp)
+                if fname == "__main__" { inMain = "1" }
+                else { inMain = "0" }
+            } else if op == "LOCAL" && inMain == "1" {
+                // Skip compiler-generated names (start with "__") — e.g. __sh_save.
+                // Only user-declared module-level `let` variables become globals.
+                if len(rest) < 2 || rest[0] != "_" || rest[1] != "_" {
+                    let idx = internSb(sb, n, rest)
+                    if idx == n { n += 1 }
+                }
+            }
+        }
+        i += 1
+    }
+    emit sbToString(sb)
+}
+
 func parseFullIR(ir) {
+    // Collect module globals (all LOCALs declared in __main__). These are
+    // shared across functions via x28-relative addressing instead of frame slots.
+    let globalsStr = collectModuleGlobals(ir)
+    let numGlobals = 0
+    if len(globalsStr) > 0 { numGlobals = lineCount(globalsStr) }
+
     // sbStrings holds interned globals as a newline-separated string. Using sb
     // for O(name_length) append (vs O(total_strings_length) for string concat).
     let sbStrings = sbNew()
@@ -1179,43 +1221,55 @@ func parseFullIR(ir) {
                 } else if op == "LOAD" {
                     let paramSnap = sbToString(sbParams)
                     let pIdx = findInList(paramSnap, nParams, rest)
-                    let slot = 0 - 1
                     if pIdx >= 0 {
-                        slot = pIdx
+                        curOps = sbAppend(curOps, "LOAD_SLOT " + pIdx + "\n")
+                        nOps += 1
                     } else {
                         let localSnap = sbToString(sbLocals)
                         let lIdx = findInList(localSnap, nLocals, rest)
                         if lIdx >= 0 {
-                            slot = nParams + lIdx
+                            curOps = sbAppend(curOps, "LOAD_SLOT " + (nParams + lIdx) + "\n")
+                            nOps += 1
                         } else {
-                            if nLocals > 0 { sbAppend(sbLocals, "\n") }
-                            sbAppend(sbLocals, rest)
-                            slot = nParams + nLocals
-                            nLocals += 1
+                            let gIdx = findInList(globalsStr, numGlobals, rest)
+                            if gIdx >= 0 {
+                                curOps = sbAppend(curOps, "LOAD_GLOBAL " + gIdx + "\n")
+                                nOps += 1
+                            } else {
+                                if nLocals > 0 { sbAppend(sbLocals, "\n") }
+                                sbAppend(sbLocals, rest)
+                                curOps = sbAppend(curOps, "LOAD_SLOT " + (nParams + nLocals) + "\n")
+                                nLocals += 1
+                                nOps += 1
+                            }
                         }
                     }
-                    curOps = sbAppend(curOps, "LOAD_SLOT " + slot + "\n")
-                    nOps += 1
                 } else if op == "STORE" {
                     let paramSnap = sbToString(sbParams)
                     let pIdx = findInList(paramSnap, nParams, rest)
-                    let slot = 0 - 1
                     if pIdx >= 0 {
-                        slot = pIdx
+                        curOps = sbAppend(curOps, "STORE_SLOT " + pIdx + "\n")
+                        nOps += 1
                     } else {
                         let localSnap = sbToString(sbLocals)
                         let lIdx = findInList(localSnap, nLocals, rest)
                         if lIdx >= 0 {
-                            slot = nParams + lIdx
+                            curOps = sbAppend(curOps, "STORE_SLOT " + (nParams + lIdx) + "\n")
+                            nOps += 1
                         } else {
-                            if nLocals > 0 { sbAppend(sbLocals, "\n") }
-                            sbAppend(sbLocals, rest)
-                            slot = nParams + nLocals
-                            nLocals += 1
+                            let gIdx = findInList(globalsStr, numGlobals, rest)
+                            if gIdx >= 0 {
+                                curOps = sbAppend(curOps, "STORE_GLOBAL " + gIdx + "\n")
+                                nOps += 1
+                            } else {
+                                if nLocals > 0 { sbAppend(sbLocals, "\n") }
+                                sbAppend(sbLocals, rest)
+                                curOps = sbAppend(curOps, "STORE_SLOT " + (nParams + nLocals) + "\n")
+                                nLocals += 1
+                                nOps += 1
+                            }
                         }
                     }
-                    curOps = sbAppend(curOps, "STORE_SLOT " + slot + "\n")
-                    nOps += 1
                 } else if op == "CALL" {
                     let sp = 0
                     while sp < len(rest) && rest[sp] != " " { sp += 1 }
@@ -1319,14 +1373,19 @@ func parseFullIR(ir) {
                     curOps = sbAppend(curOps, "INDEX\n")
                     nOps += 1
                 } else if op == "LOCAL" {
-                    // Skip if already a param; otherwise add to locals list (no op emitted)
-                    let pIdx = findInList(sbToString(sbParams), nParams, rest)
-                    if pIdx < 0 {
-                        let lIdx = findInList(sbToString(sbLocals), nLocals, rest)
-                        if lIdx < 0 {
-                            if nLocals > 0 { sbAppend(sbLocals, "\n") }
-                            sbAppend(sbLocals, rest)
-                            nLocals += 1
+                    // Module globals (any LOCAL from __main__) are accessed via
+                    // x28-relative addressing; skip creating a frame slot for them.
+                    let gIdx = findInList(globalsStr, numGlobals, rest)
+                    if gIdx < 0 {
+                        // Not a module global — add to function-local frame slots.
+                        let pIdx = findInList(sbToString(sbParams), nParams, rest)
+                        if pIdx < 0 {
+                            let lIdx = findInList(sbToString(sbLocals), nLocals, rest)
+                            if lIdx < 0 {
+                                if nLocals > 0 { sbAppend(sbLocals, "\n") }
+                                sbAppend(sbLocals, rest)
+                                nLocals += 1
+                            }
                         }
                     }
                 } else if op == "BUILTIN" {
@@ -1686,6 +1745,8 @@ func opInstrCount(opTok) {
     if opTok == "PUSH_INT"     { emit 3 }   // movz low / movk high or nop / push
     if opTok == "LOAD_SLOT"    { emit 2 }
     if opTok == "STORE_SLOT"   { emit 2 }
+    if opTok == "LOAD_GLOBAL"  { emit 4 }
+    if opTok == "STORE_GLOBAL" { emit 4 }
     if opTok == "ADD"          { emit 193 } // int+int(8)|numstr+int(71)|concat(111)
     if opTok == "CAT"          { emit 113 } // 2 pops + emitPolyConcat (111)
     if opTok == "SUB"          { emit 4 }
@@ -3957,6 +4018,31 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_pop_x0()
             s = s + arm64_stur(0, 29, off)
             instrIdx = instrIdx + 2
+        } else if opTok == "LOAD_GLOBAL" {
+            let gIdx = toInt(restTok)
+            let glbVaddr = g_DATA_VADDR + 0x200000 + gIdx * 8
+            let adrpPc = textVaddr + textOff + instrIdx * 4
+            let adrpPage = adrpPc / 4096 * 4096
+            let glbPage = glbVaddr / 4096 * 4096
+            let imm21lg = (glbPage - adrpPage) / 4096
+            s = s + arm64_adrp(0, imm21lg)
+            s = s + arm64_add_imm(0, 0, glbVaddr % 4096)
+            s = s + arm64_ldr_imm(0, 0, 0)
+            s = s + arm64_push_x0()
+            instrIdx = instrIdx + 4
+        } else if opTok == "STORE_GLOBAL" {
+            let gIdx = toInt(restTok)
+            let glbVaddr = g_DATA_VADDR + 0x200000 + gIdx * 8
+            s = s + arm64_pop_x0()
+            instrIdx = instrIdx + 1
+            let adrpPc = textVaddr + textOff + instrIdx * 4
+            let adrpPage = adrpPc / 4096 * 4096
+            let glbPage = glbVaddr / 4096 * 4096
+            let imm21sg = (glbPage - adrpPage) / 4096
+            s = s + arm64_adrp(1, imm21sg)
+            s = s + arm64_add_imm(1, 1, glbVaddr % 4096)
+            s = s + arm64_str_imm(0, 1, 0)
+            instrIdx = instrIdx + 3
         } else if opTok == "BUILTIN_KP" {
             // kp(v): write v to stdout + newline. Handles both strings and ints.
             // Dispatch: if v < 0x100000000 it's an int; else a pointer (heap or __TEXT).
@@ -4779,6 +4865,11 @@ just run {
     let codeLimit = hexBytesLen(body)
     if codeLimit != CODESIG_OFF() {
         printErr("macho_arm64_self: BUG: body size " + codeLimit + " != CODESIG_OFF " + CODESIG_OFF())
+        printErr("  prefix=" + hexBytesLen(prefix) + " preTextPad=" + preTextPad + " textCode=" + hexBytesLen(textCode))
+        printErr("  stubCode=" + hexBytesLen(stubCode) + " cstrData=" + hexBytesLen(cstrData) + " postCstringPad=" + postCstringPad)
+        printErr("  gotData=" + hexBytesLen(gotData) + " postGotPad=" + postGotPad + " postDataPad=" + postDataPad)
+        printErr("  leChained=" + hexBytesLen(leChained) + " leSymtab=" + hexBytesLen(leSymtab) + " leIndirect=" + hexBytesLen(leIndirect) + " leStrtab=" + hexBytesLen(leStrtab) + " preCodesigPad=" + preCodesigPad)
+        printErr("  g_TEXT_SIZE=" + g_TEXT_SIZE + " g_CSTRING_SIZE=" + g_CSTRING_SIZE)
         exit("1")
     }
 
