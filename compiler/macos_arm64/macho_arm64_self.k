@@ -760,6 +760,46 @@ func arm64_orr_xxx(rd, rn, rm) {
 func arm64_eor_xxx(rd, rn, rm) {
     emit hexDword(0xca000000 + (rm * 0x10000) + (rn * 0x20) + rd)
 }
+// and Xd, Xn, Xm  (64-bit bitwise AND) → 0x8a000000 | (Rm<<16) | (Rn<<5) | Rd
+func arm64_and_xxx(rd, rn, rm) {
+    emit hexDword(0x8a000000 + (rm * 0x10000) + (rn * 0x20) + rd)
+}
+// and Wd, Wn, Wm  (32-bit bitwise AND, zero-extends to Xd) → 0x0a000000 | ...
+func arm64_and_www(rd, rn, rm) {
+    emit hexDword(0x0a000000 + (rm * 0x10000) + (rn * 0x20) + rd)
+}
+// orr Wd, Wn, Wm  (32-bit bitwise OR, zero-extends to Xd) → 0x2a000000 | ...
+func arm64_orr_www(rd, rn, rm) {
+    emit hexDword(0x2a000000 + (rm * 0x10000) + (rn * 0x20) + rd)
+}
+// eor Wd, Wn, Wm  (32-bit bitwise XOR, zero-extends to Xd) → 0x4a000000 | ...
+func arm64_eor_www(rd, rn, rm) {
+    emit hexDword(0x4a000000 + (rm * 0x10000) + (rn * 0x20) + rd)
+}
+// lsl Wd, Wn, Wm  (32-bit variable shift left; LSLV W alias) → 0x1AC02000
+func arm64_lsl_w(rd, rn, rm) {
+    emit hexDword(0x1ac02000 + (rm * 0x10000) + (rn * 0x20) + rd)
+}
+// lsr Wd, Wn, Wm  (32-bit variable shift right; LSRV W alias) → 0x1AC02400
+func arm64_lsr_w(rd, rn, rm) {
+    emit hexDword(0x1ac02400 + (rm * 0x10000) + (rn * 0x20) + rd)
+}
+// lsl Xd, Xn, Xm  (64-bit variable shift left; LSLV alias) → 0x9AC02000
+func arm64_lsl_var(rd, rn, rm) {
+    emit hexDword(0x9ac02000 + (rm * 0x10000) + (rn * 0x20) + rd)
+}
+// lsr Xd, Xn, Xm  (64-bit variable shift right; LSRV alias) → 0x9AC02400
+func arm64_lsr_var(rd, rn, rm) {
+    emit hexDword(0x9ac02400 + (rm * 0x10000) + (rn * 0x20) + rd)
+}
+// mvn Xd, Xm  (64-bit bitwise NOT; ORN Xd, XZR, Xm) → 0xAA200000 | (Rm<<16) | (31<<5) | Rd
+func arm64_mvn_x(rd, rm) {
+    emit hexDword(0xaa200000 + (rm * 0x10000) + 0x3e0 + rd)
+}
+// mvn Wd, Wm  (32-bit bitwise NOT, zero-extends to Xd; ORN Wd, WZR, Wm) → 0x2A200000 | ...
+func arm64_mvn_w(rd, rm) {
+    emit hexDword(0x2a200000 + (rm * 0x10000) + 0x3e0 + rd)
+}
 // lsr Xd, Xn, #32  (logical right shift by 32; alias for ubfm)
 //   ubfm 64-bit: 0xd3400000 | (immr<<16) | (imms<<10) | (Rn<<5) | Rd
 //   For LSR #N: immr=N, imms=63. For N=32: 0xd3400000 + (32<<16) + (63<<10) = 0xd360FC00
@@ -1276,7 +1316,13 @@ func parseFullIR(ir) {
                     let cname = substring(rest, 0, sp)
                     let cargc = "0"
                     if sp < len(rest) { cargc = trim(substring(rest, sp + 1, len(rest))) }
-                    curOps = sbAppend(curOps, "CALL_FUNC " + cname + " " + cargc + "\n")
+                    if cname == "bitAnd"    { curOps = sbAppend(curOps, "BUILTIN_BITAND\n") }
+                    else if cname == "bitOr"  { curOps = sbAppend(curOps, "BUILTIN_BITOR\n") }
+                    else if cname == "bitXor" { curOps = sbAppend(curOps, "BUILTIN_BITXOR\n") }
+                    else if cname == "bitShr" { curOps = sbAppend(curOps, "BUILTIN_BITSHR\n") }
+                    else if cname == "bitShl" { curOps = sbAppend(curOps, "BUILTIN_BITSHL\n") }
+                    else if cname == "bitNot" { curOps = sbAppend(curOps, "BUILTIN_BITNOT\n") }
+                    else { curOps = sbAppend(curOps, "CALL_FUNC " + cname + " " + cargc + "\n") }
                     nOps += 1
                 } else if op == "RETURN" {
                     curOps = sbAppend(curOps, "RETURN\n")
@@ -1781,6 +1827,12 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_CONTAINS"     { emit 23 }   // indexOf core (20) + cmp + cset + push
     if opTok == "BUILTIN_PRINT"        { emit 52 }
     if opTok == "BUILTIN_PRINTERR"     { emit 52 }
+    if opTok == "BUILTIN_BITAND"       { emit 4 }  // pop x1, pop x0, and, push
+    if opTok == "BUILTIN_BITOR"        { emit 4 }  // pop x1, pop x0, orr, push
+    if opTok == "BUILTIN_BITXOR"       { emit 4 }  // pop x1, pop x0, eor, push
+    if opTok == "BUILTIN_BITSHR"       { emit 4 }  // pop x1, pop x0, lsr, push
+    if opTok == "BUILTIN_BITSHL"       { emit 4 }  // pop x1, pop x0, lsl, push
+    if opTok == "BUILTIN_BITNOT"       { emit 3 }  // pop x0, mvn, push
     if opTok == "BUILTIN_POW"          { emit 8 }
     if opTok == "BUILTIN_ENDSWITH"     { emit 29 }
     if opTok == "BUILTIN_ARG"          { emit 25 }  // inline-toInt + load argv + index
@@ -1996,7 +2048,7 @@ func computeTextSize(parsed) {
 
 // Emit one function: prologue (with param save) + ops + epilogue. instrIdx is
 // absolute within __text (so jumps can use absolute deltas).
-func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
+func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz) {
     let frame = computeFrameSizeF(parsed, fIdx)
     let nP = funcNParams(parsed, fIdx)
     let nO = funcNOps(parsed, fIdx)
@@ -2004,7 +2056,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
 
     let textVaddr = 0x100000000
     let textOff = 0x460
-    let stubsOff = textOff + g_TEXT_SIZE
+    let stubsOff = textOff + textSz
     let cstringOff = stubsOff + 12
     let stubVaddr = textVaddr + stubsOff
 
@@ -4135,6 +4187,41 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_add_imm(1, 1, glbVaddr % 4096)
             s = s + arm64_str_imm(0, 1, 0)
             instrIdx = instrIdx + 3
+        } else if opTok == "BUILTIN_BITAND" {
+            s = s + arm64_pop(1)
+            s = s + arm64_pop(0)
+            s = s + arm64_and_www(0, 0, 1)
+            s = s + arm64_push_x0()
+            instrIdx = instrIdx + 4
+        } else if opTok == "BUILTIN_BITOR" {
+            s = s + arm64_pop(1)
+            s = s + arm64_pop(0)
+            s = s + arm64_orr_www(0, 0, 1)
+            s = s + arm64_push_x0()
+            instrIdx = instrIdx + 4
+        } else if opTok == "BUILTIN_BITXOR" {
+            s = s + arm64_pop(1)
+            s = s + arm64_pop(0)
+            s = s + arm64_eor_www(0, 0, 1)
+            s = s + arm64_push_x0()
+            instrIdx = instrIdx + 4
+        } else if opTok == "BUILTIN_BITSHR" {
+            s = s + arm64_pop(1)
+            s = s + arm64_pop(0)
+            s = s + arm64_lsr_w(0, 0, 1)
+            s = s + arm64_push_x0()
+            instrIdx = instrIdx + 4
+        } else if opTok == "BUILTIN_BITSHL" {
+            s = s + arm64_pop(1)
+            s = s + arm64_pop(0)
+            s = s + arm64_lsl_w(0, 0, 1)
+            s = s + arm64_push_x0()
+            instrIdx = instrIdx + 4
+        } else if opTok == "BUILTIN_BITNOT" {
+            s = s + arm64_pop(0)
+            s = s + arm64_mvn_w(0, 0)
+            s = s + arm64_push_x0()
+            instrIdx = instrIdx + 3
         } else if opTok == "BUILTIN_KP" {
             // kp(v): write v to stdout + newline. Handles both strings and ints.
             // Dispatch: if v < 0x100000000 it's an int; else a pointer (heap or __TEXT).
@@ -4270,7 +4357,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
 
 // Top-level emitter: walk all functions in emission order (__main__ first)
 // and concatenate.
-func emitTextFromIR(parsed, strOffsets) {
+func emitTextFromIR(parsed, strOffsets, textSz) {
     let order = emitOrder(parsed)
     let nF = funcCount(parsed)
     let funcTable = buildFunctionTable(parsed)
@@ -4279,7 +4366,7 @@ func emitTextFromIR(parsed, strOffsets) {
     while oi < nF {
         let fIdx = toInt(getLine(order, oi))
         let funcStartInstr = findLabel(funcTable, funcName(parsed, fIdx))
-        s = s + emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets)
+        s = s + emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz)
         oi += 1
     }
     emit s
@@ -4915,7 +5002,8 @@ just run {
     let textCode = ""
     let cstrData = ""
     if useIr == "1" {
-        textCode = emitTextFromIR(irOps, irStrOffsets)
+        let freshTextSz = computeTextSize(irOps)
+        textCode = emitTextFromIR(irOps, irStrOffsets, freshTextSz)
         cstrData = emitCStringFromIR(irOps)
         // GC only scans the stack for roots, not BSS globals. During the large
         // emits above, GC may collect the string values of g_TEXT_SIZE /
