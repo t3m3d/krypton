@@ -1759,7 +1759,7 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_GCSLABBYTES"      { emit 2 }
     if opTok == "BUILTIN_FROMCHARCODE" { emit 26 }
     if opTok == "BUILTIN_READLINE"     { emit 46 }
-    if opTok == "BUILTIN_SHELLRUN"     { emit 44 }
+    if opTok == "BUILTIN_SHELLRUN"     { emit 84 }
     if opTok == "BUILTIN_EXEC"         { emit 98 }
     if opTok == "BUILTIN_MAPHAS"       { emit 32 }
     if opTok == "BUILTIN_MAPGET"       { emit 93 }
@@ -3505,7 +3505,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_push(20)                                  // 45: DONE
             instrIdx = instrIdx + 46
         } else if opTok == "BUILTIN_SHELLRUN" {
-            // shellRun(cmd): fork+execve /bin/sh -c cmd, wait. 44 instrs.
+            // shellRun(cmd): fork+execve /bin/sh -c cmd, wait, return real exit code. 84 instrs.
             s = s + arm64_pop(3)                                     // 0: cmd
             s = s + arm64_sub_sp(64)                                 // 1
             s = s + arm64_movz_x_imm(0, 0x622f)                     // 2: "/bin/sh\0" low
@@ -3531,29 +3531,53 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_add_imm(6, 6, 1)                          // 19: argc+1
             s = s + arm64_movz_x_imm(8, 8)                          // 20
             s = s + arm64_mul_xxx(6, 6, 8)                          // 21: (argc+1)*8
-            s = s + arm64_add_xxx(5, 7, 6)                          // 22: envp
+            s = s + arm64_add_xxx(5, 7, 6)                          // 22: envp in x5
             s = s + arm64_movz_x_imm(16, 2)                         // 23: SYS_fork
-            s = s + arm64_svc(0x80)                                 // 24
-            s = s + arm64_cbnz(1, 9)                                // 25: → CHILD@34
-            s = s + arm64_movz_x_imm(1, 0)                          // 26: wait4 status=NULL
-            s = s + arm64_movz_x_imm(2, 0)                          // 27
-            s = s + arm64_movz_x_imm(3, 0)                          // 28
+            s = s + arm64_svc(0x80)                                  // 24
+            s = s + arm64_cbnz(1, 51)                               // 25: → CHILD@76
+            // PARENT: wait4 with status capture, then itoa exit code
+            s = s + arm64_add_imm(1, 31, 48)                        // 26: x1=&status@[sp+48]
+            s = s + arm64_movz_x_imm(2, 0)                          // 27: options=0
+            s = s + arm64_movz_x_imm(3, 0)                          // 28: rusage=NULL
             s = s + arm64_movz_x_imm(16, 7)                         // 29: SYS_wait4
-            s = s + arm64_svc(0x80)                                 // 30
-            s = s + arm64_add_sp(64)                                // 31
-            s = s + arm64_movz_x_imm(0, 0)                          // 32: return 0
-            s = s + arm64_b(9)                                      // 33: → DONE@42
-            s = s + arm64_add_imm(0, 31, 0)                         // 34: CHILD: x0=sp
-            s = s + arm64_add_imm(1, 31, 16)                        // 35: x1=argv
-            s = s + arm64_mov_xx(2, 5)                              // 36: envp
-            s = s + arm64_movz_x_imm(16, 59)                        // 37: SYS_execve
-            s = s + arm64_svc(0x80)                                 // 38
-            s = s + arm64_movz_x_imm(0, 1)                          // 39: exit(1)
-            s = s + arm64_movz_x_imm(16, 1)                         // 40: SYS_exit
-            s = s + arm64_svc(0x80)                                 // 41
-            s = s + arm64_movz_x_imm(0, 0)                          // 42: DONE return 0
-            s = s + arm64_push_x0()                                 // 43
-            instrIdx = instrIdx + 44
+            s = s + arm64_svc(0x80)                                  // 30
+            s = s + arm64_ldr_imm(8, 31, 6)                         // 31: x8=status@[sp+48]
+            s = s + hexDword(0xd348fd08)                             // 32: lsr x8,x8,#8
+            s = s + hexDword(0x12001d08)                             // 33: and w8,w8,#0xff (WEXITSTATUS)
+            s = s + arm64_add_sp(64)                                 // 34: clean stack
+            s = s + emitAllocN(4, instrIdx + 35, textVaddr, textOff) // 35-55: heap buf→x0
+            s = s + arm64_mov_xx(4, 0)                               // 56: x4=buf
+            s = s + arm64_strb_imm(31, 4, 3)                        // 57: buf[3]='\0'
+            s = s + arm64_movz_x_imm(9, 10)                         // 58: divisor=10
+            s = s + arm64_udiv_xxx(10, 8, 9)                        // 59: x10=x8/10
+            s = s + arm64_msub_xxxx(11, 10, 9, 8)                   // 60: x11=ones digit
+            s = s + arm64_add_imm(11, 11, 0x30)                     // 61: +'0'
+            s = s + arm64_strb_imm(11, 4, 2)                        // 62: buf[2]=ones
+            s = s + arm64_add_imm(5, 4, 2)                          // 63: start=buf+2
+            s = s + arm64_cbz(10, 10)                               // 64: x10==0 → PUSH@74
+            s = s + arm64_udiv_xxx(8, 10, 9)                        // 65: x8=hundreds
+            s = s + arm64_msub_xxxx(12, 8, 9, 10)                   // 66: x12=tens digit
+            s = s + arm64_add_imm(12, 12, 0x30)                     // 67: +'0'
+            s = s + arm64_strb_imm(12, 4, 1)                        // 68: buf[1]=tens
+            s = s + arm64_add_imm(5, 4, 1)                          // 69: start=buf+1
+            s = s + arm64_cbz(8, 4)                                  // 70: x8==0 → PUSH@74
+            s = s + arm64_add_imm(8, 8, 0x30)                       // 71: hundreds+'0'
+            s = s + arm64_strb_imm(8, 4, 0)                         // 72: buf[0]=hundreds
+            s = s + arm64_mov_xx(5, 4)                               // 73: start=buf+0
+            // PUSH@74:
+            s = s + arm64_push(5)                                    // 74: push result string
+            s = s + arm64_b(9)                                       // 75: → SHELLRUN_DONE@84
+            // CHILD path (76-83):
+            s = s + arm64_add_imm(0, 31, 0)                         // 76: x0=sp="/bin/sh"
+            s = s + arm64_add_imm(1, 31, 16)                        // 77: x1=argv@sp+16
+            s = s + arm64_mov_xx(2, 5)                               // 78: x2=envp (x5 from fork)
+            s = s + arm64_movz_x_imm(16, 59)                         // 79: SYS_execve
+            s = s + arm64_svc(0x80)                                  // 80
+            s = s + arm64_movz_x_imm(0, 1)                          // 81: exit(1) if execve fails
+            s = s + arm64_movz_x_imm(16, 1)                         // 82: SYS_exit
+            s = s + arm64_svc(0x80)                                  // 83
+            // SHELLRUN_DONE@84
+            instrIdx = instrIdx + 84
         } else if opTok == "BUILTIN_MAPHAS" {
             // mapHas(map, key): scan flat "k1,v1,..." pairs. Return 1 if found, 0 if not. 32 instrs.
             s = s + arm64_pop(6)                                     // 0: key
