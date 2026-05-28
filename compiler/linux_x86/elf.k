@@ -3434,11 +3434,32 @@ func labelOffset(labels, name) {
 // Same lookup pattern, used for funcVAddrs: "name:vaddr\n..."
 func funcVAddr(table, name) { emit labelOffset(table, name) }
 
+// A1 float: a non-string numeric PUSH operand with a '.' is a float literal.
+func strHasDot(s) {
+    let i = 0
+    while i < len(s) { if substring(s, i, i + 1) == "." { emit 1 }  i = i + 1 }
+    emit 0
+}
+
 // Predictable byte size for each lowered op. MUST match emit exactly.
 // Always uses disp32 form for locals (no disp8 optimization).
 func opByteSize(op) {
     if op == "PUSH_STR"   { emit 11 }   // 48 BF imm64 (10) + 50/57 push (1)
     if op == "PUSH_INT"   { emit 11 }
+    // A1 float (boxed-f64, SSE2). PUSH_FLOAT: mov M/cvtsi2sd, mov scale/cvtsi2sd,
+    // divsd, box(mov edi,8/call kr_alloc/movsd[rax]), push.
+    if op == "PUSH_FLOAT" { emit 49 }
+    if op == "BUILTIN_FADD"  { emit 60 }  // pop b,a; fload both; addsd; box; push
+    if op == "BUILTIN_FSUB"  { emit 60 }
+    if op == "BUILTIN_FMUL"  { emit 60 }
+    if op == "BUILTIN_FDIV"  { emit 60 }
+    if op == "BUILTIN_FSQRT" { emit 39 }  // pop a; fload; sqrtsd(4); box; push
+    if op == "BUILTIN_FFLOOR"{ emit 41 }  // pop a; fload; roundsd(6); box; push
+    if op == "BUILTIN_FCEIL" { emit 41 }
+    if op == "BUILTIN_FROUND"{ emit 41 }
+    if op == "BUILTIN_FLT"   { emit 53 }  // pop b,a; fload both; ucomisd; setcc; movzx; push
+    if op == "BUILTIN_FGT"   { emit 53 }
+    if op == "BUILTIN_FEQ"   { emit 53 }
     if op == "STORE_LOCAL"{ emit 8 }    // POP RAX (1) + MOV [RBP+d32], RAX (7)
     if op == "LOAD_LOCAL" { emit 8 }    // MOV RAX, [RBP+d32] (7) + PUSH RAX (1)
     if op == "LOAD_PARAM" { emit 8 }    // same encoding (positive disp32)
@@ -3456,7 +3477,7 @@ func opByteSize(op) {
     if op == "GT"         { emit 44 }
     if op == "LTE"        { emit 44 }
     if op == "GTE"        { emit 44 }
-    if op == "NEG"        { emit 5 }    // POP RAX + NEG RAX + PUSH RAX
+    if op == "NEG"        { emit 52 }   // polymorphic: int NEG / float box deref+fneg+rebox
     if op == "NOT"        { emit 10 }   // POP RDI + CALL kr_istruthy + XOR EAX,1 + PUSH RAX
     if op == "RETURN"     { emit 6 }    // POP RAX (1) + MOV RSP,RBP (3) + POP RBP (1) + RET (1)
     if op == "BUILTIN_KP" { emit 25 }   // smart: POP+CMP+JAE+kr_str_int+kr_print+PUSH 0
@@ -3763,6 +3784,12 @@ func parseIR(ir) {
                     if opCount > 0 { opSb = sbAppend(opSb, "\n") }
                     opSb = sbAppend(opSb, "PUSH_STR " + idx)
                     opCount += 1
+                } else if strHasDot(rest) == 1 {
+                    // A1 float literal (has a '.'): non-string numeric PUSH with a
+                    // decimal point. Materialized at runtime as M/scale + boxed.
+                    if opCount > 0 { opSb = sbAppend(opSb, "\n") }
+                    opSb = sbAppend(opSb, "PUSH_FLOAT " + rest)
+                    opCount += 1
                 } else {
                     if opCount > 0 { opSb = sbAppend(opSb, "\n") }
                     opSb = sbAppend(opSb, "PUSH_INT " + rest)
@@ -4013,6 +4040,28 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_PTYSLAVENAME")
                 } else if bname == "ptyForkExec" {
                     opSb = sbAppend(opSb, "BUILTIN_PTYFORKEXEC")
+                } else if bname == "fadd" {
+                    opSb = sbAppend(opSb, "BUILTIN_FADD")
+                } else if bname == "fsub" {
+                    opSb = sbAppend(opSb, "BUILTIN_FSUB")
+                } else if bname == "fmul" {
+                    opSb = sbAppend(opSb, "BUILTIN_FMUL")
+                } else if bname == "fdiv" {
+                    opSb = sbAppend(opSb, "BUILTIN_FDIV")
+                } else if bname == "fsqrt" {
+                    opSb = sbAppend(opSb, "BUILTIN_FSQRT")
+                } else if bname == "ffloor" {
+                    opSb = sbAppend(opSb, "BUILTIN_FFLOOR")
+                } else if bname == "fceil" {
+                    opSb = sbAppend(opSb, "BUILTIN_FCEIL")
+                } else if bname == "fround" {
+                    opSb = sbAppend(opSb, "BUILTIN_FROUND")
+                } else if bname == "flt" {
+                    opSb = sbAppend(opSb, "BUILTIN_FLT")
+                } else if bname == "fgt" {
+                    opSb = sbAppend(opSb, "BUILTIN_FGT")
+                } else if bname == "feq" {
+                    opSb = sbAppend(opSb, "BUILTIN_FEQ")
                 } else {
                     // Unknown builtin: emit a marker and leave the stack
                     // alone. Programs that hit this are already incorrect;
@@ -4149,6 +4198,105 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             let n = toInt(rest)
             c = sbAppend(c, hexByte(0x48) + hexByte(0xBF) + hexQword(n))
             c = sbAppend(c, hexByte(0x57))
+        } else if op == "PUSH_FLOAT" {
+            // A1 float literal -> boxed f64, materialized at runtime as M/scale
+            // (M = all digits as int, scale = 10^fracDigits) via cvtsi2sd + divsd.
+            // 49 bytes. (FE emits a positive literal; negation is a separate NEG.)
+            let mant = 0
+            let fracN = 0
+            let seenDot = 0
+            let pp = 0
+            while pp < len(rest) {
+                let ch = substring(rest, pp, pp + 1)
+                if ch == "." { seenDot = 1 }
+                else { mant = mant * 10 + toInt(ch)  if seenDot == 1 { fracN = fracN + 1 } }
+                pp = pp + 1
+            }
+            let scl = 1
+            let sj = 0
+            while sj < fracN { scl = scl * 10  sj = sj + 1 }
+            c = sbAppend(c, hexByte(0x48) + hexByte(0xB8) + hexQword(mant))      // [0] MOV RAX, M
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x48) + hexByte(0x0F) + hexByte(0x2A) + hexByte(0xC0))  // [10] CVTSI2SD XMM0,RAX
+            c = sbAppend(c, hexByte(0x48) + hexByte(0xB8) + hexQword(scl))       // [15] MOV RAX, scale
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x48) + hexByte(0x0F) + hexByte(0x2A) + hexByte(0xC8))  // [25] CVTSI2SD XMM1,RAX
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x0F) + hexByte(0x5E) + hexByte(0xC1))                  // [30] DIVSD XMM0,XMM1
+            c = sbAppend(c, hexByte(0xBF) + hexDword(8))                          // [34] MOV EDI, 8
+            let pfDisp = krAllocVAddr - (funcStartVAddr + off + 44)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(pfDisp))                     // [39] CALL kr_alloc -> RAX
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x0F) + hexByte(0x11) + hexByte(0x00))                  // [44] MOVSD [RAX],XMM0
+            c = sbAppend(c, hexByte(0x50))                                        // [48] PUSH RAX
+        } else if op == "BUILTIN_FADD" || op == "BUILTIN_FSUB" || op == "BUILTIN_FMUL" || op == "BUILTIN_FDIV" {
+            // Binary float: pop b->RBX, a->RAX; load both (int<0x400000 -> cvtsi2sd,
+            // else box deref); op; box; push. 60 bytes.
+            c = sbAppend(c, hexByte(0x5B))                                        // [0] POP RBX (b)
+            c = sbAppend(c, hexByte(0x58))                                        // [1] POP RAX (a)
+            // fload a -> XMM0  [2..20]
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x3D) + hexDword(0x400000))   // [2] CMP RAX, 0x400000
+            c = sbAppend(c, hexByte(0x73) + hexByte(0x07))                        // [8] JAE .box1(+7 -> [17])
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x48) + hexByte(0x0F) + hexByte(0x2A) + hexByte(0xC0))  // [10] CVTSI2SD XMM0,RAX
+            c = sbAppend(c, hexByte(0xEB) + hexByte(0x04))                        // [15] JMP .d1(+4 -> [21])
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x0F) + hexByte(0x10) + hexByte(0x00))                  // [17] .box1 MOVSD XMM0,[RAX]
+            // fload b -> XMM1  [21..40]
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x81) + hexByte(0xFB) + hexDword(0x400000))             // [21] CMP RBX, 0x400000
+            c = sbAppend(c, hexByte(0x73) + hexByte(0x07))                        // [28] JAE .box2(+7 -> [37])
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x48) + hexByte(0x0F) + hexByte(0x2A) + hexByte(0xCB))  // [30] CVTSI2SD XMM1,RBX
+            c = sbAppend(c, hexByte(0xEB) + hexByte(0x04))                        // [35] JMP .d2(+4 -> [41])
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x0F) + hexByte(0x10) + hexByte(0x0B))                  // [37] .box2 MOVSD XMM1,[RBX]
+            // op XMM0, XMM1  [41]
+            if op == "BUILTIN_FADD"      { c = sbAppend(c, hexByte(0xF2) + hexByte(0x0F) + hexByte(0x58) + hexByte(0xC1)) }  // ADDSD
+            else if op == "BUILTIN_FSUB" { c = sbAppend(c, hexByte(0xF2) + hexByte(0x0F) + hexByte(0x5C) + hexByte(0xC1)) }  // SUBSD
+            else if op == "BUILTIN_FMUL" { c = sbAppend(c, hexByte(0xF2) + hexByte(0x0F) + hexByte(0x59) + hexByte(0xC1)) }  // MULSD
+            else                         { c = sbAppend(c, hexByte(0xF2) + hexByte(0x0F) + hexByte(0x5E) + hexByte(0xC1)) }  // DIVSD
+            // box XMM0 -> RAX  [45]
+            c = sbAppend(c, hexByte(0xBF) + hexDword(8))                          // [45] MOV EDI, 8
+            let fbDisp = krAllocVAddr - (funcStartVAddr + off + 55)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(fbDisp))                     // [50] CALL kr_alloc
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x0F) + hexByte(0x11) + hexByte(0x00))                  // [55] MOVSD [RAX],XMM0
+            c = sbAppend(c, hexByte(0x50))                                        // [59] PUSH RAX
+        } else if op == "BUILTIN_FSQRT" || op == "BUILTIN_FFLOOR" || op == "BUILTIN_FCEIL" || op == "BUILTIN_FROUND" {
+            // Unary float: pop a->RAX; load; op; box; push. FSQRT 39B; others 41B.
+            c = sbAppend(c, hexByte(0x58))                                        // [0] POP RAX
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x3D) + hexDword(0x400000))   // [1] CMP RAX, 0x400000
+            c = sbAppend(c, hexByte(0x73) + hexByte(0x07))                        // [7] JAE .box1(+7 -> [16])
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x48) + hexByte(0x0F) + hexByte(0x2A) + hexByte(0xC0))  // [9] CVTSI2SD XMM0,RAX
+            c = sbAppend(c, hexByte(0xEB) + hexByte(0x04))                        // [14] JMP .d1(+4 -> [20])
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x0F) + hexByte(0x10) + hexByte(0x00))                  // [16] .box1 MOVSD XMM0,[RAX]
+            let fuBoxN = 34
+            if op == "BUILTIN_FSQRT" {
+                c = sbAppend(c, hexByte(0xF2) + hexByte(0x0F) + hexByte(0x51) + hexByte(0xC0))             // [20] SQRTSD XMM0,XMM0
+            } else {
+                let rmode = 1
+                if op == "BUILTIN_FCEIL" { rmode = 2 }
+                if op == "BUILTIN_FROUND" { rmode = 0 }
+                c = sbAppend(c, hexByte(0x66) + hexByte(0x0F) + hexByte(0x3A) + hexByte(0x0B) + hexByte(0xC0) + hexByte(rmode))  // [20] ROUNDSD XMM0,XMM0,imm
+                fuBoxN = 36
+            }
+            c = sbAppend(c, hexByte(0xBF) + hexDword(8))                          // MOV EDI, 8
+            let fuDisp = krAllocVAddr - (funcStartVAddr + off + fuBoxN)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(fuDisp))                     // CALL kr_alloc
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x0F) + hexByte(0x11) + hexByte(0x00))                  // MOVSD [RAX],XMM0
+            c = sbAppend(c, hexByte(0x50))                                        // PUSH RAX
+        } else if op == "BUILTIN_FLT" || op == "BUILTIN_FGT" || op == "BUILTIN_FEQ" {
+            // Float compare -> bool int (1/0): pop b->RBX, a->RAX; load; ucomisd;
+            // setcc; movzx; push. No alloc. 53 bytes.
+            c = sbAppend(c, hexByte(0x5B))                                        // [0] POP RBX (b)
+            c = sbAppend(c, hexByte(0x58))                                        // [1] POP RAX (a)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x3D) + hexDword(0x400000))   // [2] CMP RAX,0x400000
+            c = sbAppend(c, hexByte(0x73) + hexByte(0x07))                        // [8] JAE [17]
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x48) + hexByte(0x0F) + hexByte(0x2A) + hexByte(0xC0))  // [10] CVTSI2SD XMM0,RAX
+            c = sbAppend(c, hexByte(0xEB) + hexByte(0x04))                        // [15] JMP [21]
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x0F) + hexByte(0x10) + hexByte(0x00))                  // [17] MOVSD XMM0,[RAX]
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x81) + hexByte(0xFB) + hexDword(0x400000))             // [21] CMP RBX,0x400000
+            c = sbAppend(c, hexByte(0x73) + hexByte(0x07))                        // [28] JAE [37]
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x48) + hexByte(0x0F) + hexByte(0x2A) + hexByte(0xCB))  // [30] CVTSI2SD XMM1,RBX
+            c = sbAppend(c, hexByte(0xEB) + hexByte(0x04))                        // [35] JMP [41]
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x0F) + hexByte(0x10) + hexByte(0x0B))                  // [37] MOVSD XMM1,[RBX]
+            c = sbAppend(c, hexByte(0x66) + hexByte(0x0F) + hexByte(0x2E) + hexByte(0xC1))                  // [41] UCOMISD XMM0,XMM1
+            if op == "BUILTIN_FLT"      { c = sbAppend(c, hexByte(0x0F) + hexByte(0x92) + hexByte(0xC0)) }  // [45] SETB AL (a<b: CF=1)
+            else if op == "BUILTIN_FGT" { c = sbAppend(c, hexByte(0x0F) + hexByte(0x97) + hexByte(0xC0)) }  // SETA AL (a>b)
+            else                        { c = sbAppend(c, hexByte(0x0F) + hexByte(0x94) + hexByte(0xC0)) }  // SETE AL (a==b)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x0F) + hexByte(0xB6) + hexByte(0xC0))                  // [48] MOVZX RAX,AL
+            c = sbAppend(c, hexByte(0x50))                                        // [52] PUSH RAX
         } else if op == "STORE_LOCAL" {
             let slot = toInt(rest)
             let dispVal = 0 - (slot * 8)
@@ -4476,10 +4624,24 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             c = sbAppend(c, hexByte(0x5D))
             c = sbAppend(c, hexByte(0xC3))
         } else if op == "NEG" {
-            // POP RAX ; NEG RAX ; PUSH RAX (5 bytes)
-            c = sbAppend(c, hexByte(0x58))
-            c = sbAppend(c, hexByte(0x48) + hexByte(0xF7) + hexByte(0xD8))
-            c = sbAppend(c, hexByte(0x50))
+            // Polymorphic negate (52 bytes). The FE lowers a negative float literal
+            // (-3.14) to PUSH 3.14 + NEG, so for a float box (ptr operand >= 0x400000)
+            // NEG must deref + fneg (xorpd sign-bit) + re-box; an int operand negates
+            // integrally.
+            c = sbAppend(c, hexByte(0x58))                                        // [0] POP RAX
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x3D) + hexDword(0x400000))   // [1] CMP RAX, 0x400000
+            c = sbAppend(c, hexByte(0x72) + hexByte(0x27))                        // [7] JB .int(+39 -> [48])  (int < 0x400000; box falls through to float path)
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x0F) + hexByte(0x10) + hexByte(0x00))  // [9] MOVSD XMM0,[RAX] (box deref)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0xB8) + hexByte(0x00) + hexByte(0x00) + hexByte(0x00) + hexByte(0x00) + hexByte(0x00) + hexByte(0x00) + hexByte(0x00) + hexByte(0x80))  // [13] MOV RAX, 0x8000000000000000 (sign mask)
+            c = sbAppend(c, hexByte(0x66) + hexByte(0x48) + hexByte(0x0F) + hexByte(0x6E) + hexByte(0xC8))  // [23] MOVQ XMM1, RAX
+            c = sbAppend(c, hexByte(0x66) + hexByte(0x0F) + hexByte(0x57) + hexByte(0xC1))  // [28] XORPD XMM0, XMM1 (flip sign)
+            c = sbAppend(c, hexByte(0xBF) + hexDword(8))                          // [32] MOV EDI, 8
+            let ngDisp = krAllocVAddr - (funcStartVAddr + off + 42)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(ngDisp))                     // [37] CALL kr_alloc
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x0F) + hexByte(0x11) + hexByte(0x00))  // [42] MOVSD [RAX],XMM0 (re-box)
+            c = sbAppend(c, hexByte(0xEB) + hexByte(0x03))                        // [46] JMP .done(+3 -> [51])
+            c = sbAppend(c, hexByte(0x48) + hexByte(0xF7) + hexByte(0xD8))        // [48] .int NEG RAX
+            c = sbAppend(c, hexByte(0x50))                                        // [51] .done PUSH RAX
         } else if op == "NOT" {
             // Use kr_istruthy then negate, so `!"false"` and `!"0"` (which
             // are non-zero string pointers but falsy per Krypton's truthiness
