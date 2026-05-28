@@ -53,7 +53,18 @@ needs to land on this branch — then I'll wire `intToFloat`/`floatToInt` codege
 operator lowering on the ELF side and remove the skip. Ping me (l) when the FE
 piece is on this branch.
 
-## x86 ELF (linux_x86/elf.k) — NOT started
+## x86 ELF (linux_x86/elf.k) — F1 + float-NEG DONE (commit f7e73c46); fformat next
 
-Only the arm64 ELF leg is done. The x86 leg (SSE2: addsd/mulsd/cvtsi2sd/ucomisd/
-xorpd, box in the bump heap) is still open; same FE caveat applies.
+The x86 leg now has the F1 surface + float-aware NEG (SSE2: cvtsi2sd/divsd/addsd/
+subsd/mulsd/sqrtsd/roundsd/ucomisd+setcc/xorpd-fneg), all INLINE via the existing
+kr_alloc vaddr — no emitFuncCode 70-param threading. Verified natively
+(1 0 1 1 1 1 1 1 1 1 1), no regressions. int/ptr boundary here is 0x400000 (this
+backend's smart-int threshold), not arm64's VBASE. (elf_host is gitignored; driver
+rebuilds from elf.k — only elf.k committed.)
+
+Still open on x86: **fformat** (F2's __f_format). Plan = a kr_fformat HELPER
+(define emitKrFformatCode/krFformatSize, add krFformatVAddr to the vaddr layout
+after krPadrightVAddr, thread the param through emitFuncCode's signature + call
+site, append krFformatCode to the `segment` concat before strData). Port from the
+arm64 emitFFormat / your macho __f_format. Same FE operator/conversion gap applies
+to both Linux backends — test_float.k stays macОЅ-skipped until the FE lands it.
