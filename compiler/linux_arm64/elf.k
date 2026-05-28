@@ -9,7 +9,7 @@
 // x22). Compiles real programs: factorial/fib recursion, nested calls, kp("n="+n).
 // kp dispatches int vs string on the 0x7F000000 tag.
 //
-// NOTE: kp's bytes are built via a local sbAppend, NOT consecutive `code = code + ..`
+// NOTE: kp's bytes are built via a local sbAppend, NOT consecutive `code = sbAppend(code, ..`)
 // statements — the x86 backend (elf_host) miscompiles 3+ consecutive `+=`-style
 // string appends in a deeply-nested block (drops/dupes instructions). Print-heavy
 // programs now work to ~1000s of lines. Still missing many stdlib builtins
@@ -35,6 +35,8 @@ func wordHL(hi16, lo16) {
 // ── instruction encoders (validated against qemu) ────────────────────────────
 func e_movz(rd, imm)   { let p = imm * 32 + rd  emit wordHL(53888 + p / 65536, p % 65536) } // movz Xd,#imm
 func e_movk16(rd, imm) { let p = imm * 32 + rd  emit wordHL(62112 + p / 65536, p % 65536) } // movk Xd,#imm,lsl16
+func e_movk32(rd, imm) { let p = imm * 32 + rd  emit wordHL(62144 + p / 65536, p % 65536) } // movk Xd,#imm,lsl32
+func e_movk48(rd, imm) { let p = imm * 32 + rd  emit wordHL(62176 + p / 65536, p % 65536) } // movk Xd,#imm,lsl48
 func e_movzHi(rd, imm) { let p = imm * 32 + rd  emit wordHL(53920 + p / 65536, p % 65536) } // movz Xd,#imm,lsl16
 func e_addi(rd, rn, imm) { let p = imm * 1024 + rn * 32 + rd  emit wordHL(37120 + p / 65536, p % 65536) }
 func e_subi(rd, rn, imm) { let p = imm * 1024 + rn * 32 + rd  emit wordHL(53504 + p / 65536, p % 65536) }
@@ -60,9 +62,12 @@ func e_csel(rd, rn, rm, cond) { let p = cond * 4096 + rn * 32 + rd  emit wordHL(
 func e_movr(rd, rm)  { let p = 992 + rd  emit wordHL(43520 + rm + p / 65536, p % 65536) }     // mov Xd,Xm
 func e_strb(wt, xn)  { let p = xn * 32 + wt  emit wordHL(14592, p) }                 // strb Wt,[Xn]
 func e_ldrbO(wt, xn, xm) { let p = 26624 + xn * 32 + wt  emit wordHL(14432 + xm + p / 65536, p % 65536) }
+func e_ldrhO(wt, xn, xm) { let p = 26624 + xn * 32 + wt  emit wordHL(30816 + xm + p / 65536, p % 65536) }  // ldrh Wt,[Xn,Xm] (u16 LE, zero-ext)
+func e_ldrwO(wt, xn, xm) { let p = 26624 + xn * 32 + wt  emit wordHL(47200 + xm + p / 65536, p % 65536) }  // ldr  Wt,[Xn,Xm] (u32 LE, zero-ext)
 func e_ldrb0(wt, xn) { let p = xn * 32 + wt  emit wordHL(14656, p) }                 // ldrb Wt,[Xn]
 func e_strbO(wt, xn, off) { let p = off * 1024 + xn * 32 + wt  emit wordHL(14592 + p / 65536, p % 65536) } // strb Wt,[Xn,#off]
 func e_strbR(wt, xn, xm) { let p = 26624 + xn * 32 + wt  emit wordHL(14368 + xm + p / 65536, p % 65536) } // strb Wt,[Xn,Xm]
+func e_strhR(wt, xn, xm) { let p = 26624 + xn * 32 + wt  emit wordHL(30752 + xm + p / 65536, p % 65536) } // strh Wt,[Xn,Xm] (u16)
 func e_str8(rt, rn, off8) { let p = off8 * 1024 + rn * 32 + rt  emit wordHL(63744 + p / 65536, p % 65536) } // str Xt,[Xn,#off8*8]
 func e_ldr8(rt, rn, off8) { let p = off8 * 1024 + rn * 32 + rt  emit wordHL(63808 + p / 65536, p % 65536) } // ldr Xt,[Xn,#off8*8]
 func e_ret() { emit wordHL(54879, 960) }
@@ -344,6 +349,112 @@ func emitSplit(allocOff, thisOff) {
     c = c + e_movz(0, 1) + e_bl(allocOff - (thisOff + 144)) + e_strb(31, 0) + e_movr(30, 26) + e_ret()  // [140] .empty: ""
     emit c
 }
+// kr_getline(x0=idx, x1=s) -> idx-th '\n'-separated line (no trailing \n).
+// POINTER-KEYED CACHE (ported from macos_arm64 BUILTIN_GETLINE): cache slots
+// GB+40(ptr)/+48(idx)/+56(off) in the gcGlobals reserved region. Same string &
+// cached_idx<=idx -> resume the line-skip from the cached line start (rem =
+// idx-cache_idx) instead of rescanning from s -> sequential getLine (tokAt /
+// codegen line-loops) is O(1) amortized, killing the O(n^2) that stalled
+// self-host. Cache miss (other string or idx<cached) rescans from 0, always
+// correct. GB = load_base + opOff (folded 0x7F00 into movk hi). 224 bytes.
+func emitGetline(allocOff, opOff, thisOff) {
+    let c = e_movr(26, 30) + e_movr(4, 0) + e_movr(3, 1) + e_movz(9, 10)  // [0,4,8,12] lr; idx=x4; s=x3; x9='\n'
+    c = c + e_movz(14, opOff % 65536) + e_movk16(14, 32512 + opOff / 65536)  // [16,20] x14 = GB (VBASE+opOff)
+    c = c + e_ldr8(7, 14, 5) + e_ldr8(8, 14, 6) + e_ldr8(15, 14, 7)  // [24,28,32] cache ptr/idx/off
+    c = c + e_movr(11, 4) + e_movr(10, 3)                          // [36,40] MISS default: rem=idx; ptr=s
+    c = c + e_cmp(7, 3) + e_bne(20)                                // [44,48] cache_ptr!=s -> .skip (68)
+    c = c + e_cmp(8, 4) + e_bgt(12)                                // [52,56] cache_idx>idx -> .skip (68)
+    c = c + e_subr(11, 4, 8) + e_movr(10, 15)                      // [60,64] HIT: rem=idx-cache_idx; ptr=cache_off
+    c = c + e_cmpi0(11) + e_beq(32)                                // [68,72] .skip: rem==0 -> .scan_setup (104)
+    c = c + e_ldrb0(6, 10) + e_cbz(6, 124)                         // [76,80] c=[ptr]; c==0 -> .empty (204)
+    c = c + e_addi(10, 10, 1) + e_cmp(6, 9) + e_bne(8)             // [84,88,92] ptr++; c!='\n' -> .skipcont (100)
+    c = c + e_subi(11, 11, 1)                                      // [96] rem--
+    c = c + e_b(0 - 32)                                            // [100] .skipcont: -> .skip (68)
+    c = c + e_str8(3, 14, 5) + e_str8(4, 14, 6) + e_str8(10, 14, 7)  // [104,108,112] .scan_setup: cache=(s,idx,linestart)
+    c = c + e_movr(12, 10)                                         // [116] x12 = line start
+    c = c + e_ldrb0(6, 10) + e_cbz(6, 20)                          // [120,124] .scan: c=[ptr]; c==0 -> .got_end (144)
+    c = c + e_cmp(6, 9) + e_beq(12)                                // [128,132] c=='\n' -> .got_end (144)
+    c = c + e_addi(10, 10, 1) + e_b(0 - 20)                        // [136,140] ptr++; -> .scan (120)
+    c = c + e_subr(13, 10, 12) + e_addi(0, 13, 1)                  // [144,148] .got_end: len=ptr-start; x0=len+1
+    c = c + e_bl(allocOff - (thisOff + 152))                       // [152] x0=buf
+    c = c + e_movr(1, 0) + e_movz(5, 0)                            // [156,160] dst=buf; i=0
+    c = c + e_cmp(5, 13) + e_bge(20)                               // [164,168] .cp: i>=len -> .cpdone (188)
+    c = c + e_ldrbO(4, 12, 5) + e_strbR(4, 1, 5) + e_addi(5, 5, 1) + e_b(0 - 20)  // [172,176,180,184] dst[i]=start[i]
+    c = c + e_strbR(31, 1, 13) + e_movr(0, 1) + e_movr(30, 26) + e_ret()  // [188,192,196,200] .cpdone: dst[len]=0; return
+    c = c + e_movz(0, 1) + e_bl(allocOff - (thisOff + 208)) + e_strb(31, 0) + e_movr(30, 26) + e_ret()  // [204,208,212,216,220] .empty: ""
+    emit c
+}
+// kr_linecount(x0=s) -> # of '\n'-separated lines. 1 + internal newlines, trailing
+// \n not counted; empty -> 0 (mirrors x86 kr_linecount). 76 bytes.
+func emitLinecount() {
+    let c = e_movr(1, 0) + e_movz(0, 0) + e_ldrb0(2, 1) + e_cbz(2, 60)  // [0,4,8,12] x1=cur; cnt=0; empty -> .ret(72)
+    c = c + e_movz(0, 1) + e_movz(3, 10)                          // [16,20] cnt=1; x3='\n'
+    c = c + e_ldrb0(2, 1) + e_cbz(2, 24)                          // [24,28] .loop: c=[x1]; 0 -> .check(52)
+    c = c + e_cmp(2, 3) + e_bne(8) + e_addi(0, 0, 1)              // [32,36,40] c=='\n' -> cnt++
+    c = c + e_addi(1, 1, 1) + e_b(0 - 24)                         // [44,48] .skip: x1++; -> .loop(24)
+    c = c + e_subi(4, 1, 1) + e_ldrb0(2, 4) + e_cmp(2, 3) + e_bne(8)  // [52,56,60,64] .check: last=='\n'?
+    c = c + e_subi(0, 0, 1)                                       // [68] trailing \n -> cnt--
+    c = c + e_ret()                                              // [72] .ret
+    emit c
+}
+// ── C-like raw allocator (mark/sweep-ready 16-byte header per the W handoff) ──
+// gcGlobals live at GB = load_base + opOff (64 reserved bytes at the start of the
+// 64 MiB raw BSS region above the op-stack). Layout (qword slots):
+//   [GB+0]=raw_next (bump cursor, 0=uninit), [GB+8]=freelist head,
+//   [GB+16]=gcAllocated (live bytes), [GB+24]=gcAllocCount, [GB+32]=gcLimit.
+// Per-alloc header: [ptr-16]=chain/freelist next, [ptr-8]=size<<2 (bit0 mark /
+// bit1 sweep, upper 62 size). rawAlloc returns ptr (= block+16). Freelist-first
+// (W stage-6-phase-2): first-fit a freed block >= n before bumping. 196 bytes.
+func emitRawAlloc(opOff, thisOff) {
+    let c = e_movz(10, opOff % 65536) + e_movk16(10, 32512 + opOff / 65536)  // [0,4] x10=GB
+    c = c + e_addi(1, 0, 31) + e_movz(2, 4) + e_lsrv(1, 1, 2) + e_lslv(1, 1, 2)  // [8,12,16,20] x1=total=roundup16(n+16)
+    // ── freelist first-fit (x6=prev-next-slot addr, x7=cur) ──
+    c = c + e_addi(6, 10, 8) + e_ldr0(7, 6)                       // [24,28] x6=&freelist head; x7=cur
+    c = c + e_cbz(7, 92) + e_ldr8(8, 7, 1) + e_movz(9, 2) + e_lsrv(8, 8, 9)  // [32,36,40,44] .fl: cur==0 -> .bump(124); x8=cursize
+    c = c + e_cmp(8, 0) + e_bhs(16) + e_movr(6, 7) + e_ldr0(7, 7) + e_b(0 - 32)  // [48,52,56,60,64] cursize>=n -> .hit(68); else advance
+    c = c + e_ldr0(9, 7) + e_str0(9, 6)                           // [68,72] .hit: unlink (prev.next = cur.next)
+    c = c + e_addi(2, 8, 31) + e_movz(3, 4) + e_lsrv(2, 2, 3) + e_lslv(2, 2, 3)  // [76,80,84,88] x2=total of block
+    c = c + e_ldr8(4, 10, 2) + e_addr(4, 4, 2) + e_str8(4, 10, 2)  // [92,96,100] allocated += total
+    c = c + e_ldr8(4, 10, 3) + e_addi(4, 4, 1) + e_str8(4, 10, 3)  // [104,108,112] count += 1
+    c = c + e_addi(0, 7, 16) + e_ret()                           // [116,120] return cur+16
+    // ── bump path ──
+    c = c + e_ldr0(3, 10) + e_cbnz(3, 12)                         // [124,128] .bump: x3=raw_next; !=0 -> .have(140)
+    c = c + e_movz(3, (opOff + 96) % 65536) + e_movk16(3, 32512 + (opOff + 96) / 65536)  // [132,136] lazy init cursor=rawBase+96 (GB+64/72/80 = argc/argv/envp)
+    c = c + e_addr(4, 3, 1) + e_str0(4, 10)                       // [140,144] .have: raw_next = cursor+total
+    c = c + e_movz(5, 4) + e_lslv(6, 0, 5) + e_str8(6, 3, 1) + e_str0(31, 3)  // [148,152,156,160] hdr: [+8]=n<<2; [+0]=0
+    c = c + e_ldr8(7, 10, 2) + e_addr(7, 7, 1) + e_str8(7, 10, 2)  // [164,168,172] allocated += total
+    c = c + e_ldr8(7, 10, 3) + e_addi(7, 7, 1) + e_str8(7, 10, 3)  // [176,180,184] count += 1
+    c = c + e_addi(0, 3, 16) + e_ret()                           // [188,192] return cursor+16
+    emit c
+}
+// kr_rawfree(x0=ptr): read size from header, decrement live counters, push the
+// block onto the freelist. No size arg (C free shape). 80 bytes.
+func emitRawFree(opOff, thisOff) {
+    let c = e_movz(10, opOff % 65536) + e_movk16(10, 32512 + opOff / 65536)  // [0,4] GB
+    c = c + e_subi(1, 0, 16) + e_ldr8(2, 1, 1) + e_movz(3, 2) + e_lsrv(2, 2, 3)  // [8,12,16,20] hdr=ptr-16; x2=size
+    c = c + e_addi(2, 2, 31) + e_movz(3, 4) + e_lsrv(2, 2, 3) + e_lslv(2, 2, 3)  // [24,28,32,36] x2=total
+    c = c + e_ldr8(4, 10, 2) + e_subr(4, 4, 2) + e_str8(4, 10, 2)  // [40,44,48] allocated -= total
+    c = c + e_ldr8(4, 10, 3) + e_subi(4, 4, 1) + e_str8(4, 10, 3)  // [52,56,60] count -= 1
+    c = c + e_ldr8(5, 10, 1) + e_str0(5, 1) + e_str8(1, 10, 1)     // [64,68,72] push hdr to freelist
+    c = c + e_ret()                                              // [76]
+    emit c
+}
+// kr_rawrealloc(x0=ptr, x1=n) -> x0=new ptr. Grows via rawAlloc+copy+rawFree;
+// returns ptr unchanged if n <= old size. Reads old size from header. 108 bytes.
+func emitRawRealloc(rawallocOff, rawfreeOff, thisOff) {
+    let c = e_movr(23, 30) + e_subi(2, 0, 16) + e_ldr8(3, 2, 1)   // [0,4,8] lr; hdr; x3=size+flags
+    c = c + e_movz(4, 2) + e_lsrv(3, 3, 4)                        // [12,16] x3=oldsize
+    c = c + e_cmp(1, 3) + e_ble(76)                               // [20,24] n<=oldsize -> .keep(100)
+    c = c + e_movr(24, 0) + e_movr(25, 1) + e_movr(26, 3)         // [28,32,36] save old/n/oldsize
+    c = c + e_movr(0, 1) + e_bl(rawallocOff - (thisOff + 44)) + e_movr(27, 0)  // [40,44,48] newptr=rawAlloc(n)
+    c = c + e_movz(5, 0)                                          // [52] i=0
+    c = c + e_cmp(5, 26) + e_bhs(20)                              // [56,60] .cp: i>=oldsize -> .cpdone(80)
+    c = c + e_ldrbO(6, 24, 5) + e_strbR(6, 27, 5) + e_addi(5, 5, 1) + e_b(0 - 20)  // [64,68,72,76] new[i]=old[i]
+    c = c + e_movr(0, 24) + e_bl(rawfreeOff - (thisOff + 84)) + e_movr(0, 27)  // [80,84,88] .cpdone: free old; x0=new
+    c = c + e_movr(30, 23) + e_ret()                             // [92,96]
+    c = c + e_movr(30, 23) + e_ret()                             // [100,104] .keep: return ptr
+    emit c
+}
 // kr_count(x0=list) -> number of comma-separated elements (commas+1, or 0 if empty). 64 bytes.
 func emitCount() {
     let c = e_ldrb0(3, 0) + e_cbz(3, 52)                           // [0] empty -> .zero (56)
@@ -422,18 +533,63 @@ func emitSbToString() {
     emit e_addi(0, 0, 16) + e_ret()
 }
 // kr_eq(x0=a, x1=b) -> x0=1/0. Polymorphic: both pointers (>=VBASE) -> strcmp;
-// else numeric compare (mixed int/ptr falls here and compares unequal). 76 bytes.
-func emitEq() {
-    let c = e_movzHi(9, 32512)                                    // [0] x9=VBASE
-    c = c + e_cmp(0, 9) + e_blt(44)                               // [4] a<VBASE -> .numeric (52)
-    c = c + e_cmp(1, 9) + e_blt(36)                               // [12] b<VBASE -> .numeric (52)
-    c = c + e_movz(2, 0)                                          // [20] i=0
-    c = c + e_ldrbO(3, 0, 2) + e_ldrbO(4, 1, 2) + e_cmp(3, 4) + e_bne(24)  // [24] .sl: a[i] vs b[i]; differ -> .ne (60)
-    c = c + e_cbz(3, 28)                                          // [40] a[i]==0 (both, equal) -> .eq (68)
-    c = c + e_addi(2, 2, 1) + e_b(0 - 24)                         // [44] i++; -> .sl (24)
-    c = c + e_cmp(0, 1) + e_beq(12)                               // [52] .numeric: a==b -> .eq (68)
-    c = c + e_movz(0, 0) + e_ret()                                // [60] .ne: x0=0
-    c = c + e_movz(0, 1) + e_ret()                                // [68] .eq: x0=1
+// kr_eq: numeric-aware "==". Mirrors x86 kr_cmpi dispatch: if BOTH operands are
+// numeric (small int < VBASE, OR digit-only string via kr_isnum) -> compare
+// atoi(a) vs atoi(b); else fall through to the original byte-compare body (handles
+// both-ptr strcmp and mixed int/ptr -> unequal). Saves lr in x23; a=x24 b=x25.
+// 208 bytes (numeric prefix 132 + original body 76).
+func emitEq(atoiOff, isnumOff, thisOff) {
+    let c = e_movr(23, 30) + e_movzHi(9, 32512)                   // [0,4] lr; x9=VBASE
+    c = c + e_movr(24, 0) + e_movr(25, 1)                         // [8,12] x24=a x25=b
+    c = c + e_cmp(24, 9) + e_blt(16)                              // [16,20] a<VBASE int -> .a_num (36)
+    c = c + e_movr(0, 24) + e_bl(isnumOff - (thisOff + 28)) + e_cbz(0, 88)  // [24,28,32] isnum(a)? no -> .fallback (120)
+    c = c + e_cmp(25, 9) + e_blt(16)                              // [36,40] .a_num: b<VBASE -> .both_num (56)
+    c = c + e_movr(0, 25) + e_bl(isnumOff - (thisOff + 48)) + e_cbz(0, 68)  // [44,48,52] isnum(b)? no -> .fallback (120)
+    c = c + e_movr(0, 24) + e_cmp(0, 9) + e_blt(8)                // [56,60,64] .both_num: a int -> .av (72)
+    c = c + e_bl(atoiOff - (thisOff + 68))                        // [68] x0=atoi(a)
+    c = c + e_movr(10, 0) + e_movr(0, 25)                         // [72,76] .av: x10=aval; x0=b
+    c = c + e_cmp(0, 9) + e_blt(8)                                // [80,84] b int -> .bv (92)
+    c = c + e_bl(atoiOff - (thisOff + 88))                        // [88] x0=atoi(b)
+    c = c + e_movr(30, 23) + e_cmp(10, 0) + e_beq(12)             // [92,96,100] .bv: lr; aval==bval -> .eq (112)
+    c = c + e_movz(0, 0) + e_ret()                                // [104,108] not equal
+    c = c + e_movz(0, 1) + e_ret()                                // [112,116] .eq
+    c = c + e_movr(0, 24) + e_movr(1, 25) + e_movr(30, 23)        // [120,124,128] .fallback: restore a,b,lr
+    // ── original byte-compare body (self-relative branches, unchanged) ──
+    c = c + e_movzHi(9, 32512)                                    // [132] x9=VBASE
+    c = c + e_cmp(0, 9) + e_blt(44)                               // a<VBASE -> .numeric
+    c = c + e_cmp(1, 9) + e_blt(36)                               // b<VBASE -> .numeric
+    c = c + e_movz(2, 0)                                          // i=0
+    c = c + e_ldrbO(3, 0, 2) + e_ldrbO(4, 1, 2) + e_cmp(3, 4) + e_bne(24)  // .sl: a[i] vs b[i]; differ -> .ne
+    c = c + e_cbz(3, 28)                                          // a[i]==0 (both, equal) -> .eq
+    c = c + e_addi(2, 2, 1) + e_b(0 - 24)                         // i++; -> .sl
+    c = c + e_cmp(0, 1) + e_beq(12)                               // .numeric: a==b -> .eq
+    c = c + e_movz(0, 0) + e_ret()                                // .ne: x0=0
+    c = c + e_movz(0, 1) + e_ret()                                // .eq: x0=1
+    emit c
+}
+// kr_istruthy(x0=v) -> x0=1/0. Mirrors x86 kr_istruthy: int (<VBASE) truthy iff
+// !=0; string ptr (>=VBASE) truthy iff NOT one of "" / "0" / "false". 128 bytes.
+// (3-term cap per `c = c +` line — long chains miscompile through the x86 seed.)
+func emitIsTruthy() {
+    let c = e_movzHi(9, 32512)                                    // [0]   x9 = VBASE
+    c = c + e_cmp(0, 9) + e_blt(120)                              // [4,8] v<VBASE -> .int (128)
+    c = c + e_movr(10, 0) + e_ldrb0(2, 10) + e_cbz(2, 124)        // [12,16,20] x10=ptr; b0=s[0]; ""->.falsy (144)
+    c = c + e_addi(10, 10, 1) + e_subi(3, 2, 48) + e_cbnz(3, 12)  // [24,28,32] x10->s[1]; b0!='0' -> .notzero (44)
+    c = c + e_ldrb0(3, 10) + e_cbz(3, 104)                        // [36,40] s[1]==0 -> "0" -> .falsy (144)
+    c = c + e_subi(3, 2, 102) + e_cbnz(3, 88)                     // [44,48] .notzero: b0!='f' -> .truthy (136)
+    c = c + e_ldrb0(3, 10) + e_subi(3, 3, 97) + e_cbnz(3, 76)     // [52,56,60] s[1]!='a' -> .truthy (136)
+    c = c + e_addi(10, 10, 1) + e_ldrb0(3, 10) + e_subi(3, 3, 108) // [64,68,72] x10->s[2]; s[2]
+    c = c + e_cbnz(3, 60)                                         // [76] !='l' -> .truthy (136)
+    c = c + e_addi(10, 10, 1) + e_ldrb0(3, 10) + e_subi(3, 3, 115) // [80,84,88] s[3]
+    c = c + e_cbnz(3, 44)                                         // [92] !='s' -> .truthy (136)
+    c = c + e_addi(10, 10, 1) + e_ldrb0(3, 10) + e_subi(3, 3, 101) // [96,100,104] s[4]
+    c = c + e_cbnz(3, 28)                                         // [108] !='e' -> .truthy (136)
+    c = c + e_addi(10, 10, 1) + e_ldrb0(3, 10) + e_cbnz(3, 16)    // [112,116,120] s[5]!=0 -> .truthy (136)
+    c = c + e_b(20)                                               // [124] "false" -> .falsy (144)
+    c = c + e_cbz(0, 16)                                          // [128] .int: v==0 -> .falsy (144)
+    c = c + e_b(4)                                                // [132] -> .truthy (136)
+    c = c + e_movz(0, 1) + e_ret()                                // [136,140] .truthy
+    c = c + e_movz(0, 0) + e_ret()                                // [144,148] .falsy
     emit c
 }
 // kr_index(x1=s, x0=idx) -> fresh 1-char string of s[idx]. 36 bytes. (char indexing)
@@ -546,19 +702,67 @@ func emitStructFields(allocOff, plusOff, thisOff) {
 }
 // kr_plus(a=x0, b=x1) -> x0. Polymorphic +: both ints -> a+b; else convert each
 // to a string (kr_str_int for the int side) and concat into a fresh heap buffer.
-// Saves lr in x23; VBASE in x9; sa=x11 sb=x12 b=x13 lenA=x14 lenB=x16 dst=x17.
-func emitPlus(strIntOff, allocOff, thisOff) {
-    let c = e_movr(23, 30) + e_movzHi(9, 32512)                                       // lr; x9=VBASE
-    c = c + e_cmp(0, 9) + e_bge(24) + e_cmp(1, 9) + e_bge(16)                      // either signed>=VBASE (ptr) -> concat
-    c = c + e_addr(0, 0, 1) + e_movr(30, 23) + e_ret()                            // both int: a+b
-    c = c + e_movr(13, 1)                                                          // [cc] x13=b
-    c = c + e_cmp(0, 9) + e_bge(8) + e_bl(strIntOff - (thisOff + 48))             // conv a (int side only)
+// kr_isnum: x0=string ptr -> x0=1 if non-empty all-digits, else 0. Digit-only
+// (no leading '-', since arm64 kr_atoi has no negative support). Clobbers x2/x3/x4.
+// 60 bytes. (mirrors x86 kr_isnum, minus the '-' branch.)
+func emitIsnum() {
+    let c = e_movr(2, 0) + e_ldrb0(3, 2) + e_cbz(3, 44)          // [0,4,8] empty -> .notnum(52)
+    c = c + e_movz(4, 10)                                         // [12] x4=10 (digit bound)
+    c = c + e_ldrb0(3, 2) + e_cbz(3, 24)                          // [16,20] .scan: NUL -> .isnum(44)
+    c = c + e_subi(3, 3, 48) + e_cmp(3, 4) + e_bhs(20)            // [24,28,32] (c-'0')>=10 -> .notnum(52)
+    c = c + e_addi(2, 2, 1) + e_b(0 - 24)                         // [36,40] x2++; -> .scan(16)
+    c = c + e_movz(0, 1) + e_ret()                               // [44,48] .isnum
+    c = c + e_movz(0, 0) + e_ret()                               // [52,56] .notnum
+    emit c
+}
+// kr_cmp(a=x0, b=x1) -> x0 = signed 3-way (a<b<0, ==0, a>b>0). Mirrors x86 kr_cmpi:
+// both numeric (int OR digit-string) -> atoi(a)-atoi(b); else byte-wise strcmp sign.
+// Backs LT/GT/LTE/GTE (they cmp the result vs 0). Saves lr x23; a=x24 b=x25. 144 bytes.
+func emitCmp(atoiOff, isnumOff, thisOff) {
+    let c = e_movr(23, 30) + e_movzHi(9, 32512)                  // [0,4] lr; x9=VBASE
+    c = c + e_movr(24, 0) + e_movr(25, 1)                        // [8,12] x24=a x25=b
+    c = c + e_cmp(24, 9) + e_blt(16)                             // [16,20] a<VBASE int -> .a_ok (36)
+    c = c + e_movr(0, 24) + e_bl(isnumOff - (thisOff + 28)) + e_cbz(0, 72)  // [24,28,32] isnum(a)? no -> .strcmp (104)
+    c = c + e_cmp(25, 9) + e_blt(16)                             // [36,40] .a_ok: b<VBASE -> .b_ok (56)
+    c = c + e_movr(0, 25) + e_bl(isnumOff - (thisOff + 48)) + e_cbz(0, 52)  // [44,48,52] isnum(b)? no -> .strcmp (104)
+    c = c + e_movr(0, 24) + e_cmp(0, 9) + e_blt(8)               // [56,60,64] .b_ok: a int -> .av (72)
+    c = c + e_bl(atoiOff - (thisOff + 68))                       // [68] x0=atoi(a)
+    c = c + e_movr(10, 0) + e_movr(0, 25)                        // [72,76] .av: x10=aval; x0=b
+    c = c + e_cmp(0, 9) + e_blt(8)                               // [80,84] b int -> .bv (92)
+    c = c + e_bl(atoiOff - (thisOff + 88))                       // [88] x0=atoi(b)
+    c = c + e_movr(30, 23) + e_subr(0, 10, 0) + e_ret()          // [92,96,100] .bv: lr; aval-bval; ret
+    c = c + e_movr(30, 23) + e_movz(2, 0)                        // [104,108] .strcmp: lr; i=0
+    c = c + e_ldrbO(3, 24, 2) + e_ldrbO(4, 25, 2) + e_subr(0, 3, 4)  // [112,116,120] .sl: x0=a[i]-b[i]
+    c = c + e_cbnz(0, 16) + e_cbz(3, 12) + e_addi(2, 2, 1) + e_b(0 - 24)  // [124,128,132,136] differ/end->.ret(140); i++; loop
+    c = c + e_ret()                                             // [140] .ret
+    emit c
+}
+// kr_plus: numeric-aware "+". Mirrors x86 kr_plus: if BOTH operands are numeric
+// (small int < VBASE, OR digit-only string via kr_isnum) -> int sum (kr_atoi each
+// string side); else string concat. Saves lr in x23; VBASE in x9; a=x24 b=x25.
+// 288 bytes (numeric prefix 112 + concat body 176).
+func emitPlus(strIntOff, allocOff, atoiOff, isnumOff, thisOff) {
+    let c = e_movr(23, 30) + e_movzHi(9, 32512)                                   // [0,4] lr; x9=VBASE
+    c = c + e_movr(24, 0) + e_movr(25, 1)                                         // [8,12] x24=a x25=b
+    c = c + e_cmp(24, 9) + e_blt(16)                                              // [16,20] a<VBASE int -> .a_ok(36)
+    c = c + e_movr(0, 24) + e_bl(isnumOff - (thisOff + 28)) + e_cbz(0, 72)        // [24,28,32] isnum(a)? no -> .concat(104)
+    c = c + e_cmp(25, 9) + e_blt(16)                                              // [36,40] .a_ok: b<VBASE -> .b_ok(56)
+    c = c + e_movr(0, 25) + e_bl(isnumOff - (thisOff + 48)) + e_cbz(0, 52)        // [44,48,52] isnum(b)? no -> .concat(104)
+    c = c + e_movr(0, 24) + e_cmp(0, 9) + e_blt(8)                                // [56,60,64] .b_ok: a int -> .av(72)
+    c = c + e_bl(atoiOff - (thisOff + 68))                                        // [68] x0=atoi(a)
+    c = c + e_movr(10, 0) + e_movr(0, 25)                                         // [72,76] .av: x10=aval; x0=b
+    c = c + e_cmp(0, 9) + e_blt(8)                                                // [80,84] b int -> .bv(92)
+    c = c + e_bl(atoiOff - (thisOff + 88))                                        // [88] x0=atoi(b)
+    c = c + e_addr(0, 10, 0) + e_movr(30, 23) + e_ret()                           // [92,96,100] .bv: aval+bval; ret
+    c = c + e_movr(0, 24) + e_movr(1, 25)                                         // [104,108] .concat: restore a,b
+    c = c + e_movr(13, 1)                                                          // [112] x13=b
+    c = c + e_cmp(0, 9) + e_bge(8) + e_bl(strIntOff - (thisOff + 124))            // conv a (int side only)
     c = c + e_movr(11, 0)                                                          // [as] sa
-    c = c + e_movr(0, 13) + e_cmp(0, 9) + e_bge(8) + e_bl(strIntOff - (thisOff + 68))  // conv b (int side only)
+    c = c + e_movr(0, 13) + e_cmp(0, 9) + e_bge(8) + e_bl(strIntOff - (thisOff + 144))  // conv b (int side only)
     c = c + e_movr(12, 0)                                                          // [bs] sb
     c = c + e_movz(14, 0) + e_ldrbO(3, 11, 14) + e_cbz(3, 12) + e_addi(14, 14, 1) + e_b(0 - 12)  // strlen sa
     c = c + e_movz(16, 0) + e_ldrbO(3, 12, 16) + e_cbz(3, 12) + e_addi(16, 16, 1) + e_b(0 - 12)  // strlen sb
-    c = c + e_addr(0, 14, 16) + e_addi(0, 0, 1) + e_bl(allocOff - (thisOff + 124)) + e_movr(17, 0)  // dst=alloc(lenA+lenB+1)
+    c = c + e_addr(0, 14, 16) + e_addi(0, 0, 1) + e_bl(allocOff - (thisOff + 200)) + e_movr(17, 0)  // dst=alloc(lenA+lenB+1)
     c = c + e_movz(2, 0) + e_cmp(2, 14) + e_bhs(24) + e_ldrbO(3, 11, 2) + e_strb(3, 0) + e_addi(0, 0, 1) + e_addi(2, 2, 1) + e_b(0 - 24)  // copy sa
     c = c + e_movz(2, 0) + e_cmp(2, 16) + e_bhs(24) + e_ldrbO(3, 12, 2) + e_strb(3, 0) + e_addi(0, 0, 1) + e_addi(2, 2, 1) + e_b(0 - 24)  // copy sb
     c = c + e_strb(31, 0) + e_movr(0, 17) + e_movr(30, 23) + e_ret()              // NUL; return dst
@@ -582,8 +786,11 @@ func emitKpDisp(thisOff, siOff, prOff) {
     emit c
 }
 // kr_atoi: x0=string ptr -> x0=parsed non-negative int (stops at NUL/non-digit).
+// Int-safe: a small int (< VBASE) passes through unchanged (mirrors x86 kr_atoi),
+// so toInt(int)/fromCharCode(int) don't deref a non-pointer. 60 bytes.
 func emitAtoi() {
-    let c = e_movr(1, 0) + e_movz(0, 0) + e_movz(4, 10)        // x1=ptr, x0=0, x4=10
+    let c = e_movzHi(9, 32512) + e_cmp(0, 9) + e_bge(8) + e_ret()  // x0<VBASE int -> return as-is
+    c = c + e_movr(1, 0) + e_movz(0, 0) + e_movz(4, 10)        // x1=ptr, x0=0, x4=10
     c = c + e_ldrb0(2, 1) + e_cbz(2, 24)                       // .loop: w2=[x1]; 0 -> .done
     c = c + e_mul(0, 0, 4) + e_subi(2, 2, 48) + e_addr(0, 0, 2) // x0 = x0*10 + (c-'0')
     c = c + e_addi(1, 1, 1) + e_b(0 - 24)                      // x1++; -> .loop
@@ -611,6 +818,123 @@ func emitPrint(nlOff) {
     c = c + e_movz(1, lo) + e_movk16(1, hi) + e_movz(2, 1) + e_movz(0, 1) + e_movz(8, 64) + e_svc() + e_ret()
     emit c
 }
+// kr_argcount() -> argc-1 (user args, excludes program name). argc stashed at
+// GB+64 by _start. 20 bytes.
+func emitArgcount(opOff) {
+    let c = e_movz(9, opOff % 65536) + e_movk16(9, 32512 + opOff / 65536)  // x9 = GB
+    c = c + e_ldr8(0, 9, 8)                       // x0 = argc (GB+64)
+    c = c + e_subi(0, 0, 1)                        // argc - 1 (skip argv[0])
+    c = c + e_ret()
+    emit c
+}
+// kr_arg(x0=idx) -> argv[idx+1] as a C-string ptr (idx+1 skips program name).
+// argv base stashed at GB+72 by _start. 36 bytes.
+func emitArg(opOff) {
+    let c = e_movz(9, opOff % 65536) + e_movk16(9, 32512 + opOff / 65536)  // x9 = GB
+    c = c + e_ldr8(1, 9, 9)                        // x1 = argv ptr (GB+72)
+    c = c + e_addi(0, 0, 1)                        // idx + 1
+    c = c + e_movz(2, 3) + e_lslv(0, 0, 2)         // x0 = (idx+1) << 3  (qword index)
+    c = c + e_addr(1, 1, 0)                         // x1 = &argv[idx+1]
+    c = c + e_ldr0(0, 1)                            // x0 = argv[idx+1]
+    c = c + e_ret()
+    emit c
+}
+// kr_printerr: x0=ptr -> write the NUL-terminated string + newline to fd 2.
+// Same shape as kr_print but fd=2 (stderr). 64 bytes.
+func emitPrinterr(nlOff) {
+    let lo = nlOff % 65536
+    let hi = 32512 + nlOff / 65536
+    let c = e_movr(1, 0) + e_movz(2, 0)
+    c = c + e_ldrbO(3, 1, 2) + e_cbz(3, 12) + e_addi(2, 2, 1) + e_b(0 - 12)           // strlen
+    c = c + e_movz(0, 2) + e_movz(8, 64) + e_svc()                                    // write(2,buf,len)
+    c = c + e_movz(1, lo) + e_movk16(1, hi) + e_movz(2, 1) + e_movz(0, 2) + e_movz(8, 64) + e_svc() + e_ret()
+    emit c
+}
+// kr_isdigit: x0=ptr to string -> 1 if first byte is '0'..'9', else 0. 32 bytes.
+// (c - '0') unsigned >= 10 -> not a digit (also catches bytes < '0' via wrap).
+func emitIsdigit() {
+    let c = e_ldrb0(1, 0) + e_subi(1, 1, 48)      // w1 = [x0] - '0'
+    c = c + e_movz(2, 10) + e_movz(0, 0)          // x2=10; default result 0
+    c = c + e_cmp(1, 2) + e_bhs(8)                // (c-'0') >= 10 unsigned -> skip (not digit)
+    c = c + e_movz(0, 1)                          // digit -> 1
+    c = c + e_ret()
+    emit c
+}
+// kr_strlen: x0=ptr -> x0=length (bytes before NUL). 32 bytes. (x9/x10 scratch)
+func emitStrlen() {
+    let c = e_movr(9, 0) + e_movz(0, 0)                       // [0,4] x9=ptr; len=0
+    c = c + e_ldrb0(10, 9) + e_cbz(10, 16)                    // [8,12] .l: w10=[x9]; 0 -> .d(28)
+    c = c + e_addi(9, 9, 1) + e_addi(0, 0, 1) + e_b(0 - 16)   // [16,20,24] x9++; len++; -> .l(8)
+    c = c + e_ret()                                           // [28] .d
+    emit c
+}
+// kr_replace(x0=s, x1=find, x2=rep) -> new string with all `find` replaced by
+// `rep`. Empty find returns s. Alloc upper bound ls*(lr+1)+1. 228 bytes.
+// Held across the alloc bl (which clobbers x0-x10): s/find/rep/lf/lr in
+// x23-x27 (untouched by kr_strlen/kr_rawalloc); lr saved in x21; buf in x16.
+func emitReplace(strlenOff, allocOff, thisOff) {
+    let c = e_movr(21, 30)                                    // [0] save lr
+    c = c + e_movr(23, 0) + e_movr(24, 1) + e_movr(25, 2)     // [4,8,12] s; find; rep
+    c = c + e_movr(0, 24) + e_bl(strlenOff - (thisOff + 20)) + e_movr(26, 0)  // [16,20,24] lf = strlen(find)
+    c = c + e_cbz(26, 188)                                    // [28] lf==0 -> .ret_s (216)
+    c = c + e_movr(0, 25) + e_bl(strlenOff - (thisOff + 36)) + e_movr(27, 0)  // [32,36,40] lr = strlen(rep)
+    c = c + e_movr(0, 23) + e_bl(strlenOff - (thisOff + 48)) + e_movr(11, 0)  // [44,48,52] ls = strlen(s)
+    c = c + e_addi(0, 27, 1) + e_mul(0, 11, 0) + e_addi(0, 0, 1)              // [56,60,64] bufsize = ls*(lr+1)+1
+    c = c + e_bl(allocOff - (thisOff + 68))                   // [68] x0 = buf
+    c = c + e_movr(16, 0) + e_movr(28, 0)                     // [72,76] buf=x16; dst=x28 (src stays in x23=s)
+    c = c + e_ldrb0(10, 23) + e_cbz(10, 116)                  // [80,84] .scan: *src; 0 -> .done (200)
+    c = c + e_movr(9, 23) + e_movr(12, 24) + e_movr(13, 26)   // [88,92,96] p=src; q=find; n=lf
+    c = c + e_cbz(13, 36)                                     // [100] .mc: n==0 -> .match (136)
+    c = c + e_ldrb0(14, 9) + e_ldrb0(15, 12)                  // [104,108] *p, *q
+    c = c + e_cmp(14, 15) + e_bne(64)                         // [112,116] differ -> .nomatch (180)
+    c = c + e_addi(9, 9, 1) + e_addi(12, 12, 1) + e_subi(13, 13, 1) + e_b(0 - 32)  // [120,124,128,132] -> .mc (100)
+    c = c + e_movr(12, 25) + e_movr(13, 27)                   // [136,140] .match: q=rep; n=lr
+    c = c + e_cbz(13, 28)                                     // [144] .cprep: n==0 -> .cprepdone (172)
+    c = c + e_ldrb0(14, 12) + e_strb(14, 28) + e_addi(12, 12, 1) + e_addi(28, 28, 1) + e_subi(13, 13, 1) + e_b(0 - 24)  // [148..168] dst[k]=rep[k] -> .cprep (144)
+    c = c + e_addr(23, 23, 26) + e_b(0 - 96)                  // [172,176] .cprepdone: src += lf; -> .scan (80)
+    c = c + e_ldrb0(14, 23) + e_strb(14, 28) + e_addi(23, 23, 1) + e_addi(28, 28, 1) + e_b(0 - 116)  // [180..196] .nomatch: *dst++=*src++; -> .scan (80)
+    c = c + e_strb(31, 28) + e_movr(0, 16) + e_movr(30, 21) + e_ret()  // [200,204,208,212] .done: *dst=0; x0=buf; ret
+    c = c + e_movr(0, 23) + e_movr(30, 21) + e_ret()          // [216,220,224] .ret_s: x0=s; ret
+    emit c
+}
+// kr_environ(x0=name) -> ptr to env var value ("name=VALUE" -> &VALUE), or a
+// fresh "" if unset. envp stashed at GB+80 by _start. 120 bytes.
+func emitEnviron(opOff, allocOff, thisOff) {
+    let c = e_movr(21, 30)                                    // [0] save lr (for not-found alloc)
+    c = c + e_movz(9, opOff % 65536) + e_movk16(9, 32512 + opOff / 65536)  // [4,8] x9=GB
+    c = c + e_ldr8(9, 9, 10)                                  // [12] x9 = envp (GB+80)
+    c = c + e_ldr0(10, 9) + e_cbz(10, 80)                     // [16,20] .loop: entry=*envp; 0 -> .notfound(100)
+    c = c + e_movr(11, 0) + e_movr(12, 10)                    // [24,28] np=name; ep=entry
+    c = c + e_ldrb0(13, 11) + e_cbz(13, 28)                   // [32,36] .cmp: nc=[np]; 0 -> .nameend(64)
+    c = c + e_ldrb0(14, 12) + e_cmp(13, 14) + e_bne(44)       // [40,44,48] ec=[ep]; differ -> .next(92)
+    c = c + e_addi(11, 11, 1) + e_addi(12, 12, 1) + e_b(0 - 28)  // [52,56,60] np++; ep++; -> .cmp(32)
+    c = c + e_ldrb0(14, 12) + e_movz(15, 61) + e_cmp(14, 15) + e_bne(16)  // [64,68,72,76] .nameend: [ep]=='='? no -> .next(92)
+    c = c + e_addi(0, 12, 1) + e_movr(30, 21) + e_ret()       // [80,84,88] x0=&value; ret
+    c = c + e_addi(9, 9, 8) + e_b(0 - 80)                     // [92,96] .next: envp++; -> .loop(16)
+    c = c + e_movz(0, 1) + e_bl(allocOff - (thisOff + 104)) + e_strb(31, 0) + e_movr(30, 21) + e_ret()  // [100,104,108,112,116] .notfound: ""
+    emit c
+}
+// kr_shellrun(x0=cmd) -> child exit code. fork (clone SIGCHLD) + execve(/bin/sh
+// -c cmd, envp) + wait4. Builds "/bin/sh\0", "-c\0" and the argv vector on a
+// 64-byte stack frame. envp from GB+80. 188 bytes. (syscalls: clone=220,
+// execve=221, wait4=260, exit=93)
+func emitShellrun(opOff, thisOff) {
+    let c = e_movr(21, 30) + e_subi(31, 31, 64)              // [0,4] save lr; frame
+    c = c + e_movz(5, 25135) + e_movk16(5, 28265) + e_movk32(5, 29487) + e_movk48(5, 104) + e_str0(5, 31)  // [8,12,16,20,24] "/bin/sh\0" -> [sp+0]
+    c = c + e_movz(5, 25389) + e_str8(5, 31, 1)             // [28,32] "-c\0" -> [sp+8]
+    c = c + e_addi(5, 31, 0) + e_str8(5, 31, 2)             // [36,40] argv[0]=&"/bin/sh" -> [sp+16]
+    c = c + e_addi(5, 31, 8) + e_str8(5, 31, 3)             // [44,48] argv[1]=&"-c" -> [sp+24]
+    c = c + e_str8(0, 31, 4) + e_str8(31, 31, 5)            // [52,56] argv[2]=cmd; argv[3]=NULL -> [sp+32],[sp+40]
+    c = c + e_movz(9, opOff % 65536) + e_movk16(9, 32512 + opOff / 65536) + e_ldr8(9, 9, 10)  // [60,64,68] x9 = envp (GB+80)
+    c = c + e_movz(0, 17) + e_movz(1, 0) + e_movz(2, 0) + e_movz(3, 0) + e_movz(4, 0) + e_movz(8, 220) + e_svc()  // [72..96] clone(SIGCHLD,0,0,0,0)
+    c = c + e_cbz(0, 56)                                    // [100] x0==0 -> .child (156)
+    c = c + e_addi(1, 31, 48) + e_movz(2, 0) + e_movz(3, 0) + e_movz(8, 260) + e_svc()  // [104..120] parent: wait4(pid, &status@sp+48, 0, 0)
+    c = c + e_ldr8(0, 31, 6) + e_movz(6, 8) + e_lsrv(0, 0, 6) + e_movz(6, 255) + e_and(0, 0, 6)  // [124..140] code = (status>>8)&0xff
+    c = c + e_addi(31, 31, 64) + e_movr(30, 21) + e_ret()   // [144,148,152] restore sp; ret
+    c = c + e_addi(0, 31, 0) + e_addi(1, 31, 16) + e_movr(2, 9) + e_movz(8, 221) + e_svc()  // [156..172] .child: execve("/bin/sh", argv, envp)
+    c = c + e_movz(0, 127) + e_movz(8, 93) + e_svc()        // [176,180,184] execve failed -> exit(127)
+    emit c
+}
 
 // ── IR helpers ───────────────────────────────────────────────────────────────
 func opcode(ln) {                       // first token of an IR line
@@ -627,9 +951,41 @@ func isStrPush(ln) {                     // PUSH "..."
     if startsWith(ln, "PUSH \"") { emit "1" }
     emit "0"
 }
+// Decode escape-encoded string back to raw bytes (mirrors linux_x86/elf.k's
+// decodeStr). The IR preserves escapes as 2-char text (\n, \t, \\, \", \r);
+// decode to real bytes at emit time. Control bytes via fromCharCode so this
+// source contains no bare 1-byte escape literals (the seed compiles cleanly).
+func decodeStr(s) {
+    let nl = fromCharCode("10")
+    let tab = fromCharCode("9")
+    let cr = fromCharCode("13")
+    let bs = fromCharCode("92")
+    let dq = fromCharCode("34")
+    let out = sbNew()
+    let i = 0
+    while i < len(s) {
+        if s[i] == "\\" && i + 1 < len(s) {
+            let c = s[i + 1]
+            if c == "n" { out = sbAppend(out, nl) }
+            else if c == "t" { out = sbAppend(out, tab) }
+            else if c == "r" { out = sbAppend(out, cr) }
+            else if c == "\\" { out = sbAppend(out, bs) }
+            else if c == "\"" { out = sbAppend(out, dq) }
+            else if c == "0" { }  // skip null escape (would terminate string)
+            else { out = sbAppend(out, c) }
+            i += 2
+        } else {
+            out = sbAppend(out, s[i])
+            i += 1
+        }
+    }
+    emit sbToString(out)
+}
+// PUSH "..." -> the literal's RAW BYTES (escapes decoded). Used for byte-count,
+// offset calc, and data emission alike — all must agree, so decoding lives here.
 func quoted(ln) {
     let q1 = indexOf(ln, "\"")
-    emit substring(ln, toInt(q1) + 1, len(ln) - 1)
+    emit decodeStr(substring(ln, toInt(q1) + 1, len(ln) - 1))
 }
 // "FUNC add 2" -> "add" ; "CALL add 2" -> "add"
 func headName(ln) {
@@ -684,7 +1040,7 @@ func opBytes(ir, i) {
     if op == "PARAM"  { emit "0" }
     if op == "LOCAL"  { emit "0" }
     if op == "RETURN" { emit "20" }                                    // epilogue
-    if op == "END"    { emit "20" }                                    // epilogue
+    if op == "END"    { emit "32" }                                    // push default ret 0 (void fns), then epilogue
     if op == "CALL" {                                                  // bl, or inlined bitwise builtin
         let cn = headName(ln)
         if cn == "bitAnd" { emit "28" }
@@ -693,39 +1049,64 @@ func opBytes(ir, i) {
         if cn == "bitNot" { emit "20" }
         if cn == "shl"    { emit "28" }
         if cn == "shr"    { emit "28" }
+        if cn == "rawAlloc"     { emit "20" }
+        if cn == "rawFree"      { emit "20" }
+        if cn == "rawRealloc"   { emit "28" }
+        if cn == "rawReadQword" { emit "32" }
+        if cn == "rawWriteQword" { emit "40" }
+        if cn == "rawReadByte"  { emit "32" }
+        if cn == "rawReadWord"  { emit "28" }
+        if cn == "rawWriteWord" { emit "36" }
+        if cn == "ptrAdd"       { emit "28" }
+        if cn == "ptrToInt"     { emit "20" }
+        if cn == "intToPtr"     { emit "20" }
+        if cn == "ptrEq"        { emit "32" }
         emit "4"
     }
     emit toInt(opSize(ln)) + ""
 }
-// absolute byte offset of LABEL `name` (walks _start + all function code).
-func labelAbsOffset(ir, name) {
-    let n = toInt(lineCount(ir))
-    let i = 0
-    let off = 152                       // HDR(120) + _start(32)
-    while i < n {
-        let ln = getLine(ir, i)
-        if opcode(ln) == "LABEL" {
-            if operand(ln) == name { emit off + "" }
-        }
-        off = off + toInt(opBytes(ir, i))
-        i = i + 1
+// Look up `name` in a "\nNAME VAL\nNAME VAL..." table. Uses indexOf (NOT getLine)
+// so it does NOT touch / evict the kr_getline pointer cache — critical: these
+// lookups interleave with the main codegen IR walk, and a single-entry getLine
+// cache would be thrashed if every jump/load did a getLine on a SECOND string,
+// re-introducing O(n^2). indexOf is a plain char-scan over the (small) table.
+// Returns the VAL string (digits after "NAME ") or "0" if absent.
+func tabLookup(tab, name) {
+    let p = toInt(indexOf(tab, "\n" + name + " "))
+    if p < 0 { emit "0" }
+    let vs = p + len(name) + 2                 // skip "\n" + name + " "
+    let n = len(tab)
+    let e = vs
+    let stop = 0
+    while e < n && stop == 0 {
+        if tab[e] == "\n" { stop = 1 }
+        else { e = e + 1 }
     }
-    emit "0"
+    emit substring(tab, vs, e)
 }
-// absolute byte offset of FUNC `name`.
-func funcVaddrOf(ir, name) {
+// absolute byte offset of LABEL/FUNC `name`, via the precomputed offset table.
+func labelAbsOffset(tab, name) { emit tabLookup(tab, name) }
+func funcVaddrOf(tab, name) { emit tabLookup(tab, name) }
+// per-function local-slot table "\nNAME SLOT..." (params then locals, in order).
+// Built ONCE per function at its FUNC line (forward walk, getLine-cache friendly);
+// STORE/LOAD then resolve slots via tabLookup (indexOf, no getLine) instead of
+// re-walking the IR per access (localSlotIn was O(funcLen) getLine per LOAD/STORE).
+func buildSlots(ir, fStart) {
     let n = toInt(lineCount(ir))
-    let i = 0
-    let off = 152
-    while i < n {
+    let i = fStart + 1
+    let slot = 0
+    let out = sbNew()
+    let keep = 1
+    while i < n && keep == 1 {
         let ln = getLine(ir, i)
-        if opcode(ln) == "FUNC" {
-            if headName(ln) == name { emit off + "" }
-        }
-        off = off + toInt(opBytes(ir, i))
+        let op = opcode(ln)
+        if op == "FUNC" { keep = 0 }
+        else if op == "END" { keep = 0 }
+        else if op == "PARAM" { out = sbAppend(out, "\n" + operand(ln) + " " + (slot + ""))  slot = slot + 1 }
+        else if op == "LOCAL" { out = sbAppend(out, "\n" + operand(ln) + " " + (slot + ""))  slot = slot + 1 }
         i = i + 1
     }
-    emit "0"
+    emit sbToString(out)
 }
 // byte size of a non-structural op (body of a function).
 func opSize(ln) {
@@ -742,8 +1123,11 @@ func opSize(ln) {
     if op == "POP"     { emit 4 }
     if op == "LABEL"     { emit 0 }
     if op == "JUMP"      { emit 4 }
-    if op == "JUMPIFNOT" { emit 12 }
-    if op == "LT" || op == "GT" || op == "LTE" || op == "GTE" { emit 32 }
+    if op == "JUMPIFNOT" { emit 16 }   // pop + bl istruthy + cbz (was naive cbz)
+    if op == "JUMPIF"    { emit 16 }   // pop + bl istruthy + cbnz (|| short-circuit)
+    if op == "NOT"       { emit 28 }   // pop + bl istruthy + (x0 ^= 1) + push
+    if op == "NEG"       { emit 20 }   // pop + sub x0,xzr,x0 + push (unary minus)
+    if op == "LT" || op == "GT" || op == "LTE" || op == "GTE" { emit 36 }   // bl kr_cmp + cmpi0 + cset
     if op == "EQ"  { emit 28 }     // polymorphic kr_eq (numeric OR strcmp)
     if op == "NEQ" { emit 36 }     // kr_eq + invert
     if op == "INDEX" { emit 28 }   // list[idx] -> kr_split (pop0+pop1+bl+push)
@@ -760,9 +1144,9 @@ func opSize(ln) {
         if startsWith(b, "len") { emit 40 }
         if startsWith(b, "toStr") { emit 32 }
         if startsWith(b, "toInt") { emit 20 }
-        if startsWith(b, "fromCharCode") { emit 36 }
+        if startsWith(b, "fromCharCode") { emit 40 }
         if startsWith(b, "substring") { emit 36 }
-        if startsWith(b, "isTruthy") { emit 24 }
+        if startsWith(b, "isTruthy") { emit 20 }
         if startsWith(b, "min") { emit 32 }   // pop0+pop1+cmp+csel+push
         if startsWith(b, "max") { emit 32 }
         if startsWith(b, "hex") { emit 20 }   // pop0 + bl kr_hex + push
@@ -778,7 +1162,9 @@ func opSize(ln) {
         if startsWith(b, "contains")   { emit 28 }
         if startsWith(b, "indexOf")    { emit 28 }
         if startsWith(b, "trim")       { emit 20 }  // 1-arg: pop0 + bl + push
-        if startsWith(b, "split")      { emit 28 }  // 2-arg (list, idx)
+        if startsWith(b, "split")      { emit 32 }  // 2-arg (list, idx); idx coerced via atoi
+        if startsWith(b, "lineCount")  { emit 20 }  // 1-arg: pop + bl kr_linecount + push
+        if startsWith(b, "getLine")    { emit 32 }  // 2-arg (s, idx); idx via atoi
         if startsWith(b, "count")      { emit 20 }  // 1-arg (list)
         if startsWith(b, "abs")        { emit 28 }  // inline: pop+cmp+bge+neg+push
         if startsWith(b, "pow")        { emit 28 }  // 2-arg -> kr_pow
@@ -791,10 +1177,24 @@ func opSize(ln) {
         if startsWith(b, "bufNew ")    { emit 20 }  // alloc(size): pop+bl alloc+push
         if startsWith(b, "bufSetByte ") { emit 36 } // [buf+off]=val: 3 pops + strb + push
         if startsWith(b, "bufGetByte ") { emit 28 } // buf[off]: 2 pops + ldrb + push
+        if startsWith(b, "bufGetWordAt ") { emit 28 }  // u16 LE: 2 pops + ldrh + push
+        if startsWith(b, "bufGetDwordAt ") { emit 28 } // u32 LE: 2 pops + ldrw + push
+        if startsWith(b, "unixConnect") { emit 128 }   // socket+connect(AF_UNIX) inline
         if startsWith(b, "readFile")   { emit 20 }  // 1-arg (path)
         if startsWith(b, "writeFile")  { emit 28 }  // 2-arg (path, content)
+        if startsWith(b, "argCount")   { emit 12 }  // 0-arg: bl kr_argcount + push (BEFORE "arg")
+        if startsWith(b, "arg")        { emit 24 }  // 1-arg: pop + atoi + bl kr_arg + push
+        if startsWith(b, "printErr")   { emit 20 }  // 1-arg: pop + bl kr_printerr + push
+        if startsWith(b, "isDigit")    { emit 20 }  // 1-arg: pop + bl kr_isdigit + push
+        if startsWith(b, "replace")    { emit 36 }  // 3-arg: pop x2/x1/x0 + bl kr_replace + push
+        if startsWith(b, "environ")    { emit 20 }  // 1-arg: pop + bl kr_environ + push
+        if startsWith(b, "shellRun")   { emit 20 }  // 1-arg: pop + bl kr_shellrun + push
         if startsWith(b, "gcCollect")    { emit 12 }  // no-op (bump allocator): push 0
-        if startsWith(b, "gcAllocCount") { emit 12 }  // stub: push 0
+        if startsWith(b, "gcAllocCount") { emit 20 }  // load gcGlobals[count]
+        if startsWith(b, "gcAllocated")  { emit 20 }  // load gcGlobals[bytes]
+        if startsWith(b, "gcLimit")      { emit 20 }  // load gcGlobals[limit]
+        if startsWith(b, "gcSetLimit")   { emit 28 }  // store gcGlobals[limit]
+        if startsWith(b, "gcFreelistCount") { emit 40 }  // walk freelist chain
         if startsWith(b, "gcWalkAllocs") { emit 12 }  // stub: push 0
         if startsWith(b, "rdtsc")        { emit 24 }  // mrs cntvct_el0 + mask low 30 bits + push
         if startsWith(b, "structNew")  { emit 12 }  // push 0 (empty env)
@@ -817,20 +1217,38 @@ just run {
     let nlines = toInt(lineCount(ir))
 
     let HDR = 120
-    let START = 32                       // _start size (2x movz/movk + bl + 3 exit)
+    let START = 76                       // _start: argc/argv/envp capture (11) + x20/x22 (4) + bl + 3 exit = 19 instr
 
-    // total function code size (multi-function, context-aware)
+    // ONE O(n) pass: total code size + precomputed LABEL/FUNC offset tables
+    // ("name off\n" per entry). Replaces the old per-jump full-IR re-walk in
+    // labelAbsOffset/funcVaddrOf (J jumps * n lines * opBytes = O(n^2), which
+    // blew up compile time + RAM on big self-host IR). aoff mirrors the old
+    // off seed: HDR(120) + _start(32) = 152, advanced by opBytes per line.
     let codeSize = 0
+    let labelTabB = sbNew()
+    let funcTabB = sbNew()
+    let aoff = HDR + START               // first code byte after HDR + _start (was 152 @ START=32)
     let i = 0
-    while i < nlines { codeSize = codeSize + toInt(opBytes(ir, i))  i = i + 1 }
+    while i < nlines {
+        let ln0 = getLine(ir, i)
+        let op0 = opcode(ln0)
+        if op0 == "LABEL" { labelTabB = sbAppend(labelTabB, "\n" + operand(ln0) + " " + (aoff + "")) }
+        if op0 == "FUNC"  { funcTabB = sbAppend(funcTabB, "\n" + headName(ln0) + " " + (aoff + "")) }
+        let bs = toInt(opBytes(ir, i))
+        aoff = aoff + bs
+        codeSize = codeSize + bs
+        i = i + 1
+    }
+    let labelTab = sbToString(labelTabB)
+    let funcTab = sbToString(funcTabB)
 
     let allocOff  = HDR + START + codeSize
     let strIntOff = allocOff + 16
     let plusOff   = strIntOff + 128   // str_int grew 100->128 for signed (negative) support
-    let printOff  = plusOff + 212
+    let printOff  = plusOff + 288   // kr_plus grew 212->288 (numeric-aware: isnum+atoi sum)
     let kpDispOff = printOff + 64
     let atoiOff = kpDispOff + 32
-    let substrOff = atoiOff + 44
+    let substrOff = atoiOff + 60   // kr_atoi grew 44->60 (int-safe passthrough)
     let hexOff = substrOff + 68    // substr is 68 bytes
     let binOff = hexOff + 144      // kr_hex is 144 bytes
     let padleftOff = binOff + 128  // kr_bin is 128 bytes
@@ -852,14 +1270,30 @@ just run {
     let sbappendOff = sbnewOff + 36     // kr_sbnew is 36 bytes
     let sbtostringOff = sbappendOff + 176  // kr_sbappend is 176 bytes
     let eqOff = sbtostringOff + 8        // kr_sbtostring is 8 bytes
-    let indexOff = eqOff + 76            // kr_eq is 76 bytes
+    let istruthyOff = eqOff + 208        // kr_eq is 208 bytes (numeric-aware)
+    let indexOff = istruthyOff + 152     // kr_istruthy is 152 bytes
     let readfileOff = indexOff + 36      // kr_index is 36 bytes
     let writefileOff = readfileOff + 120 // kr_readfile is 120 bytes
     let setfieldOff = writefileOff + 96  // kr_writefile is 96 bytes
     let getfieldOff = setfieldOff + 44   // kr_setfield is 44 bytes
     let hasfieldOff = getfieldOff + 92   // kr_getfield is 92 bytes
     let structfieldsOff = hasfieldOff + 72  // kr_hasfield is 72 bytes
-    let nlOff = structfieldsOff + 104     // kr_structfields is 104 bytes
+    let isnumOff = structfieldsOff + 104  // kr_structfields is 104 bytes
+    let cmpOff = isnumOff + 60            // kr_isnum is 60 bytes
+    let linecountOff = cmpOff + 144      // kr_cmp is 144 bytes
+    let getlineOff = linecountOff + 76   // kr_linecount is 76 bytes
+    let rawallocOff = getlineOff + 224   // kr_getline is 224 bytes (pointer-keyed cache)
+    let rawfreeOff = rawallocOff + 196   // kr_rawalloc is 196 bytes (freelist-first)
+    let rawreallocOff = rawfreeOff + 80  // kr_rawfree is 80 bytes
+    let argcountOff = rawreallocOff + 108  // kr_rawrealloc is 108 bytes
+    let argOff = argcountOff + 20          // kr_argcount is 20 bytes
+    let printerrOff = argOff + 36          // kr_arg is 36 bytes
+    let isdigitOff = printerrOff + 64      // kr_printerr is 64 bytes
+    let strlenOff = isdigitOff + 32        // kr_isdigit is 32 bytes
+    let replaceOff = strlenOff + 32        // kr_strlen is 32 bytes
+    let environOff = replaceOff + 228      // kr_replace is 228 bytes
+    let shellrunOff = environOff + 120     // kr_environ is 120 bytes
+    let nlOff = shellrunOff + 188          // kr_shellrun is 188 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -886,20 +1320,27 @@ just run {
     }
     let total = fieldBase + fieldBytes
     let heapOff = (total + 15) / 16 * 16            // heap start (offset from load base)
-    let opOff = heapOff + 1048576 + 65536           // x20 start = heap + 1 MiB + 64 KiB
+    let opOff = heapOff + 268435456 + 65536         // x20 start = heap + 256 MiB + 64 KiB (heap grows up from heapOff toward here; op stack grows down from here — 256 MiB keeps them apart so self-hosting big files doesn't collide)
 
     // ── _start: x20=op stack, x22=heap, bl __main__, exit(0) ──────────────────
-    let mainOff = toInt(funcVaddrOf(ir, "__main__"))
-    let code = e_movz(20, opOff % 65536) + e_movk16(20, 32512 + opOff / 65536)
-    code = code + e_movz(22, heapOff % 65536) + e_movk16(22, 32512 + heapOff / 65536)
-    code = code + e_bl(mainOff - (HDR + 16))
-    code = code + e_movz(0, 0) + e_movz(8, 93) + e_svc()
+    let mainOff = toInt(funcVaddrOf(funcTab, "__main__"))
+    // capture argc/argv from the entry stack (sp=argc, [sp+8]=&argv[0]) into GB
+    // slots 8/9 (GB+64/+72) BEFORE any function touches sp. GB = load_base+opOff.
+    let code = sbAppend(sbNew(), e_ldr0(10, 31) + e_addi(11, 31, 8))                            // [0,4] x10=argc, x11=&argv[0]
+    code = sbAppend(code, e_movz(9, opOff % 65536) + e_movk16(9, 32512 + opOff / 65536))        // [8,12] x9=GB
+    code = sbAppend(code, e_str8(10, 9, 8) + e_str8(11, 9, 9))                                  // [16,20] GB+64=argc; GB+72=argv
+    code = sbAppend(code, e_addi(12, 10, 1) + e_movz(13, 3) + e_lslv(12, 12, 13) + e_addr(12, 11, 12) + e_str8(12, 9, 10))  // [24,28,32,36,40] envp = argv+(argc+1)*8 -> GB+80
+    code = sbAppend(code, e_movz(20, opOff % 65536) + e_movk16(20, 32512 + opOff / 65536))      // [44,48] x20=op stack
+    code = sbAppend(code, e_movz(22, heapOff % 65536) + e_movk16(22, 32512 + heapOff / 65536))  // [52,56] x22=heap
+    code = sbAppend(code, e_bl(mainOff - (HDR + 60)))                                           // [60] bl __main__
+    code = sbAppend(code, e_movz(0, 0) + e_movz(8, 93) + e_svc())                               // [64,68,72] exit(0)
     let off = HDR + START
 
     // ── functions: each gets a frame on sp (x19=locals base); op stack is x20 ──
     let curF = 0
     let frame = 0
-    let sidx = 0
+    let curSlots = ""                 // per-function local-slot table (rebuilt at each FUNC)
+    let strCursor = dataOff           // running offset into the string-literal data
     let fieldCursor = fieldBase       // running offset into the field-name table
     i = 0
     while i < nlines {
@@ -907,206 +1348,259 @@ just run {
         let op = opcode(ln)
         if op == "FUNC" {
             curF = i
+            curSlots = buildSlots(ir, i)
             let argc = toInt(funcArgc(ln))
             frame = toInt(countLocals(ir, i)) * 16
-            code = code + e_subi(31, 31, 16) + e_str0(19, 31) + e_str8(30, 31, 1)   // save x19, x30
-            code = code + e_subi(31, 31, frame) + e_addi(19, 31, 0)                 // alloc locals, x19=sp
+            code = sbAppend(code, e_subi(31, 31, 16) + e_str0(19, 31) + e_str8(30, 31, 1))   // save x19, x30
+            code = sbAppend(code, e_subi(31, 31, frame) + e_addi(19, 31, 0))                 // alloc locals, x19=sp
             let p = 0
             while p < argc {                                                        // pop args -> param slots
-                code = code + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_strIdx(0, 19, argc - 1 - p)
+                code = sbAppend(code, e_ldr0(0, 20) + e_addi(20, 20, 16) + e_strIdx(0, 19, argc - 1 - p))
                 p = p + 1
             }
             off = off + (5 + 3 * argc) * 4
         }
         if op == "PUSH" {
             if isStrPush(ln) == "1" {
-                let sOff = dataOff
-                let j = 0
-                let k = 0
-                while j < nlines {
-                    let lj = getLine(ir, j)
-                    if isStrPush(lj) == "1" {
-                        if k == sidx { j = nlines }
-                        else { sOff = sOff + (len(quoted(lj)) + 1)  k = k + 1 }
-                    }
-                    j = j + 1
-                }
-                code = code + e_movz(0, sOff % 65536) + e_movk16(0, 32512 + sOff / 65536) + c_push()
-                sidx = sidx + 1
+                let sOff = strCursor                              // O(1): running data offset (was O(n) full-IR re-walk per string)
+                strCursor = strCursor + (len(quoted(ln)) + 1)
+                code = sbAppend(code, e_movz(0, sOff % 65536) + e_movk16(0, 32512 + sOff / 65536) + c_push())
             } else {
-                code = code + c_loadImm(toInt(operand(ln))) + c_push()
+                code = sbAppend(code, c_loadImm(toInt(operand(ln))) + c_push())
             }
             off = off + 16
         }
-        if op == "STORE" { code = code + c_pop0() + e_strIdx(0, 19, toInt(localSlotIn(ir, curF, operand(ln))))  off = off + 12 }
-        if op == "LOAD"  { code = code + e_ldrIdx(0, 19, toInt(localSlotIn(ir, curF, operand(ln)))) + c_push()   off = off + 12 }
-        if op == "ADD" { code = code + c_pop1() + c_pop0() + e_bl(plusOff - (off + 16)) + c_push()  off = off + 28 }  // polymorphic via kr_plus
-        if op == "CAT" { code = code + c_pop1() + c_pop0() + e_bl(plusOff - (off + 16)) + c_push()  off = off + 28 }  // template-string concat via kr_plus
-        if op == "SUB" { code = code + c_pop1() + c_pop0() + e_subr(0, 0, 1) + c_push()  off = off + 28 }
-        if op == "MUL" { code = code + c_pop1() + c_pop0() + e_mul(0, 0, 1) + c_push()   off = off + 28 }
-        if op == "DIV" { code = code + c_pop1() + c_pop0() + e_udiv(0, 0, 1) + c_push()  off = off + 28 }
-        if op == "MOD" { code = code + c_pop1() + c_pop0() + e_udiv(2, 0, 1) + e_msub(0, 2, 1, 0) + c_push()  off = off + 32 }
+        if op == "STORE" { code = sbAppend(code, c_pop0() + e_strIdx(0, 19, toInt(tabLookup(curSlots, operand(ln)))))  off = off + 12 }
+        if op == "LOAD"  { code = sbAppend(code, e_ldrIdx(0, 19, toInt(tabLookup(curSlots, operand(ln)))) + c_push())   off = off + 12 }
+        if op == "ADD" { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(plusOff - (off + 16)) + c_push())  off = off + 28 }  // polymorphic via kr_plus
+        if op == "CAT" { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(plusOff - (off + 16)) + c_push())  off = off + 28 }  // template-string concat via kr_plus
+        if op == "SUB" { code = sbAppend(code, c_pop1() + c_pop0() + e_subr(0, 0, 1) + c_push())  off = off + 28 }
+        if op == "MUL" { code = sbAppend(code, c_pop1() + c_pop0() + e_mul(0, 0, 1) + c_push())   off = off + 28 }
+        if op == "DIV" { code = sbAppend(code, c_pop1() + c_pop0() + e_udiv(0, 0, 1) + c_push())  off = off + 28 }
+        if op == "MOD" { code = sbAppend(code, c_pop1() + c_pop0() + e_udiv(2, 0, 1) + e_msub(0, 2, 1, 0) + c_push())  off = off + 32 }
         // s[idx] -> kr_index (i-th CHARACTER). pop0->x0=idx, pop1->x1=s. 28 bytes.
         // (Element access on a comma-collection uses split(coll, i), not [].)
-        if op == "INDEX" { code = code + c_pop0() + c_pop1() + e_bl(indexOff - (off + 16)) + c_push()  off = off + 28 }
+        if op == "INDEX" { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(indexOff - (off + 16)) + c_push())  off = off + 28 }
         // p.x = v -> kr_setfield(env, name_imm, val). Stack: val(top), env. 36 bytes.
         if op == "SETFIELD" {
-            code = code + e_ldr0(2, 20) + e_addi(20, 20, 16)              // pop val -> x2
-            code = code + e_ldr0(0, 20) + e_addi(20, 20, 16)              // pop env -> x0
-            code = code + e_movz(1, fieldCursor % 65536) + e_movk16(1, 32512 + fieldCursor / 65536)  // x1 = &name
-            code = code + e_bl(setfieldOff - (off + 24)) + c_push()
+            code = sbAppend(code, e_ldr0(2, 20) + e_addi(20, 20, 16))              // pop val -> x2
+            code = sbAppend(code, e_ldr0(0, 20) + e_addi(20, 20, 16))              // pop env -> x0
+            code = sbAppend(code, e_movz(1, fieldCursor % 65536) + e_movk16(1, 32512 + fieldCursor / 65536))  // x1 = &name
+            code = sbAppend(code, e_bl(setfieldOff - (off + 24)) + c_push())
             fieldCursor = fieldCursor + (len(operand(ln)) + 1)
             off = off + 36
         }
         // p.x -> kr_getfield(env, name_imm). Stack: env(top). 28 bytes.
         if op == "GETFIELD" {
-            code = code + e_ldr0(1, 20) + e_addi(20, 20, 16)              // pop env -> x1
-            code = code + e_movz(0, fieldCursor % 65536) + e_movk16(0, 32512 + fieldCursor / 65536)  // x0 = &name
-            code = code + e_bl(getfieldOff - (off + 16)) + c_push()
+            code = sbAppend(code, e_ldr0(1, 20) + e_addi(20, 20, 16))              // pop env -> x1
+            code = sbAppend(code, e_movz(0, fieldCursor % 65536) + e_movk16(0, 32512 + fieldCursor / 65536))  // x0 = &name
+            code = sbAppend(code, e_bl(getfieldOff - (off + 16)) + c_push())
             fieldCursor = fieldCursor + (len(operand(ln)) + 1)
             off = off + 28
         }
-        if op == "POP" { code = code + e_addi(20, 20, 16)  off = off + 4 }
-        if op == "LT"  { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 10) + c_push()  off = off + 32 }
-        if op == "GT"  { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 13) + c_push()  off = off + 32 }
+        if op == "POP" { code = sbAppend(code, e_addi(20, 20, 16))  off = off + 4 }
+        if op == "LT"  { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(cmpOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 10) + c_push())  off = off + 36 }
+        if op == "GT"  { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(cmpOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 13) + c_push())  off = off + 36 }
         // EQ/NEQ are polymorphic (string contents OR numeric) via kr_eq.
-        if op == "EQ"  { code = code + c_pop1() + c_pop0() + e_bl(eqOff - (off + 16)) + c_push()   off = off + 28 }
-        if op == "NEQ" { code = code + c_pop1() + c_pop0() + e_bl(eqOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 1) + c_push()   off = off + 36 }
-        if op == "LTE" { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 12) + c_push()  off = off + 32 }
-        if op == "GTE" { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 11) + c_push()  off = off + 32 }
-        if op == "JUMP" { code = code + e_b(toInt(labelAbsOffset(ir, operand(ln))) - off)  off = off + 4 }
-        if op == "JUMPIFNOT" { code = code + c_pop0() + e_cbz(0, toInt(labelAbsOffset(ir, operand(ln))) - (off + 8))  off = off + 12 }
+        if op == "EQ"  { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(eqOff - (off + 16)) + c_push())   off = off + 28 }
+        if op == "NEQ" { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(eqOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 1) + c_push())   off = off + 36 }
+        if op == "LTE" { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(cmpOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 12) + c_push())  off = off + 36 }
+        if op == "GTE" { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(cmpOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 11) + c_push())  off = off + 36 }
+        if op == "JUMP" { code = sbAppend(code, e_b(toInt(labelAbsOffset(labelTab, operand(ln))) - off))  off = off + 4 }
+        if op == "JUMPIFNOT" { code = sbAppend(code, c_pop0() + e_bl(istruthyOff - (off + 8)) + e_cbz(0, toInt(labelAbsOffset(labelTab, operand(ln))) - (off + 12)))  off = off + 16 }
+        if op == "JUMPIF" { code = sbAppend(code, c_pop0() + e_bl(istruthyOff - (off + 8)) + e_cbnz(0, toInt(labelAbsOffset(labelTab, operand(ln))) - (off + 12)))  off = off + 16 }
+        if op == "NOT" { code = sbAppend(code, c_pop0() + e_bl(istruthyOff - (off + 8)) + e_movz(1, 1) + e_eor(0, 0, 1) + c_push())  off = off + 28 }
+        if op == "NEG" { code = sbAppend(code, c_pop0() + e_subr(0, 31, 0) + c_push())  off = off + 20 }
         if op == "CALL" {
             let cn = headName(ln)
             // bitwise builtins arrive as generic CALLs (front-end emits CALL, not BUILTIN).
-            if cn == "bitAnd" { code = code + c_pop0() + c_pop1() + e_and(0, 1, 0) + c_push()  off = off + 28 }
-            if cn == "bitOr"  { code = code + c_pop0() + c_pop1() + e_orr(0, 1, 0) + c_push()  off = off + 28 }
-            if cn == "bitXor" { code = code + c_pop0() + c_pop1() + e_eor(0, 1, 0) + c_push()  off = off + 28 }
-            if cn == "bitNot" { code = code + c_pop0() + e_orn(0, 31, 0) + c_push()  off = off + 20 }
-            if cn == "shl" { code = code + c_pop0() + c_pop1() + e_lslv(0, 1, 0) + c_push()  off = off + 28 }
-            if cn == "shr" { code = code + c_pop0() + c_pop1() + e_lsrv(0, 1, 0) + c_push()  off = off + 28 }
-            if cn != "bitAnd" && cn != "bitOr" && cn != "bitXor" && cn != "bitNot" && cn != "shl" && cn != "shr" {
-                code = code + e_bl(toInt(funcVaddrOf(ir, cn)) - off)  off = off + 4
+            if cn == "bitAnd" { code = sbAppend(code, c_pop0() + c_pop1() + e_and(0, 1, 0) + c_push())  off = off + 28 }
+            if cn == "bitOr"  { code = sbAppend(code, c_pop0() + c_pop1() + e_orr(0, 1, 0) + c_push())  off = off + 28 }
+            if cn == "bitXor" { code = sbAppend(code, c_pop0() + c_pop1() + e_eor(0, 1, 0) + c_push())  off = off + 28 }
+            if cn == "bitNot" { code = sbAppend(code, c_pop0() + e_orn(0, 31, 0) + c_push())  off = off + 20 }
+            if cn == "shl" { code = sbAppend(code, c_pop0() + c_pop1() + e_lslv(0, 1, 0) + c_push())  off = off + 28 }
+            if cn == "shr" { code = sbAppend(code, c_pop0() + c_pop1() + e_lsrv(0, 1, 0) + c_push())  off = off + 28 }
+            // C-like raw memory ops (front-end emits these as generic CALLs).
+            if cn == "rawAlloc"   { code = sbAppend(code, c_pop0() + e_bl(rawallocOff - (off + 8)) + c_push())  off = off + 20 }
+            if cn == "rawFree"    { code = sbAppend(code, c_pop0() + e_bl(rawfreeOff - (off + 8)) + c_push())  off = off + 20 }
+            if cn == "rawRealloc" { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(rawreallocOff - (off + 16)) + c_push())  off = off + 28 }  // pop n->x1, ptr->x0
+            if cn == "rawReadQword"  { code = sbAppend(code, c_pop0() + c_pop1() + e_addr(0, 1, 0) + e_ldr0(0, 0) + c_push())  off = off + 32 }  // [ptr+off]
+            if cn == "rawWriteQword" { code = sbAppend(code, c_pop0() + c_pop1() + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_addr(2, 2, 1) + e_str0(0, 2) + c_push())  off = off + 40 }  // [ptr+off]=val
+            if cn == "rawReadByte"   { code = sbAppend(code, c_pop0() + c_pop1() + e_addr(0, 1, 0) + e_ldrb0(0, 0) + c_push())  off = off + 32 }
+            if cn == "rawReadWord"   { code = sbAppend(code, c_pop0() + c_pop1() + e_ldrhO(0, 1, 0) + c_push())  off = off + 28 }  // u16 [ptr+off]
+            if cn == "rawWriteWord"  { code = sbAppend(code, c_pop0() + c_pop1() + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_strhR(0, 2, 1) + c_push())  off = off + 36 }  // [ptr+off]=val u16
+            if cn == "ptrAdd"     { code = sbAppend(code, c_pop0() + c_pop1() + e_addr(0, 1, 0) + c_push())  off = off + 28 }  // ptr + n
+            // ptrToInt(p) -> DECIMAL STRING of the raw address (per w2l_ptr_classification:
+            // stringify so it routes through normal string handling, no smart-int collision).
+            if cn == "ptrToInt"   { code = sbAppend(code, c_pop0() + e_bl(strIntOff - (off + 8)) + c_push())  off = off + 20 }
+            if cn == "intToPtr"   { code = sbAppend(code, c_pop0() + e_bl(atoiOff - (off + 8)) + c_push())  off = off + 20 }  // parse decimal string -> raw ptr
+            if cn == "ptrEq"      { code = sbAppend(code, c_pop0() + c_pop1() + e_cmp(0, 1) + e_cset(0, 1) + c_push())  off = off + 32 }  // raw int64 compare -> 1 if equal (cset cc=NE: csinc NE = 1 when Z/EQ)
+            if cn != "bitAnd" && cn != "bitOr" && cn != "bitXor" && cn != "bitNot" && cn != "shl" && cn != "shr" && cn != "rawAlloc" && cn != "rawFree" && cn != "rawRealloc" && cn != "rawReadQword" && cn != "rawWriteQword" && cn != "rawReadByte" && cn != "rawReadWord" && cn != "rawWriteWord" && cn != "ptrAdd" && cn != "ptrToInt" && cn != "intToPtr" && cn != "ptrEq" {
+                code = sbAppend(code, e_bl(toInt(funcVaddrOf(funcTab, cn)) - off))  off = off + 4
             }
         }
         if op == "BUILTIN" {
             let b = operand(ln)
-            if startsWith(b, "isTruthy") { code = code + c_pop0() + e_cmpi0(0) + e_cset(0, 0) + c_push()  off = off + 24 }
+            if startsWith(b, "isTruthy") { code = sbAppend(code, c_pop0() + e_bl(istruthyOff - (off + 8)) + c_push())  off = off + 20 }
             // min/max(a,b): pop b->x0, a->x1; cmp a,b; csel. cond LT=11 (min), GT=12 (max). 32 bytes.
             // (bitwise builtins arrive as CALL, handled in the CALL branch below.)
-            if startsWith(b, "min") { code = code + c_pop0() + c_pop1() + e_cmp(1, 0) + e_csel(0, 1, 0, 11) + c_push()  off = off + 32 }
-            if startsWith(b, "max") { code = code + c_pop0() + c_pop1() + e_cmp(1, 0) + e_csel(0, 1, 0, 12) + c_push()  off = off + 32 }
+            if startsWith(b, "min") { code = sbAppend(code, c_pop0() + c_pop1() + e_cmp(1, 0) + e_csel(0, 1, 0, 11) + c_push())  off = off + 32 }
+            if startsWith(b, "max") { code = sbAppend(code, c_pop0() + c_pop1() + e_cmp(1, 0) + e_csel(0, 1, 0, 12) + c_push())  off = off + 32 }
             // hex/bin(n) -> string (kr_hex/kr_bin). 20 bytes.
-            if startsWith(b, "hex") { code = code + c_pop0() + e_bl(hexOff - (off + 8)) + c_push()  off = off + 20 }
-            if startsWith(b, "bin") { code = code + c_pop0() + e_bl(binOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "hex") { code = sbAppend(code, c_pop0() + e_bl(hexOff - (off + 8)) + c_push())  off = off + 20 }
+            if startsWith(b, "bin") { code = sbAppend(code, c_pop0() + e_bl(binOff - (off + 8)) + c_push())  off = off + 20 }
             // padLeft/padRight(s, width, pad): pop pad->x2, width->x1, s->x0; bl; push. 36 bytes.
             // padLeft/padRight(s,width,pad): pop pad->x2,width->x1,s->x0; if s is an
             // int (<VBASE) stringify it via str_int (save/restore width+pad); then bl. 68B.
             if startsWith(b, "padLeft") {
-                code = code + e_ldr0(2, 20) + e_addi(20, 20, 16)   // [0] pop pad->x2
-                code = code + e_ldr0(1, 20) + e_addi(20, 20, 16)   // [8] pop width->x1
-                code = code + e_ldr0(0, 20) + e_addi(20, 20, 16)   // [16] pop s->x0
-                code = code + e_movzHi(9, 32512) + e_cmp(0, 9)     // [24] x9=VBASE; cmp
-                code = code + e_bge(24)                            // [32] s>=VBASE -> .skip (56)
-                code = code + e_movr(11, 1) + e_movr(12, 2)        // [36] save width,pad
-                code = code + e_bl(strIntOff - (off + 44))         // [44] x0=str(s)
-                code = code + e_movr(1, 11) + e_movr(2, 12)        // [48] restore width,pad
-                code = code + e_bl(padleftOff - (off + 56))        // [56] .skip
-                code = code + c_push()                             // [60]
+                code = sbAppend(code, e_ldr0(2, 20) + e_addi(20, 20, 16))   // [0] pop pad->x2
+                code = sbAppend(code, e_ldr0(1, 20) + e_addi(20, 20, 16))   // [8] pop width->x1
+                code = sbAppend(code, e_ldr0(0, 20) + e_addi(20, 20, 16))   // [16] pop s->x0
+                code = sbAppend(code, e_movzHi(9, 32512) + e_cmp(0, 9))     // [24] x9=VBASE; cmp
+                code = sbAppend(code, e_bge(24))                            // [32] s>=VBASE -> .skip (56)
+                code = sbAppend(code, e_movr(11, 1) + e_movr(12, 2))        // [36] save width,pad
+                code = sbAppend(code, e_bl(strIntOff - (off + 44)))         // [44] x0=str(s)
+                code = sbAppend(code, e_movr(1, 11) + e_movr(2, 12))        // [48] restore width,pad
+                code = sbAppend(code, e_bl(padleftOff - (off + 56)))        // [56] .skip
+                code = sbAppend(code, c_push())                             // [60]
                 off = off + 68
             }
             if startsWith(b, "padRight") {
-                code = code + e_ldr0(2, 20) + e_addi(20, 20, 16)
-                code = code + e_ldr0(1, 20) + e_addi(20, 20, 16)
-                code = code + e_ldr0(0, 20) + e_addi(20, 20, 16)
-                code = code + e_movzHi(9, 32512) + e_cmp(0, 9)
-                code = code + e_bge(24)
-                code = code + e_movr(11, 1) + e_movr(12, 2)
-                code = code + e_bl(strIntOff - (off + 44))
-                code = code + e_movr(1, 11) + e_movr(2, 12)
-                code = code + e_bl(padrightOff - (off + 56))
-                code = code + c_push()
+                code = sbAppend(code, e_ldr0(2, 20) + e_addi(20, 20, 16))
+                code = sbAppend(code, e_ldr0(1, 20) + e_addi(20, 20, 16))
+                code = sbAppend(code, e_ldr0(0, 20) + e_addi(20, 20, 16))
+                code = sbAppend(code, e_movzHi(9, 32512) + e_cmp(0, 9))
+                code = sbAppend(code, e_bge(24))
+                code = sbAppend(code, e_movr(11, 1) + e_movr(12, 2))
+                code = sbAppend(code, e_bl(strIntOff - (off + 44)))
+                code = sbAppend(code, e_movr(1, 11) + e_movr(2, 12))
+                code = sbAppend(code, e_bl(padrightOff - (off + 56)))
+                code = sbAppend(code, c_push())
                 off = off + 68
             }
             // 1-arg string->string transforms (kr_toupper/tolower/reverse). 20 bytes.
-            if startsWith(b, "toUpper") { code = code + c_pop0() + e_bl(toupperOff - (off + 8)) + c_push()  off = off + 20 }
-            if startsWith(b, "toLower") { code = code + c_pop0() + e_bl(tolowerOff - (off + 8)) + c_push()  off = off + 20 }
-            if startsWith(b, "reverse") { code = code + c_pop0() + e_bl(reverseOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "toUpper") { code = sbAppend(code, c_pop0() + e_bl(toupperOff - (off + 8)) + c_push())  off = off + 20 }
+            if startsWith(b, "toLower") { code = sbAppend(code, c_pop0() + e_bl(tolowerOff - (off + 8)) + c_push())  off = off + 20 }
+            if startsWith(b, "reverse") { code = sbAppend(code, c_pop0() + e_bl(reverseOff - (off + 8)) + c_push())  off = off + 20 }
             // 2-arg string builtins: pop0->x0 (2nd arg), pop1->x1 (1st arg); bl; push. 28 bytes.
-            if startsWith(b, "startsWith") { code = code + c_pop0() + c_pop1() + e_bl(startswithOff - (off + 16)) + c_push()  off = off + 28 }
-            if startsWith(b, "endsWith")   { code = code + c_pop0() + c_pop1() + e_bl(endswithOff - (off + 16)) + c_push()  off = off + 28 }
-            if startsWith(b, "repeat")     { code = code + c_pop0() + c_pop1() + e_bl(repeatOff - (off + 16)) + c_push()  off = off + 28 }
-            if startsWith(b, "contains")   { code = code + c_pop0() + c_pop1() + e_bl(containsOff - (off + 16)) + c_push()  off = off + 28 }
-            if startsWith(b, "indexOf")    { code = code + c_pop0() + c_pop1() + e_bl(indexofOff - (off + 16)) + c_push()  off = off + 28 }
-            if startsWith(b, "trim")       { code = code + c_pop0() + e_bl(trimOff - (off + 8)) + c_push()  off = off + 20 }
-            if startsWith(b, "split")      { code = code + c_pop0() + c_pop1() + e_bl(splitOff - (off + 16)) + c_push()  off = off + 28 }
-            if startsWith(b, "count")      { code = code + c_pop0() + e_bl(countOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "startsWith") { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(startswithOff - (off + 16)) + c_push())  off = off + 28 }
+            if startsWith(b, "endsWith")   { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(endswithOff - (off + 16)) + c_push())  off = off + 28 }
+            if startsWith(b, "repeat")     { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(repeatOff - (off + 16)) + c_push())  off = off + 28 }
+            if startsWith(b, "contains")   { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(containsOff - (off + 16)) + c_push())  off = off + 28 }
+            if startsWith(b, "indexOf")    { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(indexofOff - (off + 16)) + c_push())  off = off + 28 }
+            if startsWith(b, "trim")       { code = sbAppend(code, c_pop0() + e_bl(trimOff - (off + 8)) + c_push())  off = off + 20 }
+            if startsWith(b, "split")      { code = sbAppend(code, c_pop0() + e_bl(atoiOff - (off + 8)) + c_pop1() + e_bl(splitOff - (off + 20)) + c_push())  off = off + 32 }  // idx via atoi (int-safe): accepts int or numeric-string index
+            if startsWith(b, "lineCount")  { code = sbAppend(code, c_pop0() + e_bl(linecountOff - (off + 8)) + c_push())  off = off + 20 }
+            if startsWith(b, "getLine")    { code = sbAppend(code, c_pop0() + e_bl(atoiOff - (off + 8)) + c_pop1() + e_bl(getlineOff - (off + 20)) + c_push())  off = off + 32 }  // idx via atoi; kr_getline = kr_split sep '\n'
+            if startsWith(b, "count")      { code = sbAppend(code, c_pop0() + e_bl(countOff - (off + 8)) + c_push())  off = off + 20 }
             // abs(x): inline. pop x0; if x0<0 neg; push. 28 bytes.
-            if startsWith(b, "abs")        { code = code + c_pop0() + e_cmpi0(0) + e_bge(8) + e_subr(0, 31, 0) + c_push()  off = off + 28 }
+            if startsWith(b, "abs")        { code = sbAppend(code, c_pop0() + e_cmpi0(0) + e_bge(8) + e_subr(0, 31, 0) + c_push())  off = off + 28 }
             // pow(base, exp): pop0->x0=exp, pop1->x1=base; kr_pow. 28 bytes.
-            if startsWith(b, "pow")        { code = code + c_pop0() + c_pop1() + e_bl(powOff - (off + 16)) + c_push()  off = off + 28 }
+            if startsWith(b, "pow")        { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(powOff - (off + 16)) + c_push())  off = off + 28 }
             // range(n): pop n->x0; start=0; kr_range. 24 bytes.
-            if startsWith(b, "range 1")    { code = code + c_pop0() + e_movz(1, 0) + e_bl(rangeOff - (off + 12)) + c_push()  off = off + 24 }
+            if startsWith(b, "range 1")    { code = sbAppend(code, c_pop0() + e_movz(1, 0) + e_bl(rangeOff - (off + 12)) + c_push())  off = off + 24 }
             // range(start,end): pop end->x0, start->x1; kr_range. 28 bytes.
-            if startsWith(b, "range 2")    { code = code + c_pop0() + c_pop1() + e_bl(rangeOff - (off + 16)) + c_push()  off = off + 28 }
+            if startsWith(b, "range 2")    { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(rangeOff - (off + 16)) + c_push())  off = off + 28 }
             // StringBuilder: sbNew (0-arg), sbAppend (handle,s -> x1=handle,x0=s), sbToString (handle).
-            if startsWith(b, "sbNew")      { code = code + e_bl(sbnewOff - off) + c_push()  off = off + 12 }
-            if startsWith(b, "sbAppend")   { code = code + c_pop0() + c_pop1() + e_bl(sbappendOff - (off + 16)) + c_push()  off = off + 28 }
-            if startsWith(b, "sbToString") { code = code + c_pop0() + e_bl(sbtostringOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "sbNew")      { code = sbAppend(code, e_bl(sbnewOff - off) + c_push())  off = off + 12 }
+            if startsWith(b, "sbAppend")   { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(sbappendOff - (off + 16)) + c_push())  off = off + 28 }
+            if startsWith(b, "sbToString") { code = sbAppend(code, c_pop0() + e_bl(sbtostringOff - (off + 8)) + c_push())  off = off + 20 }
             // exit(code): pop x0; SYS_exit(93); (push is dead, never reached). 24 bytes.
-            if startsWith(b, "exit")       { code = code + c_pop0() + e_movz(8, 93) + e_svc() + c_push()  off = off + 24 }
+            if startsWith(b, "exit")       { code = sbAppend(code, c_pop0() + e_movz(8, 93) + e_svc() + c_push())  off = off + 24 }
             // bufNew(size): alloc(size) -> ptr. pop0->x0=size; bl alloc; push. 20 bytes.
-            if startsWith(b, "bufNew ")    { code = code + c_pop0() + e_bl(allocOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "bufNew ")    { code = sbAppend(code, c_pop0() + e_bl(allocOff - (off + 8)) + c_push())  off = off + 20 }
             // bufSetByte(buf, off, val): 3-arg. pop val->x2, off->x1, buf->x0; strb w2,[x0,x1]; push buf. 36 bytes.
-            if startsWith(b, "bufSetByte ") { code = code + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_strbR(2, 0, 1) + c_push()  off = off + 36 }
+            if startsWith(b, "bufSetByte ") { code = sbAppend(code, e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_strbR(2, 0, 1) + c_push())  off = off + 36 }
             // bufGetByte(buf, off): pop0->x0=off, pop1->x1=buf; ldrb w0,[x1,x0]; push. 28 bytes.
-            if startsWith(b, "bufGetByte ") { code = code + c_pop0() + c_pop1() + e_ldrbO(0, 1, 0) + c_push()  off = off + 28 }
+            if startsWith(b, "bufGetByte ") { code = sbAppend(code, c_pop0() + c_pop1() + e_ldrbO(0, 1, 0) + c_push())  off = off + 28 }
+            // bufGetWordAt(buf, off) -> u16 LE: ldrh w0,[buf+off] (ARM is little-endian). 28 bytes.
+            if startsWith(b, "bufGetWordAt ") { code = sbAppend(code, c_pop0() + c_pop1() + e_ldrhO(0, 1, 0) + c_push())  off = off + 28 }
+            // bufGetDwordAt(buf, off) -> u32 LE: ldr w0,[buf+off]. 28 bytes.
+            if startsWith(b, "bufGetDwordAt ") { code = sbAppend(code, c_pop0() + c_pop1() + e_ldrwO(0, 1, 0) + c_push())  off = off + 28 }
+            // unixConnect(path) -> socket(AF_UNIX=1,SOCK_STREAM=1,0) then connect(fd,
+            // &sockaddr_un{family=1, sun_path=path}, 110). Returns fd, or negative
+            // connect errno on failure. Builds sockaddr_un on sp. AF_UNIX transport
+            // for pure-Krypton X11/Wayland. svc preserves x9(path)/x10(fd). 128 bytes.
+            if startsWith(b, "unixConnect") {
+                let kc = sbNew()
+                kc = sbAppend(kc, c_pop0())                                  // [0]  x0 = path
+                kc = sbAppend(kc, e_movr(9, 0))                              // [8]  x9 = path (survives socket svc)
+                kc = sbAppend(kc, e_movz(0, 1) + e_movz(1, 1) + e_movz(2, 0))// [12,16,20] AF_UNIX, SOCK_STREAM, proto 0
+                kc = sbAppend(kc, e_movz(8, 198) + e_svc())                  // [24,28] socket -> x0 = fd
+                kc = sbAppend(kc, e_movr(10, 0) + e_subi(31, 31, 128))       // [32,36] x10=fd; sp -= 128 (sockaddr_un)
+                kc = sbAppend(kc, e_movz(2, 1) + e_strb(2, 31) + e_strbO(31, 31, 1))  // [40,44,48] sun_family = 1 (LE u16)
+                kc = sbAppend(kc, e_addi(3, 31, 2) + e_movr(4, 9))           // [52,56] dst=sp+2 (sun_path); src=path
+                kc = sbAppend(kc, e_ldrb0(5, 4) + e_strb(5, 3) + e_cbz(5, 16))  // [60,64,68] .copy: b=[src]; [dst]=b; 0 -> .done(84)
+                kc = sbAppend(kc, e_addi(4, 4, 1) + e_addi(3, 3, 1) + e_b(0 - 20))  // [72,76,80] src++; dst++; -> .copy(60)
+                kc = sbAppend(kc, e_movr(0, 10) + e_addi(1, 31, 0))          // [84,88] .done: x0=fd; x1=sp (&addr)
+                kc = sbAppend(kc, e_movz(2, 110) + e_movz(8, 203) + e_svc()) // [92,96,100] connect -> x0 = 0 / -errno
+                kc = sbAppend(kc, e_addi(31, 31, 128))                       // [104] restore sp
+                kc = sbAppend(kc, e_cbz(0, 8) + e_b(8))                      // [108,112] x0==0 ok -> .ok(116); else -> .push(120)
+                kc = sbAppend(kc, e_movr(0, 10))                            // [116] .ok: x0 = fd
+                kc = sbAppend(kc, c_push())                                 // [120] .push: push result
+                code = sbAppend(code, sbToString(kc))
+                off = off + 128
+            }
             // readFile(path): pop0->x0=path; kr_readfile. 20 bytes.
-            if startsWith(b, "readFile")   { code = code + c_pop0() + e_bl(readfileOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "readFile")   { code = sbAppend(code, c_pop0() + e_bl(readfileOff - (off + 8)) + c_push())  off = off + 20 }
+            // argCount() -> argc-1 (0-arg); arg(idx) -> argv[idx+1] (idx via atoi, string index).
+            // argCount must be checked first (it also startsWith "arg") -> else-if pair.
+            if startsWith(b, "argCount") { code = sbAppend(code, e_bl(argcountOff - off) + c_push())  off = off + 12 }
+            else if startsWith(b, "arg") { code = sbAppend(code, c_pop0() + e_bl(atoiOff - (off + 8)) + e_bl(argOff - (off + 12)) + c_push())  off = off + 24 }
+            if startsWith(b, "printErr")   { code = sbAppend(code, c_pop0() + e_bl(printerrOff - (off + 8)) + c_push())  off = off + 20 }
+            if startsWith(b, "isDigit")    { code = sbAppend(code, c_pop0() + e_bl(isdigitOff - (off + 8)) + c_push())  off = off + 20 }
+            // replace(s, find, rep): pop rep->x2, find->x1, s->x0; kr_replace; push.
+            if startsWith(b, "replace")    { code = sbAppend(code, e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_bl(replaceOff - (off + 24)) + c_push())  off = off + 36 }
+            if startsWith(b, "environ")    { code = sbAppend(code, c_pop0() + e_bl(environOff - (off + 8)) + c_push())  off = off + 20 }
+            if startsWith(b, "shellRun")   { code = sbAppend(code, c_pop0() + e_bl(shellrunOff - (off + 8)) + c_push())  off = off + 20 }
             // writeFile(path, content): pop0->x0=content, pop1->x1=path; kr_writefile. 28 bytes.
-            if startsWith(b, "writeFile")  { code = code + c_pop0() + c_pop1() + e_bl(writefileOff - (off + 16)) + c_push()  off = off + 28 }
+            if startsWith(b, "writeFile")  { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(writefileOff - (off + 16)) + c_push())  off = off + 28 }
             if startsWith(b, "kp") {
                 let kc = sbNew()
                 kc = sbAppend(kc, c_pop0())                         // pop arg -> x0
                 kc = sbAppend(kc, e_bl(kpDispOff - (off + 8)))      // dispatch + print
                 kc = sbAppend(kc, c_push())                         // push dummy (IR POPs it)
-                code = code + sbToString(kc)
+                code = sbAppend(code, sbToString(kc))
                 off = off + 20
             }
-            if startsWith(b, "gcShadowCount") { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
-            if startsWith(b, "gcShadowPush") { code = code + e_addi(20, 20, 16) + e_movz(0, 0) + c_push()  off = off + 16 }
-            if startsWith(b, "gcShadowPop") { code = code + e_addi(20, 20, 16) + e_movz(0, 0) + c_push()  off = off + 16 }
+            if startsWith(b, "gcShadowCount") { code = sbAppend(code, e_movz(0, 0) + c_push())  off = off + 12 }
+            if startsWith(b, "gcShadowPush") { code = sbAppend(code, e_addi(20, 20, 16) + e_movz(0, 0) + c_push())  off = off + 16 }
+            if startsWith(b, "gcShadowPop") { code = sbAppend(code, e_addi(20, 20, 16) + e_movz(0, 0) + c_push())  off = off + 16 }
             // GC builtins: no-op for a bump allocator (no GC). Push 0.
-            if startsWith(b, "gcCollect")    { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
-            if startsWith(b, "gcAllocCount") { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
-            if startsWith(b, "gcWalkAllocs") { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
+            if startsWith(b, "gcCollect")    { code = sbAppend(code, e_movz(0, 0) + c_push())  off = off + 12 }
+            if startsWith(b, "gcAllocCount") { code = sbAppend(code, e_movz(10, opOff % 65536) + e_movk16(10, 32512 + opOff / 65536) + e_ldr8(0, 10, 3) + c_push())  off = off + 20 }
+            if startsWith(b, "gcAllocated")  { code = sbAppend(code, e_movz(10, opOff % 65536) + e_movk16(10, 32512 + opOff / 65536) + e_ldr8(0, 10, 2) + c_push())  off = off + 20 }
+            if startsWith(b, "gcLimit")      { code = sbAppend(code, e_movz(10, opOff % 65536) + e_movk16(10, 32512 + opOff / 65536) + e_ldr8(0, 10, 4) + c_push())  off = off + 20 }
+            if startsWith(b, "gcSetLimit")   { code = sbAppend(code, c_pop0() + e_movz(10, opOff % 65536) + e_movk16(10, 32512 + opOff / 65536) + e_str8(0, 10, 4) + c_push())  off = off + 28 }
+            if startsWith(b, "gcFreelistCount") { code = sbAppend(code, e_movz(10, opOff % 65536) + e_movk16(10, 32512 + opOff / 65536) + e_ldr8(1, 10, 1) + e_movz(0, 0) + e_cbz(1, 16) + e_addi(0, 0, 1) + e_ldr0(1, 1) + e_b(0 - 12) + c_push())  off = off + 40 }  // [8]head;[12]cnt;[16].loop cbz->done(32);[20]cnt++;[24]cur=[cur];[28]->loop
+            if startsWith(b, "gcWalkAllocs") { code = sbAppend(code, e_movz(0, 0) + c_push())  off = off + 12 }
             // rdtsc: mrs x0,cntvct_el0; keep low 30 bits (<<34>>34) so it fits the int tag. +push.
-            if startsWith(b, "rdtsc")        { code = code + wordHL(54587, 57408) + e_movz(1, 34) + e_lslv(0, 0, 1) + e_lsrv(0, 0, 1) + c_push()  off = off + 24 }
+            if startsWith(b, "rdtsc")        { code = sbAppend(code, wordHL(54587, 57408) + e_movz(1, 34) + e_lslv(0, 0, 1) + e_lsrv(0, 0, 1) + c_push())  off = off + 24 }
             // structs (env linked list). structNew/envNew -> empty env (0).
-            if startsWith(b, "structNew")  { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
-            if startsWith(b, "envNew")     { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
+            if startsWith(b, "structNew")  { code = sbAppend(code, e_movz(0, 0) + c_push())  off = off + 12 }
+            if startsWith(b, "envNew")     { code = sbAppend(code, e_movz(0, 0) + c_push())  off = off + 12 }
             // setField(env,name,val): 3-arg pop val->x2,name->x1,env->x0; kr_setfield. 36 bytes.
-            if startsWith(b, "setField")   { code = code + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_bl(setfieldOff - (off + 24)) + c_push()  off = off + 36 }
-            if startsWith(b, "envSet")     { code = code + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_bl(setfieldOff - (off + 24)) + c_push()  off = off + 36 }
+            if startsWith(b, "setField")   { code = sbAppend(code, e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_bl(setfieldOff - (off + 24)) + c_push())  off = off + 36 }
+            if startsWith(b, "envSet")     { code = sbAppend(code, e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_bl(setfieldOff - (off + 24)) + c_push())  off = off + 36 }
             // getField(env,name): pop name->x0, env->x1; kr_getfield. 28 bytes.
-            if startsWith(b, "getField")   { code = code + c_pop0() + c_pop1() + e_bl(getfieldOff - (off + 16)) + c_push()  off = off + 28 }
-            if startsWith(b, "envGet")     { code = code + c_pop0() + c_pop1() + e_bl(getfieldOff - (off + 16)) + c_push()  off = off + 28 }
+            if startsWith(b, "getField")   { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(getfieldOff - (off + 16)) + c_push())  off = off + 28 }
+            if startsWith(b, "envGet")     { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(getfieldOff - (off + 16)) + c_push())  off = off + 28 }
             // hasField(env,name): pop name->x0, env->x1; kr_hasfield -> 1/0. 28 bytes.
-            if startsWith(b, "hasField")   { code = code + c_pop0() + c_pop1() + e_bl(hasfieldOff - (off + 16)) + c_push()  off = off + 28 }
+            if startsWith(b, "hasField")   { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(hasfieldOff - (off + 16)) + c_push())  off = off + 28 }
             // structFields(env): pop env->x0; kr_structfields. 20 bytes.
-            if startsWith(b, "structFields") { code = code + c_pop0() + e_bl(structfieldsOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "structFields") { code = sbAppend(code, c_pop0() + e_bl(structfieldsOff - (off + 8)) + c_push())  off = off + 20 }
             // charCode(s) -> first byte of s (int). 20 bytes.
             if startsWith(b, "charCode") {
                 let kc = sbNew()
                 kc = sbAppend(kc, c_pop0())
                 kc = sbAppend(kc, e_ldrb0(0, 0))
                 kc = sbAppend(kc, c_push())
-                code = code + sbToString(kc)
+                code = sbAppend(code, sbToString(kc))
                 off = off + 20
             }
             // length(collection) -> element count (kr_count). MUST precede "len " so
             // "length" isn't mistaken for strlen. 20 bytes.
-            if startsWith(b, "length") { code = code + c_pop0() + e_bl(countOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "length") { code = sbAppend(code, c_pop0() + e_bl(countOff - (off + 8)) + c_push())  off = off + 20 }
             // len(s) -> strlen (int). "len " (trailing space) so it doesn't match "length". 40 bytes.
             if startsWith(b, "len ") {
                 let kc = sbNew()
@@ -1118,7 +1612,7 @@ just run {
                 kc = sbAppend(kc, e_b(0 - 12))               // loop
                 kc = sbAppend(kc, e_movr(0, 1))              // x0 = len
                 kc = sbAppend(kc, c_push())
-                code = code + sbToString(kc)
+                code = sbAppend(code, sbToString(kc))
                 off = off + 40
             }
             // toStr(x) -> x as a string (kr_str_int for ints; identity for strings). 32 bytes.
@@ -1130,7 +1624,7 @@ just run {
                 kc = sbAppend(kc, e_bge(8))                  // signed>=VBASE = pointer -> already a string
                 kc = sbAppend(kc, e_bl(strIntOff - (off + 20)))
                 kc = sbAppend(kc, c_push())
-                code = code + sbToString(kc)
+                code = sbAppend(code, sbToString(kc))
                 off = off + 32
             }
             // toInt(s) -> parse non-negative decimal (kr_atoi). 20 bytes.
@@ -1139,21 +1633,23 @@ just run {
                 kc = sbAppend(kc, c_pop0())                       // x0 = string ptr
                 kc = sbAppend(kc, e_bl(atoiOff - (off + 8)))      // x0 = parsed int
                 kc = sbAppend(kc, c_push())
-                code = code + sbToString(kc)
+                code = sbAppend(code, sbToString(kc))
                 off = off + 20
             }
-            // fromCharCode(n) -> 1-char string for byte n (kr_alloc(2)). 36 bytes.
+            // fromCharCode(n) -> 1-char string for byte n. Arg is a numeric STRING
+            // (e.g. "65") or int; kr_atoi (int-safe) coerces to the code. 40 bytes.
             if startsWith(b, "fromCharCode") {
                 let kc = sbNew()
-                kc = sbAppend(kc, c_pop0())                       // x0 = code (int)
+                kc = sbAppend(kc, c_pop0())                       // x0 = code (string or int)
+                kc = sbAppend(kc, e_bl(atoiOff - (off + 8)))      // x0 = code as int
                 kc = sbAppend(kc, e_movr(10, 0))                  // save code in x10
                 kc = sbAppend(kc, e_movz(0, 2))                   // size = 2
-                kc = sbAppend(kc, e_bl(allocOff - (off + 16)))    // x0 = buf
+                kc = sbAppend(kc, e_bl(allocOff - (off + 20)))    // x0 = buf
                 kc = sbAppend(kc, e_strb(10, 0))                  // buf[0] = code
                 kc = sbAppend(kc, e_strbO(31, 0, 1))             // buf[1] = NUL
                 kc = sbAppend(kc, c_push())                       // push buf
-                code = code + sbToString(kc)
-                off = off + 36
+                code = sbAppend(code, sbToString(kc))
+                off = off + 40
             }
             // substring(s, start, end) -> s[start:end] (kr_substring). 36 bytes.
             if startsWith(b, "substring") {
@@ -1163,14 +1659,14 @@ just run {
                 kc = sbAppend(kc, e_ldr0(0, 20) + e_addi(20, 20, 16))   // pop s -> x0
                 kc = sbAppend(kc, e_bl(substrOff - (off + 24)))         // x0 = s[start:end]
                 kc = sbAppend(kc, c_push())
-                code = code + sbToString(kc)
+                code = sbAppend(code, sbToString(kc))
                 off = off + 36
             }
         }
         // RETURN and END: epilogue (free locals, restore x19/x30, ret). For __main__
         // this returns to _start, which then exits(0).
-        if op == "RETURN" { code = code + e_addi(31, 31, frame) + e_ldr0(19, 31) + e_ldr8(30, 31, 1) + e_addi(31, 31, 16) + e_ret()  off = off + 20 }
-        if op == "END"    { code = code + e_addi(31, 31, frame) + e_ldr0(19, 31) + e_ldr8(30, 31, 1) + e_addi(31, 31, 16) + e_ret()  off = off + 20 }
+        if op == "RETURN" { code = sbAppend(code, e_addi(31, 31, frame) + e_ldr0(19, 31) + e_ldr8(30, 31, 1) + e_addi(31, 31, 16) + e_ret())  off = off + 20 }
+        if op == "END"    { code = sbAppend(code, e_movz(0, 0) + c_push() + e_addi(31, 31, frame) + e_ldr0(19, 31) + e_ldr8(30, 31, 1) + e_addi(31, 31, 16) + e_ret())  off = off + 32 }
         i = i + 1
     }
 
@@ -1178,10 +1674,10 @@ just run {
     // built via sbAppend (not one long + chain) — the x86 backend miscompiles
     // long concat chains in this position and silently drops a term.
     let bb = sbNew()
-    bb = sbAppend(bb, code)
+    bb = sbAppend(bb, sbToString(code))
     bb = sbAppend(bb, emitAlloc())
     bb = sbAppend(bb, emitStrInt(allocOff, strIntOff))
-    bb = sbAppend(bb, emitPlus(strIntOff, allocOff, plusOff))
+    bb = sbAppend(bb, emitPlus(strIntOff, allocOff, atoiOff, isnumOff, plusOff))
     bb = sbAppend(bb, emitPrint(nlOff))
     bb = sbAppend(bb, emitKpDisp(kpDispOff, strIntOff, printOff))
     bb = sbAppend(bb, emitAtoi())
@@ -1206,7 +1702,8 @@ just run {
     bb = sbAppend(bb, emitSbNew(allocOff, sbnewOff))
     bb = sbAppend(bb, emitSbAppend(allocOff, sbappendOff))
     bb = sbAppend(bb, emitSbToString())
-    bb = sbAppend(bb, emitEq())
+    bb = sbAppend(bb, emitEq(atoiOff, isnumOff, eqOff))
+    bb = sbAppend(bb, emitIsTruthy())
     bb = sbAppend(bb, emitIndex(allocOff, indexOff))
     bb = sbAppend(bb, emitReadFile(allocOff, readfileOff))
     bb = sbAppend(bb, emitWriteFile())
@@ -1214,6 +1711,21 @@ just run {
     bb = sbAppend(bb, emitGetField(allocOff, getfieldOff))
     bb = sbAppend(bb, emitHasField())
     bb = sbAppend(bb, emitStructFields(allocOff, plusOff, structfieldsOff))
+    bb = sbAppend(bb, emitIsnum())
+    bb = sbAppend(bb, emitCmp(atoiOff, isnumOff, cmpOff))
+    bb = sbAppend(bb, emitLinecount())
+    bb = sbAppend(bb, emitGetline(allocOff, opOff, getlineOff))
+    bb = sbAppend(bb, emitRawAlloc(opOff, rawallocOff))
+    bb = sbAppend(bb, emitRawFree(opOff, rawfreeOff))
+    bb = sbAppend(bb, emitRawRealloc(rawallocOff, rawfreeOff, rawreallocOff))
+    bb = sbAppend(bb, emitArgcount(opOff))
+    bb = sbAppend(bb, emitArg(opOff))
+    bb = sbAppend(bb, emitPrinterr(nlOff))
+    bb = sbAppend(bb, emitIsdigit())
+    bb = sbAppend(bb, emitStrlen())
+    bb = sbAppend(bb, emitReplace(strlenOff, allocOff, replaceOff))
+    bb = sbAppend(bb, emitEnviron(opOff, allocOff, environOff))
+    bb = sbAppend(bb, emitShellrun(opOff, shellrunOff))
     bb = sbAppend(bb, "")     // guards: x86 backend drops trailing sbAppends (scales w/ chain len)
     bb = sbAppend(bb, "")
     bb = sbAppend(bb, "")
@@ -1266,7 +1778,7 @@ just run {
     eh = eh + le8vaddr(HDR) + le8(64) + le8(0)
     eh = eh + "x00x00x00x00" + "x40x00" + "x38x00" + "x01x00" + "x00x00" + "x00x00" + "x00x00"
     let ph = "x01x00x00x00" + "x07x00x00x00"
-    let memsz = heapOff + 1048576 + 65536                  // 1 MiB heap + 64 KiB op stack (BSS)
+    let memsz = heapOff + 268435456 + 65536 + 67108864     // 256 MiB heap + 64 KiB op stack + 64 MiB raw GC region (BSS, demand-paged)
     ph = ph + le8(0) + le8vaddr(0) + le8vaddr(0) + le8(total) + le8(memsz) + le8(65536)
 
     writeBytes(outFile, eh + ph + body + data)
