@@ -205,7 +205,7 @@ just run {
 | Linux x86_64 | `kcc_seed_linux_x86_64`, `elf_host_linux_x86_64`, `optimize_host_linux_x86_64` | none (pure copy) |
 | Windows x86_64 | `kcc_seed_windows_x86_64.exe`, `x64_host_windows_x86_64.exe`, `optimize_host_windows_x86_64.exe` | none (pure copy) |
 | macOS arm64 | `kcc_seed_macos_aarch64` | none (pure copy); macho_host built on first `--native` call via clang |
-| Linux ARM64 | `kcc_seed_linux_aarch64` | none (pure copy); **C path only** — no native ELF aarch64 backend yet, `kcc --native` falls back to gcc/clang |
+| Linux ARM64 | `kcc_seed_linux_aarch64`, `elf_host_linux_aarch64`, `kcc_driver_linux_aarch64` | none (pure copy); **native** — arm64 front-end + arm64-native ELF backend, `kcc --native` emits aarch64 ELFs directly (no gcc/clang) |
 
 **Optional, for development only (end users never need a C compiler):**
 - **gcc / clang** — one-time backend bootstrap *only* if you edit a backend
@@ -651,7 +651,9 @@ krypton/
 │   ├── kcc_seed_linux_x86_64                 # Linux x86_64 kcc ELF
 │   ├── elf_host_linux_x86_64                 # Linux x86_64 ELF emitter
 │   ├── optimize_host_linux_x86_64            # Linux x86_64 IR optimizer
-│   ├── kcc_seed_linux_aarch64                # Linux ARM64 kcc ELF (C path only — no ARM64 ELF emitter yet)
+│   ├── kcc_seed_linux_aarch64                # Linux ARM64 kcc ELF (arm64-native front-end)
+│   ├── elf_host_linux_aarch64                # Linux ARM64 ELF emitter (arm64-native backend)
+│   ├── kcc_driver_linux_aarch64              # Linux ARM64 kcc.ks driver (arm64-native)
 │   ├── kcc_seed_windows_x86_64.exe           # Windows kcc PE
 │   ├── x64_host_windows_x86_64.exe           # Windows PE/COFF emitter
 │   ├── optimize_host_windows_x86_64.exe      # Windows IR optimizer

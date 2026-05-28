@@ -84,6 +84,7 @@ MODE="${1:-build}"
 native_pipeline_available() {
     case "$OSNAME/$ARCH" in
         linux/x86_64)   return 0 ;;
+        linux/aarch64)  return 0 ;;   # arm64-native front-end + elf_host (no gcc, no x86)
         windows/x86_64) return 0 ;;
         macos/aarch64)  return 0 ;;
         *)              return 1 ;;
@@ -242,6 +243,14 @@ if [[ -f "$SEED_BIN" ]]; then
     cp "$SEED_BIN" "$KCC"
     chmod +x "$KCC"
     ok "$KCC ready (no gcc needed)"
+
+    # Linux arm64: also install the arm64-native elf_host backend (IR -> arm64 ELF)
+    # so the native pipeline runs directly on-device — no x86 cross-emitter, no gcc.
+    if [[ "$OSNAME/$ARCH" == "linux/aarch64" && -f bootstrap/elf_host_linux_aarch64 ]]; then
+        cp bootstrap/elf_host_linux_aarch64 compiler/linux_arm64/elf_host
+        chmod +x compiler/linux_arm64/elf_host
+        ok "compiler/linux_arm64/elf_host ready (arm64-native backend)"
+    fi
 
     echo ""
     echo "[2/2] Smoke test: examples/fibonacci.k..."
