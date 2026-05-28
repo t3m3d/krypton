@@ -1260,6 +1260,8 @@ func opBytes(ir, i) {
         if cn == "intToPtr"     { emit "20" }
         if cn == "ptrEq"        { emit "32" }
         if cn == "writeBytes"   { emit "28" }   // front-end emits writeBytes as a CALL (not BUILTIN): pop x0/x1 + bl kr_writebytes + push
+        if cn == "intToFloat"   { emit "24" }   // A1: pop x0; scvtf d0,x0; bl __f_box; push
+        if cn == "floatToInt"   { emit "24" }   // A1: pop x0; bl __f_load1; fcvtzs x0,d0; push
         emit "4"
     }
     emit toInt(opSize(ln)) + ""
@@ -1695,7 +1697,11 @@ just run {
             if cn == "ptrEq"      { code = sbAppend(code, c_pop0() + c_pop1() + e_cmp(0, 1) + e_cset(0, 1) + c_push())  off = off + 32 }  // raw int64 compare -> 1 if equal (cset cc=NE: csinc NE = 1 when Z/EQ)
             // writeBytes(path, hexContent): front-end emits a CALL (not BUILTIN). pop0->x0=hex, pop1->x1=path; bl kr_writebytes; push. 28 bytes.
             if cn == "writeBytes" { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(writebytesOff - (off + 16)) + c_push())  off = off + 28 }
-            if cn != "bitAnd" && cn != "bitOr" && cn != "bitXor" && cn != "bitNot" && cn != "shl" && cn != "shr" && cn != "rawAlloc" && cn != "rawFree" && cn != "rawRealloc" && cn != "rawReadQword" && cn != "rawWriteQword" && cn != "rawReadByte" && cn != "rawReadWord" && cn != "rawWriteWord" && cn != "ptrAdd" && cn != "ptrToInt" && cn != "intToPtr" && cn != "ptrEq" && cn != "writeBytes" {
+            // A1 float conversions (front-end emits as CALL): intToFloat(n) -> box;
+            // floatToInt(f) -> truncated int (fload handles int passthrough). 24B each.
+            if cn == "intToFloat" { code = sbAppend(code, c_pop0() + e_scvtf(0, 0) + e_bl(fboxOff - (off + 12)) + c_push())  off = off + 24 }   // bl at op-byte 12 (pop8+scvtf4)
+            if cn == "floatToInt" { code = sbAppend(code, c_pop0() + e_bl(fload1Off - (off + 8)) + e_fcvtzs(0, 0) + c_push())  off = off + 24 }   // bl at op-byte 8 (pop8)
+            if cn != "bitAnd" && cn != "bitOr" && cn != "bitXor" && cn != "bitNot" && cn != "shl" && cn != "shr" && cn != "rawAlloc" && cn != "rawFree" && cn != "rawRealloc" && cn != "rawReadQword" && cn != "rawWriteQword" && cn != "rawReadByte" && cn != "rawReadWord" && cn != "rawWriteWord" && cn != "ptrAdd" && cn != "ptrToInt" && cn != "intToPtr" && cn != "ptrEq" && cn != "writeBytes" && cn != "intToFloat" && cn != "floatToInt" {
                 code = sbAppend(code, e_bl(toInt(funcVaddrOf(funcTab, cn)) - off))  off = off + 4
             }
         }
