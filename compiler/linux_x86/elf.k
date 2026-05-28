@@ -2280,6 +2280,80 @@ func emitKrPadrightCode(thisVAddr, atoiVAddr, strlenVAddr, allocVAddr) {
 }
 func krPadrightSize() { emit 122 }
 
+// A1 float: kr_fformat(RDI=value [box ptr or int], RSI=prec) -> RAX = decimal string.
+// scale = 10^prec; digits = round(|value| * scale) as one integer; written right-to
+// -left into a 48B buffer (low `prec` digits = fraction, then '.', integer part,
+// then '-'). Mirrors arm64 emitFFormat / macho __f_format. 219 bytes.
+// Boundary 0x400000 (smart-int): value < it = int (cvtsi2sd), else box (movsd [ptr]).
+func emitKrFformatCode(thisVAddr, allocVAddr) {
+    let c = ""
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xF0)                                   // [0]   MOV R8, RSI  (save prec)
+    c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDword(0x400000)              // [3]   CMP RDI, 0x400000
+    c = c + hexByte(0x72) + hexByte(0x06)                                                   // [10]  JB .int (+6 -> 18)
+    c = c + hexByte(0xF2) + hexByte(0x0F) + hexByte(0x10) + hexByte(0x07)                   // [12]  MOVSD XMM0,[RDI] (box)
+    c = c + hexByte(0xEB) + hexByte(0x05)                                                   // [16]  JMP .haveval (+5 -> 23)
+    c = c + hexByte(0xF2) + hexByte(0x48) + hexByte(0x0F) + hexByte(0x2A) + hexByte(0xC7)   // [18]  .int CVTSI2SD XMM0,RDI
+    c = c + hexByte(0x66) + hexByte(0x0F) + hexByte(0x57) + hexByte(0xD2)                   // [23]  .haveval XORPD XMM2,XMM2
+    c = c + hexByte(0x66) + hexByte(0x0F) + hexByte(0x2E) + hexByte(0xC2)                   // [27]  UCOMISD XMM0,XMM2
+    c = c + hexByte(0x0F) + hexByte(0x92) + hexByte(0xC3)                                   // [31]  SETB BL (value<0)
+    c = c + hexByte(0x48) + hexByte(0x0F) + hexByte(0xB6) + hexByte(0xDB)                   // [34]  MOVZX RBX,BL
+    c = c + hexByte(0x48) + hexByte(0xB8) + hexByte(0xFF) + hexByte(0xFF) + hexByte(0xFF) + hexByte(0xFF) + hexByte(0xFF) + hexByte(0xFF) + hexByte(0xFF) + hexByte(0x7F)  // [38] MOV RAX,0x7FFFFFFFFFFFFFFF
+    c = c + hexByte(0x66) + hexByte(0x48) + hexByte(0x0F) + hexByte(0x6E) + hexByte(0xC8)   // [48]  MOVQ XMM1,RAX
+    c = c + hexByte(0x66) + hexByte(0x0F) + hexByte(0x54) + hexByte(0xC1)                   // [53]  ANDPD XMM0,XMM1 (abs)
+    c = c + hexByte(0xB9) + hexDword(1)                                                     // [57]  MOV ECX,1 (scale=1)
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xF6)                                   // [62]  .scaleloop TEST RSI,RSI
+    c = c + hexByte(0x74) + hexByte(0x09)                                                   // [65]  JZ .scaledone (+9 -> 76)
+    c = c + hexByte(0x48) + hexByte(0x6B) + hexByte(0xC9) + hexByte(0x0A)                   // [67]  IMUL RCX,RCX,10
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xCE)                                   // [71]  DEC RSI
+    c = c + hexByte(0xEB) + hexByte(0xF2)                                                   // [74]  JMP .scaleloop (-14 -> 62)
+    c = c + hexByte(0xF2) + hexByte(0x48) + hexByte(0x0F) + hexByte(0x2A) + hexByte(0xC9)   // [76]  .scaledone CVTSI2SD XMM1,RCX
+    c = c + hexByte(0xF2) + hexByte(0x0F) + hexByte(0x59) + hexByte(0xC1)                   // [81]  MULSD XMM0,XMM1
+    c = c + hexByte(0x66) + hexByte(0x0F) + hexByte(0x3A) + hexByte(0x0B) + hexByte(0xC0) + hexByte(0x00)  // [85] ROUNDSD XMM0,XMM0,0 (nearest)
+    c = c + hexByte(0xF2) + hexByte(0x48) + hexByte(0x0F) + hexByte(0x2C) + hexByte(0xC0)   // [91]  CVTTSD2SI RAX,XMM0
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC1)                                   // [96]  MOV R9,RAX (digits)
+    c = c + hexByte(0xBF) + hexDword(48)                                                    // [99]  MOV EDI,48
+    let faDisp = allocVAddr - (thisVAddr + 109)
+    c = c + hexByte(0xE8) + hexDword(faDisp)                                                // [104] CALL kr_alloc -> RAX=buf
+    c = c + hexByte(0x4C) + hexByte(0x8D) + hexByte(0x50) + hexByte(0x2F)                   // [109] LEA R10,[RAX+47] (cursor)
+    c = c + hexByte(0x41) + hexByte(0xC6) + hexByte(0x02) + hexByte(0x00)                   // [113] MOV byte [R10],0 (NUL)
+    c = c + hexByte(0x49) + hexByte(0xFF) + hexByte(0xCA)                                   // [117] DEC R10
+    c = c + hexByte(0x4D) + hexByte(0x89) + hexByte(0xC3)                                   // [120] MOV R11,R8 (frac counter)
+    c = c + hexByte(0x4D) + hexByte(0x85) + hexByte(0xDB)                                   // [123] .fracloop TEST R11,R11
+    c = c + hexByte(0x74) + hexByte(0x1F)                                                   // [126] JZ .fracdone (+31 -> 159)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xC8)                                   // [128] MOV RAX,R9
+    c = c + hexByte(0x48) + hexByte(0x31) + hexByte(0xD2)                                   // [131] XOR RDX,RDX
+    c = c + hexByte(0xB9) + hexDword(10)                                                    // [134] MOV ECX,10
+    c = c + hexByte(0x48) + hexByte(0xF7) + hexByte(0xF1)                                   // [139] DIV RCX (RAX=q, RDX=rem)
+    c = c + hexByte(0x80) + hexByte(0xC2) + hexByte(0x30)                                   // [142] ADD DL,'0'
+    c = c + hexByte(0x41) + hexByte(0x88) + hexByte(0x12)                                   // [145] MOV [R10],DL
+    c = c + hexByte(0x49) + hexByte(0xFF) + hexByte(0xCA)                                   // [148] DEC R10
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC1)                                   // [151] MOV R9,RAX (q)
+    c = c + hexByte(0x49) + hexByte(0xFF) + hexByte(0xCB)                                   // [154] DEC R11
+    c = c + hexByte(0xEB) + hexByte(0xDC)                                                   // [157] JMP .fracloop (-36 -> 123)
+    c = c + hexByte(0x4D) + hexByte(0x85) + hexByte(0xC0)                                   // [159] .fracdone TEST R8,R8
+    c = c + hexByte(0x74) + hexByte(0x07)                                                   // [162] JZ .nodot (+7 -> 171)
+    c = c + hexByte(0x41) + hexByte(0xC6) + hexByte(0x02) + hexByte(0x2E)                   // [164] MOV byte [R10],'.'
+    c = c + hexByte(0x49) + hexByte(0xFF) + hexByte(0xCA)                                   // [168] DEC R10
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xC8)                                   // [171] .intloop MOV RAX,R9
+    c = c + hexByte(0x48) + hexByte(0x31) + hexByte(0xD2)                                   // [174] XOR RDX,RDX
+    c = c + hexByte(0xB9) + hexDword(10)                                                    // [177] MOV ECX,10
+    c = c + hexByte(0x48) + hexByte(0xF7) + hexByte(0xF1)                                   // [182] DIV RCX
+    c = c + hexByte(0x80) + hexByte(0xC2) + hexByte(0x30)                                   // [185] ADD DL,'0'
+    c = c + hexByte(0x41) + hexByte(0x88) + hexByte(0x12)                                   // [188] MOV [R10],DL
+    c = c + hexByte(0x49) + hexByte(0xFF) + hexByte(0xCA)                                   // [191] DEC R10
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC1)                                   // [194] MOV R9,RAX (q)
+    c = c + hexByte(0x4D) + hexByte(0x85) + hexByte(0xC9)                                   // [197] TEST R9,R9
+    c = c + hexByte(0x75) + hexByte(0xE1)                                                   // [200] JNZ .intloop (-31 -> 171)
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xDB)                                   // [202] TEST RBX,RBX
+    c = c + hexByte(0x74) + hexByte(0x07)                                                   // [205] JZ .done (+7 -> 214)
+    c = c + hexByte(0x41) + hexByte(0xC6) + hexByte(0x02) + hexByte(0x2D)                   // [207] MOV byte [R10],'-'
+    c = c + hexByte(0x49) + hexByte(0xFF) + hexByte(0xCA)                                   // [211] DEC R10
+    c = c + hexByte(0x49) + hexByte(0x8D) + hexByte(0x42) + hexByte(0x01)                   // [214] .done LEA RAX,[R10+1]
+    c = c + hexByte(0xC3)                                                                   // [218] RET
+    emit c
+}
+func krFformatSize() { emit 219 }
+
 // kr_repeat: build a string formed by concatenating s n times.
 //   In:  RDI = s (string ptr), RSI = n (small int OR string via kr_atoi)
 //   Out: RAX = pointer to fresh "ssss...s\0" of length slen*n
@@ -3460,6 +3534,7 @@ func opByteSize(op) {
     if op == "BUILTIN_FLT"   { emit 53 }  // pop b,a; fload both; ucomisd; setcc; movzx; push
     if op == "BUILTIN_FGT"   { emit 53 }
     if op == "BUILTIN_FEQ"   { emit 53 }
+    if op == "BUILTIN_FFORMAT" { emit 8 }  // pop prec->RSI, value->RDI; call kr_fformat; push RAX
     if op == "STORE_LOCAL"{ emit 8 }    // POP RAX (1) + MOV [RBP+d32], RAX (7)
     if op == "LOAD_LOCAL" { emit 8 }    // MOV RAX, [RBP+d32] (7) + PUSH RAX (1)
     if op == "LOAD_PARAM" { emit 8 }    // same encoding (positive disp32)
@@ -4062,6 +4137,8 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_FGT")
                 } else if bname == "feq" {
                     opSb = sbAppend(opSb, "BUILTIN_FEQ")
+                } else if bname == "fformat" {
+                    opSb = sbAppend(opSb, "BUILTIN_FFORMAT")
                 } else {
                     // Unknown builtin: emit a marker and leave the stack
                     // alone. Programs that hit this are already incorrect;
@@ -4165,7 +4242,7 @@ func computeLayout(opList, localCount) {
 // funcStartVAddr: virtual address of THIS function's first byte (for CALL disp calc)
 // krPrintVAddr/krStrIntVAddr: vaddrs of runtime helpers, used by BUILTIN_KP/BUILTIN_TOSTR
 
-func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr, krStrcmpVAddr, krReverseVAddr, krSbnewVAddr, krSbappendVAddr, krSbtostringVAddr, krMinVAddr, krMaxVAddr, krBitandVAddr, krBitorVAddr, krBitxorVAddr, krBitnotVAddr, krShlVAddr, krShrVAddr, krHexVAddr, krBinVAddr, krPadleftVAddr, krPadrightVAddr) {
+func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr, krStrcmpVAddr, krReverseVAddr, krSbnewVAddr, krSbappendVAddr, krSbtostringVAddr, krMinVAddr, krMaxVAddr, krBitandVAddr, krBitorVAddr, krBitxorVAddr, krBitnotVAddr, krShlVAddr, krShrVAddr, krHexVAddr, krBinVAddr, krPadleftVAddr, krPadrightVAddr, krFformatVAddr) {
     let c = sbNew()
     c = sbAppend(c, hexByte(0x55))  // [+0] PUSH RBP
     c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xE5))  // [+1] MOV RBP, RSP
@@ -4297,6 +4374,14 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             else                        { c = sbAppend(c, hexByte(0x0F) + hexByte(0x94) + hexByte(0xC0)) }  // SETE AL (a==b)
             c = sbAppend(c, hexByte(0x48) + hexByte(0x0F) + hexByte(0xB6) + hexByte(0xC0))                  // [48] MOVZX RAX,AL
             c = sbAppend(c, hexByte(0x50))                                        // [52] PUSH RAX
+        } else if op == "BUILTIN_FFORMAT" {
+            // fformat(value, prec) -> decimal string. value pushed first, prec on top.
+            // pop prec->RSI, value->RDI; call kr_fformat; push RAX. 8 bytes.
+            c = sbAppend(c, hexByte(0x5E))                                        // [0] POP RSI (prec)
+            c = sbAppend(c, hexByte(0x5F))                                        // [1] POP RDI (value)
+            let ffDisp = krFformatVAddr - (funcStartVAddr + off + 7)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(ffDisp))                     // [2] CALL kr_fformat -> RAX
+            c = sbAppend(c, hexByte(0x50))                                        // [7] PUSH RAX
         } else if op == "STORE_LOCAL" {
             let slot = toInt(rest)
             let dispVal = 0 - (slot * 8)
@@ -6305,6 +6390,7 @@ just run {
     let krBiSz = krBinSize()
     let krPlfSz = krPadleftSize()
     let krPrtSz = krPadrightSize()
+    let krFfmtSz = krFformatSize()
 
     let fIdx = 0
     while fIdx < funcCount {
@@ -6439,9 +6525,10 @@ just run {
     let krBinVAddr        = krHexVAddr + krHxSz
     let krPadleftVAddr    = krBinVAddr + krBiSz
     let krPadrightVAddr   = krPadleftVAddr + krPlfSz
+    let krFformatVAddr    = krPadrightVAddr + krPrtSz
 
     // String virtual addresses (after all runtime helpers)
-    let stringsBase = krPadrightVAddr + krPrtSz
+    let stringsBase = krFformatVAddr + krFfmtSz
     let strVAddrs = ""
     let strData = ""
     let curOff = 0
@@ -6484,7 +6571,7 @@ just run {
         let nm2 = substring(hh, ss1 + 1, ss2)
         let funcStartV2 = toInt(funcVAddr(funcVAddrs, nm2))
 
-        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr, krStrcmpVAddr, krReverseVAddr, krSbnewVAddr, krSbappendVAddr, krSbtostringVAddr, krMinVAddr, krMaxVAddr, krBitandVAddr, krBitorVAddr, krBitxorVAddr, krBitnotVAddr, krShlVAddr, krShrVAddr, krHexVAddr, krBinVAddr, krPadleftVAddr, krPadrightVAddr)
+        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr, krStrcmpVAddr, krReverseVAddr, krSbnewVAddr, krSbappendVAddr, krSbtostringVAddr, krMinVAddr, krMaxVAddr, krBitandVAddr, krBitorVAddr, krBitxorVAddr, krBitnotVAddr, krShlVAddr, krShrVAddr, krHexVAddr, krBinVAddr, krPadleftVAddr, krPadrightVAddr, krFformatVAddr)
         allFuncCode = allFuncCode + codeI
         oIdx2 += 1
     }
@@ -6565,8 +6652,9 @@ just run {
     let krBinCode        = emitKrBinCode(krBinVAddr, krAllocVAddr, krAtoiVAddr)
     let krPadleftCode    = emitKrPadleftCode(krPadleftVAddr, krAtoiVAddr, krStrlenVAddr, krAllocVAddr)
     let krPadrightCode   = emitKrPadrightCode(krPadrightVAddr, krAtoiVAddr, krStrlenVAddr, krAllocVAddr)
+    let krFformatCode    = emitKrFformatCode(krFformatVAddr, krAllocVAddr)
 
-    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + krSubstringCode + krReadfileCode + krWritefileCode + krWritebytesCode + krSbnewCode + krSbappendCode + krSbtostringCode + krPrinterrCode + krCharcodeCode + krFromcharcodeCode + krExitCode + krIsdigitCode + krIsalphaCode + krAbsCode + krStartswithCode + krIstruthyCode + krLinecountCode + krGetlineCode + krTrimCode + krToupperCode + krTolowerCode + krPowCode + krRepeatCode + krIsnumCode + krPlusCode + krAtoi2Code + krSubiCode + krMuliCode + krDiviCode + krModiCode + krStrcmpCode + krCmpiCode + krStrstrCode + krContainsCode + krIndexofCode + krEndswithCode + krReplaceCode2 + krReverseCode + krMinCode + krMaxCode + krBitandCode + krBitorCode + krBitxorCode + krBitnotCode + krShlCode + krShrCode + krHexCode + krBinCode + krPadleftCode + krPadrightCode + strData
+    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + krSubstringCode + krReadfileCode + krWritefileCode + krWritebytesCode + krSbnewCode + krSbappendCode + krSbtostringCode + krPrinterrCode + krCharcodeCode + krFromcharcodeCode + krExitCode + krIsdigitCode + krIsalphaCode + krAbsCode + krStartswithCode + krIstruthyCode + krLinecountCode + krGetlineCode + krTrimCode + krToupperCode + krTolowerCode + krPowCode + krRepeatCode + krIsnumCode + krPlusCode + krAtoi2Code + krSubiCode + krMuliCode + krDiviCode + krModiCode + krStrcmpCode + krCmpiCode + krStrstrCode + krContainsCode + krIndexofCode + krEndswithCode + krReplaceCode2 + krReverseCode + krMinCode + krMaxCode + krBitandCode + krBitorCode + krBitxorCode + krBitnotCode + krShlCode + krShrCode + krHexCode + krBinCode + krPadleftCode + krPadrightCode + krFformatCode + strData
     let segSize = hexBytesLen(segment)
     let fileSize = HDR_SIZE + segSize
 
