@@ -28,10 +28,10 @@ install -D -m0755 "bootstrap/kcc_seed_linux_${ARCH}" "$ROOT/bootstrap/kcc_seed_l
 install -D -m0755 compiler/linux_x86/kcc-x64   "$ROOT/compiler/linux_x86/kcc-x64"
 install -D -m0755 compiler/linux_x86/elf_host  "$ROOT/compiler/linux_x86/elf_host"
 install -D -m0644 compiler/linux_x86/elf.k     "$ROOT/compiler/linux_x86/elf.k"
-# aarch64 cross emitter (so `kcc --aarch64` works out of the box)
-if [[ -d compiler/linux_aarch64 ]]; then
-  install -D -m0755 compiler/linux_aarch64/elf_host "$ROOT/compiler/linux_aarch64/elf_host"
-  install -D -m0644 compiler/linux_aarch64/elf.k    "$ROOT/compiler/linux_aarch64/elf.k"
+# aarch64 cross emitter (so `kcc --arm64` works out of the box)
+if [[ -d compiler/linux_arm64 ]]; then
+  install -D -m0755 compiler/linux_arm64/elf_host "$ROOT/compiler/linux_arm64/elf_host"
+  install -D -m0644 compiler/linux_arm64/elf.k    "$ROOT/compiler/linux_arm64/elf.k"
 fi
 # Compiler sources
 install -D -m0644 compiler/compile.k  "$ROOT/compiler/compile.k"
@@ -93,7 +93,7 @@ cat > "$ROOT/README.txt" <<RME
 Krypton ${VERSION} — Linux ${ARCH}
 Install:  ./install.sh            (symlinks kcc into /usr/local/bin)
 Use:      kcc hello.k -o hello && ./hello
-          kcc --aarch64 hello.k -o hello   (cross-compile to aarch64 ELF)
+          kcc --arm64 hello.k -o hello     (cross-compile to aarch64 ELF)
           kcc --version
           kweb init mysite                 (Krypton Web Framework CLI)
 No C compiler, no clone needed — prebuilt static binaries.
