@@ -1,0 +1,42 @@
+import "k:htmk"
+import "k:server"
+
+func homePage() {
+    emit htPage("Hello Krypton", "",
+        htMain(
+            htH1("Hello from Krypton!") +
+            htP("This page is served by a .htk file.") +
+            htP(htA("/about", "About this app"))
+        )
+    )
+}
+
+func aboutPage() {
+    emit htPage("About — Krypton", "",
+        htMain(
+            htH1("About") +
+            htP("Built with Krypton, htmk, and server.") +
+            htUl(
+                htLi("htmk — HTML element builder") +
+                htLi("server — Winsock2 HTTP server") +
+                htLi(".htk — Krypton web app files")
+            ) +
+            htP(htA("/", "Back home"))
+        )
+    )
+}
+
+just run {
+    serverInit("8080")
+    ShellExecuteA("0", "open", "http://127.0.0.1:8080", "0", "0", "1")
+    let running = "1"
+    while running == "1" {
+        let got = serverNext()
+        if got == "1" {
+            let path = serverReqPath()
+            if path == "/"      { serverRespond(homePage()) }
+            else if path == "/about" { serverRespond(aboutPage()) }
+            else { serverRespond404() }
+        }
+    }
+}

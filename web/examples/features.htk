@@ -1,0 +1,30 @@
+import "k:htmk"
+import "k:server"
+
+func fib(n) {
+    if n <= 1 { emit n }
+    emit fib(n - 1) + fib(n - 2)
+}
+
+func testStrings() {
+    emit "trim=[" + trim("  hello  ") + "] upper=" + toUpper("hello")
+}
+
+func resultRow(label, result) {
+    emit htTr(htTd(htStrong(label)) + htTd(htCode(result)))
+}
+
+just run {
+    serverInit("8080")
+    while "1" == "1" {
+        let got = serverNext()
+        if got == "1" {
+            let rows = resultRow("Fibonacci(10)", fib(10) + "") +
+                       resultRow("String ops", testStrings())
+            serverRespond(htPage("Features", "",
+                htH1("Krypton Features in .htk") +
+                htEl("table", rows)
+            ))
+        }
+    }
+}
