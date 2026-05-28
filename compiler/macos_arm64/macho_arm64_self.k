@@ -1853,8 +1853,8 @@ func opInstrCount(opTok) {
     if opTok == "EQ"           { emit 25 }  // polymorphic: int+int cmp / ptr+ptr strcmp / mixed=unequal
     if opTok == "NE"           { emit 25 }  // same code path with EQ-cond → NE-cond + flipped results
     if opTok == "JUMP"             { emit 1 }
-    if opTok == "JUMPIFNOT"        { emit 2 }
-    if opTok == "JUMPIF"           { emit 2 }
+    if opTok == "JUMPIFNOT"        { emit 3 }  // pop, cbnz+2 (skip B if truthy), b target
+    if opTok == "JUMPIF"           { emit 3 }  // pop, cbz+2 (skip B if falsy),  b target
     if opTok == "LABEL"            { emit 0 }
     if opTok == "NEG"              { emit 3 }   // pop, neg, push
     if opTok == "NOT"              { emit 4 }   // pop, cmp, cset, push
@@ -2414,15 +2414,17 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = s + arm64_pop_x0()
             instrIdx = instrIdx + 1
             let target = findLabel(labels, restTok)
-            let delta = target - instrIdx
-            s = s + arm64_cbz(0, delta)
+            s = s + arm64_cbnz(0, 2)
+            instrIdx = instrIdx + 1
+            s = s + arm64_b(target - instrIdx)
             instrIdx = instrIdx + 1
         } else if opTok == "JUMPIF" {
             s = s + arm64_pop_x0()
             instrIdx = instrIdx + 1
             let target = findLabel(labels, restTok)
-            let delta = target - instrIdx
-            s = s + arm64_cbnz(0, delta)
+            s = s + arm64_cbz(0, 2)
+            instrIdx = instrIdx + 1
+            s = s + arm64_b(target - instrIdx)
             instrIdx = instrIdx + 1
         } else if opTok == "NEG" {
             s = s + arm64_pop_x0()
@@ -4402,6 +4404,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             // bl <target>
             let targetInstr = findLabel(funcTable, cname)
             let delta = targetInstr - instrIdx
+            printErr("DBG: CALL_FUNC " + cname + " instrIdx=" + instrIdx + " targetInstr=" + targetInstr + " delta=" + delta)
             s = s + arm64_bl(delta)
             instrIdx = instrIdx + 1
             s = s + arm64_push(0)
