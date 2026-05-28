@@ -1,0 +1,84 @@
+import "k:htmk"
+import "k:server"
+
+func layout(title, content) {
+    let css = htStyle(
+        "body{font-family:sans-serif;max-width:600px;margin:40px auto;padding:0 16px}" +
+        "h1{color:#333}" +
+        "form{display:flex;flex-direction:column;gap:12px}" +
+        "input,textarea{padding:8px;border:1px solid #ccc;border-radius:4px;font-size:1rem}" +
+        "button{padding:10px;background:#0066cc;color:white;border:none;border-radius:4px;cursor:pointer;font-size:1rem}" +
+        ".result{background:#f0f8ff;border:1px solid #99c;padding:12px;border-radius:4px;margin-top:16px}" +
+        "nav a{margin-right:12px;color:#0066cc}"
+    )
+    let nav = htEl("nav", htA("/", "Home") + htA("/form", "Form") + htA("/greet", "Greet"))
+    emit htPage(title, css, nav + content)
+}
+
+func homePage() {
+    emit layout("Home",
+        htH1("Krypton Web Framework") +
+        htP("Demo of htmk + server. Try the pages above.") +
+        htUl(
+            htLi(htA("/form", "Form — POST demo")) +
+            htLi(htA("/greet?name=World", "Greet — query param demo"))
+        )
+    )
+}
+
+func formPage(feedback) {
+    let fb = ""
+    if len(feedback) > 0 {
+        fb = htDivA(htClass("result"), htStrong("Submitted: ") + htEscape(feedback))
+    }
+    let f = htForm("/form", "POST",
+        htLabelFor("name", "Your name:") +
+        htInput("text", "name", "") +
+        htLabelFor("msg", "Your message:") +
+        htElA("textarea", htAttr("name", "msg") + htAttr("id", "msg") + htAttr("rows", "4"), "") +
+        htButton("Submit")
+    )
+    emit layout("Form Demo", htH1("Form Demo") + f + fb)
+}
+
+func greetPage(who) {
+    if len(who) == 0 { who = "stranger" }
+    emit layout("Greet",
+        htH1("Hello, " + htEscape(who) + "!") +
+        htP("Name came from query string: " + htCode("?name=" + htEscape(who))) +
+        htA("/greet?name=Alice", "Try Alice") + " " + htA("/greet?name=Bob", "Try Bob")
+    )
+}
+
+just run {
+    serverInit("8080")
+    ShellExecuteA("0", "open", "http://127.0.0.1:8080", "0", "0", "1")
+    let running = "1"
+    while running == "1" {
+        let got = serverNext()
+        if got == "1" {
+            let method = serverReqMethod()
+            let path   = serverReqPath()
+            let query  = serverReqQuery()
+            let body   = serverReqBody()
+
+            if path == "/" {
+                serverRespond(homePage())
+            } else if path == "/form" {
+                if method == "POST" {
+                    let msg  = queryParam(body, "msg")
+                    let uname = queryParam(body, "name")
+                    let fb   = uname + " says: " + msg
+                    serverRespond(formPage(fb))
+                } else {
+                    serverRespond(formPage(""))
+                }
+            } else if path == "/greet" {
+                let who = queryParam(query, "name")
+                serverRespond(greetPage(who))
+            } else {
+                serverRespond404()
+            }
+        }
+    }
+}

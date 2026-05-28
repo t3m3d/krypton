@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# khtk — build and optionally run a .htk web app
+# Cross-platform: Windows (MinGW), Linux, macOS, BSD, Unix
+# Usage: khtk app.htk [-o out] [--run]
+
+set -e
+
+INPUT=""
+OUTPUT=""
+RUN=0
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -o) OUTPUT="$2"; shift 2 ;;
+        --run|-r) RUN=1; shift ;;
+        *) INPUT="$1"; shift ;;
+    esac
+done
+
+if [[ -z "$INPUT" ]]; then
+    echo "usage: khtk app.htk [-o app] [--run]" >&2
+    exit 1
+fi
+
+BASE="${INPUT%.*}"
+KHTK_TMP="/tmp/khtk_$$.c"
+
+# Platform detection
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*|Windows_NT)
+        PLATFORM="windows"
+        CC="${CC:-gcc}"
+        LDFLAGS="-lws2_32"
+        [[ -z "$OUTPUT" ]] && OUTPUT="${BASE}.exe"
+        ;;
+    Darwin)
+        PLATFORM="macos"
+        CC="${CC:-clang}"
+        LDFLAGS=""
+        [[ -z "$OUTPUT" ]] && OUTPUT="${BASE}"
+        ;;
+    FreeBSD|OpenBSD|NetBSD|DragonFly)
+        PLATFORM="bsd"
+        CC="${CC:-cc}"
+        LDFLAGS=""
+        [[ -z "$OUTPUT" ]] && OUTPUT="${BASE}"
+        ;;
+    *)
+        PLATFORM="linux"
+        CC="${CC:-gcc}"
+        LDFLAGS=""
+        [[ -z "$OUTPUT" ]] && OUTPUT="${BASE}"
+        ;;
+esac
+
+echo "khtk: compiling $INPUT ($PLATFORM) ..." >&2
+kcc "$INPUT" > "$KHTK_TMP"
+
+echo "khtk: linking $OUTPUT ..." >&2
+$CC "$KHTK_TMP" -o "$OUTPUT" $LDFLAGS -w
+
+rm -f "$KHTK_TMP"
+echo "khtk: built $OUTPUT" >&2
+
+if [[ $RUN -eq 1 ]]; then
+    echo "khtk: running $OUTPUT ..." >&2
+    exec "$OUTPUT"
+fi

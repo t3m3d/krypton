@@ -1,0 +1,67 @@
+import "k:htmk"
+import "k:server"
+import "k:ks"
+
+func page() {
+    let css = htStyle(
+        "body{font-family:sans-serif;max-width:600px;margin:40px auto;padding:0 16px}" +
+        "h1{color:#333}" +
+        "button{padding:8px 16px;background:#0066cc;color:white;border:none;border-radius:4px;cursor:pointer;margin:4px}" +
+        ".counter{font-size:2rem;margin:16px 0}" +
+        ".box{background:#f0f8ff;border:1px solid #99c;padding:16px;border-radius:4px;margin:12px 0}" +
+        "#output{margin-top:12px;padding:8px;background:#ffe;border:1px solid #cc9}"
+    )
+
+    let body = htH1("Interactive .htk Demo") +
+        htP("Server-side HTML (htmk) + client-side JS (ks)") +
+
+        htH2("Counter") +
+        htDivA(htClass("counter") + htId("count"), "0") +
+        htButtonA(htId("inc"), "+1") +
+        htButtonA(htId("dec"), "-1") +
+        htButtonA(htId("reset"), "Reset") +
+
+        htH2("Toggle") +
+        htButtonA(htId("toggleBtn"), "Toggle Box") +
+        htDivA(htClass("box") + htId("toggleTarget"),
+            htP("This box can be shown/hidden.")
+        ) +
+
+        htH2("Live Input") +
+        htInputA(htType("text") + htId("nameInput") + htPlaceholder("Type your name")) +
+        htDivA(htId("output"), "Hello, ...")
+
+    let js = ksReady(
+        ksLet("count", "0") +
+        ksOnClick("inc",
+            ksAssign("count", "count + 1") +
+            ksSetText("count", "count")
+        ) +
+        ksOnClick("dec",
+            ksAssign("count", "count - 1") +
+            ksSetText("count", "count")
+        ) +
+        ksOnClick("reset",
+            ksAssign("count", "0") +
+            ksSetText("count", "count")
+        ) +
+        ksToggle("toggleBtn", "toggleTarget") +
+        ksOnInput("nameInput",
+            ksLet("nm", ksGetVal("nameInput")) +
+            ksSetText("output", ksPlus(ksStr("Hello, "), ksPlus("nm", ksStr("!"))))
+        )
+    )
+
+    emit htPage("Interactive", css, body + htScriptInline(js))
+}
+
+just run {
+    serverInit("8080")
+    ShellExecuteA("0", "open", "http://127.0.0.1:8080", "0", "0", "1")
+    while "1" == "1" {
+        let got = serverNext()
+        if got == "1" {
+            serverRespond(page())
+        }
+    }
+}
