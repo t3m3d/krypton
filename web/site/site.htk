@@ -1,0 +1,318 @@
+// site.htk — krypton-lang.org rebuilt in Krypton
+// Build: khtk site.htk --run
+// Or:    kcc site.htk > /tmp/site.c && gcc /tmp/site.c -o site.exe -lws2_32 -w
+
+import "k:htmk"
+import "k:server"
+import "k:ks"
+
+// ── Theme colors + CSS ───────────────────────────────────────────────
+
+func siteCSS() {
+    emit htStyle(
+        ":root{--primary:#7722ff;--primary-dark:#5d16da;--bg:#fafafa;--text:#222;--text-light:#555;--card-bg:#fff;--card-border:#e0e0e0;--code-bg:#1e1e2e;--code-text:#cdd6f4;--nav-bg:#111;--nav-text:#eee;--hero-bg:linear-gradient(135deg,#7722ff 0%,#5d16da 100%)}" +
+        "*{box-sizing:border-box;margin:0;padding:0}" +
+        "body{font-family:'Segoe UI',system-ui,sans-serif;color:var(--text);background:var(--bg);line-height:1.6}" +
+        "a{color:var(--primary);text-decoration:none}a:hover{text-decoration:underline}" +
+        "nav{background:var(--nav-bg);padding:12px 0}" +
+        "nav .wrap{max-width:1100px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;padding:0 20px}" +
+        "nav .logo{color:#fff;font-size:1.3rem;font-weight:700}" +
+        "nav .logo span{color:var(--primary)}" +
+        "nav .links a{color:var(--nav-text);margin-left:24px;font-size:0.95rem}" +
+        "nav .links a:hover{color:var(--primary)}" +
+        ".hero{background:var(--hero-bg);color:#fff;padding:80px 20px;text-align:center}" +
+        ".hero h1{font-size:2.6rem;margin-bottom:16px}" +
+        ".hero p{font-size:1.2rem;max-width:700px;margin:0 auto 24px;opacity:0.92}" +
+        ".hero .btn{display:inline-block;background:#fff;color:var(--primary-dark);padding:12px 28px;border-radius:6px;font-weight:600;margin:0 8px}" +
+        ".hero .btn.outline{background:transparent;border:2px solid #fff;color:#fff}" +
+        ".wrap{max-width:1100px;margin:0 auto;padding:20px}" +
+        "section{padding:48px 20px}" +
+        "section .wrap{max-width:1100px;margin:0 auto}" +
+        "h2{font-size:1.8rem;margin-bottom:16px;color:var(--text)}" +
+        "h3{font-size:1.3rem;margin:20px 0 8px;color:var(--primary-dark)}" +
+        ".grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;margin-top:20px}" +
+        ".card{background:var(--card-bg);border:1px solid var(--card-border);border-radius:8px;padding:24px}" +
+        ".card h3{margin-top:0;color:var(--primary)}" +
+        "pre{background:var(--code-bg);color:var(--code-text);padding:16px;border-radius:6px;overflow-x:auto;font-size:0.9rem;line-height:1.5}" +
+        "code{font-family:'Cascadia Code',Consolas,monospace}" +
+        "p code{background:#f0f0f0;padding:2px 6px;border-radius:3px;font-size:0.9em}" +
+        ".table-wrap{overflow-x:auto}" +
+        "table{border-collapse:collapse;width:100%;margin:16px 0}" +
+        "th,td{border:1px solid var(--card-border);padding:10px 14px;text-align:left}" +
+        "th{background:var(--primary);color:#fff}" +
+        "footer{background:var(--nav-bg);color:var(--nav-text);text-align:center;padding:24px;font-size:0.9rem}" +
+        "footer a{color:var(--primary)}" +
+        ".tag{display:inline-block;background:var(--primary);color:#fff;padding:2px 10px;border-radius:12px;font-size:0.8rem;margin-bottom:8px}" +
+        "ul{margin:8px 0 8px 24px}li{margin:4px 0}" +
+        "@media(max-width:700px){.hero h1{font-size:1.8rem}nav .links a{margin-left:12px;font-size:0.85rem}.grid{grid-template-columns:1fr}}"
+    )
+}
+
+// ── Layout ───────────────────────────────────────────────────────────
+
+func siteNav(active) {
+    let link = func(href, label) {
+        emit htAA(htHref(href) + htClass("links"), label)
+    }
+    emit "<nav><div class=\"wrap\">" +
+         "<a href=\"/\" class=\"logo\"><span>K</span>rypton</a>" +
+         "<div class=\"links\">" +
+         htA("/", "Home") +
+         htA("/about", "About") +
+         htA("/features", "Features") +
+         htA("/programs", "Programs") +
+         htA("/downloads", "Downloads") +
+         htA("/contact", "Contact") +
+         "</div></div></nav>"
+}
+
+func siteFooter() {
+    emit "<footer>Powered by <a href=\"/\">KryptonBytes</a> | " +
+         "<a href=\"https://github.com/t3m3d/krypton\">View on GitHub</a>" +
+         " | All rights reserved.</footer>"
+}
+
+func sitePage(title, content) {
+    emit htPage("Krypton - " + title,
+        siteCSS() + htMetaViewport(),
+        siteNav(title) + content + siteFooter()
+    )
+}
+
+// ── Home Page ────────────────────────────────────────────────────────
+
+func pageHome() {
+    let hero = "<div class=\"hero\">" +
+        htH1("Krypton Programming Language") +
+        htP("A self-hosting language that compiles to native code " + fromCharCode(8212) + " no C in the loop.") +
+        "<a href=\"https://github.com/t3m3d/krypton\" class=\"btn\">Get Started</a>" +
+        "<a href=\"/features\" class=\"btn outline\">See Features</a>" +
+        "</div>"
+
+    let intro = "<section><div class=\"wrap\">" +
+        htH2("Krypton in 30 Seconds") +
+        htPre(htCode(
+            "func fib(n) {" + fromCharCode(10) +
+            "    if n <= 1 { emit n }" + fromCharCode(10) +
+            "    emit fib(n - 1) + fib(n - 2)" + fromCharCode(10) +
+            "}" + fromCharCode(10) +
+            fromCharCode(10) +
+            "just run {" + fromCharCode(10) +
+            "    kp(fib(10))  // 55" + fromCharCode(10) +
+            "}"
+        )) +
+        "</div></section>"
+
+    let diff = "<section style=\"background:#f4f0ff\"><div class=\"wrap\">" +
+        htH2("What Makes Krypton Different") +
+        "<div class=\"grid\">" +
+        "<div class=\"card\">" + htH3("Self-Hosting") + htP("The compiler is written in Krypton itself and compiles itself. No bootstrap gap.") + "</div>" +
+        "<div class=\"card\">" + htH3("No C in the Loop") + htP("Native backends emit ELF, PE, and Mach-O directly. No LLVM, no GCC, no linker.") + "</div>" +
+        "<div class=\"card\">" + htH3("Cross-Platform") + htP("Linux x86_64, Windows x86_64, and macOS arm64 " + fromCharCode(8212) + " all with native backends.") + "</div>" +
+        "<div class=\"card\">" + htH3("Small Surface") + htP("The entire language spec fits on one EBNF page. Compiler under 5,000 lines.") + "</div>" +
+        "<div class=\"card\">" + htH3("150+ Builtins") + htP("Strings, lists, maps, I/O, math, structs, JSON, HTTP " + fromCharCode(8212) + " batteries included.") + "</div>" +
+        "<div class=\"card\">" + htH3("Familiar Syntax") + htP("Functions, loops, conditionals, match, try/catch, lambdas. If you know any language, you know Krypton.") + "</div>" +
+        "</div></div></section>"
+
+    let explore = "<section><div class=\"wrap\">" +
+        htH2("Explore") +
+        "<div class=\"grid\">" +
+        "<div class=\"card\">" + htH3("84 Examples") + htP("From fizzbuzz to dashboards.") + htP(htA("https://github.com/t3m3d/krypton/tree/main/examples", "Browse examples")) + "</div>" +
+        "<div class=\"card\">" + htH3("35 Algorithms") + htP("Sorts, DP, graphs, KMP, Dijkstra.") + htP(htA("https://github.com/t3m3d/krypton/tree/main/algorithms", "Browse algorithms")) + "</div>" +
+        "<div class=\"card\">" + htH3("25 Tutorials") + htP("Step-by-step lessons from basics to GUI.") + htP(htA("https://github.com/t3m3d/krypton/tree/main/tutorial", "Start learning")) + "</div>" +
+        "</div></div></section>"
+
+    emit sitePage("Home", hero + intro + diff + explore)
+}
+
+// ── About Page ───────────────────────────────────────────────────────
+
+func pageAbout() {
+    let content = "<section><div class=\"wrap\">" +
+        htH1("About Krypton") +
+        htP("A small, opinionated programming language built around one idea: compile straight to native code, in itself, with no toolchain underneath.") +
+
+        htH2("Why Krypton Exists") +
+        htP("Most contemporary programming languages depend on extensive infrastructure stacks including LLVM backends, C compilers, system linkers, and runtimes in other languages. Krypton takes a different approach " + fromCharCode(8212) + " the compiler is written in Krypton itself and directly emits ELF, PE, and Mach-O binaries without requiring external tools.") +
+
+        htH2("Design Principles") +
+        "<div class=\"grid\">" +
+        "<div class=\"card\">" + htH3("No C in the Loop") + htP("Each platform has its own native backend written in Krypton that generates machine code directly.") + "</div>" +
+        "<div class=\"card\">" + htH3("Self-Hosting First") + htP("The compiler compiles itself. Language changes that break self-compilation cannot be released.") + "</div>" +
+        "<div class=\"card\">" + htH3("One Value Type") + htP("All values are strings at runtime, with numeric operations handled through smart-int dispatch.") + "</div>" +
+        "<div class=\"card\">" + htH3("Small Surface") + htP("The entire language specification fits on a single EBNF page, with the compiler under 5,000 lines.") + "</div>" +
+        "<div class=\"card\">" + htH3("Cross-Platform") + htP("Linux, Windows, and macOS receive equal native backend support.") + "</div>" +
+        "<div class=\"card\">" + htH3("Boring Where It Counts") + htP("Familiar syntax: functions, conditionals, loops, pattern matching, error handling, and structs.") + "</div>" +
+        "</div>" +
+
+        htH2("Current Status") +
+        htP("Krypton reached version 2.1.0 in May 2026. The project includes three native backends, a self-hosting compiler, 36 standard library modules, 84 example programs, and comprehensive test coverage.") +
+
+        htH2("Credits") +
+        htP("Developed by t3m3d under KryptonBytes, licensed under Apache 2.0.") +
+        "</div></section>"
+
+    emit sitePage("About", content)
+}
+
+// ── Features Page ────────────────────────────────────────────────────
+
+func pageFeatures() {
+    let pipeline = "<section><div class=\"wrap\">" +
+        htH1("Features") +
+        htP("Everything Krypton ships, organized so you can skim or dive in.") +
+
+        htH2("Native Compilation Pipeline") +
+        htP("The default kcc invocation produces a native binary using a Krypton-only emitter. No C compiler or linker is invoked.") +
+        "<div class=\"table-wrap\">" +
+        "<table><tr>" + htTh("Platform") + htTh("Backend") + htTh("Output") + "</tr>" +
+        "<tr>" + htTd("Linux x86_64") + htTd("elf.k") + htTd("Static ELF, direct syscalls, no libc") + "</tr>" +
+        "<tr>" + htTd("Windows x86_64") + htTd("x64.k") + htTd("PE/COFF, kernel32 via krypton_rt.dll") + "</tr>" +
+        "<tr>" + htTd("macOS arm64") + htTd("macho.k") + htTd("Mach-O with ad-hoc code signing") + "</tr>" +
+        "</table></div>"
+
+    let lang = htH2("Language Features") +
+        "<div class=\"grid\">" +
+        "<div class=\"card\">" + htH3("Functions") + htPre(htCode("func add(a, b) {" + fromCharCode(10) + "    emit a + b" + fromCharCode(10) + "}")) + "</div>" +
+        "<div class=\"card\">" + htH3("Pattern Matching") + htPre(htCode("match color {" + fromCharCode(10) + "    " + fromCharCode(34) + "red" + fromCharCode(34) + "  { kp(" + fromCharCode(34) + "warm" + fromCharCode(34) + ") }" + fromCharCode(10) + "    else { kp(" + fromCharCode(34) + "other" + fromCharCode(34) + ") }" + fromCharCode(10) + "}")) + "</div>" +
+        "<div class=\"card\">" + htH3("Lambdas") + htPre(htCode("let dbl = func(x) { emit x * 2 }" + fromCharCode(10) + "kp(dbl(5))  // 10")) + "</div>" +
+        "<div class=\"card\">" + htH3("Structs") + htPre(htCode("struct Point { let x; let y }" + fromCharCode(10) + "let p = Point { x: 10, y: 20 }")) + "</div>" +
+        "<div class=\"card\">" + htH3("Try/Catch") + htPre(htCode("try {" + fromCharCode(10) + "    throw " + fromCharCode(34) + "oops" + fromCharCode(34) + fromCharCode(10) + "} catch e {" + fromCharCode(10) + "    kp(e)" + fromCharCode(10) + "}")) + "</div>" +
+        "<div class=\"card\">" + htH3("String Interpolation") + htPre(htCode("kp(`Hello, {name}!`)" + fromCharCode(10) + "kp(`1 + 1 = {1 + 1}`)")) + "</div>" +
+        "</div>"
+
+    let stdlib = htH2("Standard Library") +
+        htP("~150 built-in functions plus 36 stdlib modules covering I/O, strings, numbers, lists, maps, structs, JSON, CSV, math, sorting, and more.") +
+
+        htH2("Native Performance") +
+        "<div class=\"grid\">" +
+        "<div class=\"card\">" + htH3("Direct Syscalls") + htP("Linux backend issues SYS_write, SYS_mmap, SYS_exit directly. hello.k compiles to a 2.6 KB static ELF.") + "</div>" +
+        "<div class=\"card\">" + htH3("Smart-Int Values") + htP("Small integers live unboxed in registers. 1 + 2 is two instructions.") + "</div>" +
+        "<div class=\"card\">" + htH3("Bump Allocator") + htP("Heap is a single mmap region with a bump pointer. Allocation is one ADD.") + "</div>" +
+        "</div>" +
+        "</div></section>"
+
+    emit sitePage("Features", pipeline + lang + stdlib)
+}
+
+// ── Programs Page ────────────────────────────────────────────────────
+
+func pagePrograms() {
+    let content = "<section><div class=\"wrap\">" +
+        htH1("Programs") +
+        htP("Real software written in Krypton.") +
+
+        "<div class=\"card\" style=\"margin:24px 0\">" +
+        "<span class=\"tag\">Featured</span>" +
+        htH2("kryofetch") +
+        htP("A Windows system-information fetch tool. Reads user, OS version, CPU, RAM/disk with bar graphs, GPU, shell, terminal, resolution, uptime, and theme " + fromCharCode(8212) + " rendered next to a coloured ASCII logo.") +
+        htP("~600 lines of Krypton across 7 modules. Talks to Win32 directly " + fromCharCode(8212) + " registry, GlobalMemoryStatusEx, GetDiskFreeSpaceExA, DXGI for VRAM. No WMI, no PowerShell, no Python.") +
+        htP(htA("https://github.com/t3m3d/kryofetch", "View on GitHub")) +
+        htP(htEm("Windows 10/11 " + fromCharCode(183) + " native PE/COFF, no gcc required")) +
+        "</div>" +
+
+        "<div class=\"card\" style=\"margin:24px 0\">" +
+        "<span class=\"tag\">New</span>" +
+        htH2("kmon") +
+        htP("A real-time network monitor. Captures live packets off your NIC, parses Ethernet + IPv4 + TCP/UDP/ICMP headers in pure Krypton, and streams each packet plus stats to a browser dashboard via Server-Sent Events.") +
+        htP("9 Krypton source files. The dashboard is a single static HTML file served over HTTP.") +
+        htP(htA("https://github.com/t3m3d/kmon", "View on GitHub")) +
+        htP(htEm("Windows 10/11 " + fromCharCode(183) + " requires Npcap")) +
+        "</div>" +
+
+        htH2("More") +
+        "<div class=\"grid\">" +
+        "<div class=\"card\">" + htH3("84 Examples") + htP("Demonstrating language features from basics to GUI apps.") + "</div>" +
+        "<div class=\"card\">" + htH3("35 Algorithms") + htP("Sorts, DP, graphs, KMP, Dijkstra, union-find.") + "</div>" +
+        "<div class=\"card\">" + htH3("20 Tools") + htP("Command-line utilities built in Krypton.") + "</div>" +
+        "</div>" +
+        htP(htEm("Built something in Krypton? Email brian@krypton-lang.org or open an issue to get it featured.")) +
+        "</div></section>"
+
+    emit sitePage("Programs", content)
+}
+
+// ── Downloads Page ───────────────────────────────────────────────────
+
+func pageDownloads() {
+    let content = "<section><div class=\"wrap\">" +
+        htH1("Downloads") +
+        "<span class=\"tag\">Latest: 2.1.0</span>" +
+        htP("Released May 25, 2026.") +
+
+        htH2("Windows Installer") +
+        htP("One-click install to C:" + fromCharCode(92) + "krypton with automatic PATH configuration. 2.5 MB. Requires Windows 10/11 x64.") +
+        htP(htAA(htHref("https://github.com/t3m3d/krypton/releases") + htClass("btn") + htStyleAttr("display:inline-block;background:var(--primary);color:#fff;padding:10px 24px;border-radius:6px"), "Download for Windows")) +
+
+        htH2("macOS (Apple Silicon)") +
+        htP("Standard macOS package installer for arm64 Macs.") +
+
+        htH2("Linux / BSD / Source") +
+        htP("Clone the repo and run the build script. Prebuilt seeds eliminate the need for external compilers.") +
+        htPre(htCode("git clone https://github.com/t3m3d/krypton" + fromCharCode(10) + "cd krypton" + fromCharCode(10) + "./build.sh")) +
+
+        htH2("VS Code Extension") +
+        htP("Syntax highlighting, bracket matching, code folding for .k files. Ships as prebuilt .vsix in the repository.") +
+
+        htH2("Verify Installation") +
+        htPre(htCode("kcc --version")) +
+        "</div></section>"
+
+    emit sitePage("Downloads", content)
+}
+
+// ── Contact Page ─────────────────────────────────────────────────────
+
+func pageContact() {
+    let content = "<section><div class=\"wrap\">" +
+        htH1("Contact") +
+
+        "<div class=\"grid\">" +
+        "<div class=\"card\">" + htH3("Email") + htP("General questions, partnerships, collaboration:") + htP(htA("mailto:brian@krypton-lang.org", "brian@krypton-lang.org")) + "</div>" +
+        "<div class=\"card\">" + htH3("Bug Reports") + htP("Crashes, bugs, unexpected behavior:") + htP(htA("https://github.com/t3m3d/krypton/issues", "Open an issue on GitHub")) + htP("Include a minimal reproducer if you can.") + "</div>" +
+        "<div class=\"card\">" + htH3("Feature Requests") + htP("Propose new builtins, language features, or backends:") + htP(htA("https://github.com/t3m3d/krypton/issues/new", "GitHub Issues")) + "</div>" +
+        "<div class=\"card\">" + htH3("Contribute") + htP("Fork from main, submit a PR:") + htP(htA("https://github.com/t3m3d/krypton", "GitHub Repository")) + "</div>" +
+        "</div>" +
+
+        htH2("Documentation") +
+        htUl(
+            htLi(htA("https://github.com/t3m3d/krypton/blob/main/docs/spec/Spec.md", "Language Specification")) +
+            htLi(htA("https://github.com/t3m3d/krypton/tree/main/tutorial", "25 Tutorial Lessons")) +
+            htLi(htA("https://github.com/t3m3d/krypton/tree/main/examples", "84 Example Programs"))
+        ) +
+        htP(htEm("Krypton is developed by a small team. Email and GitHub issues are monitored regularly.")) +
+        "</div></section>"
+
+    emit sitePage("Contact", content)
+}
+
+// ── Server ───────────────────────────────────────────────────────────
+
+just run {
+    let port = "8080"
+    serverInit(port)
+    ShellExecuteA("0", "open", "http://127.0.0.1:8080", "0", "0", "1")
+
+    while "1" == "1" {
+        let got = serverNext()
+        if got == "1" {
+            let path = serverReqPath()
+
+            if path == "/" {
+                serverRespond(pageHome())
+            } else if path == "/about" {
+                serverRespond(pageAbout())
+            } else if path == "/features" {
+                serverRespond(pageFeatures())
+            } else if path == "/programs" {
+                serverRespond(pagePrograms())
+            } else if path == "/downloads" {
+                serverRespond(pageDownloads())
+            } else if path == "/contact" {
+                serverRespond(pageContact())
+            } else {
+                serverRespond404()
+            }
+        }
+    }
+}
