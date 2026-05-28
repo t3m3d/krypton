@@ -62,9 +62,15 @@ kr_alloc vaddr — no emitFuncCode 70-param threading. Verified natively
 backend's smart-int threshold), not arm64's VBASE. (elf_host is gitignored; driver
 rebuilds from elf.k — only elf.k committed.)
 
-Still open on x86: **fformat** (F2's __f_format). Plan = a kr_fformat HELPER
-(define emitKrFformatCode/krFformatSize, add krFformatVAddr to the vaddr layout
-after krPadrightVAddr, thread the param through emitFuncCode's signature + call
-site, append krFformatCode to the `segment` concat before strData). Port from the
-arm64 emitFFormat / your macho __f_format. Same FE operator/conversion gap applies
-to both Linux backends — test_float.k stays macОЅ-skipped until the FE lands it.
+x86 fformat now DONE too (commit f57dfefa): kr_fformat helper (219B), threaded
+through the vaddr layout + emitFuncCode + segment, BUILTIN_FFORMAT stub. Verified
+natively (3.14/3.1416/0.05/0.00/10/-3.14/0.333333/4.00).
+
+**PARITY REACHED on A1 explicit-builtin codegen across all three backends**
+(macho arm64, linux arm64 ELF, linux x86 ELF). The only gap to full macOS A1 is
+the FE-level f64 operator/conversion/compound-assign work, which is on `main`, NOT
+on feat/arm64-native-pipeline (verified: this branch's FE emits integer MUL for
+a*b and generic CALL for intToFloat). When that FE work lands here, operators lower
+to the fadd/fmul builtins all backends already have; only intToFloat/floatToInt
+(generic CALLs) need a small per-backend codegen add. test_float.k stays
+macOS-skipped until then.
