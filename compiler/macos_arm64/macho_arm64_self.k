@@ -1861,8 +1861,8 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_ISDIGIT"  { emit 10 }
     if opTok == "BUILTIN_TOINT"    { emit 20 }
     if opTok == "BUILTIN_INDEXOF"  { emit 21 }
-    if opTok == "BUILTIN_SBNEW"        { emit 24 }   // alloc(21) +6 from 18
-    if opTok == "BUILTIN_SBAPPEND"     { emit 21 }
+    if opTok == "BUILTIN_SBNEW"        { emit 26 }   // movz+alloc(21)+sub+str+str+push
+    if opTok == "BUILTIN_SBAPPEND"     { emit 80 }   // with realloc: 80 instrs
     if opTok == "BUILTIN_SBTOSTRING"   { emit 3 }
     if opTok == "BUILTIN_CONTAINS"     { emit 23 }   // indexOf core (20) + cmp + cset + push
     if opTok == "BUILTIN_PRINT"        { emit 52 }
@@ -2551,55 +2551,111 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = s + arm64_push_x0()                     // 19: PUSH
             instrIdx = instrIdx + 20
         } else if opTok == "BUILTIN_SBNEW" {
-            // sbNew(): alloc 4 KB, init length=0, return ptr.
-            // Layout of sb buffer: [8-byte length][data ...].
-            s = s + arm64_movz_x_imm_lsl16(4, 0x10)  // size = 1 MB (DATA_VMSIZE = 1 GB)
+            // sbNew(): alloc 64 KB initial buf. sb layout: [+0 cap][+8 len][+16 data].
+            // Reallocs via sbAppend when full. 26 instructions total.
+            s = s + arm64_movz_x_imm_lsl16(4, 1)    // 0: x4 = 65536 (64 KB alloc)
             instrIdx = instrIdx + 1
-            s = s + emitAllocVar(instrIdx, textVaddr, textOff)
+            s = s + emitAllocVar(instrIdx, textVaddr, textOff)  // 1-21: x0 = user data
             instrIdx = instrIdx + 21
-            s = s + arm64_str_imm(31, 0, 0)         // str xzr, [x0]  (len = 0)
-            s = s + arm64_push_x0()
-            instrIdx = instrIdx + 2
+            s = s + arm64_sub_imm(5, 4, 16)          // 22: x5 = capacity = alloc - 16
+            s = s + arm64_str_imm(5, 0, 0)           // 23: store capacity at [x0+0]
+            s = s + arm64_str_imm(31, 0, 1)          // 24: store length=0 at [x0+8]
+            s = s + arm64_push_x0()                  // 25: return sb handle
+            instrIdx = instrIdx + 4
         } else if opTok == "BUILTIN_SBAPPEND" {
-            // sbAppend(sb, s): copy s bytes after sb's data, update length, return sb.
-            // Stack TOS = s, then sb.
-            // 21 instructions; layout (0-indexed within this op):
-            //   0:pop x6=s  1:pop x7=sb
-            //   2:ldr x4=len[sb]  3:add x8=sb+8  4:add x8+=x4 (dest)
-            //   5:movz x5=0 (i)
-            //   6:ldrb w9=s[i] (STRLEN)  7:cbz→DONE_STRLEN(+3)  8:add i++  9:b STRLEN(-3)
-            //   10:movz x9=0 (j) (DONE_STRLEN)
-            //   11:cmp j,x5 (COPY)  12:b.ge→COPY_DONE(+5)  13:ldrb w10=s[j]  14:strb w10=dest[j]  15:add j++  16:b COPY(-5)
-            //   17:add x4=x4+x5 (new len) (COPY_DONE)
-            //   18:str x4=[x7]
-            //   19:strb wzr=[dest, x5] (NUL-term)
-            //   20:push x7 (return sb)
-            s = s + arm64_pop(6)
-            s = s + arm64_pop(7)
-            s = s + arm64_ldr_imm(4, 7, 0)
-            s = s + arm64_add_imm(8, 7, 8)
-            s = s + arm64_add_xxx(8, 8, 4)
-            s = s + arm64_movz_x_imm(5, 0)
-            s = s + arm64_ldrb_reg(9, 6, 5)         // STRLEN
-            s = s + arm64_cbz(9, 3)
-            s = s + arm64_add_imm(5, 5, 1)
-            s = s + arm64_b(0 - 3)
-            s = s + arm64_movz_x_imm(9, 0)          // DONE_STRLEN: j = 0
-            s = s + arm64_cmp_xx(9, 5)              // COPY
-            s = s + arm64_b_cond(0xa, 5)            // b.ge COPY_DONE
-            s = s + arm64_ldrb_reg(10, 6, 9)
-            s = s + arm64_strb_reg(10, 8, 9)
-            s = s + arm64_add_imm(9, 9, 1)
-            s = s + arm64_b(0 - 5)
-            s = s + arm64_add_xxx(4, 4, 5)          // COPY_DONE
-            s = s + arm64_str_imm(4, 7, 0)
-            s = s + arm64_strb_reg(31, 8, 5)
-            s = s + arm64_push(7)
+            // sbAppend(sb, str): append str to sb, reallocating if needed. 80 instrs.
+            // sb layout: [+0 cap: u64][+8 len: u64][+16 data...].
+            // Returns sb (possibly new on realloc; exponential doubling of capacity).
+            // Registers: x4=cap, x5=strlen, x6=str, x7=sb, x8=write_pos,
+            //            x9=loop_idx, x10=byte, x11=new_data, x12=old_len, x13=needed.
+            s = s + arm64_pop(6)                          // 0: x6 = str
+            s = s + arm64_pop(7)                          // 1: x7 = sb
+            s = s + arm64_ldr_imm(4, 7, 0)               // 2: x4 = cap [x7+0]
+            s = s + arm64_ldr_imm(12, 7, 1)              // 3: x12 = len [x7+8]
+            s = s + arm64_add_imm(8, 7, 16)              // 4: x8 = data start
+            s = s + arm64_add_xxx(8, 8, 12)              // 5: x8 = write pos
+            s = s + arm64_movz_x_imm(5, 0)               // 6: x5=0 (strlen idx)
+            instrIdx = instrIdx + 7
+            // STRLEN_LOOP @ 7:
+            s = s + arm64_ldrb_reg(9, 6, 5)              // 7
+            s = s + arm64_cbz(9, 3)                      // 8: → @11 DONE_STRLEN
+            s = s + arm64_add_imm(5, 5, 1)               // 9
+            s = s + arm64_b(0 - 3)                       // 10: → @7
+            instrIdx = instrIdx + 4
+            // DONE_STRLEN @ 11:
+            s = s + arm64_add_xxx(13, 12, 5)             // 11: needed = len+strlen
+            s = s + arm64_add_imm(13, 13, 1)             // 12: needed += 1 (NUL)
+            s = s + arm64_cmp_xx(13, 4)                  // 13: needed vs cap
+            s = s + arm64_b_cond(0x8, 13)               // 14: b.hi +13 → @27 REALLOC
+            instrIdx = instrIdx + 4
+            // FAST_COPY @ 15:
+            s = s + arm64_movz_x_imm(9, 0)               // 15: j=0
+            // COPY_LOOP @ 16:
+            s = s + arm64_cmp_xx(9, 5)                   // 16
+            s = s + arm64_b_cond(0xa, 5)                 // 17: b.ge +5 → @22 POST_COPY
+            s = s + arm64_ldrb_reg(10, 6, 9)             // 18
+            s = s + arm64_strb_reg(10, 8, 9)             // 19
+            s = s + arm64_add_imm(9, 9, 1)               // 20
+            s = s + arm64_b(0 - 5)                       // 21: → @16
+            instrIdx = instrIdx + 7
+            // POST_COPY @ 22:
+            s = s + arm64_add_xxx(12, 12, 5)             // 22: new_len = old+strlen
+            s = s + arm64_str_imm(12, 7, 1)              // 23: [x7+8] = new_len
+            s = s + arm64_strb_reg(31, 8, 5)             // 24: NUL
+            s = s + arm64_push(7)                        // 25: return sb
+            s = s + arm64_b(54)                          // 26: → @80 END
+            instrIdx = instrIdx + 5
+            // REALLOC @ 27 (b.hi @14: 14+13=27):
+            s = s + arm64_sub_imm(31, 31, 16)            // 27: save x5 to stack
+            s = s + arm64_str_imm(5, 31, 0)              // 28
+            s = s + arm64_add_xxx(4, 4, 4)               // 29: x4 = 2*cap
+            s = s + arm64_add_xxx(4, 4, 5)               // 30: x4 += strlen
+            s = s + arm64_add_imm(4, 4, 17)              // 31: x4 += 17 (hdr+NUL)
+            instrIdx = instrIdx + 5
+            s = s + emitAllocVar(instrIdx, textVaddr, textOff) // 32-52
+            instrIdx = instrIdx + 21
+            s = s + arm64_ldr_imm(5, 31, 0)              // 53: restore strlen
+            s = s + arm64_add_imm(31, 31, 16)            // 54: restore sp
+            s = s + arm64_sub_imm(4, 4, 16)              // 55: new cap = alloc-16
+            s = s + arm64_str_imm(4, 0, 0)               // 56: [new_sb+0] = new cap
+            s = s + arm64_str_imm(12, 0, 1)              // 57: [new_sb+8] = old len
+            instrIdx = instrIdx + 5
+            s = s + arm64_add_imm(3, 7, 16)              // 58: x3 = old data
+            s = s + arm64_add_imm(11, 0, 16)             // 59: x11 = new data
+            s = s + arm64_movz_x_imm(9, 0)               // 60: k=0
+            // OLD_COPY_LOOP @ 61:
+            s = s + arm64_cmp_xx(9, 12)                  // 61
+            s = s + arm64_b_cond(0xa, 5)                 // 62: b.ge +5 → @67
+            s = s + arm64_ldrb_reg(10, 3, 9)             // 63
+            s = s + arm64_strb_reg(10, 11, 9)            // 64
+            s = s + arm64_add_imm(9, 9, 1)               // 65
+            s = s + arm64_b(0 - 5)                       // 66: → @61
+            instrIdx = instrIdx + 9
+            // OLD_COPY_DONE @ 67:
+            s = s + arm64_mov_xx(7, 0)                   // 67: x7 = new_sb
+            s = s + arm64_add_xxx(8, 11, 12)             // 68: x8 = new write pos
+            instrIdx = instrIdx + 2
+            s = s + arm64_movz_x_imm(9, 0)               // 69: j=0
+            // NEW_COPY_LOOP @ 70:
+            s = s + arm64_cmp_xx(9, 5)                   // 70
+            s = s + arm64_b_cond(0xa, 5)                 // 71: b.ge +5 → @76
+            s = s + arm64_ldrb_reg(10, 6, 9)             // 72
+            s = s + arm64_strb_reg(10, 8, 9)             // 73
+            s = s + arm64_add_imm(9, 9, 1)               // 74
+            s = s + arm64_b(0 - 5)                       // 75: → @70
+            instrIdx = instrIdx + 7
+            // POST_NEW_COPY @ 76:
+            s = s + arm64_add_xxx(12, 12, 5)             // 76
+            s = s + arm64_str_imm(12, 7, 1)              // 77: [new_sb+8] = new len
+            s = s + arm64_strb_reg(31, 8, 5)             // 78: NUL
+            s = s + arm64_push(7)                        // 79: return new sb
+            instrIdx = instrIdx + 4
+            // END @ 80
             instrIdx = instrIdx + 21
         } else if opTok == "BUILTIN_SBTOSTRING" {
-            // sbToString(sb): return ptr to data (= sb + 8). Data is already NUL-terminated.
+            // sbToString(sb): return ptr to data (= sb + 16). Layout: [cap][len][data].
             s = s + arm64_pop(7)
-            s = s + arm64_add_imm(0, 7, 8)
+            s = s + arm64_add_imm(0, 7, 16)
             s = s + arm64_push_x0()
             instrIdx = instrIdx + 3
         } else if opTok == "BUILTIN_CONTAINS" {
