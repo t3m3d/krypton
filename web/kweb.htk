@@ -1,0 +1,219 @@
+// kweb — Krypton Web Framework CLI
+// Build: kcc kweb.htk > /tmp/kweb.c && gcc /tmp/kweb.c -o kweb.exe -lws2_32 -w
+// Usage:
+//   kweb init mysite        — scaffold a new .htk project
+//   kweb build              — compile .htk to static HTML in dist/
+//   kweb serve [port]       — local dev server
+//   kweb deploy host user   — upload dist/ via curl SFTP
+
+import "k:htmk"
+import "k:server"
+
+func printUsage() {
+    printErr("kweb — Krypton Web Framework")
+    printErr("")
+    printErr("Usage:")
+    printErr("  kweb init <name>            Create a new .htk project")
+    printErr("  kweb build                  Build dist/ from site.htk")
+    printErr("  kweb serve [port]           Start local dev server (default: 8080)")
+    printErr("  kweb deploy <host> <user>   Deploy dist/ via SFTP")
+    printErr("")
+    printErr("https://krypton-lang.org")
+}
+
+func scaffoldCSS() {
+    emit "body{font-family:system-ui,sans-serif;max-width:800px;margin:40px auto;padding:0 20px;color:#222;line-height:1.6}" +
+         "h1{color:#7722ff}" +
+         "a{color:#7722ff}" +
+         "nav a{margin-right:16px}" +
+         ".card{border:1px solid #ddd;border-radius:8px;padding:20px;margin:12px 0}"
+}
+
+func scaffoldSite(projectName) {
+    let NL = fromCharCode(10)
+    let DQ = fromCharCode(34)
+
+    let siteK = "import " + DQ + "k:htmk" + DQ + NL +
+        "import " + DQ + "k:server" + DQ + NL + NL +
+
+        "func css() {" + NL +
+        "    emit htStyle(" + DQ + scaffoldCSS() + DQ + ")" + NL +
+        "}" + NL + NL +
+
+        "func nav() {" + NL +
+        "    emit htEl(" + DQ + "nav" + DQ + ", htA(" + DQ + "/" + DQ + ", " + DQ + "Home" + DQ + ") + htA(" + DQ + "/about" + DQ + ", " + DQ + "About" + DQ + "))" + NL +
+        "}" + NL + NL +
+
+        "func page(title, content) {" + NL +
+        "    emit htPage(title, css(), nav() + content)" + NL +
+        "}" + NL + NL +
+
+        "func pageHome() {" + NL +
+        "    emit page(" + DQ + projectName + DQ + ", htH1(" + DQ + "Welcome to " + projectName + DQ + ") + htP(" + DQ + "Edit site.htk to get started." + DQ + "))" + NL +
+        "}" + NL + NL +
+
+        "func pageAbout() {" + NL +
+        "    emit page(" + DQ + "About" + DQ + ", htH1(" + DQ + "About" + DQ + ") + htP(" + DQ + "Built with the Krypton Web Framework." + DQ + "))" + NL +
+        "}" + NL + NL +
+
+        "just run {" + NL +
+        "    serverInit(" + DQ + "8080" + DQ + ")" + NL +
+        "    while " + DQ + "1" + DQ + " == " + DQ + "1" + DQ + " {" + NL +
+        "        let got = serverNext()" + NL +
+        "        if got == " + DQ + "1" + DQ + " {" + NL +
+        "            let path = serverReqPath()" + NL +
+        "            if path == " + DQ + "/" + DQ + " { serverRespond(pageHome()) }" + NL +
+        "            else if path == " + DQ + "/about" + DQ + " { serverRespond(pageAbout()) }" + NL +
+        "            else { serverRespond404() }" + NL +
+        "        }" + NL +
+        "    }" + NL +
+        "}" + NL
+
+    let exportK = "import " + DQ + "k:htmk" + DQ + NL +
+        "// import site functions here" + NL + NL +
+        "just run {" + NL +
+        "    // writeFile(" + DQ + "dist/index.html" + DQ + ", pageHome())" + NL +
+        "    // writeFile(" + DQ + "dist/about.html" + DQ + ", pageAbout())" + NL +
+        "    printErr(" + DQ + "export.htk: add your page functions and uncomment writeFile calls" + DQ + ")" + NL +
+        "}" + NL
+
+    let htaccess = "DirectoryIndex index.html" + NL + NL +
+        "RewriteEngine On" + NL + NL +
+        "RewriteCond %{HTTPS} off" + NL +
+        "RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]" + NL + NL +
+        "RewriteCond %{REQUEST_FILENAME} !-f" + NL +
+        "RewriteCond %{REQUEST_FILENAME} !-d" + NL +
+        "RewriteRule ^([^.]+)$ $1.html [NC,L]" + NL + NL +
+        "Header set X-Content-Type-Options " + DQ + "nosniff" + DQ + NL +
+        "Header set X-Frame-Options " + DQ + "DENY" + DQ + NL +
+        "Header set X-XSS-Protection " + DQ + "1; mode=block" + DQ + NL +
+        "Header set Referrer-Policy " + DQ + "strict-origin-when-cross-origin" + DQ + NL +
+        "Header set Strict-Transport-Security " + DQ + "max-age=31536000; includeSubDomains" + DQ + NL
+
+    emit siteK + fromCharCode(0) + exportK + fromCharCode(0) + htaccess
+}
+
+func doInit(projectName) {
+    // Create project directory structure
+    let cmd = "mkdir -p " + projectName + "/dist"
+    shellRun(cmd)
+
+    let scaffold = scaffoldSite(projectName)
+
+    // Split on NUL separator
+    let parts = splitBy(scaffold, fromCharCode(0))
+    let siteContent = split(parts, 0)
+    let exportContent = split(parts, 1)
+    let htaccessContent = split(parts, 2)
+
+    writeFile(projectName + "/site.htk", siteContent)
+    writeFile(projectName + "/export.htk", exportContent)
+    writeFile(projectName + "/dist/.htaccess", htaccessContent)
+
+    printErr("kweb: created project " + projectName + "/")
+    printErr("")
+    printErr("  " + projectName + "/")
+    printErr("    site.htk         <- your web app (edit this)")
+    printErr("    export.htk       <- static site generator")
+    printErr("    dist/            <- output folder for deployment")
+    printErr("    dist/.htaccess   <- security headers + clean URLs")
+    printErr("")
+    printErr("Quick start:")
+    printErr("  cd " + projectName)
+    printErr("  khtk site.htk --run")
+}
+
+func doBuild() {
+    printErr("kweb: building...")
+    let cmd = "kcc export.htk > " + environ("TEMP") + "/kweb_build.c 2>&1"
+    let rc = shellRun(cmd)
+    if rc != "0" {
+        printErr("kweb: compile failed")
+        emit 1
+    }
+    let cmd2 = "gcc " + environ("TEMP") + "/kweb_build.c -o " + environ("TEMP") + "/kweb_build.exe -w 2>&1"
+    let rc2 = shellRun(cmd2)
+    if rc2 != "0" {
+        printErr("kweb: link failed")
+        emit 1
+    }
+    let out = exec(environ("TEMP") + "/kweb_build.exe")
+    print(out)
+    printErr("kweb: build complete")
+}
+
+func doServe(port) {
+    printErr("kweb: serving on http://127.0.0.1:" + port)
+    serverInit(port)
+    while "1" == "1" {
+        let got = serverNext()
+        if got == "1" {
+            let path = serverReqPath()
+            if path == "/" { path = "/index.html" }
+            let filePath = "dist" + path
+            let ok = serverRespondFile(filePath)
+            if ok == "0" {
+                serverRespond404()
+            }
+        }
+    }
+}
+
+func doDeploy(sftpHost, sftpUser) {
+    printErr("kweb: deploying dist/ to " + sftpUser + "@" + sftpHost + ":/public_html/")
+    printErr("kweb: enter password when prompted")
+
+    // Use curl SFTP for each file
+    let files = exec("ls dist/")
+    let i = 0
+    let n = lineCount(files)
+    while i < n {
+        let f = getLine(files, i)
+        if len(f) > 0 {
+            let cmd = "curl -T dist/" + f + " sftp://" + sftpHost + "/public_html/" + f + " --user " + sftpUser + " --insecure 2>&1"
+            printErr("  uploading " + f + "...")
+            let out = exec(cmd)
+            if len(out) > 0 {
+                printErr("  " + out)
+            }
+        }
+        i += 1
+    }
+    printErr("kweb: deploy complete")
+}
+
+just run {
+    let cmd = arg("0")
+
+    if cmd == "" {
+        printUsage()
+        emit 0
+    }
+
+    if cmd == "init" {
+        let projectName = arg("1")
+        if projectName == "" {
+            printErr("kweb: usage: kweb init <project-name>")
+            emit 1
+        }
+        doInit(projectName)
+    } else if cmd == "build" {
+        doBuild()
+    } else if cmd == "serve" {
+        let port = arg("1")
+        if port == "" { port = "8080" }
+        doServe(port)
+    } else if cmd == "deploy" {
+        let sftpHost = arg("1")
+        let sftpUser = arg("2")
+        if sftpHost == "" || sftpUser == "" {
+            printErr("kweb: usage: kweb deploy <sftp-host> <username>")
+            emit 1
+        }
+        doDeploy(sftpHost, sftpUser)
+    } else {
+        printErr("kweb: unknown command: " + cmd)
+        printUsage()
+        emit 1
+    }
+}
