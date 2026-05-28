@@ -2,6 +2,52 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [2.1.1-dev] - 2026-05-27 — web framework + stdlib gaps
+
+Additive improvements on top of 2.1.0. No compiler / backend changes
+this round; pure stdlib + tests.
+
+### stdlib
+
+- **`stdlib/htmk.k`** — added missing HTML5 semantic / inline elements
+  (`htFigure`, `htFigcaption`, `htMark`, `htTime`, `htAddress`,
+  `htAbbr`, `htCite`, `htKbd`, `htSamp`, `htVar`, `htQ`, `htSub`,
+  `htSup`, `htSmall`, `htDel`, `htIns`, `htHgroup`, `htDl`, `htDt`,
+  `htDd`, `htCaption`, `htTfoot`, `htColgroup`, `htCol`), plus the
+  htmx-style live-update attributes (`htHxGet`, `htHxPost`,
+  `htHxPut`, `htHxDelete`, `htHxTarget`, `htHxSwap`, `htHxTrigger`,
+  `htHxConfirm`). Pairs with a tiny `htmx.js` page shim for in-place
+  fragment swapping.
+- **`stdlib/url.k`** (new) — RFC 3986 percent-encoding plus query-string
+  helpers. `urlEncode`, `urlEncodeQuery`, `urlDecode`, `urlDecodeQuery`,
+  `urlBuild(base, "k=v,k=v")`. Closes the `urllib.parse.quote` /
+  `unquote` / `urlencode` gap. Pure Krypton, no syscalls.
+- **`stdlib/datetime.k`** (new) — `dtNowEpoch`, `dtToday`, `dtNowIso`,
+  `dtHttpDate` (RFC 7231 for HTTP headers), `dtAddSeconds`/Minutes/
+  Hours/Days, `dtDiffSeconds`. UTC only. Cross-platform via
+  PowerShell (Windows) / POSIX `date` (Linux / macOS / Git Bash).
+
+### tests
+
+- **`tests/test_htmk.k`** (new) — first formal htmk tests. ~25
+  assertions covering escape, attr builders, container + void
+  elements, composite page assembly, the new HTML5 + htmx
+  additions.
+- **`tests/test_url.k`** (new) — round-trips path-encoding and
+  query-encoding edges (space, slash, ampersand, lowercase hex,
+  bare `%`), plus `urlBuild` shape checks.
+- **`tests/test_datetime.k`** (new) — accessors return well-shaped
+  strings (not cmd.exe interactive-prompt garbage), arithmetic
+  helpers compose deterministically.
+
+### Known issue (carried forward)
+
+- **x64 codegen perf regression for files that import large
+  stdlibs.** `tests/test_htmk.k` (imports the full 155-function
+  `k:htmk`) takes 1-3 minutes to native-compile despite only ~4400
+  IR lines — suggests an O(n²) somewhere in x64.k post-2.1.0 work.
+  Functional output is correct; investigation deferred.
+
 ## [2.1.0] - 2026-05-25 — Python-replacement push
 
 Theme: **make Krypton viable as a scripting alternative to small Python
