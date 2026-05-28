@@ -69,11 +69,52 @@ func hexQword2(lo, hi) { emit hexDword(lo) + hexDword(hi) }
 func hexQword(n) { emit hexDword(n) + hexDword(0) }
 
 func hexPad(n) {
+    // Build n zero bytes using fixed-size blocks (avoids O(N²) byte-by-byte concat).
+    let b1   = "x00"
+    let b2   = b1   + b1
+    let b4   = b2   + b2
+    let b8   = b4   + b4
+    let b16  = b8   + b8
+    let b32  = b16  + b16
+    let b64  = b32  + b32
+    let b128 = b64  + b64
+    let b256 = b128 + b128
     let out = ""
-    let i = 0
-    while i < n {
-        out = out + hexByte(0)
-        i += 1
+    let rem = n
+    while rem >= 256 {
+        out = out + b256
+        rem = rem - 256
+    }
+    if rem >= 128 {
+        out = out + b128
+        rem = rem - 128
+    }
+    if rem >= 64 {
+        out = out + b64
+        rem = rem - 64
+    }
+    if rem >= 32 {
+        out = out + b32
+        rem = rem - 32
+    }
+    if rem >= 16 {
+        out = out + b16
+        rem = rem - 16
+    }
+    if rem >= 8 {
+        out = out + b8
+        rem = rem - 8
+    }
+    if rem >= 4 {
+        out = out + b4
+        rem = rem - 4
+    }
+    if rem >= 2 {
+        out = out + b2
+        rem = rem - 2
+    }
+    if rem >= 1 {
+        out = out + b1
     }
     emit out
 }
@@ -160,7 +201,7 @@ func DATA_CONST_FILE_OFF() { emit g_DATA_CONST_FILE_OFF }
 func DATA_FILE_OFF()      { emit g_DATA_FILE_OFF }
 func LINKEDIT_FILE_OFF()  { emit g_LINKEDIT_FILE_OFF }
 func DATA_VADDR()         { emit g_DATA_VADDR }
-func DATA_VMSIZE()        { emit 0x400000 }   // 4 MB virtual heap (zero-fill past file backing)
+func DATA_VMSIZE()        { emit 0x40000000 }  // 1 GB virtual heap (zero-fill past file backing)
 func DATA_FILESIZE()      { emit 0x4000 }    // 16 KB file backing (1 page; rest zero-fill)
 
 // Computes layout from g_TEXT_SIZE / g_CSTRING_SIZE. LINKEDIT meta = 192 B.
@@ -175,7 +216,7 @@ func computeLayout() {
     g_DATA_FILE_OFF = textVmsize + 0x4000
     g_LINKEDIT_FILE_OFF = textVmsize + 0x8000
     g_DATA_VADDR = 0x100000000 + textVmsize + 0x4000
-    g_LINKEDIT_VADDR = g_DATA_VADDR + 0x400000       // + DATA_VMSIZE
+    g_LINKEDIT_VADDR = g_DATA_VADDR + 0x40000000     // + DATA_VMSIZE
     g_CODESIG_OFF = g_LINKEDIT_FILE_OFF + 192
     let nCodeSlots = (g_CODESIG_OFF + pageSize - 1) / pageSize
     g_CODESIG_SIZE = 116 + nCodeSlots * 32
@@ -350,11 +391,11 @@ func sha256_K(i) {
 func sha256_initState() {
     let s = ""
     s = s + "1779033703\n"      // 0x6a09e667
-    s = s + "-1150833019\n"     // 0xbb67ae85 (signed)
+    s = s + "3144134277\n"      // 0xbb67ae85 (unsigned; TOINT stops at '-')
     s = s + "1013904242\n"      // 0x3c6ef372
-    s = s + "-1521486534\n"     // 0xa54ff53a
+    s = s + "2773480762\n"      // 0xa54ff53a (unsigned)
     s = s + "1359893119\n"      // 0x510e527f
-    s = s + "-1694144372\n"     // 0x9b05688c
+    s = s + "2600822924\n"      // 0x9b05688c (unsigned)
     s = s + "528734635\n"       // 0x1f83d9ab
     s = s + "1541459225"        // 0x5be0cd19
     emit s
@@ -432,46 +473,44 @@ func sha256_processChunk(state, chunkHex) {
 // Hash byteCount bytes of `data` (a hex-encoded byte string) starting at byteOff.
 // Returns 32-byte SHA-256 digest as 96 hex chars.
 func sha256_hex(data, byteOff, byteCount) {
-    // We need to feed 64-byte chunks. The padding rule (FIPS 180-4 §5.1.1):
-    //   append 1 bit, then k zero bits where (l + 1 + k) ≡ 448 mod 512,
-    //   then 64-bit BE message length in bits.
-    // For our use, byteCount is up to 16384 (= one OS page) so all messages
-    // fit: total padded length = byteCount + 1 + zero_pad + 8 ≡ 0 (mod 64).
-    // Build the padded message into a hex-encoded string.
-    let msg = ""
-    let i = 0
-    while i < byteCount {
-        msg = msg + hexByte(byteAtHex(data, byteOff + i))
-        i += 1
-    }
-    // Append 0x80 sentinel
-    msg = msg + hexByte(0x80)
-    // Append zero bytes until length ≡ 56 (mod 64)
+    // FIPS 180-4 §5.1.1 padding: data || 0x80 || zeros || 64-bit-BE-bitlen.
+    // Compute padded length WITHOUT building the full padded message string
+    // (avoids O(N²) heap allocations from byte-by-byte concatenation).
     let padLen = byteCount + 1
     while (padLen % 64) != 56 {
-        msg = msg + hexByte(0)
         padLen += 1
     }
-    // Append 64-bit BE length in bits
+    let totalBytes = padLen + 8
     let bits = byteCount * 8
-    msg = msg + hexByte(0) + hexByte(0) + hexByte(0) + hexByte(0)
-    msg = msg + hexDwordBe(bits)
-    // Process each 64-byte chunk
     let state = sha256_initState()
-    let totalBytes = hexBytesLen(msg)
     let off = 0
     while off < totalBytes {
-        // Extract 64-byte chunk as a hex string of length 192
+        // Build one 64-byte chunk directly, computing each padded byte on-the-fly.
         let chunkHex = ""
         let cb = 0
         while cb < 64 {
-            chunkHex = chunkHex + hexByte(byteAtHex(msg, off + cb))
+            let pos = off + cb
+            let b = 0
+            if pos < byteCount {
+                b = byteAtHex(data, byteOff + pos)
+            } else if pos == byteCount {
+                b = 0x80
+            } else if pos < (totalBytes - 8) {
+                b = 0
+            } else {
+                // 8-byte big-endian bit-count field: 4 zero bytes then hexDwordBe(bits).
+                // bi = byte index within the 8-byte field (0=MSB).
+                let bi = pos - (totalBytes - 8)
+                if bi == 5 { b = (bits / 65536) % 256 }
+                else if bi == 6 { b = (bits / 256) % 256 }
+                else if bi == 7 { b = bits % 256 }
+            }
+            chunkHex = chunkHex + hexByte(b)
             cb += 1
         }
         state = sha256_processChunk(state, chunkHex)
         off += 64
     }
-    // Output state as 32 BE bytes
     let out = ""
     let si = 0
     while si < 8 {
@@ -490,8 +529,10 @@ func arm64_stp_fp_lr_pre16()    { emit hexDword(0xa9bf7bfd) }
 func arm64_mov_fp_sp()          { emit hexDword(0x910003fd) }
 // adrp Rd, #imm21 (page rel)
 func arm64_adrp(rd, imm21) {
-    let immlo = imm21 % 4
-    let immhi = imm21 / 4
+    let i = imm21
+    if i < 0 { i = i + 0x200000 }       // 2's complement into 21 bits
+    let immlo = i % 4
+    let immhi = i / 4
     let insn = 0x90000000
     insn = insn + (immlo * 0x20000000)   // bits[30:29]
     insn = insn + (immhi * 0x20)         // bits[23:5]
@@ -606,6 +647,10 @@ func arm64_movn_x_imm(rd, imm16) {
 // add Xd, Xn, Xm (64-bit, no shift) → 0x8b000000 | (Rm<<16) | (Rn<<5) | Rd
 func arm64_add_xxx(rd, rn, rm) {
     let insn = 0x8b000000 + (rm * 0x10000) + (rn * 0x20) + rd
+    emit hexDword(insn)
+}
+func arm64_add_www(rd, rn, rm) {
+    let insn = 0x0b000000 + (rm * 0x10000) + (rn * 0x20) + rd
     emit hexDword(insn)
 }
 // sub Xd, Xn, Xm (64-bit, no shift) → 0xcb000000 | (Rm<<16) | (Rn<<5) | Rd
@@ -872,14 +917,12 @@ func arm64_brk(imm16) {
 // (instead of x4 like emitAllocN) so the size register isn't clobbered.
 // Adds 16-byte header per alloc; returns user_ptr = header_ptr + 16.
 func emitAllocVar(instrIdx, textVaddr, textOff) {
-    let bumpVaddr = g_DATA_VADDR + 0x4000
-    let pcAtAdrp = textVaddr + textOff + instrIdx * 4
-    let pcPage = pcAtAdrp / 4096 * 4096
-    let bumpPage = bumpVaddr / 4096 * 4096
-    let imm21 = (bumpPage - pcPage) / 4096
+    // Use page offsets relative to TEXT base to avoid 0x100000000 arithmetic on
+    // native binary (where values >= threshold are treated as string pointers).
+    let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
     let s = ""
     s = s + arm64_adrp(1, imm21)                        // 0
-    s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)       // 1
+    s = s + arm64_add_imm(1, 1, 0)                      // 1: bumpVaddr is page-aligned, pageoff=0
     s = s + arm64_ldr_imm(9, 1, 3)                      // 2: ldr x9, [x1, #24] (alloc_total)
     s = s + arm64_add_xxx(9, 9, 4)                      // 3: x9 += x4 (user size)
     s = s + arm64_str_imm(9, 1, 3)                      // 4: str x9, [x1, #24]
@@ -929,19 +972,15 @@ func emitAllocVar(instrIdx, textVaddr, textOff) {
 //   +48  gcAllocsHead     head of singly-linked alloc list (for mark-sweep)
 //   +56  reserved
 //   +64..  heap (each alloc: 16-byte header [next:8B][size_flags:8B] + user bytes)
-//   +0xA000.. shadow stack (1024 entries, written by gcShadowPush)
+//   +0x2000000.. shadow stack (entries at 8 B each, written by gcShadowPush)
 // User-facing pointer returned in x0 = header_ptr + 16.
 func emitAllocN(n, instrIdx, textVaddr, textOff) {
-    let bumpVaddr = g_DATA_VADDR + 0x4000          // bump cell in zero-fill region
-    let pcAtAdrp = textVaddr + textOff + instrIdx * 4
-    let pcPage = pcAtAdrp / 4096 * 4096
-    let bumpPage = bumpVaddr / 4096 * 4096
-    let imm21 = (bumpPage - pcPage) / 4096
+    let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
     let nAligned = ((n + 7) / 8) * 8
     let nWithHdr = nAligned + 16
     let s = ""
     s = s + arm64_adrp(1, imm21)                        // 0: adrp x1, bump_cell@PAGE
-    s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)       // 1: add  x1, x1, bump_cell@PAGEOFF
+    s = s + arm64_add_imm(1, 1, 0)                      // 1: bump_cell@PAGEOFF=0 (page-aligned)
     s = s + arm64_ldr_imm(9, 1, 3)                      // 2: ldr  x9, [x1, #24]   (alloc_total)
     s = s + arm64_add_imm(9, 9, nAligned)               // 3: x9 += nAligned (user bytes)
     s = s + arm64_str_imm(9, 1, 3)                      // 4: str  x9, [x1, #24]
@@ -1226,13 +1265,20 @@ func parseFullIR(ir) {
     let nOps = 0
 
     let nl = lineCount(ir)
+    printErr("DBG: parseFullIR lineCount=" + nl)
     let i = 0
     while i < nl {
+        printErr("DBG: line i=" + i)
+        printErr("DBG: calling getLine")
         let line = trim(getLine(ir, i))
+        printErr("DBG: getLine done")
         if len(line) > 0 {
+            printErr("DBG: len>0, line[0] check")
             if line[0] != ";" {
+                printErr("DBG: not comment, extracting op")
                 let j = 0
                 while j < len(line) && line[j] != " " { j += 1 }
+                printErr("DBG: j=" + j)
                 let op = substring(line, 0, j)
                 let rest = ""
                 if j < len(line) { rest = trim(substring(line, j + 1, len(line))) }
@@ -1322,6 +1368,7 @@ func parseFullIR(ir) {
                     else if cname == "bitShr" { curOps = sbAppend(curOps, "BUILTIN_BITSHR\n") }
                     else if cname == "bitShl" { curOps = sbAppend(curOps, "BUILTIN_BITSHL\n") }
                     else if cname == "bitNot" { curOps = sbAppend(curOps, "BUILTIN_BITNOT\n") }
+                    else if cname == "writeBytes" { curOps = sbAppend(curOps, "BUILTIN_WRITEBYTES\n") }
                     else { curOps = sbAppend(curOps, "CALL_FUNC " + cname + " " + cargc + "\n") }
                     nOps += 1
                 } else if op == "RETURN" {
@@ -1839,6 +1886,7 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_ARGCOUNT"     { emit 5 }
     if opTok == "BUILTIN_READFILE"     { emit 41 }   // alloc(21) +6 from 35
     if opTok == "BUILTIN_WRITEFILE"    { emit 22 }
+    if opTok == "BUILTIN_WRITEBYTES"   { emit 54 }
     if opTok == "BUILTIN_TRIM"         { emit 56 }   // alloc(21) +6 from 50
     if opTok == "BUILTIN_LENGTH"       { emit 13 }   // empty-check + comma-counter loop
     if opTok == "BUILTIN_SPLIT"        { emit 50 }   // scan + alloc(21) + copy + NUL + push
@@ -1927,6 +1975,14 @@ func computeFunctionInstrs(parsed, fIdx) {
         } else if tok == "END" {
             n = n + 3
             if frame > 0 { n = n + 1 }
+        } else if tok == "LOAD_SLOT" {
+            let slotNum = toInt(trim(substring(opLine, sp + 1, len(opLine))))
+            let slotOff = 0 - (8 + slotNum * 8)
+            if slotOff < (0 - 256) { n = n + 3 } else { n = n + 2 }
+        } else if tok == "STORE_SLOT" {
+            let slotNum = toInt(trim(substring(opLine, sp + 1, len(opLine))))
+            let slotOff = 0 - (8 + slotNum * 8)
+            if slotOff < (0 - 256) { n = n + 3 } else { n = n + 2 }
         } else {
             n = n + opInstrCount(tok)
         }
@@ -1968,6 +2024,14 @@ func buildFunctionLabelTable(parsed, fIdx, funcStartInstr) {
         } else if tok == "END" {
             n = n + 3
             if frame > 0 { n = n + 1 }
+        } else if tok == "LOAD_SLOT" {
+            let slotNum = toInt(trim(substring(opLine, sp + 1, len(opLine))))
+            let slotOff = 0 - (8 + slotNum * 8)
+            if slotOff < (0 - 256) { n = n + 3 } else { n = n + 2 }
+        } else if tok == "STORE_SLOT" {
+            let slotNum = toInt(trim(substring(opLine, sp + 1, len(opLine))))
+            let slotOff = 0 - (8 + slotNum * 8)
+            if slotOff < (0 - 256) { n = n + 3 } else { n = n + 2 }
         } else {
             n = n + opInstrCount(tok)
         }
@@ -2081,13 +2145,9 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
     // __main__ saves argc/argv to fixed __DATA cells so arg()/argCount() can read.
     // Layout: bump cell @ +0, argc save @ +8, argv save @ +16, heap from +64.
     if funcName(parsed, fIdx) == "__main__" {
-        let bumpVaddr = g_DATA_VADDR + 0x4000
-        let pcAtAdrp = textVaddr + textOff + instrIdx * 4
-        let pcPage = pcAtAdrp / 4096 * 4096
-        let bumpPage = bumpVaddr / 4096 * 4096
-        let imm21 = (bumpPage - pcPage) / 4096
+        let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
         s = s + arm64_adrp(9, imm21)
-        s = s + arm64_add_imm(9, 9, bumpVaddr % 4096)
+        s = s + arm64_add_imm(9, 9, 0)  // bump cell is page-aligned, pageoff=0
         s = s + arm64_str_imm(0, 9, 1)        // str x0 (argc), [x9, #8]
         s = s + arm64_str_imm(1, 9, 2)        // str x1 (argv), [x9, #16]
         instrIdx = instrIdx + 4
@@ -2101,17 +2161,15 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
         let opTok = substring(opLine, 0, spIdx)
         let restTok = ""
         if spIdx < len(opLine) { restTok = trim(substring(opLine, spIdx + 1, len(opLine))) }
+        printErr("DBG: op=" + opTok + " instrIdx=" + instrIdx)
 
         if opTok == "PUSH_STR" {
             let strIdx = toInt(restTok)
             let strOff = toInt(getLine(strOffsets, strIdx))
-            let strVaddr = textVaddr + cstringOff + strOff
-            let adrpPc = textVaddr + textOff + instrIdx * 4
-            let pcPage = adrpPc / 4096 * 4096
-            let strPage = strVaddr / 4096 * 4096
-            let imm21 = (strPage - pcPage) / 4096
+            let strOffInText = cstringOff + strOff
+            let imm21 = strOffInText / 4096 - (textOff + instrIdx * 4) / 4096
             s = s + arm64_adrp(0, imm21)
-            s = s + arm64_add_imm(0, 0, strVaddr % 4096)
+            s = s + arm64_add_imm(0, 0, strOffInText % 4096)
             s = s + arm64_push_x0()
             instrIdx = instrIdx + 3
         } else if opTok == "PUSH_INT" {
@@ -2129,8 +2187,15 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
                     s = s + arm64_nop()
                 }
             } else {
-                s = s + arm64_movn_x_imm(0, (0 - n - 1) % 65536)
-                s = s + arm64_nop()
+                // Negative 32-bit: 4294967296 wraps to 0 in Krypton so we can't add
+                // it to get unsigned. Instead extract unsigned 16-bit halves via
+                // modular arithmetic: lo16 = n%65536 adjusted to [0,65535]; hi16 from
+                // (n - lo16)/65536 + 65536. Both stay within 32-bit signed range.
+                let lo16 = n % 65536
+                if lo16 < 0 { lo16 = lo16 + 65536 }
+                let hi16 = (n - lo16) / 65536 + 65536
+                s = s + arm64_movz_x_imm(0, lo16)
+                s = s + arm64_movk_x_imm_lsl16(0, hi16)
             }
             s = s + arm64_push_x0()
             instrIdx = instrIdx + 3
@@ -2166,8 +2231,8 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = s + arm64_b_cond(0xa, 6)                  // 4: b.ge → A_PTR@10
             s = s + arm64_cmp_xx(6, 14)                   // 5
             s = s + arm64_b_cond(0xa, 76)                 // 6: b.ge → CONCAT@82
-            // INT_INT @ 7:
-            s = s + arm64_add_xxx(0, 3, 6)                // 7
+            // INT_INT @ 7: 32-bit add so result wraps at 2^32 (SHA-256 requires mod 2^32)
+            s = s + arm64_add_www(0, 3, 6)                // 7
             s = s + arm64_push_x0()                       // 8
             s = s + arm64_b(184)                          // 9: → ADD_DONE@193
             // A_PTR @ 10: a is ptr
@@ -2743,13 +2808,9 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = s + arm64_b(0 - 10)                         // 17: → LOOP@7
             s = s + arm64_mov_xx(6, 4)                      // 18: INT_ENTRY: x6 = x4
             // DONE@19 — load argv from save cell
-            let bumpVaddr = g_DATA_VADDR + 0x4000
-            let pcAtAdrp = textVaddr + textOff + (instrIdx + 19) * 4
-            let pcPage = pcAtAdrp / 4096 * 4096
-            let bumpPage = bumpVaddr / 4096 * 4096
-            let imm21 = (bumpPage - pcPage) / 4096
+            let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + (instrIdx + 19) * 4) / 4096
             s = s + arm64_adrp(9, imm21)                    // 19
-            s = s + arm64_add_imm(9, 9, bumpVaddr % 4096)   // 20
+            s = s + arm64_add_imm(9, 9, 0)                  // 20: pageoff=0
             s = s + arm64_ldr_imm(9, 9, 2)                  // 21: ldr x9, [x9, #16] (argv)
             s = s + arm64_add_imm(6, 6, 1)                  // 22: idx + 1 (skip program name)
             s = s + arm64_ldr_reg_lsl3(0, 9, 6)             // 23: x0 = argv[idx+1]
@@ -2757,13 +2818,9 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             instrIdx = instrIdx + 25
         } else if opTok == "BUILTIN_ARGCOUNT" {
             // argCount(): return argc - 1 (excluding program name). 5 instr.
-            let bumpVaddr = g_DATA_VADDR + 0x4000
-            let pcAtAdrp = textVaddr + textOff + instrIdx * 4
-            let pcPage = pcAtAdrp / 4096 * 4096
-            let bumpPage = bumpVaddr / 4096 * 4096
-            let imm21 = (bumpPage - pcPage) / 4096
+            let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
             s = s + arm64_adrp(5, imm21)
-            s = s + arm64_add_imm(5, 5, bumpVaddr % 4096)
+            s = s + arm64_add_imm(5, 5, 0)
             s = s + arm64_ldr_imm(0, 5, 1)            // ldr x0, [x5, #8] (argc)
             s = s + arm64_sub_imm(0, 0, 1)            // -1 for program name
             s = s + arm64_push_x0()
@@ -3237,25 +3294,17 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             instrIdx = instrIdx + 30
         } else if opTok == "BUILTIN_GCALLOCATED" {
             // Read alloc_total at bump_cell + 24, push as int. 4 instructions.
-            let bumpVaddr = g_DATA_VADDR + 0x4000
-            let pcAtAdrp = textVaddr + textOff + instrIdx * 4
-            let pcPage = pcAtAdrp / 4096 * 4096
-            let bumpPage = bumpVaddr / 4096 * 4096
-            let imm21 = (bumpPage - pcPage) / 4096
+            let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
             s = s + arm64_adrp(1, imm21)
-            s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)
+            s = s + arm64_add_imm(1, 1, 0)
             s = s + arm64_ldr_imm(0, 1, 3)            // ldr x0, [x1, #24] (alloc_total)
             s = s + arm64_push_x0()
             instrIdx = instrIdx + 4
         } else if opTok == "BUILTIN_GCLIMIT" {
             // Read alloc_limit at bump_cell + 32, push as int. 4 instructions.
-            let bumpVaddr = g_DATA_VADDR + 0x4000
-            let pcAtAdrp = textVaddr + textOff + instrIdx * 4
-            let pcPage = pcAtAdrp / 4096 * 4096
-            let bumpPage = bumpVaddr / 4096 * 4096
-            let imm21 = (bumpPage - pcPage) / 4096
+            let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
             s = s + arm64_adrp(1, imm21)
-            s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)
+            s = s + arm64_add_imm(1, 1, 0)
             s = s + arm64_ldr_imm(0, 1, 4)            // ldr x0, [x1, #32] (alloc_limit)
             s = s + arm64_push_x0()
             instrIdx = instrIdx + 4
@@ -3263,26 +3312,18 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             // Pop value, store at alloc_limit, push back. 5 instructions.
             s = s + arm64_pop_x0()
             instrIdx = instrIdx + 1
-            let bumpVaddr = g_DATA_VADDR + 0x4000
-            let pcAtAdrp = textVaddr + textOff + instrIdx * 4
-            let pcPage = pcAtAdrp / 4096 * 4096
-            let bumpPage = bumpVaddr / 4096 * 4096
-            let imm21 = (bumpPage - pcPage) / 4096
+            let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
             s = s + arm64_adrp(1, imm21)
-            s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)
+            s = s + arm64_add_imm(1, 1, 0)
             s = s + arm64_str_imm(0, 1, 4)            // str x0, [x1, #32] (alloc_limit = arg)
             s = s + arm64_push_x0()
             instrIdx = instrIdx + 4
         } else if opTok == "BUILTIN_GCRESET" {
             // Zero bump_cell, alloc_total, gcShadowCount, gcAllocsHead.
             // Full heap + roots + alloc-list reset. Push 0. 8 instructions.
-            let bumpVaddr = g_DATA_VADDR + 0x4000
-            let pcAtAdrp = textVaddr + textOff + instrIdx * 4
-            let pcPage = pcAtAdrp / 4096 * 4096
-            let bumpPage = bumpVaddr / 4096 * 4096
-            let imm21 = (bumpPage - pcPage) / 4096
+            let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
             s = s + arm64_adrp(1, imm21)
-            s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)
+            s = s + arm64_add_imm(1, 1, 0)
             s = s + arm64_str_imm(31, 1, 0)           // bump_cell = 0
             s = s + arm64_str_imm(31, 1, 3)           // alloc_total = 0 (offset +24)
             s = s + arm64_str_imm(31, 1, 5)           // gcShadowCount = 0 (offset +40)
@@ -3293,20 +3334,16 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
         } else if opTok == "BUILTIN_GCCOLLECT" {
             // gcCollect: run mark phase + sweep phase inline; return swept count.
             // 43 instructions = MARK (idx 2..22) + SWEEP (idx 23..40) + return (41..42).
-            let bumpVaddr = g_DATA_VADDR + 0x4000
-            let pcAtAdrp = textVaddr + textOff + instrIdx * 4
-            let pcPage = pcAtAdrp / 4096 * 4096
-            let bumpPage = bumpVaddr / 4096 * 4096
-            let imm21 = (bumpPage - pcPage) / 4096
+            let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
             s = s + arm64_adrp(1, imm21)                        // 0
-            s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)       // 1
+            s = s + arm64_add_imm(1, 1, 0)                      // 1
             // ── MARK PHASE ──
             s = s + arm64_ldr_imm(2, 1, 5)                      // 2: shadow count
             s = s + arm64_cbz(2, 21)                            // 3: → MARK_DONE @ 23+1=... wait
                                                                 // 3 + 20 = 23 ✓ (lands at MARK_DONE)
             // hmm reconsidering: cbz at idx 3, target idx 23 → rel = 20
-            s = s + arm64_movz_x_imm(9, 0xA000)                 // 4
-            s = s + arm64_add_xxx(3, 1, 9)                      // 5: shadow base
+            s = s + arm64_movz_x_imm_lsl16(9, 0x2000)           // 4: x9 = 0x20000000 (shadow base offset)
+            s = s + arm64_add_xxx(3, 1, 9)                      // 5: x3 = bump_cell + 0x20000000
             s = s + arm64_add_imm(9, 1, 80)                     // 6: min user_ptr
             s = s + arm64_ldr_imm(10, 1, 0)                     // 7: heap top (bump)
             s = s + arm64_movz_x_imm(6, 0)                      // 8: i = 0
@@ -3354,13 +3391,9 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             instrIdx = instrIdx + 43
         } else if opTok == "BUILTIN_GCALLOCCOUNT" {
             // Walk gcAllocsHead linked list, count entries. 10 instructions.
-            let bumpVaddr = g_DATA_VADDR + 0x4000
-            let pcAtAdrp = textVaddr + textOff + instrIdx * 4
-            let pcPage = pcAtAdrp / 4096 * 4096
-            let bumpPage = bumpVaddr / 4096 * 4096
-            let imm21 = (bumpPage - pcPage) / 4096
+            let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
             s = s + arm64_adrp(1, imm21)                        // 0
-            s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)       // 1
+            s = s + arm64_add_imm(1, 1, 0)                      // 1
             s = s + arm64_ldr_imm(10, 1, 6)                     // 2: current = head
             s = s + arm64_movz_x_imm(5, 0)                      // 3: count = 0
             // LOOP @ idx 4:
@@ -3375,22 +3408,17 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
         } else if opTok == "BUILTIN_GCSHADOWPUSH" {
             // gcShadowPush(value): append value to shadow stack, increment count.
             // System area layout (no collision with alloc_total/limit which
-            // live at +24/+32):  +40 = gcShadowCount  ;  +0xA000 = shadow base.
-            // Shadow base at +0xA000 leaves ~40 KB heap below, 8 KB shadow
-            // region above (1024 entries). __DATA zero-fill spans only 0xC000
-            // bytes total, so anything past +0xC000 SIGBUSes.
+            // live at +24/+32):  +40 = gcShadowCount  ;  +0x2000000 = shadow base.
+            // Shadow base at +0x2000000 gives ~32 MB heap below (heap grows from +0x40).
+            // Globals live at DATA_VADDR+0x30000000, DATA_VMSIZE = 0x40000000 (1 GB).
             // 11 instructions.
             s = s + arm64_pop_x0()                              // 0: x0 = value
-            let bumpVaddr = g_DATA_VADDR + 0x4000
-            let pcAtAdrp = textVaddr + textOff + (instrIdx + 1) * 4
-            let pcPage = pcAtAdrp / 4096 * 4096
-            let bumpPage = bumpVaddr / 4096 * 4096
-            let imm21 = (bumpPage - pcPage) / 4096
+            let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + (instrIdx + 1) * 4) / 4096
             s = s + arm64_adrp(1, imm21)                        // 1: adrp x1, bump_cell@PAGE
-            s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)       // 2: add  x1, x1, PAGEOFF
+            s = s + arm64_add_imm(1, 1, 0)                      // 2: pageoff=0
             s = s + arm64_ldr_imm(2, 1, 5)                      // 3: x2 = [x1, #40]  (count)
-            s = s + arm64_movz_x_imm_lsl16(4, 0x3f)             // 4: x4 = 0x3F0000 (shadow base)
-            s = s + arm64_add_xxx(3, 1, 4)                      // 5: x3 = bump_cell + 0xA000
+            s = s + arm64_movz_x_imm_lsl16(4, 0x2000)           // 4: x4 = 0x20000000 (shadow base offset)
+            s = s + arm64_add_xxx(3, 1, 4)                      // 5: x3 = bump_cell + 0x20000000
             s = s + arm64_str_reg_lsl3(0, 3, 2)                 // 6: [x3 + count*8] = x0
             s = s + arm64_add_imm(2, 2, 1)                      // 7: count += 1
             s = s + arm64_str_imm(2, 1, 5)                      // 8: store count
@@ -3400,13 +3428,9 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
         } else if opTok == "BUILTIN_GCSHADOWPOP" {
             // gcShadowPop(n): count -= n. 8 instructions.
             s = s + arm64_pop_x0()                              // 0: x0 = n
-            let bumpVaddr = g_DATA_VADDR + 0x4000
-            let pcAtAdrp = textVaddr + textOff + (instrIdx + 1) * 4
-            let pcPage = pcAtAdrp / 4096 * 4096
-            let bumpPage = bumpVaddr / 4096 * 4096
-            let imm21 = (bumpPage - pcPage) / 4096
+            let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + (instrIdx + 1) * 4) / 4096
             s = s + arm64_adrp(1, imm21)                        // 1
-            s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)       // 2
+            s = s + arm64_add_imm(1, 1, 0)                      // 2
             s = s + arm64_ldr_imm(2, 1, 5)                      // 3: x2 = count (offset +40)
             s = s + arm64_sub_xxx(2, 2, 0)                      // 4: x2 -= n
             s = s + arm64_str_imm(2, 1, 5)                      // 5: store count
@@ -3415,33 +3439,25 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             instrIdx = instrIdx + 8
         } else if opTok == "BUILTIN_GCSHADOWCOUNT" {
             // gcShadowCount(): return count. 4 instructions.
-            let bumpVaddr = g_DATA_VADDR + 0x4000
-            let pcAtAdrp = textVaddr + textOff + instrIdx * 4
-            let pcPage = pcAtAdrp / 4096 * 4096
-            let bumpPage = bumpVaddr / 4096 * 4096
-            let imm21 = (bumpPage - pcPage) / 4096
+            let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
             s = s + arm64_adrp(1, imm21)                        // 0
-            s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)       // 1
+            s = s + arm64_add_imm(1, 1, 0)                      // 1
             s = s + arm64_ldr_imm(0, 1, 5)                      // 2: x0 = count (offset +40)
             s = s + arm64_push_x0()                             // 3: push
             instrIdx = instrIdx + 4
         } else if opTok == "BUILTIN_GCMARK" {
             // Mark phase: walk gcShadowCount entries of the shadow stack at
-            // bump_cell+0xA000. For each value v in [bump_cell+80, bump_cell+heap_top),
+            // bump_cell+0x2000000. For each value v in [bump_cell+80, bump_cell+heap_top),
             // treat (v-16) as a header_ptr and set bit 63 of its size_flags word.
             // Range filter is conservative — may over-mark on false positives
             // (which is safe; only under-marking is unsafe). 27 instructions.
-            let bumpVaddr = g_DATA_VADDR + 0x4000
-            let pcAtAdrp = textVaddr + textOff + instrIdx * 4
-            let pcPage = pcAtAdrp / 4096 * 4096
-            let bumpPage = bumpVaddr / 4096 * 4096
-            let imm21 = (bumpPage - pcPage) / 4096
+            let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
             s = s + arm64_adrp(1, imm21)                        // 0
-            s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)       // 1
+            s = s + arm64_add_imm(1, 1, 0)                      // 1
             s = s + arm64_ldr_imm(2, 1, 5)                      // 2: x2 = gcShadowCount (+40)
             s = s + arm64_cbz(2, 22)                            // 3: → END if count==0
-            s = s + arm64_movz_x_imm(9, 0xA000)                 // 4: x9 = 0xA000
-            s = s + arm64_add_xxx(3, 1, 9)                      // 5: x3 = shadow base
+            s = s + arm64_movz_x_imm_lsl16(9, 0x2000)           // 4: x9 = 0x20000000 (shadow base offset)
+            s = s + arm64_add_xxx(3, 1, 9)                      // 5: x3 = bump_cell + 0x20000000
             s = s + arm64_add_imm(9, 1, 80)                     // 6: x9 = bump_cell+80 (min user_ptr)
             s = s + arm64_ldr_imm(10, 1, 0)                     // 7: x10 = bump (heap top)
             s = s + arm64_movz_x_imm(6, 0)                      // 8: i = 0
@@ -3473,13 +3489,9 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             //   - else → unlink from list (swept; not actually freed yet —
             //     freelist comes in a later session).
             // Returns the swept count. 23 instructions.
-            let bumpVaddr = g_DATA_VADDR + 0x4000
-            let pcAtAdrp = textVaddr + textOff + instrIdx * 4
-            let pcPage = pcAtAdrp / 4096 * 4096
-            let bumpPage = bumpVaddr / 4096 * 4096
-            let imm21 = (bumpPage - pcPage) / 4096
+            let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
             s = s + arm64_adrp(1, imm21)                        // 0
-            s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)       // 1
+            s = s + arm64_add_imm(1, 1, 0)                      // 1
             s = s + arm64_ldr_imm(10, 1, 6)                     // 2: x10 = current = head
             s = s + arm64_add_imm(11, 1, 48)                    // 3: x11 = &head (prev next-loc)
             s = s + arm64_movz_x_imm(5, 0)                      // 4: swept = 0
@@ -3510,26 +3522,18 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             // gcRestore uses the snapshot to truncate the shadow stack later.
             // Used by compile.k around pure_ functions and try-catch blocks.
             // 4 instructions.
-            let bumpVaddr = g_DATA_VADDR + 0x4000
-            let pcAtAdrp = textVaddr + textOff + instrIdx * 4
-            let pcPage = pcAtAdrp / 4096 * 4096
-            let bumpPage = bumpVaddr / 4096 * 4096
-            let imm21 = (bumpPage - pcPage) / 4096
+            let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
             s = s + arm64_adrp(1, imm21)
-            s = s + arm64_add_imm(1, 1, bumpVaddr % 4096)
+            s = s + arm64_add_imm(1, 1, 0)
             s = s + arm64_ldr_imm(0, 1, 5)             // x0 = gcShadowCount (+40)
             s = s + arm64_push_x0()
             instrIdx = instrIdx + 4
         } else if opTok == "BUILTIN_GCRESTORE" {
             // gcRestore(snapshot): set gcShadowCount = snapshot. 6 instructions.
             s = s + arm64_pop_x0()                     // 0: x0 = snapshot
-            let bumpVaddr = g_DATA_VADDR + 0x4000
-            let pcAtAdrp = textVaddr + textOff + (instrIdx + 1) * 4
-            let pcPage = pcAtAdrp / 4096 * 4096
-            let bumpPage = bumpVaddr / 4096 * 4096
-            let imm21 = (bumpPage - pcPage) / 4096
+            let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + (instrIdx + 1) * 4) / 4096
             s = s + arm64_adrp(1, imm21)               // 1
-            s = s + arm64_add_imm(1, 1, bumpVaddr % 4096) // 2
+            s = s + arm64_add_imm(1, 1, 0)             // 2
             s = s + arm64_str_imm(0, 1, 5)             // 3: gcShadowCount = snapshot
             s = s + arm64_movz_x_imm(0, 0)             // 4
             s = s + arm64_push_x0()                    // 5
@@ -3574,6 +3578,74 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = s + arm64_movz_x_imm(0, 0)              // return 0
             s = s + arm64_push_x0()
             instrIdx = instrIdx + 22
+        } else if opTok == "BUILTIN_WRITEBYTES" {
+            // writeBytes(path, hexstr): decode xHH hex pairs to raw bytes, write file.
+            // Uses a 256-byte stack buffer; flushes every 256 bytes. 54 instructions.
+            // Uppercase hex only (hexByte emits A-F). Register map:
+            //   x10=hexstr ptr, x11=path, x19=fd, x20=buf_base, x21=write_ptr
+            //   w4=hi nibble/byte, w5=lo nibble, w13=shift(4), w14=scratch/cmp
+            // Instruction layout: 0-10 setup, 11-41 decode loop + flush, 42-53 tail+close.
+            s = s + arm64_pop(10)                        // 0: x10 = hexstr
+            s = s + arm64_pop(11)                        // 1: x11 = path
+            s = s + arm64_mov_xx(0, 11)                  // 2: x0 = path
+            s = s + arm64_movz_x_imm(1, 0x601)           // 3: O_WRONLY|O_CREAT|O_TRUNC
+            s = s + arm64_movz_x_imm(2, 0x1a4)           // 4: mode 0644
+            s = s + arm64_movz_x_imm(16, 5)              // 5: SYS_open
+            s = s + arm64_svc(0x80)                      // 6
+            s = s + arm64_mov_xx(19, 0)                  // 7: x19 = fd
+            s = s + arm64_sub_sp(256)                    // 8: allocate 256-byte stack buffer
+            s = s + arm64_add_imm(20, 31, 0)             // 9: x20 = sp (buf_base)
+            s = s + arm64_add_imm(21, 31, 0)             // 10: x21 = sp (write_ptr)
+            // DECODE_LOOP @ 11:
+            s = s + arm64_ldrb_post(14, 10, 1)           // 11: w14 = *x10++ (scan char)
+            s = s + arm64_cbz(14, 30)                    // 12: NUL → DONE@42
+            s = s + arm64_cmp_imm(14, 0x78)              // 13: cmp 'x'
+            s = s + arm64_b_cond(0x1, 0 - 3)             // 14: b.ne → DECODE_LOOP@11
+            s = s + arm64_ldrb_post(4, 10, 1)            // 15: w4 = *x10++ (hi nibble char)
+            s = s + arm64_cbz(4, 26)                     // 16: NUL → DONE@42
+            s = s + arm64_sub_imm(4, 4, 0x30)            // 17: w4 -= '0'
+            s = s + arm64_cmp_imm(4, 9)                  // 18: digit check
+            s = s + arm64_b_cond(0xd, 2)                 // 19: b.le → HI_DONE@21
+            s = s + arm64_sub_imm(4, 4, 7)               // 20: A-F: 17-22 → 10-15
+            // HI_DONE @ 21:
+            s = s + arm64_ldrb_post(5, 10, 1)            // 21: w5 = *x10++ (lo nibble char)
+            s = s + arm64_cbz(5, 20)                     // 22: NUL → DONE@42
+            s = s + arm64_sub_imm(5, 5, 0x30)            // 23: w5 -= '0'
+            s = s + arm64_cmp_imm(5, 9)                  // 24: digit check
+            s = s + arm64_b_cond(0xd, 2)                 // 25: b.le → LO_DONE@27
+            s = s + arm64_sub_imm(5, 5, 7)               // 26: A-F: 17-22 → 10-15
+            // LO_DONE @ 27:
+            s = s + arm64_movz_x_imm(13, 4)              // 27: x13 = 4 (shift amount)
+            s = s + arm64_lsl_w(4, 4, 13)                // 28: w4 = hi << 4
+            s = s + arm64_orr_www(4, 4, 5)               // 29: w4 = (hi<<4)|lo
+            s = s + arm64_strb_imm(4, 21, 0)             // 30: *write_ptr = byte
+            s = s + arm64_add_imm(21, 21, 1)             // 31: write_ptr++
+            s = s + arm64_sub_xxx(14, 21, 20)            // 32: x14 = bytes_used
+            s = s + arm64_cmp_imm(14, 256)               // 33: buffer full?
+            s = s + arm64_b_cond(0x1, 0 - 23)            // 34: b.ne → DECODE_LOOP@11
+            // FLUSH @ 35:
+            s = s + arm64_mov_xx(0, 19)                  // 35: fd
+            s = s + arm64_mov_xx(1, 20)                  // 36: buf
+            s = s + arm64_movz_x_imm(2, 256)             // 37: count=256
+            s = s + arm64_movz_x_imm(16, 4)              // 38: SYS_write
+            s = s + arm64_svc(0x80)                      // 39
+            s = s + arm64_mov_xx(21, 20)                 // 40: reset write_ptr
+            s = s + arm64_b(11 - 41)                     // 41: → DECODE_LOOP@11
+            // DONE @ 42:
+            s = s + arm64_sub_xxx(2, 21, 20)             // 42: remaining bytes
+            s = s + arm64_cbz(2, 5)                      // 43: 0 → CLOSE@48
+            s = s + arm64_mov_xx(0, 19)                  // 44: fd
+            s = s + arm64_mov_xx(1, 20)                  // 45: buf
+            s = s + arm64_movz_x_imm(16, 4)              // 46: SYS_write
+            s = s + arm64_svc(0x80)                      // 47
+            // CLOSE @ 48:
+            s = s + arm64_mov_xx(0, 19)                  // 48: fd
+            s = s + arm64_movz_x_imm(16, 6)              // 49: SYS_close
+            s = s + arm64_svc(0x80)                      // 50
+            s = s + arm64_add_sp(256)                    // 51: restore stack
+            s = s + arm64_movz_x_imm(0, 0)               // 52: return 0
+            s = s + arm64_push_x0()                      // 53
+            instrIdx = instrIdx + 54
         } else if opTok == "BUILTIN_PRINTERR" {
             // printErr(v): write v to stderr. Same as BUILTIN_PRINT but fd=2.
             s = s + arm64_pop(3)                          // 0: x3 = arg
@@ -4153,38 +4225,45 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
         } else if opTok == "LOAD_SLOT" {
             let slot = toInt(restTok)
             let off = 0 - (8 + slot * 8)
-            s = s + arm64_ldur(0, 29, off)
-            s = s + arm64_push_x0()
-            instrIdx = instrIdx + 2
+            if off >= 0 - 256 {
+                s = s + arm64_ldur(0, 29, off)
+                s = s + arm64_push_x0()
+                instrIdx = instrIdx + 2
+            } else {
+                s = s + arm64_sub_imm(9, 29, 0 - off)
+                s = s + arm64_ldr_imm(0, 9, 0)
+                s = s + arm64_push_x0()
+                instrIdx = instrIdx + 3
+            }
         } else if opTok == "STORE_SLOT" {
             let slot = toInt(restTok)
             let off = 0 - (8 + slot * 8)
             s = s + arm64_pop_x0()
-            s = s + arm64_stur(0, 29, off)
-            instrIdx = instrIdx + 2
+            if off >= 0 - 256 {
+                s = s + arm64_stur(0, 29, off)
+                instrIdx = instrIdx + 2
+            } else {
+                s = s + arm64_sub_imm(9, 29, 0 - off)
+                s = s + arm64_str_imm(0, 9, 0)
+                instrIdx = instrIdx + 3
+            }
         } else if opTok == "LOAD_GLOBAL" {
             let gIdx = toInt(restTok)
-            let glbVaddr = g_DATA_VADDR + 0x200000 + gIdx * 8
-            let adrpPc = textVaddr + textOff + instrIdx * 4
-            let adrpPage = adrpPc / 4096 * 4096
-            let glbPage = glbVaddr / 4096 * 4096
-            let imm21lg = (glbPage - adrpPage) / 4096
+            let glbOffFromText = g_TEXT_VMSIZE + 0x30004000 + gIdx * 8
+            let imm21lg = glbOffFromText / 4096 - (textOff + instrIdx * 4) / 4096
             s = s + arm64_adrp(0, imm21lg)
-            s = s + arm64_add_imm(0, 0, glbVaddr % 4096)
+            s = s + arm64_add_imm(0, 0, (gIdx * 8) % 4096)
             s = s + arm64_ldr_imm(0, 0, 0)
             s = s + arm64_push_x0()
             instrIdx = instrIdx + 4
         } else if opTok == "STORE_GLOBAL" {
             let gIdx = toInt(restTok)
-            let glbVaddr = g_DATA_VADDR + 0x200000 + gIdx * 8
+            let glbOffFromText = g_TEXT_VMSIZE + 0x30004000 + gIdx * 8
             s = s + arm64_pop_x0()
             instrIdx = instrIdx + 1
-            let adrpPc = textVaddr + textOff + instrIdx * 4
-            let adrpPage = adrpPc / 4096 * 4096
-            let glbPage = glbVaddr / 4096 * 4096
-            let imm21sg = (glbPage - adrpPage) / 4096
+            let imm21sg = glbOffFromText / 4096 - (textOff + instrIdx * 4) / 4096
             s = s + arm64_adrp(1, imm21sg)
-            s = s + arm64_add_imm(1, 1, glbVaddr % 4096)
+            s = s + arm64_add_imm(1, 1, (gIdx * 8) % 4096)
             s = s + arm64_str_imm(0, 1, 0)
             instrIdx = instrIdx + 3
         } else if opTok == "BUILTIN_BITAND" {
@@ -4361,12 +4440,15 @@ func emitTextFromIR(parsed, strOffsets, textSz) {
     let order = emitOrder(parsed)
     let nF = funcCount(parsed)
     let funcTable = buildFunctionTable(parsed)
+    printErr("DBG: funcTable=" + funcTable)
     let s = ""
     let oi = 0
     while oi < nF {
         let fIdx = toInt(getLine(order, oi))
         let funcStartInstr = findLabel(funcTable, funcName(parsed, fIdx))
+        printErr("DBG: emitting func=" + funcName(parsed, fIdx) + " startInstr=" + funcStartInstr)
         s = s + emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz)
+        printErr("DBG: done func=" + funcName(parsed, fIdx))
         oi += 1
     }
     emit s
@@ -4748,7 +4830,7 @@ func emitLcSegLinkedit() {
     let s = ""
     s = s + hexDword(LC_SEGMENT_64()) + hexDword(72)
     s = s + hexStr("__LINKEDIT") + hexPad(6)
-    s = s + hexQword2(g_TEXT_VMSIZE + 0x4000 + 0x400000, 1) // vmaddr = DATA + DATA_VMSIZE
+    s = s + hexQword2(g_TEXT_VMSIZE + 0x4000 + DATA_VMSIZE(), 1) // vmaddr = DATA_VADDR + DATA_VMSIZE
     s = s + hexQword(0x4000)                        // vmsize
     s = s + hexQword(LINKEDIT_FILE_OFF())
     s = s + hexQword(FILE_TOTAL_SIZE() - LINKEDIT_FILE_OFF()) // filesize
@@ -4920,7 +5002,9 @@ just run {
             printErr("macho_arm64_self: cannot read " + inFile)
             exit("1")
         }
+        printErr("DBG: readFile done, len=" + len(ir))
         irOps = parseFullIR(ir)
+        printErr("DBG: parseFullIR done")
         g_funcStartCache = buildFuncStartCache(irOps)
         irStrOffsets = computeStringOffsets(irOps)
         g_TEXT_SIZE = computeTextSize(irOps)
@@ -4972,7 +5056,7 @@ just run {
         let h2 = sha256_hex(s56, 0, 56)
         printErr("SHA-256(56-byte) = " + h2)
         printErr("expected         = x24x8Dx6Ax61xD2x06x38xB8xE5xC0x26x93x0Cx3Ex60x39xA3x3CxE4x59x64xFFx21x67xF6xECxEDxD4x19xDBx06xC1")
-        exit("0")
+        exit(0)
     }
 
     // Build all 13 load commands (added __DATA segment for the heap)
@@ -5003,7 +5087,9 @@ just run {
     let cstrData = ""
     if useIr == "1" {
         let freshTextSz = computeTextSize(irOps)
+        printErr("DBG: emitting text, freshTextSz=" + freshTextSz)
         textCode = emitTextFromIR(irOps, irStrOffsets, freshTextSz)
+        printErr("DBG: emitTextFromIR done, len=" + len(textCode))
         cstrData = emitCStringFromIR(irOps)
         // GC only scans the stack for roots, not BSS globals. During the large
         // emits above, GC may collect the string values of g_TEXT_SIZE /
