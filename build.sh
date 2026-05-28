@@ -153,10 +153,10 @@ if [[ "$MODE" == "test" ]]; then
                 SKIPPED=$((SKIPPED + 1))
                 continue
                 ;;
-            test_float.k:linux|test_float.k:windows)
-                # A1 float (fadd/fsub/.../flt) has macho codegen only so far;
-                # the ELF/PE backends don't implement the fp builtins yet.
-                echo -e "${CYAN}SKIP${RESET}  $NAME (macOS-only until A1 mirrors)"
+            test_float.k:windows)
+                # A1 float fully lands on macho + linux ELF (x86 + arm64); the PE
+                # backend's fp builtins aren't done yet (W's leg).
+                echo -e "${CYAN}SKIP${RESET}  $NAME (Windows PE A1 pending)"
                 SKIPPED=$((SKIPPED + 1))
                 continue
                 ;;

@@ -1424,6 +1424,8 @@ func opSize(ln) {
         if startsWith(b, "fgt")  { emit 40 }
         if startsWith(b, "feq")  { emit 40 }
         if startsWith(b, "fformat") { emit 28 }  // pop prec,value; bl __f_format; push
+        if startsWith(b, "intToFloat") { emit 24 }  // pop x0; scvtf; bl __f_box; push
+        if startsWith(b, "floatToInt") { emit 24 }  // pop x0; bl __f_load1; fcvtzs; push
         emit 0
     }
     emit 0
@@ -1985,6 +1987,9 @@ just run {
                 code = sbAppend(code, sbToString(kc))
                 off = off + 28
             }
+            // A1 conversions, BUILTIN form (the FE emits these as BUILTIN, not CALL).
+            if startsWith(b, "intToFloat") { code = sbAppend(code, c_pop0() + e_scvtf(0, 0) + e_bl(fboxOff - (off + 12)) + c_push())  off = off + 24 }
+            if startsWith(b, "floatToInt") { code = sbAppend(code, c_pop0() + e_bl(fload1Off - (off + 8)) + e_fcvtzs(0, 0) + c_push())  off = off + 24 }
         }
         // RETURN and END: epilogue (free locals, restore x19/x30, ret). For __main__
         // this returns to _start, which then exits(0).

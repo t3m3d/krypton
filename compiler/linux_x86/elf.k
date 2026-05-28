@@ -4145,6 +4145,10 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_FEQ")
                 } else if bname == "fformat" {
                     opSb = sbAppend(opSb, "BUILTIN_FFORMAT")
+                } else if bname == "intToFloat" {
+                    opSb = sbAppend(opSb, "BUILTIN_INTTOFLOAT")
+                } else if bname == "floatToInt" {
+                    opSb = sbAppend(opSb, "BUILTIN_FLOATTOINT")
                 } else {
                     // Unknown builtin: emit a marker and leave the stack
                     // alone. Programs that hit this are already incorrect;
