@@ -17,7 +17,10 @@ jxt {
     func _srvPath()
     func _srvQuery()
     func _srvBody()
+    func _srvHeaders()
+    func _srvCookie()
     func _srvRespond(status, contentType, body)
+    func _srvRespondRaw(rawResponse)
     func _srvRespondFile(path)
     func _srvStop()
 }
@@ -55,6 +58,8 @@ cfunc {
     static char kr_srv_path[1024]       = {0};
     static char kr_srv_query[2048]      = {0};
     static char kr_srv_body[KR_SRV_RBUF] = {0};
+    static char kr_srv_headers[KR_SRV_RBUF] = {0};
+    static char kr_srv_cookie[4096]     = {0};
 
     static void kr_set_nonblocking(kr_socket_t s) {
     #ifdef _WIN32
@@ -128,14 +133,45 @@ cfunc {
         if (body_start) strncpy(kr_srv_body, body_start + 4, KR_SRV_RBUF - 1);
         else kr_srv_body[0] = 0;
 
+        /* Save raw headers (between first \r\n and \r\n\r\n) */
+        char* hdr_start = strstr(buf, "\r\n");
+        if (hdr_start && body_start) {
+            int hlen = (int)(body_start - hdr_start - 2);
+            if (hlen > 0 && hlen < KR_SRV_RBUF) { memcpy(kr_srv_headers, hdr_start + 2, hlen); kr_srv_headers[hlen] = 0; }
+            else kr_srv_headers[0] = 0;
+        } else { kr_srv_headers[0] = 0; }
+
+        /* Extract Cookie header */
+        kr_srv_cookie[0] = 0;
+        char* ck = strstr(kr_srv_headers, "Cookie: ");
+        if (!ck) ck = strstr(kr_srv_headers, "cookie: ");
+        if (ck) {
+            ck += 8;
+            char* ck_end = strstr(ck, "\r\n");
+            int cklen = ck_end ? (int)(ck_end - ck) : (int)strlen(ck);
+            if (cklen > 4095) cklen = 4095;
+            memcpy(kr_srv_cookie, ck, cklen);
+            kr_srv_cookie[cklen] = 0;
+        }
+
         kr_srv_client = c;
         return (char*)"1";
     }
 
-    char* _srvMethod(void) { return kr_srv_method; }
-    char* _srvPath(void)   { return kr_srv_path; }
-    char* _srvQuery(void)  { return kr_srv_query; }
-    char* _srvBody(void)   { return kr_srv_body; }
+    char* _srvMethod(void)  { return kr_srv_method; }
+    char* _srvPath(void)    { return kr_srv_path; }
+    char* _srvQuery(void)   { return kr_srv_query; }
+    char* _srvBody(void)    { return kr_srv_body; }
+    char* _srvHeaders(void) { return kr_srv_headers; }
+    char* _srvCookie(void)  { return kr_srv_cookie; }
+
+    char* _srvRespondRaw(char* rawResponse) {
+        if (kr_srv_client == KR_INVALID_SOCKET) return (char*)"";
+        send(kr_srv_client, rawResponse, (int)strlen(rawResponse), 0);
+        kr_closesocket(kr_srv_client);
+        kr_srv_client = KR_INVALID_SOCKET;
+        return (char*)"";
+    }
 
     char* _srvRespond(char* status, char* contentType, char* body) {
         if (kr_srv_client == KR_INVALID_SOCKET) return (char*)"";
@@ -220,14 +256,89 @@ func serverReqMethod()    { emit _srvMethod() }
 func serverReqPath()      { emit _srvPath() }
 func serverReqQuery()     { emit _srvQuery() }
 func serverReqBody()      { emit _srvBody() }
+func serverReqHeaders()   { emit _srvHeaders() }
+func serverReqCookieRaw() { emit _srvCookie() }
 
 func serverRespond(html)              { _srvRespond("200 OK", "text/html", html) }
 func serverRespondJSON(json)          { _srvRespond("200 OK", "application/json", json) }
 func serverRespondText(text)          { _srvRespond("200 OK", "text/plain", text) }
 func serverRespondFile(path)          { emit _srvRespondFile(path) }
-func serverRespond404()               { _srvRespond("404 Not Found", "text/html", "<h1>404 Not Found</h1>") }
-func serverRedirect(url)              { _srvRespond("302 Found", "text/html", "") }
 func serverRespondWith(status, ct, b) { _srvRespond(status, ct, b) }
+
+func serverRespond404()  { _srvRespond("404 Not Found", "text/html", "<h1>404 Not Found</h1>") }
+func serverRespond400()  { _srvRespond("400 Bad Request", "text/html", "<h1>400 Bad Request</h1>") }
+func serverRespond403()  { _srvRespond("403 Forbidden", "text/html", "<h1>403 Forbidden</h1>") }
+func serverRespond500()  { _srvRespond("500 Internal Server Error", "text/html", "<h1>500 Internal Server Error</h1>") }
+
+func serverRedirect(url) {
+    let NL = fromCharCode(13) + fromCharCode(10)
+    _srvRespondRaw("HTTP/1.1 302 Found" + NL + "Location: " + url + NL + "Content-Length: 0" + NL + "Connection: close" + NL + NL)
+}
+
+func serverRedirect301(url) {
+    let NL = fromCharCode(13) + fromCharCode(10)
+    _srvRespondRaw("HTTP/1.1 301 Moved Permanently" + NL + "Location: " + url + NL + "Content-Length: 0" + NL + "Connection: close" + NL + NL)
+}
+
+func serverSetCookie(cookieName, cookieVal, opts) {
+    let NL = fromCharCode(13) + fromCharCode(10)
+    let cookie = cookieName + "=" + cookieVal
+    if len(opts) > 0 { cookie = cookie + "; " + opts }
+    _srvRespondRaw("HTTP/1.1 200 OK" + NL + "Set-Cookie: " + cookie + NL + "Content-Type: text/html; charset=utf-8" + NL + "Content-Length: 0" + NL + "Connection: close" + NL + NL)
+}
+
+func serverRespondWithCookie(html, cookieName, cookieVal, opts) {
+    let NL = fromCharCode(13) + fromCharCode(10)
+    let cookie = cookieName + "=" + cookieVal
+    if len(opts) > 0 { cookie = cookie + "; " + opts }
+    let blen = len(html)
+    _srvRespondRaw("HTTP/1.1 200 OK" + NL + "Content-Type: text/html; charset=utf-8" + NL + "Set-Cookie: " + cookie + NL + "Content-Length: " + (blen + "") + NL + "Connection: close" + NL + NL + html)
+}
+
+func serverRespondCORS(html) {
+    let NL = fromCharCode(13) + fromCharCode(10)
+    let blen = len(html)
+    _srvRespondRaw("HTTP/1.1 200 OK" + NL + "Content-Type: text/html; charset=utf-8" + NL + "Access-Control-Allow-Origin: *" + NL + "Access-Control-Allow-Methods: GET, POST, OPTIONS" + NL + "Access-Control-Allow-Headers: Content-Type" + NL + "Content-Length: " + (blen + "") + NL + "Connection: close" + NL + NL + html)
+}
+
+// ── Cookie parsing ───────────────────────────────────────────────────
+// serverReqCookie("session") → "abc123"
+// Parses from "name1=val1; name2=val2" format
+
+func serverReqCookie(key) {
+    let raw = serverReqCookieRaw()
+    if len(raw) == 0 { emit "" }
+    let i = 0
+    let n = len(raw)
+    while i < n {
+        while i < n && raw[i] == " " { i += 1 }
+        let eq = indexOf(substring(raw, i, n), "=")
+        if eq < 0 { emit "" }
+        eq += i
+        let k = substring(raw, i, eq)
+        let semi = indexOf(substring(raw, eq + 1, n), ";")
+        let vEnd = n
+        if semi >= 0 { vEnd = eq + 1 + semi }
+        let v = substring(raw, eq + 1, vEnd)
+        if k == key { emit v }
+        i = vEnd + 1
+    }
+    emit ""
+}
+
+// ── Request header lookup ────────────────────────────────────────────
+// serverReqHeader("User-Agent") → "Mozilla/5.0..."
+
+func serverReqHeader(headerName) {
+    let raw = serverReqHeaders()
+    let search = headerName + ": "
+    let pos = indexOf(raw, search)
+    if pos < 0 { emit "" }
+    let start = pos + len(search)
+    let eol = indexOf(substring(raw, start, len(raw)), fromCharCode(13))
+    if eol < 0 { emit substring(raw, start, len(raw)) }
+    emit substring(raw, start, start + eol)
+}
 
 // ── URL decode ────────────────────────────────────────────────────────────
 

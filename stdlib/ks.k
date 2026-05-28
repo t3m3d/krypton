@@ -122,3 +122,79 @@ func ksToggle(btnId, targetId) {
         )
     )
 }
+
+// ── Local / Session storage ──────────────────────────────────────────
+
+func ksLocalSet(key, val)      { emit "localStorage.setItem(" + ksStr(key) + ", " + val + ");\n" }
+func ksLocalGet(key)           { emit "localStorage.getItem(" + ksStr(key) + ")" }
+func ksLocalRemove(key)        { emit "localStorage.removeItem(" + ksStr(key) + ");\n" }
+func ksLocalClear()            { emit "localStorage.clear();\n" }
+func ksSessionSet(key, val)    { emit "sessionStorage.setItem(" + ksStr(key) + ", " + val + ");\n" }
+func ksSessionGet(key)         { emit "sessionStorage.getItem(" + ksStr(key) + ")" }
+func ksSessionRemove(key)      { emit "sessionStorage.removeItem(" + ksStr(key) + ");\n" }
+
+// ── JSON ─────────────────────────────────────────────────────────────
+
+func ksJsonParse(expr)         { emit "JSON.parse(" + expr + ")" }
+func ksJsonStringify(expr)     { emit "JSON.stringify(" + expr + ")" }
+
+// ── Dynamic DOM creation ─────────────────────────────────────────────
+
+func ksCreateEl(tag)              { emit "document.createElement(" + ksStr(tag) + ")" }
+func ksCreateText(text)           { emit "document.createTextNode(" + text + ")" }
+func ksAppend(parent, child)      { emit parent + ".appendChild(" + child + ");\n" }
+func ksRemove(el)                 { emit el + ".remove();\n" }
+func ksInsertBefore(parent, nw, ref) { emit parent + ".insertBefore(" + nw + ", " + ref + ");\n" }
+func ksInsertHTML(id, pos, html)  { emit ksGetEl(id) + ".insertAdjacentHTML(" + ksStr(pos) + ", " + html + ");\n" }
+func ksClone(el, deep)            { emit el + ".cloneNode(" + deep + ")" }
+
+// ── classList extras ─────────────────────────────────────────────────
+
+func ksHasClass(id, cls)          { emit ksGetEl(id) + ".classList.contains(" + ksStr(cls) + ")" }
+func ksReplaceClass(id, old, nw)  { emit ksGetEl(id) + ".classList.replace(" + ksStr(old) + ", " + ksStr(nw) + ");\n" }
+
+// ── History / SPA routing ────────────────────────────────────────────
+
+func ksHistoryPush(url)           { emit "history.pushState(null, '', " + ksStr(url) + ");\n" }
+func ksHistoryReplace(url)        { emit "history.replaceState(null, '', " + ksStr(url) + ");\n" }
+func ksOnPopstate(body)           { emit "window.addEventListener('popstate', function(e) {\n" + body + "});\n" }
+func ksLocation()                 { emit "window.location.pathname" }
+func ksLocationFull()             { emit "window.location.href" }
+func ksNavigate(url)              { emit "window.location.href = " + ksStr(url) + ";\n" }
+func ksReload()                   { emit "window.location.reload();\n" }
+
+// ── Array / Object helpers ───────────────────────────────────────────
+
+func ksMap(arr, varNm, expr)      { emit arr + ".map(function(" + varNm + ") { return " + expr + "; })" }
+func ksFilter(arr, varNm, cond)   { emit arr + ".filter(function(" + varNm + ") { return " + cond + "; })" }
+func ksReduce(arr, acc, cur, expr) { emit arr + ".reduce(function(" + acc + ", " + cur + ") { return " + expr + "; }, 0)" }
+func ksKeys(obj)                  { emit "Object.keys(" + obj + ")" }
+func ksEntries(obj)               { emit "Object.entries(" + obj + ")" }
+func ksLength(arr)                { emit arr + ".length" }
+func ksJoin(arr, sep)             { emit arr + ".join(" + ksStr(sep) + ")" }
+func ksPush(arr, val)             { emit arr + ".push(" + val + ");\n" }
+func ksSplice(arr, idx, cnt)      { emit arr + ".splice(" + idx + ", " + cnt + ");\n" }
+func ksIncludes(arr, val)         { emit arr + ".includes(" + val + ")" }
+func ksIndexOf(arr, val)          { emit arr + ".indexOf(" + val + ")" }
+
+// ── WebSocket ────────────────────────────────────────────────────────
+
+func ksWebSocket(url, varNm)      { emit "var " + varNm + " = new WebSocket(" + ksStr(url) + ");\n" }
+func ksWsOnOpen(varNm, body)      { emit varNm + ".onopen = function() {\n" + body + "};\n" }
+func ksWsOnMessage(varNm, body)   { emit varNm + ".onmessage = function(e) {\n" + body + "};\n" }
+func ksWsOnClose(varNm, body)     { emit varNm + ".onclose = function() {\n" + body + "};\n" }
+func ksWsSend(varNm, data)        { emit varNm + ".send(" + data + ");\n" }
+func ksWsClose(varNm)             { emit varNm + ".close();\n" }
+
+// ── Clipboard ────────────────────────────────────────────────────────
+
+func ksCopyText(expr) { emit "navigator.clipboard.writeText(" + expr + ");\n" }
+
+// ── Scroll ───────────────────────────────────────────────────────────
+
+func ksScrollTo(id)    { emit ksGetEl(id) + ".scrollIntoView({behavior:'smooth'});\n" }
+func ksScrollTop()     { emit "window.scrollTo({top:0,behavior:'smooth'});\n" }
+
+// ── Media queries ────────────────────────────────────────────────────
+
+func ksMatchMedia(query, body) { emit "if(window.matchMedia(" + ksStr(query) + ").matches){\n" + body + "}\n" }
