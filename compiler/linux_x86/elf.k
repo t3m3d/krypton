@@ -3535,6 +3535,8 @@ func opByteSize(op) {
     if op == "BUILTIN_FGT"   { emit 53 }
     if op == "BUILTIN_FEQ"   { emit 53 }
     if op == "BUILTIN_FFORMAT" { emit 8 }  // pop prec->RSI, value->RDI; call kr_fformat; push RAX
+    if op == "BUILTIN_INTTOFLOAT" { emit 21 }  // pop int; cvtsi2sd; box; push
+    if op == "BUILTIN_FLOATTOINT" { emit 26 }  // pop f; fload; cvttsd2si; push (raw int)
     if op == "STORE_LOCAL"{ emit 8 }    // POP RAX (1) + MOV [RBP+d32], RAX (7)
     if op == "LOAD_LOCAL" { emit 8 }    // MOV RAX, [RBP+d32] (7) + PUSH RAX (1)
     if op == "LOAD_PARAM" { emit 8 }    // same encoding (positive disp32)
@@ -3890,6 +3892,10 @@ func parseIR(ir) {
                     // would stop at the binary's first 0 byte). Routes to the
                     // dedicated kr_writebytes helper.
                     opSb = sbAppend(opSb, "BUILTIN_WRITEBYTES")
+                } else if cname == "intToFloat" {
+                    opSb = sbAppend(opSb, "BUILTIN_INTTOFLOAT")
+                } else if cname == "floatToInt" {
+                    opSb = sbAppend(opSb, "BUILTIN_FLOATTOINT")
                 } else if cname == "bitAnd" {
                     opSb = sbAppend(opSb, "BUILTIN_BITAND")
                 } else if cname == "bitOr" {
@@ -4382,6 +4388,25 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             let ffDisp = krFformatVAddr - (funcStartVAddr + off + 7)
             c = sbAppend(c, hexByte(0xE8) + hexDword(ffDisp))                     // [2] CALL kr_fformat -> RAX
             c = sbAppend(c, hexByte(0x50))                                        // [7] PUSH RAX
+        } else if op == "BUILTIN_INTTOFLOAT" {
+            // intToFloat(n): int -> boxed f64. pop n; cvtsi2sd; box; push. 21 bytes.
+            c = sbAppend(c, hexByte(0x58))                                        // [0] POP RAX (n)
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x48) + hexByte(0x0F) + hexByte(0x2A) + hexByte(0xC0))  // [1] CVTSI2SD XMM0,RAX
+            c = sbAppend(c, hexByte(0xBF) + hexDword(8))                          // [6] MOV EDI,8
+            let i2fDisp = krAllocVAddr - (funcStartVAddr + off + 16)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(i2fDisp))                    // [11] CALL kr_alloc
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x0F) + hexByte(0x11) + hexByte(0x00))  // [16] MOVSD [RAX],XMM0
+            c = sbAppend(c, hexByte(0x50))                                        // [20] PUSH RAX
+        } else if op == "BUILTIN_FLOATTOINT" {
+            // floatToInt(f): float box (or int) -> int (truncate). pop f; fload; cvttsd2si; push. 26 bytes.
+            c = sbAppend(c, hexByte(0x58))                                        // [0] POP RAX (f)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x3D) + hexDword(0x400000))   // [1] CMP RAX,0x400000
+            c = sbAppend(c, hexByte(0x73) + hexByte(0x07))                        // [7] JAE .box(+7 -> [16])
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x48) + hexByte(0x0F) + hexByte(0x2A) + hexByte(0xC0))  // [9] CVTSI2SD XMM0,RAX
+            c = sbAppend(c, hexByte(0xEB) + hexByte(0x04))                        // [14] JMP .d(+4 -> [20])
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x0F) + hexByte(0x10) + hexByte(0x00))  // [16] .box MOVSD XMM0,[RAX]
+            c = sbAppend(c, hexByte(0xF2) + hexByte(0x48) + hexByte(0x0F) + hexByte(0x2C) + hexByte(0xC0))  // [20] CVTTSD2SI RAX,XMM0
+            c = sbAppend(c, hexByte(0x50))                                        // [25] PUSH RAX
         } else if op == "STORE_LOCAL" {
             let slot = toInt(rest)
             let dispVal = 0 - (slot * 8)
