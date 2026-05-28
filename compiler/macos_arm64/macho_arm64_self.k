@@ -760,6 +760,46 @@ func arm64_orr_xxx(rd, rn, rm) {
 func arm64_eor_xxx(rd, rn, rm) {
     emit hexDword(0xca000000 + (rm * 0x10000) + (rn * 0x20) + rd)
 }
+// and Xd, Xn, Xm  (64-bit bitwise AND) → 0x8a000000 | (Rm<<16) | (Rn<<5) | Rd
+func arm64_and_xxx(rd, rn, rm) {
+    emit hexDword(0x8a000000 + (rm * 0x10000) + (rn * 0x20) + rd)
+}
+// and Wd, Wn, Wm  (32-bit bitwise AND, zero-extends to Xd) → 0x0a000000 | ...
+func arm64_and_www(rd, rn, rm) {
+    emit hexDword(0x0a000000 + (rm * 0x10000) + (rn * 0x20) + rd)
+}
+// orr Wd, Wn, Wm  (32-bit bitwise OR, zero-extends to Xd) → 0x2a000000 | ...
+func arm64_orr_www(rd, rn, rm) {
+    emit hexDword(0x2a000000 + (rm * 0x10000) + (rn * 0x20) + rd)
+}
+// eor Wd, Wn, Wm  (32-bit bitwise XOR, zero-extends to Xd) → 0x4a000000 | ...
+func arm64_eor_www(rd, rn, rm) {
+    emit hexDword(0x4a000000 + (rm * 0x10000) + (rn * 0x20) + rd)
+}
+// lsl Wd, Wn, Wm  (32-bit variable shift left; LSLV W alias) → 0x1AC02000
+func arm64_lsl_w(rd, rn, rm) {
+    emit hexDword(0x1ac02000 + (rm * 0x10000) + (rn * 0x20) + rd)
+}
+// lsr Wd, Wn, Wm  (32-bit variable shift right; LSRV W alias) → 0x1AC02400
+func arm64_lsr_w(rd, rn, rm) {
+    emit hexDword(0x1ac02400 + (rm * 0x10000) + (rn * 0x20) + rd)
+}
+// lsl Xd, Xn, Xm  (64-bit variable shift left; LSLV alias) → 0x9AC02000
+func arm64_lsl_var(rd, rn, rm) {
+    emit hexDword(0x9ac02000 + (rm * 0x10000) + (rn * 0x20) + rd)
+}
+// lsr Xd, Xn, Xm  (64-bit variable shift right; LSRV alias) → 0x9AC02400
+func arm64_lsr_var(rd, rn, rm) {
+    emit hexDword(0x9ac02400 + (rm * 0x10000) + (rn * 0x20) + rd)
+}
+// mvn Xd, Xm  (64-bit bitwise NOT; ORN Xd, XZR, Xm) → 0xAA200000 | (Rm<<16) | (31<<5) | Rd
+func arm64_mvn_x(rd, rm) {
+    emit hexDword(0xaa200000 + (rm * 0x10000) + 0x3e0 + rd)
+}
+// mvn Wd, Wm  (32-bit bitwise NOT, zero-extends to Xd; ORN Wd, WZR, Wm) → 0x2A200000 | ...
+func arm64_mvn_w(rd, rm) {
+    emit hexDword(0x2a200000 + (rm * 0x10000) + 0x3e0 + rd)
+}
 // lsr Xd, Xn, #32  (logical right shift by 32; alias for ubfm)
 //   ubfm 64-bit: 0xd3400000 | (immr<<16) | (imms<<10) | (Rn<<5) | Rd
 //   For LSR #N: immr=N, imms=63. For N=32: 0xd3400000 + (32<<16) + (63<<10) = 0xd360FC00
@@ -1125,7 +1165,49 @@ func appendFunc(sb, name, params, nParams, locals, nLocals, opsStr, nOps) {
     emit sb
 }
 
+// Collect unique LOCAL variable names from __main__ — these are module globals
+// shared across all functions. Returns a newline-separated list of names.
+func collectModuleGlobals(ir) {
+    let sb = sbNew()
+    let n = 0
+    let nl = lineCount(ir)
+    let i = 0
+    let inMain = "0"
+    while i < nl {
+        let line = trim(getLine(ir, i))
+        if len(line) > 0 && line[0] != ";" {
+            let j = 0
+            while j < len(line) && line[j] != " " { j += 1 }
+            let op = substring(line, 0, j)
+            let rest = ""
+            if j < len(line) { rest = trim(substring(line, j + 1, len(line))) }
+            if op == "FUNC" {
+                let sp = 0
+                while sp < len(rest) && rest[sp] != " " { sp += 1 }
+                let fname = substring(rest, 0, sp)
+                if fname == "__main__" { inMain = "1" }
+                else { inMain = "0" }
+            } else if op == "LOCAL" && inMain == "1" {
+                // Skip compiler-generated names (start with "__") — e.g. __sh_save.
+                // Only user-declared module-level `let` variables become globals.
+                if len(rest) < 2 || rest[0] != "_" || rest[1] != "_" {
+                    let idx = internSb(sb, n, rest)
+                    if idx == n { n += 1 }
+                }
+            }
+        }
+        i += 1
+    }
+    emit sbToString(sb)
+}
+
 func parseFullIR(ir) {
+    // Collect module globals (all LOCALs declared in __main__). These are
+    // shared across functions via x28-relative addressing instead of frame slots.
+    let globalsStr = collectModuleGlobals(ir)
+    let numGlobals = 0
+    if len(globalsStr) > 0 { numGlobals = lineCount(globalsStr) }
+
     // sbStrings holds interned globals as a newline-separated string. Using sb
     // for O(name_length) append (vs O(total_strings_length) for string concat).
     let sbStrings = sbNew()
@@ -1179,50 +1261,68 @@ func parseFullIR(ir) {
                 } else if op == "LOAD" {
                     let paramSnap = sbToString(sbParams)
                     let pIdx = findInList(paramSnap, nParams, rest)
-                    let slot = 0 - 1
                     if pIdx >= 0 {
-                        slot = pIdx
+                        curOps = sbAppend(curOps, "LOAD_SLOT " + pIdx + "\n")
+                        nOps += 1
                     } else {
                         let localSnap = sbToString(sbLocals)
                         let lIdx = findInList(localSnap, nLocals, rest)
                         if lIdx >= 0 {
-                            slot = nParams + lIdx
+                            curOps = sbAppend(curOps, "LOAD_SLOT " + (nParams + lIdx) + "\n")
+                            nOps += 1
                         } else {
-                            if nLocals > 0 { sbAppend(sbLocals, "\n") }
-                            sbAppend(sbLocals, rest)
-                            slot = nParams + nLocals
-                            nLocals += 1
+                            let gIdx = findInList(globalsStr, numGlobals, rest)
+                            if gIdx >= 0 {
+                                curOps = sbAppend(curOps, "LOAD_GLOBAL " + gIdx + "\n")
+                                nOps += 1
+                            } else {
+                                if nLocals > 0 { sbAppend(sbLocals, "\n") }
+                                sbAppend(sbLocals, rest)
+                                curOps = sbAppend(curOps, "LOAD_SLOT " + (nParams + nLocals) + "\n")
+                                nLocals += 1
+                                nOps += 1
+                            }
                         }
                     }
-                    curOps = sbAppend(curOps, "LOAD_SLOT " + slot + "\n")
-                    nOps += 1
                 } else if op == "STORE" {
                     let paramSnap = sbToString(sbParams)
                     let pIdx = findInList(paramSnap, nParams, rest)
-                    let slot = 0 - 1
                     if pIdx >= 0 {
-                        slot = pIdx
+                        curOps = sbAppend(curOps, "STORE_SLOT " + pIdx + "\n")
+                        nOps += 1
                     } else {
                         let localSnap = sbToString(sbLocals)
                         let lIdx = findInList(localSnap, nLocals, rest)
                         if lIdx >= 0 {
-                            slot = nParams + lIdx
+                            curOps = sbAppend(curOps, "STORE_SLOT " + (nParams + lIdx) + "\n")
+                            nOps += 1
                         } else {
-                            if nLocals > 0 { sbAppend(sbLocals, "\n") }
-                            sbAppend(sbLocals, rest)
-                            slot = nParams + nLocals
-                            nLocals += 1
+                            let gIdx = findInList(globalsStr, numGlobals, rest)
+                            if gIdx >= 0 {
+                                curOps = sbAppend(curOps, "STORE_GLOBAL " + gIdx + "\n")
+                                nOps += 1
+                            } else {
+                                if nLocals > 0 { sbAppend(sbLocals, "\n") }
+                                sbAppend(sbLocals, rest)
+                                curOps = sbAppend(curOps, "STORE_SLOT " + (nParams + nLocals) + "\n")
+                                nLocals += 1
+                                nOps += 1
+                            }
                         }
                     }
-                    curOps = sbAppend(curOps, "STORE_SLOT " + slot + "\n")
-                    nOps += 1
                 } else if op == "CALL" {
                     let sp = 0
                     while sp < len(rest) && rest[sp] != " " { sp += 1 }
                     let cname = substring(rest, 0, sp)
                     let cargc = "0"
                     if sp < len(rest) { cargc = trim(substring(rest, sp + 1, len(rest))) }
-                    curOps = sbAppend(curOps, "CALL_FUNC " + cname + " " + cargc + "\n")
+                    if cname == "bitAnd"    { curOps = sbAppend(curOps, "BUILTIN_BITAND\n") }
+                    else if cname == "bitOr"  { curOps = sbAppend(curOps, "BUILTIN_BITOR\n") }
+                    else if cname == "bitXor" { curOps = sbAppend(curOps, "BUILTIN_BITXOR\n") }
+                    else if cname == "bitShr" { curOps = sbAppend(curOps, "BUILTIN_BITSHR\n") }
+                    else if cname == "bitShl" { curOps = sbAppend(curOps, "BUILTIN_BITSHL\n") }
+                    else if cname == "bitNot" { curOps = sbAppend(curOps, "BUILTIN_BITNOT\n") }
+                    else { curOps = sbAppend(curOps, "CALL_FUNC " + cname + " " + cargc + "\n") }
                     nOps += 1
                 } else if op == "RETURN" {
                     curOps = sbAppend(curOps, "RETURN\n")
@@ -1319,14 +1419,19 @@ func parseFullIR(ir) {
                     curOps = sbAppend(curOps, "INDEX\n")
                     nOps += 1
                 } else if op == "LOCAL" {
-                    // Skip if already a param; otherwise add to locals list (no op emitted)
-                    let pIdx = findInList(sbToString(sbParams), nParams, rest)
-                    if pIdx < 0 {
-                        let lIdx = findInList(sbToString(sbLocals), nLocals, rest)
-                        if lIdx < 0 {
-                            if nLocals > 0 { sbAppend(sbLocals, "\n") }
-                            sbAppend(sbLocals, rest)
-                            nLocals += 1
+                    // Module globals (any LOCAL from __main__) are accessed via
+                    // x28-relative addressing; skip creating a frame slot for them.
+                    let gIdx = findInList(globalsStr, numGlobals, rest)
+                    if gIdx < 0 {
+                        // Not a module global — add to function-local frame slots.
+                        let pIdx = findInList(sbToString(sbParams), nParams, rest)
+                        if pIdx < 0 {
+                            let lIdx = findInList(sbToString(sbLocals), nLocals, rest)
+                            if lIdx < 0 {
+                                if nLocals > 0 { sbAppend(sbLocals, "\n") }
+                                sbAppend(sbLocals, rest)
+                                nLocals += 1
+                            }
                         }
                     }
                 } else if op == "BUILTIN" {
@@ -1686,6 +1791,8 @@ func opInstrCount(opTok) {
     if opTok == "PUSH_INT"     { emit 3 }   // movz low / movk high or nop / push
     if opTok == "LOAD_SLOT"    { emit 2 }
     if opTok == "STORE_SLOT"   { emit 2 }
+    if opTok == "LOAD_GLOBAL"  { emit 4 }
+    if opTok == "STORE_GLOBAL" { emit 4 }
     if opTok == "ADD"          { emit 193 } // int+int(8)|numstr+int(71)|concat(111)
     if opTok == "CAT"          { emit 113 } // 2 pops + emitPolyConcat (111)
     if opTok == "SUB"          { emit 4 }
@@ -1718,8 +1825,14 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_SBAPPEND"     { emit 21 }
     if opTok == "BUILTIN_SBTOSTRING"   { emit 3 }
     if opTok == "BUILTIN_CONTAINS"     { emit 23 }   // indexOf core (20) + cmp + cset + push
-    if opTok == "BUILTIN_PRINT"        { emit 12 }
-    if opTok == "BUILTIN_PRINTERR"     { emit 12 }
+    if opTok == "BUILTIN_PRINT"        { emit 52 }
+    if opTok == "BUILTIN_PRINTERR"     { emit 52 }
+    if opTok == "BUILTIN_BITAND"       { emit 4 }  // pop x1, pop x0, and, push
+    if opTok == "BUILTIN_BITOR"        { emit 4 }  // pop x1, pop x0, orr, push
+    if opTok == "BUILTIN_BITXOR"       { emit 4 }  // pop x1, pop x0, eor, push
+    if opTok == "BUILTIN_BITSHR"       { emit 4 }  // pop x1, pop x0, lsr, push
+    if opTok == "BUILTIN_BITSHL"       { emit 4 }  // pop x1, pop x0, lsl, push
+    if opTok == "BUILTIN_BITNOT"       { emit 3 }  // pop x0, mvn, push
     if opTok == "BUILTIN_POW"          { emit 8 }
     if opTok == "BUILTIN_ENDSWITH"     { emit 29 }
     if opTok == "BUILTIN_ARG"          { emit 25 }  // inline-toInt + load argv + index
@@ -1759,7 +1872,7 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_GCSLABBYTES"      { emit 2 }
     if opTok == "BUILTIN_FROMCHARCODE" { emit 26 }
     if opTok == "BUILTIN_READLINE"     { emit 46 }
-    if opTok == "BUILTIN_SHELLRUN"     { emit 44 }
+    if opTok == "BUILTIN_SHELLRUN"     { emit 84 }
     if opTok == "BUILTIN_EXEC"         { emit 98 }
     if opTok == "BUILTIN_MAPHAS"       { emit 32 }
     if opTok == "BUILTIN_MAPGET"       { emit 93 }
@@ -1935,7 +2048,7 @@ func computeTextSize(parsed) {
 
 // Emit one function: prologue (with param save) + ops + epilogue. instrIdx is
 // absolute within __text (so jumps can use absolute deltas).
-func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
+func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz) {
     let frame = computeFrameSizeF(parsed, fIdx)
     let nP = funcNParams(parsed, fIdx)
     let nO = funcNOps(parsed, fIdx)
@@ -1943,7 +2056,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
 
     let textVaddr = 0x100000000
     let textOff = 0x460
-    let stubsOff = textOff + g_TEXT_SIZE
+    let stubsOff = textOff + textSz
     let cstringOff = stubsOff + 12
     let stubVaddr = textVaddr + stubsOff
 
@@ -2476,26 +2589,70 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_push_x0()
             instrIdx = instrIdx + 23
         } else if opTok == "BUILTIN_PRINT" {
-            // print(s): write(1, s, strlen(s)) via raw syscall #4.
-            //   0:pop x3=s  1:mov x1=x3
-            //   2:ldrb w4=[x1] post-inc  3:cbnz→back(-1)
-            //   4:sub x2=x1-x3  5:sub x2-=1  (now x2 = strlen)
-            //   6:movz x0=1 (stdout)  7:mov x1=x3 (ptr again)
-            //   8:movz x16=4 (write)  9:svc 0x80
-            //   10:movz x0=0 (return)  11:push x0
-            s = s + arm64_pop(3)
-            s = s + arm64_mov_xx(1, 3)
-            s = s + arm64_ldrb_post(4, 1, 1)
-            s = s + arm64_cbnz(4, 0 - 1)
-            s = s + arm64_sub_xxx(2, 1, 3)
-            s = s + arm64_sub_imm(2, 2, 1)
-            s = s + arm64_movz_x_imm(0, 1)
-            s = s + arm64_mov_xx(1, 3)
-            s = s + arm64_movz_x_imm(16, 4)
-            s = s + arm64_svc(0x80)
-            s = s + arm64_movz_w_imm(0, 0)
-            s = s + arm64_push_x0()
-            instrIdx = instrIdx + 12
+            // print(v): write v to stdout. Handles strings and ints (no newline).
+            // Dispatch: if v < 0x100000000 it's an int; else a pointer.
+            // String path = 10 instr, int path = itoa + write. 52 total.
+            s = s + arm64_pop(3)                          // 0: x3 = arg
+            s = s + arm64_movz_x_imm_lsl32(14, 1)         // 1: x14 = 1<<32
+            s = s + arm64_cmp_xx(3, 14)                   // 2
+            s = s + arm64_b_cond(0xb, 11)                 // 3: b.lt INT_PATH (idx 14)
+            // ── STRING PATH (idx 4..13) ──
+            s = s + arm64_mov_xx(1, 3)                    // 4
+            s = s + arm64_ldrb_post(4, 1, 1)              // 5
+            s = s + arm64_cbnz(4, 0 - 1)                  // 6: scan NUL
+            s = s + arm64_sub_xxx(2, 1, 3)                // 7
+            s = s + arm64_sub_imm(2, 2, 1)                // 8: len
+            s = s + arm64_movz_x_imm(0, 1)                // 9: stdout
+            s = s + arm64_mov_xx(1, 3)                    // 10
+            s = s + arm64_movz_x_imm(16, 4)               // 11: SYS_write
+            s = s + arm64_svc(0x80)                       // 12
+            s = s + arm64_b(37)                           // 13: → DONE (idx 50)
+            // ── INT PATH @ idx 14 ── itoa to stack buffer, then write ──
+            s = s + arm64_sub_imm(31, 31, 32)             // 14: alloc buf
+            s = s + arm64_add_imm(4, 31, 23)              // 15: x4 = sp+23 (end)
+            s = s + arm64_strb_imm(31, 4, 0)              // 16: *p = NUL (xzr)
+            s = s + arm64_movz_x_imm(5, 0)                // 17: neg = 0
+            s = s + arm64_cmp_imm(3, 0)                   // 18: cmp n, 0
+            s = s + arm64_b_cond(0xa, 3)                  // 19: b.ge POSITIVE (idx 22)
+            s = s + arm64_movz_x_imm(5, 1)                // 20: neg = 1
+            s = s + arm64_neg(3, 3)                       // 21: n = -n
+            // POSITIVE @ idx 22:
+            s = s + arm64_cbnz(3, 5)                      // 22: → INT_LOOP (idx 27)
+            // n == 0: write '0'
+            s = s + arm64_sub_imm(4, 4, 1)                // 23
+            s = s + arm64_movz_w_imm(6, 0x30)             // 24: '0'
+            s = s + arm64_strb_imm(6, 4, 0)               // 25
+            s = s + arm64_b(10)                           // 26: → INT_SIGN (idx 36)
+            // INT_LOOP @ idx 27:
+            s = s + arm64_cbz(3, 9)                       // 27: → INT_SIGN (idx 36)
+            s = s + arm64_movz_x_imm(7, 10)               // 28
+            s = s + arm64_udiv_xxx(8, 3, 7)               // 29: q = n / 10
+            s = s + arm64_msub_xxxx(9, 8, 7, 3)           // 30: r = n - q*10
+            s = s + arm64_add_imm(9, 9, 0x30)             // 31: r += '0'
+            s = s + arm64_sub_imm(4, 4, 1)                // 32
+            s = s + arm64_strb_imm(9, 4, 0)               // 33
+            s = s + arm64_mov_xx(3, 8)                    // 34: n = q
+            s = s + arm64_b(0 - 8)                        // 35: → INT_LOOP
+            // INT_SIGN @ idx 36:
+            s = s + arm64_cbz(5, 4)                       // 36: → INT_PRINT (idx 40)
+            s = s + arm64_sub_imm(4, 4, 1)                // 37
+            s = s + arm64_movz_w_imm(6, 0x2D)             // 38: '-'
+            s = s + arm64_strb_imm(6, 4, 0)               // 39
+            // INT_PRINT @ idx 40:
+            s = s + arm64_mov_xx(1, 4)                    // 40: scan from buf start
+            s = s + arm64_ldrb_post(6, 1, 1)              // 41
+            s = s + arm64_cbnz(6, 0 - 1)                  // 42: scan to NUL
+            s = s + arm64_sub_xxx(2, 1, 4)                // 43
+            s = s + arm64_sub_imm(2, 2, 1)                // 44: real len
+            s = s + arm64_movz_x_imm(0, 1)                // 45: stdout
+            s = s + arm64_mov_xx(1, 4)                    // 46
+            s = s + arm64_movz_x_imm(16, 4)               // 47
+            s = s + arm64_svc(0x80)                       // 48: write digits
+            s = s + arm64_add_imm(31, 31, 32)             // 49: restore sp
+            // DONE @ idx 50:
+            s = s + arm64_movz_w_imm(0, 0)                // 50
+            s = s + arm64_push_x0()                       // 51
+            instrIdx = instrIdx + 52
         } else if opTok == "BUILTIN_POW" {
             // pow(b, e): result = b^e (signed int). 8 instructions. TOS = e.
             //   0:pop x4=e  1:pop x5=b  2:movz x0=1
@@ -3418,20 +3575,68 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_push_x0()
             instrIdx = instrIdx + 22
         } else if opTok == "BUILTIN_PRINTERR" {
-            // printErr(s): write(2, s, strlen(s)) — same as print but fd=2 (stderr).
-            s = s + arm64_pop(3)
-            s = s + arm64_mov_xx(1, 3)
-            s = s + arm64_ldrb_post(4, 1, 1)
-            s = s + arm64_cbnz(4, 0 - 1)
-            s = s + arm64_sub_xxx(2, 1, 3)
-            s = s + arm64_sub_imm(2, 2, 1)
-            s = s + arm64_movz_x_imm(0, 2)          // fd = stderr
-            s = s + arm64_mov_xx(1, 3)
-            s = s + arm64_movz_x_imm(16, 4)
-            s = s + arm64_svc(0x80)
-            s = s + arm64_movz_w_imm(0, 0)
-            s = s + arm64_push_x0()
-            instrIdx = instrIdx + 12
+            // printErr(v): write v to stderr. Same as BUILTIN_PRINT but fd=2.
+            s = s + arm64_pop(3)                          // 0: x3 = arg
+            s = s + arm64_movz_x_imm_lsl32(14, 1)         // 1: x14 = 1<<32
+            s = s + arm64_cmp_xx(3, 14)                   // 2
+            s = s + arm64_b_cond(0xb, 11)                 // 3: b.lt INT_PATH (idx 14)
+            // ── STRING PATH (idx 4..13) ──
+            s = s + arm64_mov_xx(1, 3)                    // 4
+            s = s + arm64_ldrb_post(4, 1, 1)              // 5
+            s = s + arm64_cbnz(4, 0 - 1)                  // 6: scan NUL
+            s = s + arm64_sub_xxx(2, 1, 3)                // 7
+            s = s + arm64_sub_imm(2, 2, 1)                // 8: len
+            s = s + arm64_movz_x_imm(0, 2)                // 9: stderr
+            s = s + arm64_mov_xx(1, 3)                    // 10
+            s = s + arm64_movz_x_imm(16, 4)               // 11: SYS_write
+            s = s + arm64_svc(0x80)                       // 12
+            s = s + arm64_b(37)                           // 13: → DONE (idx 50)
+            // ── INT PATH @ idx 14 ── itoa to stack buffer, then write ──
+            s = s + arm64_sub_imm(31, 31, 32)             // 14: alloc buf
+            s = s + arm64_add_imm(4, 31, 23)              // 15: x4 = sp+23 (end)
+            s = s + arm64_strb_imm(31, 4, 0)              // 16: *p = NUL (xzr)
+            s = s + arm64_movz_x_imm(5, 0)                // 17: neg = 0
+            s = s + arm64_cmp_imm(3, 0)                   // 18: cmp n, 0
+            s = s + arm64_b_cond(0xa, 3)                  // 19: b.ge POSITIVE (idx 22)
+            s = s + arm64_movz_x_imm(5, 1)                // 20: neg = 1
+            s = s + arm64_neg(3, 3)                       // 21: n = -n
+            // POSITIVE @ idx 22:
+            s = s + arm64_cbnz(3, 5)                      // 22: → INT_LOOP (idx 27)
+            // n == 0: write '0'
+            s = s + arm64_sub_imm(4, 4, 1)                // 23
+            s = s + arm64_movz_w_imm(6, 0x30)             // 24: '0'
+            s = s + arm64_strb_imm(6, 4, 0)               // 25
+            s = s + arm64_b(10)                           // 26: → INT_SIGN (idx 36)
+            // INT_LOOP @ idx 27:
+            s = s + arm64_cbz(3, 9)                       // 27: → INT_SIGN (idx 36)
+            s = s + arm64_movz_x_imm(7, 10)               // 28
+            s = s + arm64_udiv_xxx(8, 3, 7)               // 29: q = n / 10
+            s = s + arm64_msub_xxxx(9, 8, 7, 3)           // 30: r = n - q*10
+            s = s + arm64_add_imm(9, 9, 0x30)             // 31: r += '0'
+            s = s + arm64_sub_imm(4, 4, 1)                // 32
+            s = s + arm64_strb_imm(9, 4, 0)               // 33
+            s = s + arm64_mov_xx(3, 8)                    // 34: n = q
+            s = s + arm64_b(0 - 8)                        // 35: → INT_LOOP
+            // INT_SIGN @ idx 36:
+            s = s + arm64_cbz(5, 4)                       // 36: → INT_PRINT (idx 40)
+            s = s + arm64_sub_imm(4, 4, 1)                // 37
+            s = s + arm64_movz_w_imm(6, 0x2D)             // 38: '-'
+            s = s + arm64_strb_imm(6, 4, 0)               // 39
+            // INT_PRINT @ idx 40:
+            s = s + arm64_mov_xx(1, 4)                    // 40: scan from buf start
+            s = s + arm64_ldrb_post(6, 1, 1)              // 41
+            s = s + arm64_cbnz(6, 0 - 1)                  // 42: scan to NUL
+            s = s + arm64_sub_xxx(2, 1, 4)                // 43
+            s = s + arm64_sub_imm(2, 2, 1)                // 44: real len
+            s = s + arm64_movz_x_imm(0, 2)                // 45: stderr
+            s = s + arm64_mov_xx(1, 4)                    // 46
+            s = s + arm64_movz_x_imm(16, 4)               // 47
+            s = s + arm64_svc(0x80)                       // 48: write digits
+            s = s + arm64_add_imm(31, 31, 32)             // 49: restore sp
+            // DONE @ idx 50:
+            s = s + arm64_movz_w_imm(0, 0)                // 50
+            s = s + arm64_push_x0()                       // 51
+            instrIdx = instrIdx + 52
         } else if opTok == "BUILTIN_INDEXOF" {
             // indexOf(s, sub): 21 instructions. Stack TOS = sub, then s.
             // Layout (0-indexed within this op):
@@ -3505,7 +3710,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_push(20)                                  // 45: DONE
             instrIdx = instrIdx + 46
         } else if opTok == "BUILTIN_SHELLRUN" {
-            // shellRun(cmd): fork+execve /bin/sh -c cmd, wait. 44 instrs.
+            // shellRun(cmd): fork+execve /bin/sh -c cmd, wait, return real exit code. 84 instrs.
             s = s + arm64_pop(3)                                     // 0: cmd
             s = s + arm64_sub_sp(64)                                 // 1
             s = s + arm64_movz_x_imm(0, 0x622f)                     // 2: "/bin/sh\0" low
@@ -3531,29 +3736,53 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_add_imm(6, 6, 1)                          // 19: argc+1
             s = s + arm64_movz_x_imm(8, 8)                          // 20
             s = s + arm64_mul_xxx(6, 6, 8)                          // 21: (argc+1)*8
-            s = s + arm64_add_xxx(5, 7, 6)                          // 22: envp
+            s = s + arm64_add_xxx(5, 7, 6)                          // 22: envp in x5
             s = s + arm64_movz_x_imm(16, 2)                         // 23: SYS_fork
-            s = s + arm64_svc(0x80)                                 // 24
-            s = s + arm64_cbnz(1, 9)                                // 25: → CHILD@34
-            s = s + arm64_movz_x_imm(1, 0)                          // 26: wait4 status=NULL
-            s = s + arm64_movz_x_imm(2, 0)                          // 27
-            s = s + arm64_movz_x_imm(3, 0)                          // 28
+            s = s + arm64_svc(0x80)                                  // 24
+            s = s + arm64_cbnz(1, 51)                               // 25: → CHILD@76
+            // PARENT: wait4 with status capture, then itoa exit code
+            s = s + arm64_add_imm(1, 31, 48)                        // 26: x1=&status@[sp+48]
+            s = s + arm64_movz_x_imm(2, 0)                          // 27: options=0
+            s = s + arm64_movz_x_imm(3, 0)                          // 28: rusage=NULL
             s = s + arm64_movz_x_imm(16, 7)                         // 29: SYS_wait4
-            s = s + arm64_svc(0x80)                                 // 30
-            s = s + arm64_add_sp(64)                                // 31
-            s = s + arm64_movz_x_imm(0, 0)                          // 32: return 0
-            s = s + arm64_b(9)                                      // 33: → DONE@42
-            s = s + arm64_add_imm(0, 31, 0)                         // 34: CHILD: x0=sp
-            s = s + arm64_add_imm(1, 31, 16)                        // 35: x1=argv
-            s = s + arm64_mov_xx(2, 5)                              // 36: envp
-            s = s + arm64_movz_x_imm(16, 59)                        // 37: SYS_execve
-            s = s + arm64_svc(0x80)                                 // 38
-            s = s + arm64_movz_x_imm(0, 1)                          // 39: exit(1)
-            s = s + arm64_movz_x_imm(16, 1)                         // 40: SYS_exit
-            s = s + arm64_svc(0x80)                                 // 41
-            s = s + arm64_movz_x_imm(0, 0)                          // 42: DONE return 0
-            s = s + arm64_push_x0()                                 // 43
-            instrIdx = instrIdx + 44
+            s = s + arm64_svc(0x80)                                  // 30
+            s = s + arm64_ldr_imm(8, 31, 6)                         // 31: x8=status@[sp+48]
+            s = s + hexDword(0xd348fd08)                             // 32: lsr x8,x8,#8
+            s = s + hexDword(0x12001d08)                             // 33: and w8,w8,#0xff (WEXITSTATUS)
+            s = s + arm64_add_sp(64)                                 // 34: clean stack
+            s = s + emitAllocN(4, instrIdx + 35, textVaddr, textOff) // 35-55: heap buf→x0
+            s = s + arm64_mov_xx(4, 0)                               // 56: x4=buf
+            s = s + arm64_strb_imm(31, 4, 3)                        // 57: buf[3]='\0'
+            s = s + arm64_movz_x_imm(9, 10)                         // 58: divisor=10
+            s = s + arm64_udiv_xxx(10, 8, 9)                        // 59: x10=x8/10
+            s = s + arm64_msub_xxxx(11, 10, 9, 8)                   // 60: x11=ones digit
+            s = s + arm64_add_imm(11, 11, 0x30)                     // 61: +'0'
+            s = s + arm64_strb_imm(11, 4, 2)                        // 62: buf[2]=ones
+            s = s + arm64_add_imm(5, 4, 2)                          // 63: start=buf+2
+            s = s + arm64_cbz(10, 10)                               // 64: x10==0 → PUSH@74
+            s = s + arm64_udiv_xxx(8, 10, 9)                        // 65: x8=hundreds
+            s = s + arm64_msub_xxxx(12, 8, 9, 10)                   // 66: x12=tens digit
+            s = s + arm64_add_imm(12, 12, 0x30)                     // 67: +'0'
+            s = s + arm64_strb_imm(12, 4, 1)                        // 68: buf[1]=tens
+            s = s + arm64_add_imm(5, 4, 1)                          // 69: start=buf+1
+            s = s + arm64_cbz(8, 4)                                  // 70: x8==0 → PUSH@74
+            s = s + arm64_add_imm(8, 8, 0x30)                       // 71: hundreds+'0'
+            s = s + arm64_strb_imm(8, 4, 0)                         // 72: buf[0]=hundreds
+            s = s + arm64_mov_xx(5, 4)                               // 73: start=buf+0
+            // PUSH@74:
+            s = s + arm64_push(5)                                    // 74: push result string
+            s = s + arm64_b(9)                                       // 75: → SHELLRUN_DONE@84
+            // CHILD path (76-83):
+            s = s + arm64_add_imm(0, 31, 0)                         // 76: x0=sp="/bin/sh"
+            s = s + arm64_add_imm(1, 31, 16)                        // 77: x1=argv@sp+16
+            s = s + arm64_mov_xx(2, 5)                               // 78: x2=envp (x5 from fork)
+            s = s + arm64_movz_x_imm(16, 59)                         // 79: SYS_execve
+            s = s + arm64_svc(0x80)                                  // 80
+            s = s + arm64_movz_x_imm(0, 1)                          // 81: exit(1) if execve fails
+            s = s + arm64_movz_x_imm(16, 1)                         // 82: SYS_exit
+            s = s + arm64_svc(0x80)                                  // 83
+            // SHELLRUN_DONE@84
+            instrIdx = instrIdx + 84
         } else if opTok == "BUILTIN_MAPHAS" {
             // mapHas(map, key): scan flat "k1,v1,..." pairs. Return 1 if found, 0 if not. 32 instrs.
             s = s + arm64_pop(6)                                     // 0: key
@@ -3933,6 +4162,66 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
             s = s + arm64_pop_x0()
             s = s + arm64_stur(0, 29, off)
             instrIdx = instrIdx + 2
+        } else if opTok == "LOAD_GLOBAL" {
+            let gIdx = toInt(restTok)
+            let glbVaddr = g_DATA_VADDR + 0x200000 + gIdx * 8
+            let adrpPc = textVaddr + textOff + instrIdx * 4
+            let adrpPage = adrpPc / 4096 * 4096
+            let glbPage = glbVaddr / 4096 * 4096
+            let imm21lg = (glbPage - adrpPage) / 4096
+            s = s + arm64_adrp(0, imm21lg)
+            s = s + arm64_add_imm(0, 0, glbVaddr % 4096)
+            s = s + arm64_ldr_imm(0, 0, 0)
+            s = s + arm64_push_x0()
+            instrIdx = instrIdx + 4
+        } else if opTok == "STORE_GLOBAL" {
+            let gIdx = toInt(restTok)
+            let glbVaddr = g_DATA_VADDR + 0x200000 + gIdx * 8
+            s = s + arm64_pop_x0()
+            instrIdx = instrIdx + 1
+            let adrpPc = textVaddr + textOff + instrIdx * 4
+            let adrpPage = adrpPc / 4096 * 4096
+            let glbPage = glbVaddr / 4096 * 4096
+            let imm21sg = (glbPage - adrpPage) / 4096
+            s = s + arm64_adrp(1, imm21sg)
+            s = s + arm64_add_imm(1, 1, glbVaddr % 4096)
+            s = s + arm64_str_imm(0, 1, 0)
+            instrIdx = instrIdx + 3
+        } else if opTok == "BUILTIN_BITAND" {
+            s = s + arm64_pop(1)
+            s = s + arm64_pop(0)
+            s = s + arm64_and_www(0, 0, 1)
+            s = s + arm64_push_x0()
+            instrIdx = instrIdx + 4
+        } else if opTok == "BUILTIN_BITOR" {
+            s = s + arm64_pop(1)
+            s = s + arm64_pop(0)
+            s = s + arm64_orr_www(0, 0, 1)
+            s = s + arm64_push_x0()
+            instrIdx = instrIdx + 4
+        } else if opTok == "BUILTIN_BITXOR" {
+            s = s + arm64_pop(1)
+            s = s + arm64_pop(0)
+            s = s + arm64_eor_www(0, 0, 1)
+            s = s + arm64_push_x0()
+            instrIdx = instrIdx + 4
+        } else if opTok == "BUILTIN_BITSHR" {
+            s = s + arm64_pop(1)
+            s = s + arm64_pop(0)
+            s = s + arm64_lsr_w(0, 0, 1)
+            s = s + arm64_push_x0()
+            instrIdx = instrIdx + 4
+        } else if opTok == "BUILTIN_BITSHL" {
+            s = s + arm64_pop(1)
+            s = s + arm64_pop(0)
+            s = s + arm64_lsl_w(0, 0, 1)
+            s = s + arm64_push_x0()
+            instrIdx = instrIdx + 4
+        } else if opTok == "BUILTIN_BITNOT" {
+            s = s + arm64_pop(0)
+            s = s + arm64_mvn_w(0, 0)
+            s = s + arm64_push_x0()
+            instrIdx = instrIdx + 3
         } else if opTok == "BUILTIN_KP" {
             // kp(v): write v to stdout + newline. Handles both strings and ints.
             // Dispatch: if v < 0x100000000 it's an int; else a pointer (heap or __TEXT).
@@ -4068,7 +4357,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets) {
 
 // Top-level emitter: walk all functions in emission order (__main__ first)
 // and concatenate.
-func emitTextFromIR(parsed, strOffsets) {
+func emitTextFromIR(parsed, strOffsets, textSz) {
     let order = emitOrder(parsed)
     let nF = funcCount(parsed)
     let funcTable = buildFunctionTable(parsed)
@@ -4077,7 +4366,7 @@ func emitTextFromIR(parsed, strOffsets) {
     while oi < nF {
         let fIdx = toInt(getLine(order, oi))
         let funcStartInstr = findLabel(funcTable, funcName(parsed, fIdx))
-        s = s + emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets)
+        s = s + emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz)
         oi += 1
     }
     emit s
@@ -4713,8 +5002,17 @@ just run {
     let textCode = ""
     let cstrData = ""
     if useIr == "1" {
-        textCode = emitTextFromIR(irOps, irStrOffsets)
+        let freshTextSz = computeTextSize(irOps)
+        textCode = emitTextFromIR(irOps, irStrOffsets, freshTextSz)
         cstrData = emitCStringFromIR(irOps)
+        // GC only scans the stack for roots, not BSS globals. During the large
+        // emits above, GC may collect the string values of g_TEXT_SIZE /
+        // g_CSTRING_SIZE (only referenced from BSS, not the stack), leaving them
+        // as dangling pointers. Refresh from the already-built local strings —
+        // these ARE on the stack and won't be collected.
+        g_TEXT_SIZE = hexBytesLen(textCode)
+        g_CSTRING_SIZE = hexBytesLen(cstrData)
+        computeLayout()
     } else {
         textCode = emitMainCode()
         cstrData = emitCString()
@@ -4755,6 +5053,11 @@ just run {
     let codeLimit = hexBytesLen(body)
     if codeLimit != CODESIG_OFF() {
         printErr("macho_arm64_self: BUG: body size " + codeLimit + " != CODESIG_OFF " + CODESIG_OFF())
+        printErr("  prefix=" + hexBytesLen(prefix) + " preTextPad=" + preTextPad + " textCode=" + hexBytesLen(textCode))
+        printErr("  stubCode=" + hexBytesLen(stubCode) + " cstrData=" + hexBytesLen(cstrData) + " postCstringPad=" + postCstringPad)
+        printErr("  gotData=" + hexBytesLen(gotData) + " postGotPad=" + postGotPad + " postDataPad=" + postDataPad)
+        printErr("  leChained=" + hexBytesLen(leChained) + " leSymtab=" + hexBytesLen(leSymtab) + " leIndirect=" + hexBytesLen(leIndirect) + " leStrtab=" + hexBytesLen(leStrtab) + " preCodesigPad=" + preCodesigPad)
+        printErr("  g_TEXT_SIZE=" + g_TEXT_SIZE + " g_CSTRING_SIZE=" + g_CSTRING_SIZE)
         exit("1")
     }
 
