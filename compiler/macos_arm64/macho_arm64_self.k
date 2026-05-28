@@ -2837,7 +2837,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = s + arm64_movz_x_imm(16, 5)             // sys_open
             s = s + arm64_svc(0x80)
             s = s + arm64_mov_xx(19, 0)                 // save fd
-            s = s + arm64_movz_x_imm(4, 0x8000)         // x4 = 32 KB (must fit in our 64 KB heap; raise once heap grows past Tahoe's clamp)
+            s = s + arm64_movz_x_imm_lsl16(4, 0x10)     // x4 = 1 MB (DATA_VMSIZE = 1 GB; heap has 32 MB before shadow stack)
             instrIdx = instrIdx + 7
             s = s + emitAllocVar(instrIdx, textVaddr, textOff)
             instrIdx = instrIdx + 21
