@@ -1265,20 +1265,13 @@ func parseFullIR(ir) {
     let nOps = 0
 
     let nl = lineCount(ir)
-    printErr("DBG: parseFullIR lineCount=" + nl)
     let i = 0
     while i < nl {
-        printErr("DBG: line i=" + i)
-        printErr("DBG: calling getLine")
         let line = trim(getLine(ir, i))
-        printErr("DBG: getLine done")
         if len(line) > 0 {
-            printErr("DBG: len>0, line[0] check")
             if line[0] != ";" {
-                printErr("DBG: not comment, extracting op")
                 let j = 0
                 while j < len(line) && line[j] != " " { j += 1 }
-                printErr("DBG: j=" + j)
                 let op = substring(line, 0, j)
                 let rest = ""
                 if j < len(line) { rest = trim(substring(line, j + 1, len(line))) }
@@ -2161,7 +2154,6 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
         let opTok = substring(opLine, 0, spIdx)
         let restTok = ""
         if spIdx < len(opLine) { restTok = trim(substring(opLine, spIdx + 1, len(opLine))) }
-        printErr("DBG: op=" + opTok + " instrIdx=" + instrIdx)
 
         if opTok == "PUSH_STR" {
             let strIdx = toInt(restTok)
@@ -2561,11 +2553,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
         } else if opTok == "BUILTIN_SBNEW" {
             // sbNew(): alloc 4 KB, init length=0, return ptr.
             // Layout of sb buffer: [8-byte length][data ...].
-            // 4 KB rather than the 32 KB of the original because our heap is
-            // only ~40 KB usable; two 32 KB sbs would overflow. Raise back to
-            // 32 KB once the heap-size constraint (Tahoe DATA_VMSIZE cap) is
-            // worked around with mmap or freelist reuse.
-            s = s + arm64_movz_x_imm(4, 4096)       // size = 4 KB
+            s = s + arm64_movz_x_imm_lsl16(4, 0x10)  // size = 1 MB (DATA_VMSIZE = 1 GB)
             instrIdx = instrIdx + 1
             s = s + emitAllocVar(instrIdx, textVaddr, textOff)
             instrIdx = instrIdx + 21
@@ -4404,7 +4392,6 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             // bl <target>
             let targetInstr = findLabel(funcTable, cname)
             let delta = targetInstr - instrIdx
-            printErr("DBG: CALL_FUNC " + cname + " instrIdx=" + instrIdx + " targetInstr=" + targetInstr + " delta=" + delta)
             s = s + arm64_bl(delta)
             instrIdx = instrIdx + 1
             s = s + arm64_push(0)
@@ -4443,15 +4430,12 @@ func emitTextFromIR(parsed, strOffsets, textSz) {
     let order = emitOrder(parsed)
     let nF = funcCount(parsed)
     let funcTable = buildFunctionTable(parsed)
-    printErr("DBG: funcTable=" + funcTable)
     let s = ""
     let oi = 0
     while oi < nF {
         let fIdx = toInt(getLine(order, oi))
         let funcStartInstr = findLabel(funcTable, funcName(parsed, fIdx))
-        printErr("DBG: emitting func=" + funcName(parsed, fIdx) + " startInstr=" + funcStartInstr)
         s = s + emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz)
-        printErr("DBG: done func=" + funcName(parsed, fIdx))
         oi += 1
     }
     emit s
@@ -4977,14 +4961,14 @@ func asciiToHex(s) {
 }
 
 just run {
-    let arg0 = arg("0")
-    if len(arg0) == 0 {
+    if argCount() == 0 {
         printErr("usage: kcc compiler/macos_arm64/macho_arm64_self.k <output_path>")
         printErr("       kcc compiler/macos_arm64/macho_arm64_self.k --ir <input.kir> <output_path>")
         printErr("       kcc compiler/macos_arm64/macho_arm64_self.k --sha256-test")
         exit("1")
     }
 
+    let arg0 = arg("0")
     let outFile = arg0
 
     // --ir <input.kir> <output_path>: compile the simple-subset IR to a
@@ -5005,9 +4989,7 @@ just run {
             printErr("macho_arm64_self: cannot read " + inFile)
             exit("1")
         }
-        printErr("DBG: readFile done, len=" + len(ir))
         irOps = parseFullIR(ir)
-        printErr("DBG: parseFullIR done")
         g_funcStartCache = buildFuncStartCache(irOps)
         irStrOffsets = computeStringOffsets(irOps)
         g_TEXT_SIZE = computeTextSize(irOps)
@@ -5090,9 +5072,7 @@ just run {
     let cstrData = ""
     if useIr == "1" {
         let freshTextSz = computeTextSize(irOps)
-        printErr("DBG: emitting text, freshTextSz=" + freshTextSz)
         textCode = emitTextFromIR(irOps, irStrOffsets, freshTextSz)
-        printErr("DBG: emitTextFromIR done, len=" + len(textCode))
         cstrData = emitCStringFromIR(irOps)
         // GC only scans the stack for roots, not BSS globals. During the large
         // emits above, GC may collect the string values of g_TEXT_SIZE /
