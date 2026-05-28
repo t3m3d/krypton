@@ -48,6 +48,7 @@ func e_addr(rd, rn, rm) { emit wordHL(35584 + rm, rn * 32 + rd) }               
 func e_subr(rd, rn, rm) { emit wordHL(51968 + rm, rn * 32 + rd) }                    // sub Xd,Xn,Xm
 func e_mul(rd, rn, rm)  { let p = 31744 + rn * 32 + rd  emit wordHL(39680 + rm + p / 65536, p % 65536) }
 func e_udiv(rd, rn, rm) { let p = 2048 + rn * 32 + rd   emit wordHL(39616 + rm + p / 65536, p % 65536) }
+func e_sdiv(rd, rn, rm) { let p = 3072 + rn * 32 + rd   emit wordHL(39616 + rm + p / 65536, p % 65536) } // sdiv Xd,Xn,Xm (signed; bit10 set vs udiv)
 func e_msub(rd, rn, rm, ra) { let p = 32768 + ra * 1024 + rn * 32 + rd  emit wordHL(39680 + rm + p / 65536, p % 65536) }
 func e_cmp(rn, rm)   { let p = rn * 32 + 31  emit wordHL(60160 + rm + p / 65536, p % 65536) } // subs xzr,Xn,Xm
 func e_cmpi0(rn) { let p = rn * 32 + 31  emit wordHL(61696 + p / 65536, p % 65536) }          // cmp Xn,#0
@@ -641,6 +642,74 @@ func emitWriteFile() {
     c = c + e_ret()                                            // [92]
     emit c
 }
+// kr_writebytes(x1=path, x0=hexContent) -> 1. 220 bytes. The backend serializes
+// the whole binary as a NUL-terminated "xHH" hex string (hexByte -> "xHH"); this
+// decodes each 'x'+2-uppercase-hex triple to a raw byte and writes them, so it
+// (NOT kr_writefile, which stops at the first NUL) is what emits the ELF output.
+// openat(AT_FDCWD, WRONLY|CREAT|TRUNC=577, 0644=420), write, close.
+// Branchless nibble decode: hexval(ch) = (ch & 15) + ((ch >> 6) * 9) — works for
+// '0'-'9' (>>6 = 0) and 'A'-'F' (>>6 = 1, +9). x24=p, x23=path, x25=fd, x27=buf
+// base, x12=dest. kr_strlen clobbers x9/x10, kr_alloc clobbers x15 — both leave
+// x23/x24 intact. k15=x13 k6=x14 k9=x15 k4=x16 (set after the alloc bl).
+// NB: <=3 terms per line (x86-backend miscompile drops terms from long chains).
+func emitWritebytes(strlenOff, allocOff, thisOff) {
+    let c = e_movr(26, 30) + e_movr(24, 0)                        // [0,4] lr; x24=content(hex)
+    c = c + e_movr(23, 1) + e_movr(0, 24)                         // [8,12] x23=path; x0=content
+    c = c + e_bl(strlenOff - (thisOff + 16))                      // [16] x0=hexlen
+    c = c + e_bl(allocOff - (thisOff + 20))                       // [20] x0=buf (>= decoded count)
+    c = c + e_movr(27, 0) + e_movr(12, 0)                         // [24,28] x27=buf base; x12=dest
+    c = c + e_movn(0, 99) + e_movr(1, 23)                         // [32,36] x0=AT_FDCWD(-100); x1=path
+    c = c + e_movz(2, 577) + e_movz(3, 420)                       // [40,44] O_WRONLY|CREAT|TRUNC; 0644
+    c = c + e_movz(8, 56) + e_svc()                               // [48,52] openat
+    c = c + e_movr(25, 0)                                         // [56] x25=fd
+    c = c + e_movz(13, 15) + e_movz(14, 6)                        // [60,64] k15; k6
+    c = c + e_movz(15, 9) + e_movz(16, 4)                         // [68,72] k9; k4
+    c = c + e_ldrb0(3, 24) + e_cbz(3, 96)                         // [76,80] .loop: x3=[p]; 0 -> .write(176)
+    c = c + e_movz(9, 120) + e_cmp(3, 9)                          // [84,88] x9='x'; cmp
+    c = c + e_bne(76)                                             // [92] != 'x' -> .skip(168)
+    c = c + e_addi(9, 24, 1) + e_ldrb0(4, 9)                      // [96,100] x9=p+1; x4=hi char
+    c = c + e_and(5, 4, 13) + e_lsrv(4, 4, 14)                    // [104,108] x5=hc&15; x4=hc>>6
+    c = c + e_mul(4, 4, 15) + e_addr(4, 5, 4)                     // [112,116] x4=(hc>>6)*9; hv=x5+x4
+    c = c + e_addi(9, 24, 2) + e_ldrb0(6, 9)                      // [120,124] x9=p+2; x6=lo char
+    c = c + e_and(5, 6, 13) + e_lsrv(6, 6, 14)                    // [128,132] x5=lc&15; x6=lc>>6
+    c = c + e_mul(6, 6, 15) + e_addr(6, 5, 6)                     // [136,140] x6=(lc>>6)*9; lv=x5+x6
+    c = c + e_lslv(4, 4, 16) + e_orr(4, 4, 6)                     // [144,148] x4=hv<<4; byte=x4|lv
+    c = c + e_strb(4, 12) + e_addi(12, 12, 1)                     // [152,156] [dest]=byte; dest++
+    c = c + e_addi(24, 24, 3) + e_b(0 - 88)                       // [160,164] p+=3; -> .loop(76)
+    c = c + e_addi(24, 24, 1) + e_b(0 - 96)                       // [168,172] .skip: p++; -> .loop(76)
+    c = c + e_subr(2, 12, 27) + e_movr(0, 25)                     // [176,180] .write: count=dest-buf; x0=fd
+    c = c + e_movr(1, 27) + e_movz(8, 64)                         // [184,188] x1=buf; write nr
+    c = c + e_svc() + e_movr(0, 25)                               // [192,196] write; x0=fd
+    c = c + e_movz(8, 57) + e_svc()                               // [200,204] close
+    c = c + e_movz(0, 1) + e_movr(30, 26)                         // [208,212] return 1; restore lr
+    c = c + e_ret()                                              // [216]
+    emit c
+}
+// kr_readproc(x0=path) -> NUL-terminated contents. 128 bytes. For /proc & /sys
+// virtual files whose st_size is 0 (so kr_readfile's fstat path reads nothing):
+// open, alloc a fixed 256KB buffer, read-loop to EOF, close, NUL-terminate.
+// x23=fd x24=buf x25=cursor x27=remaining x26=lr (all survive kr_alloc/svc).
+// NB: <=3 terms per line (x86-backend miscompile drops terms from long chains).
+func emitReadProc(allocOff, thisOff) {
+    let c = e_movr(26, 30) + e_movr(1, 0)                         // [0,4] lr; x1=path
+    c = c + e_movn(0, 99) + e_movz(2, 0)                          // [8,12] x0=AT_FDCWD; O_RDONLY
+    c = c + e_movz(3, 0) + e_movz(8, 56)                          // [16,20] mode 0; openat nr
+    c = c + e_svc() + e_movr(23, 0)                              // [24,28] openat; x23=fd
+    c = c + e_movzHi(0, 4) + e_bl(allocOff - (thisOff + 36))      // [32,36] x0=0x40000 (256KB); buf=alloc
+    c = c + e_movr(24, 0) + e_movr(25, 0)                         // [40,44] x24=buf base; x25=cursor
+    c = c + e_movz(27, 65535) + e_movk16(27, 3)                   // [48,52] x27=remaining=0x3FFFF (1 byte spare for NUL)
+    c = c + e_movr(0, 23) + e_movr(1, 25)                         // [56,60] .loop: x0=fd; x1=cursor
+    c = c + e_movr(2, 27) + e_movz(8, 63)                         // [64,68] x2=remaining; read nr
+    c = c + e_svc() + e_cmpi0(0)                                 // [72,76] read -> x0=nread; cmp 0
+    c = c + e_ble(20)                                            // [80] nread<=0 -> .done (100)
+    c = c + e_addr(25, 25, 0) + e_subr(27, 27, 0)                // [84,88] cursor+=nread; remaining-=nread
+    c = c + e_cmpi0(27) + e_bgt(0 - 40)                          // [92,96] remaining>0 -> .loop (56)
+    c = c + e_movr(0, 23) + e_movz(8, 57)                        // [100,104] .done: x0=fd; close nr
+    c = c + e_svc() + e_strb(31, 25)                             // [108,112] close; *cursor=0 (NUL)
+    c = c + e_movr(0, 24) + e_movr(30, 26)                       // [116,120] x0=buf; restore lr
+    c = c + e_ret()                                              // [124]
+    emit c
+}
 // Structs = a linked list of 24-byte nodes [name:8][val:8][prev:8]; env head is
 // the most-recent node (NULL = empty). setField prepends; getField walks+strcmps.
 // kr_setfield(x0=env, x1=name, x2=val) -> x0=new node. 44 bytes.
@@ -1061,6 +1130,7 @@ func opBytes(ir, i) {
         if cn == "ptrToInt"     { emit "20" }
         if cn == "intToPtr"     { emit "20" }
         if cn == "ptrEq"        { emit "32" }
+        if cn == "writeBytes"   { emit "28" }   // front-end emits writeBytes as a CALL (not BUILTIN): pop x0/x1 + bl kr_writebytes + push
         emit "4"
     }
     emit toInt(opSize(ln)) + ""
@@ -1181,6 +1251,7 @@ func opSize(ln) {
         if startsWith(b, "bufGetDwordAt ") { emit 28 } // u32 LE: 2 pops + ldrw + push
         if startsWith(b, "unixConnect") { emit 128 }   // socket+connect(AF_UNIX) inline
         if startsWith(b, "readFile")   { emit 20 }  // 1-arg (path)
+        if startsWith(b, "readProc")   { emit 20 }  // 1-arg (path): /proc & /sys reader
         if startsWith(b, "writeFile")  { emit 28 }  // 2-arg (path, content)
         if startsWith(b, "argCount")   { emit 12 }  // 0-arg: bl kr_argcount + push (BEFORE "arg")
         if startsWith(b, "arg")        { emit 24 }  // 1-arg: pop + atoi + bl kr_arg + push
@@ -1293,7 +1364,9 @@ just run {
     let replaceOff = strlenOff + 32        // kr_strlen is 32 bytes
     let environOff = replaceOff + 228      // kr_replace is 228 bytes
     let shellrunOff = environOff + 120     // kr_environ is 120 bytes
-    let nlOff = shellrunOff + 188          // kr_shellrun is 188 bytes
+    let writebytesOff = shellrunOff + 188  // kr_shellrun is 188 bytes
+    let readprocOff = writebytesOff + 220  // kr_writebytes is 220 bytes
+    let nlOff = readprocOff + 128          // kr_readproc is 128 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -1376,8 +1449,8 @@ just run {
         if op == "CAT" { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(plusOff - (off + 16)) + c_push())  off = off + 28 }  // template-string concat via kr_plus
         if op == "SUB" { code = sbAppend(code, c_pop1() + c_pop0() + e_subr(0, 0, 1) + c_push())  off = off + 28 }
         if op == "MUL" { code = sbAppend(code, c_pop1() + c_pop0() + e_mul(0, 0, 1) + c_push())   off = off + 28 }
-        if op == "DIV" { code = sbAppend(code, c_pop1() + c_pop0() + e_udiv(0, 0, 1) + c_push())  off = off + 28 }
-        if op == "MOD" { code = sbAppend(code, c_pop1() + c_pop0() + e_udiv(2, 0, 1) + e_msub(0, 2, 1, 0) + c_push())  off = off + 32 }
+        if op == "DIV" { code = sbAppend(code, c_pop1() + c_pop0() + e_sdiv(0, 0, 1) + c_push())  off = off + 28 }   // signed: matches x86 idiv (negatives, e.g. dsp/4 in backward branches)
+        if op == "MOD" { code = sbAppend(code, c_pop1() + c_pop0() + e_sdiv(2, 0, 1) + e_msub(0, 2, 1, 0) + c_push())  off = off + 32 }
         // s[idx] -> kr_index (i-th CHARACTER). pop0->x0=idx, pop1->x1=s. 28 bytes.
         // (Element access on a comma-collection uses split(coll, i), not [].)
         if op == "INDEX" { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(indexOff - (off + 16)) + c_push())  off = off + 28 }
@@ -1435,7 +1508,9 @@ just run {
             if cn == "ptrToInt"   { code = sbAppend(code, c_pop0() + e_bl(strIntOff - (off + 8)) + c_push())  off = off + 20 }
             if cn == "intToPtr"   { code = sbAppend(code, c_pop0() + e_bl(atoiOff - (off + 8)) + c_push())  off = off + 20 }  // parse decimal string -> raw ptr
             if cn == "ptrEq"      { code = sbAppend(code, c_pop0() + c_pop1() + e_cmp(0, 1) + e_cset(0, 1) + c_push())  off = off + 32 }  // raw int64 compare -> 1 if equal (cset cc=NE: csinc NE = 1 when Z/EQ)
-            if cn != "bitAnd" && cn != "bitOr" && cn != "bitXor" && cn != "bitNot" && cn != "shl" && cn != "shr" && cn != "rawAlloc" && cn != "rawFree" && cn != "rawRealloc" && cn != "rawReadQword" && cn != "rawWriteQword" && cn != "rawReadByte" && cn != "rawReadWord" && cn != "rawWriteWord" && cn != "ptrAdd" && cn != "ptrToInt" && cn != "intToPtr" && cn != "ptrEq" {
+            // writeBytes(path, hexContent): front-end emits a CALL (not BUILTIN). pop0->x0=hex, pop1->x1=path; bl kr_writebytes; push. 28 bytes.
+            if cn == "writeBytes" { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(writebytesOff - (off + 16)) + c_push())  off = off + 28 }
+            if cn != "bitAnd" && cn != "bitOr" && cn != "bitXor" && cn != "bitNot" && cn != "shl" && cn != "shr" && cn != "rawAlloc" && cn != "rawFree" && cn != "rawRealloc" && cn != "rawReadQword" && cn != "rawWriteQword" && cn != "rawReadByte" && cn != "rawReadWord" && cn != "rawWriteWord" && cn != "ptrAdd" && cn != "ptrToInt" && cn != "intToPtr" && cn != "ptrEq" && cn != "writeBytes" {
                 code = sbAppend(code, e_bl(toInt(funcVaddrOf(funcTab, cn)) - off))  off = off + 4
             }
         }
@@ -1543,6 +1618,8 @@ just run {
             }
             // readFile(path): pop0->x0=path; kr_readfile. 20 bytes.
             if startsWith(b, "readFile")   { code = sbAppend(code, c_pop0() + e_bl(readfileOff - (off + 8)) + c_push())  off = off + 20 }
+            // readProc(path): pop0->x0=path; kr_readproc (/proc & /sys). 20 bytes.
+            if startsWith(b, "readProc")   { code = sbAppend(code, c_pop0() + e_bl(readprocOff - (off + 8)) + c_push())  off = off + 20 }
             // argCount() -> argc-1 (0-arg); arg(idx) -> argv[idx+1] (idx via atoi, string index).
             // argCount must be checked first (it also startsWith "arg") -> else-if pair.
             if startsWith(b, "argCount") { code = sbAppend(code, e_bl(argcountOff - off) + c_push())  off = off + 12 }
@@ -1726,6 +1803,8 @@ just run {
     bb = sbAppend(bb, emitReplace(strlenOff, allocOff, replaceOff))
     bb = sbAppend(bb, emitEnviron(opOff, allocOff, environOff))
     bb = sbAppend(bb, emitShellrun(opOff, shellrunOff))
+    bb = sbAppend(bb, emitWritebytes(strlenOff, allocOff, writebytesOff))
+    bb = sbAppend(bb, emitReadProc(allocOff, readprocOff))
     bb = sbAppend(bb, "")     // guards: x86 backend drops trailing sbAppends (scales w/ chain len)
     bb = sbAppend(bb, "")
     bb = sbAppend(bb, "")

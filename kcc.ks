@@ -316,12 +316,22 @@ func ensureArm64Host(root) {
     emit "0"
 }
 
-// Cross-compile to a static aarch64 ELF: x86 front-end IR -> arm64 backend.
+// Compile to a static aarch64 ELF. Two host modes:
+//   - x86_64 host: CROSS-compile. x86 front-end emits IR; the linux_arm64/elf_host
+//     x86 cross-emitter (built on demand via ensureArm64Host) turns it into arm64.
+//   - arm64 host: NATIVE. The arm64 front-end (kcc-linux-arm64) and the arm64-native
+//     elf_host (both shipped as seeds) run directly — no x86 binaries, no gcc.
 // (No optimizer pass yet — the arm64 backend consumes the raw IR.) "1"/"0".
 func compileArm64(root, src, out) {
     let fe = root + "/compiler/linux_x86/kcc-x64"
     let host = root + "/compiler/linux_arm64/elf_host"
-    if ensureArm64Host(root) == "0" { emit "0" }
+    if arch() == "arm64" {
+        // Native: arm64 front-end + arm64-native elf_host (the seeds copied by build.sh).
+        fe = root + "/compiler/linux_arm64/kcc-linux-arm64"
+    } else {
+        // Cross from x86: ensure the x86-hosted arm64 cross-emitter is built.
+        if ensureArm64Host(root) == "0" { emit "0" }
+    }
     let tmpir = sh("mktemp /tmp/_kcka_XXXXXX.kir")
     exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src) + " > " + q(tmpir))
     if size(tmpir) == 0 {
@@ -418,7 +428,10 @@ just run {
         let toArm = "0"
         if hasFlag("--arm64") == "1" { toArm = "1" }
         else { if hasFlag("--x64") == "0" { if arch() == "arm64" { toArm = "1" } } }
-        let fe = root + "/compiler/linux_x86/kcc-x64"   // x86 front-end emits arch-agnostic IR
+        // Front-end emits arch-agnostic IR. Use the native front-end for the host:
+        // the x86 kcc-x64 can't run on an arm64 box, so pick kcc-linux-arm64 there.
+        let fe = root + "/compiler/linux_x86/kcc-x64"
+        if arch() == "arm64" { fe = root + "/compiler/linux_arm64/kcc-linux-arm64" }
 
         // --ir: stream IR (arch-agnostic).
         if hasFlag("--ir") {
