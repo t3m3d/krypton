@@ -87,6 +87,25 @@ func e_bgt(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 +
 func e_movn(rd, imm) { let p = imm * 32 + rd  emit wordHL(37504 + p / 65536, p % 65536) } // movn Xd,#imm (NOT imm); movn Xd,#0 = -1
 func e_beq(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 0  emit wordHL(21504 + p / 65536, p % 65536) } // b.eq (cond EQ=0)
 
+// A1 floating point — scalar-double FP encoders (boxed-f64; mirrors macho_arm64_self.k).
+// Opcodes are hardware AArch64 scalar-double, hi/lo split for wordHL(hi16,lo16).
+func e_scvtf(dd, xn)  { emit wordHL(40546, xn * 32 + dd) }              // scvtf Dd,Xn  (0x9E620000) int->double
+func e_fcvtzs(xd, dn) { emit wordHL(40568, dn * 32 + xd) }             // fcvtzs Xd,Dn (0x9E780000) double->int (trunc)
+func e_fadd(dd, dn, dm) { emit wordHL(7776 + dm, 10240 + dn * 32 + dd) } // fadd Dd,Dn,Dm (0x1E602800)
+func e_fsub(dd, dn, dm) { emit wordHL(7776 + dm, 14336 + dn * 32 + dd) } // fsub (0x1E603800)
+func e_fmul(dd, dn, dm) { emit wordHL(7776 + dm,  2048 + dn * 32 + dd) } // fmul (0x1E600800)
+func e_fdiv(dd, dn, dm) { emit wordHL(7776 + dm,  6144 + dn * 32 + dd) } // fdiv (0x1E601800)
+func e_fsqrt(dd, dn)  { emit wordHL(7777, 49152 + dn * 32 + dd) }       // fsqrt (0x1E61C000)
+func e_fneg(dd, dn)   { emit wordHL(7777, 16384 + dn * 32 + dd) }       // fneg  (0x1E614000)
+func e_fabs(dd, dn)   { emit wordHL(7776, 49152 + dn * 32 + dd) }       // fabs  (0x1E60C000)
+func e_frintm(dd, dn) { emit wordHL(7781, 16384 + dn * 32 + dd) }       // frintm floor (0x1E654000)
+func e_frintp(dd, dn) { emit wordHL(7780, 49152 + dn * 32 + dd) }       // frintp ceil  (0x1E64C000)
+func e_frintn(dd, dn) { emit wordHL(7780, 16384 + dn * 32 + dd) }       // frintn round-nearest-even (0x1E644000)
+func e_fcmp(dn, dm)   { emit wordHL(7776 + dm, 8192 + dn * 32) }        // fcmp Dn,Dm (0x1E602000)
+func e_fcmpz(dn)      { emit wordHL(7776, 8200 + dn * 32) }             // fcmp Dn,#0.0 (0x1E602008)
+func e_ldrd(dt, xn)   { emit wordHL(64832, xn * 32 + dt) }             // ldr Dt,[Xn] (0xFD400000, imm=0)
+func e_strd(dt, xn)   { emit wordHL(64768, xn * 32 + dt) }             // str Dt,[Xn] (0xFD000000, imm=0)
+
 // composites
 func c_push() { emit e_subi(20, 20, 16) + e_str0(0, 20) }      // push x0
 func c_pop0() { emit e_ldr0(0, 20) + e_addi(20, 20, 16) }      // pop -> x0
@@ -710,6 +729,110 @@ func emitReadProc(allocOff, thisOff) {
     c = c + e_ret()                                              // [124]
     emit c
 }
+// ── A1 floating point (boxed-f64) runtime helpers ────────────────────────────
+// A float value = a pointer (>= VBASE=0x7F000000) to an 8-byte f64 box. Ints are
+// < VBASE. fp builtins know operands are floats statically and auto-promote ints
+// (scvtf). Boxes are bump-alloc'd (no reclaim) — the arm64 ELF backend has no
+// precise GC; interim per handoff_m2wl_a1_float.md. Mirrors macho_arm64_self.k.
+//
+// __f_load1: x0 -> d0. x0 < VBASE -> int (scvtf), else box ptr (ldr d0,[x0]). 28B.
+func emitFLoad1() {
+    let c = e_movzHi(9, 32512)                  // [0]  x9 = VBASE (0x7F000000)
+    c = c + e_cmp(0, 9)                         // [4]  cmp x0, x9
+    c = c + e_blt(12)                           // [8]  x0 < VBASE -> INT path [20]
+    c = c + e_ldrd(0, 0)                        // [12] ldr d0,[x0] (box deref)
+    c = c + e_ret()                             // [16]
+    c = c + e_scvtf(0, 0)                       // [20] scvtf d0,x0 (int promote)
+    c = c + e_ret()                             // [24]
+    emit c
+}
+// __f_load2: x1 -> d1 (same logic; preserves d0). 28B.
+func emitFLoad2() {
+    let c = e_movzHi(9, 32512)                  // [0]
+    c = c + e_cmp(1, 9)                         // [4]
+    c = c + e_blt(12)                           // [8]  -> [20]
+    c = c + e_ldrd(1, 1)                        // [12] ldr d1,[x1]
+    c = c + e_ret()                             // [16]
+    c = c + e_scvtf(1, 1)                       // [20] scvtf d1,x1
+    c = c + e_ret()                             // [24]
+    emit c
+}
+// __f_box: d0 -> x0. Bump-alloc 8 bytes, str d0. kr_alloc is GP-only (x0/x15/x22),
+// so d0 survives; save lr in x23 (kr_alloc preserves it). 24B.
+func emitFBox(allocOff, thisOff) {
+    let c = e_movr(23, 30)                              // [0]  save lr
+    c = c + e_movz(0, 8)                                // [4]  x0 = 8 (box size)
+    c = c + e_bl(allocOff - (thisOff + 8))             // [8]  x0 = box ptr
+    c = c + e_strd(0, 0)                                // [12] str d0,[x0]
+    c = c + e_movr(30, 23)                              // [16] restore lr
+    c = c + e_ret()                                     // [20]
+    emit c
+}
+// __f_format: x0=value (box ptr or int), x1=prec -> x0=decimal string.
+// scale=10^prec; digits = round(|value|*scale) as one integer; written right-to
+// -left into a 48B buffer (low `prec` digits = fraction, then '.', integer part,
+// then '-'). Mirrors macho __f_format. 232B (58 instrs, idx 0..57). Saves lr in x26.
+func emitFFormat(allocOff, thisOff) {
+    let c = e_movr(26, 30)                       // [0]   save lr
+    c = c + e_movzHi(12, 32512)                  // [4]   x12 = VBASE
+    c = c + e_cmp(0, 12)                         // [8]   cmp x0, x12
+    c = c + e_blt(12)                            // [12]  x0 < VBASE -> INT [24]
+    c = c + e_ldrd(0, 0)                         // [16]  ldr d0,[x0] (box)
+    c = c + e_b(8)                               // [20]  -> [28]
+    c = c + e_scvtf(0, 0)                        // [24]  scvtf d0,x0 (int)
+    c = c + e_fcmpz(0)                           // [28]  fcmp d0,#0.0
+    c = c + e_cset(13, 5)                        // [32]  x13 = (d0 < 0) ? 1:0  (MI = invert(PL=5))
+    c = c + e_fabs(0, 0)                         // [36]  d0 = |d0|
+    c = c + e_movr(14, 1)                        // [40]  x14 = prec
+    c = c + e_movz(3, 1)                         // [44]  x3 = scale acc = 1
+    c = c + e_movr(4, 1)                         // [48]  x4 = counter = prec
+    c = c + e_cbz(4, 20)                         // [52]  counter==0 -> [72]
+    c = c + e_movz(5, 10)                        // [56]
+    c = c + e_mul(3, 3, 5)                       // [60]  scale *= 10
+    c = c + e_subi(4, 4, 1)                      // [64]
+    c = c + e_b(0 - 16)                          // [68]  -> [52]
+    c = c + e_scvtf(1, 3)                        // [72]  d1 = (double)scale
+    c = c + e_fmul(0, 0, 1)                      // [76]
+    c = c + e_frintn(0, 0)                       // [80]  round to nearest
+    c = c + e_fcvtzs(16, 0)                      // [84]  x16 = all digits
+    c = c + e_movz(0, 48)                        // [88]  x0 = 48 (buffer size)
+    c = c + e_bl(allocOff - (thisOff + 92))      // [92]  x0 = buf
+    c = c + e_addi(6, 0, 47)                     // [96]  cursor = buf+47
+    c = c + e_movz(7, 0)                         // [100]
+    c = c + e_strb(7, 6)                         // [104] *cursor = NUL
+    c = c + e_subi(6, 6, 1)                      // [108] cursor--
+    c = c + e_movr(8, 14)                        // [112] x8 = prec (frac counter)
+    c = c + e_cbz(8, 40)                         // [116] prec==0 -> [156] (skip fraction)
+    c = c + e_movz(5, 10)                        // [120] .fracloop
+    c = c + e_udiv(9, 16, 5)                     // [124] q = digits/10
+    c = c + e_msub(10, 9, 5, 16)                 // [128] digit = digits - q*10
+    c = c + e_addi(10, 10, 48)                   // [132] ascii
+    c = c + e_strb(10, 6)                        // [136]
+    c = c + e_subi(6, 6, 1)                      // [140]
+    c = c + e_movr(16, 9)                        // [144] digits = q
+    c = c + e_subi(8, 8, 1)                      // [148]
+    c = c + e_b(0 - 36)                          // [152] -> [116]
+    c = c + e_cbz(14, 16)                        // [156] prec==0 -> [172] (skip dot)
+    c = c + e_movz(7, 46)                        // [160] '.'
+    c = c + e_strb(7, 6)                         // [164]
+    c = c + e_subi(6, 6, 1)                      // [168]
+    c = c + e_movz(5, 10)                        // [172] .intloop
+    c = c + e_udiv(9, 16, 5)                     // [176] q
+    c = c + e_msub(10, 9, 5, 16)                 // [180] digit
+    c = c + e_addi(10, 10, 48)                   // [184]
+    c = c + e_strb(10, 6)                        // [188]
+    c = c + e_subi(6, 6, 1)                      // [192]
+    c = c + e_movr(16, 9)                        // [196] digits = q
+    c = c + e_cbnz(16, 0 - 24)                   // [200] digits!=0 -> [176]
+    c = c + e_cbz(13, 16)                        // [204] not neg -> [220]
+    c = c + e_movz(7, 45)                        // [208] '-'
+    c = c + e_strb(7, 6)                         // [212]
+    c = c + e_subi(6, 6, 1)                      // [216]
+    c = c + e_addi(0, 6, 1)                      // [220] x0 = string start (cursor+1)
+    c = c + e_movr(30, 26)                       // [224] restore lr
+    c = c + e_ret()                              // [228]
+    emit c
+}
 // Structs = a linked list of 24-byte nodes [name:8][val:8][prev:8]; env head is
 // the most-recent node (NULL = empty). setField prepends; getField walks+strcmps.
 // kr_setfield(x0=env, x1=name, x2=val) -> x0=new node. 44 bytes.
@@ -1020,6 +1143,12 @@ func isStrPush(ln) {                     // PUSH "..."
     if startsWith(ln, "PUSH \"") { emit "1" }
     emit "0"
 }
+// A1 float: a non-string PUSH operand with a '.' is a float literal (3.14, 0.0).
+func hasDot(s) {
+    let i = 0
+    while i < len(s) { if substring(s, i, i + 1) == "." { emit "1" }  i = i + 1 }
+    emit "0"
+}
 // Decode escape-encoded string back to raw bytes (mirrors linux_x86/elf.k's
 // decodeStr). The IR preserves escapes as 2-char text (\n, \t, \\, \", \r);
 // decode to real bytes at emit time. Control bytes via fromCharCode so this
@@ -1181,7 +1310,11 @@ func buildSlots(ir, fStart) {
 // byte size of a non-structural op (body of a function).
 func opSize(ln) {
     let op = opcode(ln)
-    if op == "PUSH"    { emit 16 }
+    if op == "PUSH" {
+        if isStrPush(ln) == "1" { emit 16 }
+        if hasDot(operand(ln)) == "1" { emit 40 }   // float literal: M/scale materialize + box
+        emit 16
+    }
     if op == "STORE"   { emit 12 }
     if op == "LOAD"    { emit 12 }
     if op == "ADD"     { emit 28 }
@@ -1196,7 +1329,7 @@ func opSize(ln) {
     if op == "JUMPIFNOT" { emit 16 }   // pop + bl istruthy + cbz (was naive cbz)
     if op == "JUMPIF"    { emit 16 }   // pop + bl istruthy + cbnz (|| short-circuit)
     if op == "NOT"       { emit 28 }   // pop + bl istruthy + (x0 ^= 1) + push
-    if op == "NEG"       { emit 20 }   // pop + sub x0,xzr,x0 + push (unary minus)
+    if op == "NEG"       { emit 48 }   // polymorphic: int neg / float box deref+fneg+rebox
     if op == "LT" || op == "GT" || op == "LTE" || op == "GTE" { emit 36 }   // bl kr_cmp + cmpi0 + cset
     if op == "EQ"  { emit 28 }     // polymorphic kr_eq (numeric OR strcmp)
     if op == "NEQ" { emit 36 }     // kr_eq + invert
@@ -1276,6 +1409,19 @@ func opSize(ln) {
         if startsWith(b, "envGet")     { emit 28 }
         if startsWith(b, "hasField")   { emit 28 }  // 2-arg -> kr_hasfield (1/0)
         if startsWith(b, "structFields") { emit 20 }  // 1-arg -> kr_structfields
+        // A1 floating point (boxed-f64).
+        if startsWith(b, "fadd")  { emit 40 }  // pop b,a; load both; fadd; box; push
+        if startsWith(b, "fsub")  { emit 40 }
+        if startsWith(b, "fmul")  { emit 40 }
+        if startsWith(b, "fdiv")  { emit 40 }
+        if startsWith(b, "fsqrt")  { emit 28 }  // pop a; load; fsqrt; box; push
+        if startsWith(b, "ffloor") { emit 28 }
+        if startsWith(b, "fceil")  { emit 28 }
+        if startsWith(b, "fround") { emit 28 }
+        if startsWith(b, "flt")  { emit 40 }   // pop b,a; load; fcmp; cset; push (bool int)
+        if startsWith(b, "fgt")  { emit 40 }
+        if startsWith(b, "feq")  { emit 40 }
+        if startsWith(b, "fformat") { emit 28 }  // pop prec,value; bl __f_format; push
         emit 0
     }
     emit 0
@@ -1366,7 +1512,12 @@ just run {
     let shellrunOff = environOff + 120     // kr_environ is 120 bytes
     let writebytesOff = shellrunOff + 188  // kr_shellrun is 188 bytes
     let readprocOff = writebytesOff + 220  // kr_writebytes is 220 bytes
-    let nlOff = readprocOff + 128          // kr_readproc is 128 bytes
+    // A1 float helpers (boxed-f64), appended after kr_readproc in layout order.
+    let fload1Off = readprocOff + 128      // kr_readproc is 128 bytes
+    let fload2Off = fload1Off + 28         // __f_load1 is 28 bytes
+    let fboxOff = fload2Off + 28           // __f_load2 is 28 bytes
+    let fformatOff = fboxOff + 24          // __f_box is 24 bytes
+    let nlOff = fformatOff + 232           // __f_format is 232 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -1438,10 +1589,34 @@ just run {
                 let sOff = strCursor                              // O(1): running data offset (was O(n) full-IR re-walk per string)
                 strCursor = strCursor + (len(quoted(ln)) + 1)
                 code = sbAppend(code, e_movz(0, sOff % 65536) + e_movk16(0, 32512 + sOff / 65536) + c_push())
+                off = off + 16
+            } else if hasDot(operand(ln)) == "1" {
+                // A1 float literal: materialize at runtime as M/scale (M = all
+                // digits as int, scale = 10^fracDigits) via scvtf + fdiv, then box.
+                // 32-bit M/scale (c_loadImm) — ~9 sig digits, ample for FE literals.
+                let v = operand(ln)
+                let mant = 0
+                let fracN = 0
+                let seenDot = 0
+                let pp = 0
+                while pp < len(v) {
+                    let ch = substring(v, pp, pp + 1)
+                    if ch == "." { seenDot = 1 }
+                    else { mant = mant * 10 + toInt(ch)  if seenDot == 1 { fracN = fracN + 1 } }
+                    pp = pp + 1
+                }
+                let scl = 1
+                let sj = 0
+                while sj < fracN { scl = scl * 10  sj = sj + 1 }
+                code = sbAppend(code, c_loadImm(mant) + e_scvtf(0, 0))          // [0,8] x0=M; d0=(double)M
+                code = sbAppend(code, c_loadImm(scl) + e_scvtf(1, 0))          // [12,20] x0=scale; d1=(double)scale
+                code = sbAppend(code, e_fdiv(0, 0, 1) + e_bl(fboxOff - (off + 28)))  // [24,28] d0=M/scale; box->x0
+                code = sbAppend(code, c_push())                                // [32]
+                off = off + 40
             } else {
                 code = sbAppend(code, c_loadImm(toInt(operand(ln))) + c_push())
+                off = off + 16
             }
-            off = off + 16
         }
         if op == "STORE" { code = sbAppend(code, c_pop0() + e_strIdx(0, 19, toInt(tabLookup(curSlots, operand(ln)))))  off = off + 12 }
         if op == "LOAD"  { code = sbAppend(code, e_ldrIdx(0, 19, toInt(tabLookup(curSlots, operand(ln)))) + c_push())   off = off + 12 }
@@ -1483,7 +1658,17 @@ just run {
         if op == "JUMPIFNOT" { code = sbAppend(code, c_pop0() + e_bl(istruthyOff - (off + 8)) + e_cbz(0, toInt(labelAbsOffset(labelTab, operand(ln))) - (off + 12)))  off = off + 16 }
         if op == "JUMPIF" { code = sbAppend(code, c_pop0() + e_bl(istruthyOff - (off + 8)) + e_cbnz(0, toInt(labelAbsOffset(labelTab, operand(ln))) - (off + 12)))  off = off + 16 }
         if op == "NOT" { code = sbAppend(code, c_pop0() + e_bl(istruthyOff - (off + 8)) + e_movz(1, 1) + e_eor(0, 0, 1) + c_push())  off = off + 28 }
-        if op == "NEG" { code = sbAppend(code, c_pop0() + e_subr(0, 31, 0) + c_push())  off = off + 20 }
+        if op == "NEG" {
+            // Polymorphic negate. The FE lowers a negative float literal (-3.14)
+            // to PUSH 3.14 + NEG, so NEG must fneg a float box (ptr operand >= VBASE),
+            // not negate the pointer. Int operand (< VBASE) -> integer neg. 48B.
+            code = sbAppend(code, c_pop0() + e_movzHi(9, 32512) + e_cmp(0, 9))   // [0,8,12] x0=val; x9=VBASE; cmp
+            code = sbAppend(code, e_blt(20))                                      // [16] x0<VBASE -> INT [36]
+            code = sbAppend(code, e_ldrd(0, 0) + e_fneg(0, 0))                    // [20,24] box deref; fneg
+            code = sbAppend(code, e_bl(fboxOff - (off + 28)) + e_b(8))           // [28,32] re-box; -> [40]
+            code = sbAppend(code, e_subr(0, 31, 0) + c_push())                    // [36,40] INT neg; push
+            off = off + 48
+        }
         if op == "CALL" {
             let cn = headName(ln)
             // bitwise builtins arrive as generic CALLs (front-end emits CALL, not BUILTIN).
@@ -1739,6 +1924,61 @@ just run {
                 code = sbAppend(code, sbToString(kc))
                 off = off + 36
             }
+            // ── A1 floating point (boxed-f64) ────────────────────────────────
+            // Binary: pop b->x1, a->x0; load both to d0/d1; op; box; push. 40B.
+            if startsWith(b, "fadd") || startsWith(b, "fsub") || startsWith(b, "fmul") || startsWith(b, "fdiv") {
+                let kc = sbNew()
+                kc = sbAppend(kc, c_pop1() + c_pop0())                  // [0,8] x1=b, x0=a
+                kc = sbAppend(kc, e_bl(fload1Off - (off + 16)))        // [16] a -> d0
+                kc = sbAppend(kc, e_bl(fload2Off - (off + 20)))        // [20] b -> d1
+                if startsWith(b, "fadd")      { kc = sbAppend(kc, e_fadd(0, 0, 1)) }   // [24]
+                else if startsWith(b, "fsub") { kc = sbAppend(kc, e_fsub(0, 0, 1)) }
+                else if startsWith(b, "fmul") { kc = sbAppend(kc, e_fmul(0, 0, 1)) }
+                else                          { kc = sbAppend(kc, e_fdiv(0, 0, 1)) }
+                kc = sbAppend(kc, e_bl(fboxOff - (off + 28)))          // [28] d0 -> box x0
+                kc = sbAppend(kc, c_push())                            // [32]
+                code = sbAppend(code, sbToString(kc))
+                off = off + 40
+            }
+            // Unary: pop a->x0; load to d0; op; box; push. 28B.
+            if startsWith(b, "fsqrt") || startsWith(b, "ffloor") || startsWith(b, "fceil") || startsWith(b, "fround") {
+                let kc = sbNew()
+                kc = sbAppend(kc, c_pop0())                            // [0] x0 = a
+                kc = sbAppend(kc, e_bl(fload1Off - (off + 8)))         // [8] a -> d0
+                if startsWith(b, "fsqrt")       { kc = sbAppend(kc, e_fsqrt(0, 0)) }   // [12]
+                else if startsWith(b, "ffloor") { kc = sbAppend(kc, e_frintm(0, 0)) }
+                else if startsWith(b, "fceil")  { kc = sbAppend(kc, e_frintp(0, 0)) }
+                else                            { kc = sbAppend(kc, e_frintn(0, 0)) }
+                kc = sbAppend(kc, e_bl(fboxOff - (off + 16)))         // [16] d0 -> box x0
+                kc = sbAppend(kc, c_push())                           // [20]
+                code = sbAppend(code, sbToString(kc))
+                off = off + 28
+            }
+            // Compare -> bool int (1/0): pop b->x1, a->x0; load; fcmp d0,d1; cset; push.
+            // e_cset takes the INVERTED cond: flt(want LT)->GE(10), fgt(GT)->LE(13), feq(EQ)->NE(1). 40B.
+            if startsWith(b, "flt") || startsWith(b, "fgt") || startsWith(b, "feq") {
+                let kc = sbNew()
+                kc = sbAppend(kc, c_pop1() + c_pop0())                 // [0,8] x1=b, x0=a
+                kc = sbAppend(kc, e_bl(fload1Off - (off + 16)))       // [16] a -> d0
+                kc = sbAppend(kc, e_bl(fload2Off - (off + 20)))       // [20] b -> d1
+                kc = sbAppend(kc, e_fcmp(0, 1))                       // [24] cmp d0,d1
+                if startsWith(b, "flt")      { kc = sbAppend(kc, e_cset(0, 10)) }   // [28] a<b
+                else if startsWith(b, "fgt") { kc = sbAppend(kc, e_cset(0, 13)) }   // a>b
+                else                         { kc = sbAppend(kc, e_cset(0, 1)) }    // a==b
+                kc = sbAppend(kc, c_push())                           // [32]
+                code = sbAppend(code, sbToString(kc))
+                off = off + 40
+            }
+            // fformat(value, prec) -> decimal string. value pushed first, prec on top. 28B.
+            if startsWith(b, "fformat") {
+                let kc = sbNew()
+                kc = sbAppend(kc, c_pop1())                           // [0] x1 = prec
+                kc = sbAppend(kc, c_pop0())                           // [8] x0 = value
+                kc = sbAppend(kc, e_bl(fformatOff - (off + 16)))     // [16] x0 = string
+                kc = sbAppend(kc, c_push())                          // [20]
+                code = sbAppend(code, sbToString(kc))
+                off = off + 28
+            }
         }
         // RETURN and END: epilogue (free locals, restore x19/x30, ret). For __main__
         // this returns to _start, which then exits(0).
@@ -1805,6 +2045,10 @@ just run {
     bb = sbAppend(bb, emitShellrun(opOff, shellrunOff))
     bb = sbAppend(bb, emitWritebytes(strlenOff, allocOff, writebytesOff))
     bb = sbAppend(bb, emitReadProc(allocOff, readprocOff))
+    bb = sbAppend(bb, emitFLoad1())                       // A1 float: x0 -> d0
+    bb = sbAppend(bb, emitFLoad2())                       // A1 float: x1 -> d1
+    bb = sbAppend(bb, emitFBox(allocOff, fboxOff))        // A1 float: d0 -> boxed x0
+    bb = sbAppend(bb, emitFFormat(allocOff, fformatOff))  // A1 float: (value,prec) -> string
     bb = sbAppend(bb, "")     // guards: x86 backend drops trailing sbAppends (scales w/ chain len)
     bb = sbAppend(bb, "")
     bb = sbAppend(bb, "")
