@@ -1241,35 +1241,51 @@ func collectModuleGlobals(ir) {
 }
 
 func parseFullIR(ir) {
+    printErr("DBG: parseFullIR start")
     // Collect module globals (all LOCALs declared in __main__). These are
     // shared across functions via x28-relative addressing instead of frame slots.
     let globalsStr = collectModuleGlobals(ir)
+    printErr("DBG: globalsStr done")
     let numGlobals = 0
     if len(globalsStr) > 0 { numGlobals = lineCount(globalsStr) }
 
     // sbStrings holds interned globals as a newline-separated string. Using sb
     // for O(name_length) append (vs O(total_strings_length) for string concat).
+    printErr("DBG: calling sbNew sbStrings")
     let sbStrings = sbNew()
+    printErr("DBG: sbStrings ok")
     let nStrings = 0
     let funcsSb = sbNew()
+    printErr("DBG: funcsSb ok")
     let nFunctions = 0
 
     // Per-function state (resets at each FUNC line)
     let inFunc = "0"
     let curName = ""
+    printErr("DBG: sbParams sbNew")
     let sbParams = sbNew()
+    printErr("DBG: sbLocals sbNew")
     let nParams = 0
     let sbLocals = sbNew()
+    printErr("DBG: curOps sbNew")
     let nLocals = 0
     let curOps = sbNew()
+    printErr("DBG: sbs done, starting parse loop")
     let nOps = 0
 
+    printErr("DBG: lineCount")
     let nl = lineCount(ir)
+    printErr("DBG: nl=" + nl)
     let i = 0
     while i < nl {
+        printErr("DBG: loop i=" + i)
         let line = trim(getLine(ir, i))
+        printErr("DBG: line=" + line)
         if len(line) > 0 {
-            if line[0] != ";" {
+            printErr("DBG: checking line[0]")
+            let first_char = line[0]
+            printErr("DBG: first_char=" + first_char)
+            if first_char != ";" {
                 let j = 0
                 while j < len(line) && line[j] != " " { j += 1 }
                 let op = substring(line, 0, j)
@@ -5040,13 +5056,18 @@ just run {
             printErr("usage: --ir <input.kir> <output_path>")
             exit("1")
         }
+        printErr("DBG: reading file")
         let ir = readFile(inFile)
+        printErr("DBG: readFile done, len=" + len(ir))
         if len(ir) == 0 {
             printErr("macho_arm64_self: cannot read " + inFile)
             exit("1")
         }
+        printErr("DBG: calling parseFullIR")
         irOps = parseFullIR(ir)
+        printErr("DBG: parseFullIR done")
         g_funcStartCache = buildFuncStartCache(irOps)
+        printErr("DBG: buildFuncStartCache done")
         irStrOffsets = computeStringOffsets(irOps)
         g_TEXT_SIZE = computeTextSize(irOps)
         g_CSTRING_SIZE = computeCStringSize(irOps)
