@@ -2,51 +2,39 @@
 
 All notable changes to the Krypton language and compiler.
 
-## [2.1.1-dev] - 2026-05-27 — web framework + stdlib gaps
+## [2.1.1] - 2026-05-28 — macOS arm64 self-hosting
 
-Additive improvements on top of 2.1.0. No compiler / backend changes
-this round; pure stdlib + tests.
+Theme: **the macOS arm64 native backend (`macho_arm64_self.k`) now fully
+self-hosts** — it compiles its own KIR into a byte-for-byte identical native
+Mach-O across generations (C-bootstrap host → gen1 → gen2 → gen3 all share one
+SHA-256), with no `clang`/`as`/`ld`/`codesign` in the loop (self-emitted load
+commands + ad-hoc SHA-256 signature).
 
-### stdlib
+**Backend fixes (`compiler/macos_arm64/macho_arm64_self.k`):**
 
-- **`stdlib/htmk.k`** — added missing HTML5 semantic / inline elements
-  (`htFigure`, `htFigcaption`, `htMark`, `htTime`, `htAddress`,
-  `htAbbr`, `htCite`, `htKbd`, `htSamp`, `htVar`, `htQ`, `htSub`,
-  `htSup`, `htSmall`, `htDel`, `htIns`, `htHgroup`, `htDl`, `htDt`,
-  `htDd`, `htCaption`, `htTfoot`, `htColgroup`, `htCol`), plus the
-  htmx-style live-update attributes (`htHxGet`, `htHxPost`,
-  `htHxPut`, `htHxDelete`, `htHxTarget`, `htHxSwap`, `htHxTrigger`,
-  `htHxConfirm`). Pairs with a tiny `htmx.js` page shim for in-place
-  fragment swapping.
-- **`stdlib/url.k`** (new) — RFC 3986 percent-encoding plus query-string
-  helpers. `urlEncode`, `urlEncodeQuery`, `urlDecode`, `urlDecodeQuery`,
-  `urlBuild(base, "k=v,k=v")`. Closes the `urllib.parse.quote` /
-  `unquote` / `urlencode` gap. Pure Krypton, no syscalls.
-- **`stdlib/datetime.k`** (new) — `dtNowEpoch`, `dtToday`, `dtNowIso`,
-  `dtHttpDate` (RFC 7231 for HTTP headers), `dtAddSeconds`/Minutes/
-  Hours/Days, `dtDiffSeconds`. UTC only. Cross-platform via
-  PowerShell (Windows) / POSIX `date` (Linux / macOS / Git Bash).
-
-### tests
-
-- **`tests/test_htmk.k`** (new) — first formal htmk tests. ~25
-  assertions covering escape, attr builders, container + void
-  elements, composite page assembly, the new HTML5 + htmx
-  additions.
-- **`tests/test_url.k`** (new) — round-trips path-encoding and
-  query-encoding edges (space, slash, ampersand, lowercase hex,
-  bare `%`), plus `urlBuild` shape checks.
-- **`tests/test_datetime.k`** (new) — accessors return well-shaped
-  strings (not cmd.exe interactive-prompt garbage), arithmetic
-  helpers compose deterministically.
-
-### Known issue (carried forward)
-
-- **x64 codegen perf regression for files that import large
-  stdlibs.** `tests/test_htmk.k` (imports the full 155-function
-  `k:htmk`) takes 1-3 minutes to native-compile despite only ~4400
-  IR lines — suggests an O(n²) somewhere in x64.k post-2.1.0 work.
-  Functional output is correct; investigation deferred.
+- **JUMPIFNOT/JUMPIF**: replaced single `CBZ`/`CBNZ` (19-bit ±256K range) with
+  `pop; cbnz/cbz +2; b target` so large functions don't overflow the branch
+  immediate (was silently wrapping to a wrong in-range target).
+- **Ad-hoc code signature**: emit the full embedded-signature SuperBlob the
+  Apple-Silicon kernel requires — CodeDirectory (2 special slots) + empty
+  Requirements blob + empty CMS signature slot — and set `execSegLimit` to the
+  real `__TEXT` vmsize. Native binaries previously loaded only under a debugger
+  and were `SIGKILL`'d (CODESIGNING / Invalid Page) at exec.
+- **`toInt`**: now parses a leading `-`. The KIR encodes large constants as
+  signed (e.g. `0xfeedfacf` → `-17958193`); the old loop bailed at `'-'` and
+  returned 0, mis-encoding every such `PUSH_INT` during a self-compile.
+- **StringBuilder rework**: `sbNew/sbAppend/sbToString` use a stable handle that
+  holds a buffer pointer, so realloc-on-grow never invalidates a caller's
+  handle (fixes corruption from the many in-place `sbAppend(sb, …)` sites).
+  `emitOneFunction`, `emitTextFromIR`, `buildFunctionLabelTable`, and the
+  SHA-256 chunk/schedule builders now build via O(n) sb instead of O(n²)
+  string concatenation; per-instruction hex uses a 256-entry lookup table.
+- **Heap layout**: 1.5 GB bump arena clear of the dyld shared cache, module
+  globals relocated above the heap, and the GC shadow-stack write dropped
+  (count-only) so a full self-compile stays within budget without reclamation.
+- Cached the per-function op-block base so op access is O(1) instead of
+  re-parsing the function header and re-scanning the whole parsed program per
+  op (also collapses the former O(n²) self-compile time).
 
 ## [2.1.0] - 2026-05-25 — Python-replacement push
 
