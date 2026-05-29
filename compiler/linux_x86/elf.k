@@ -366,17 +366,51 @@ func krPrintSize() { emit 60 }
 //   [11] 49 8D 47 08         LEA RAX, [R15+8]        (4)  payload ptr
 //   [15] 4D 8D 7C 3F 08      LEA R15, [R15+RDI+8]    (5)  bump past hdr+payload
 //   [20] C3                  RET                     (1)
+// GC S3: kr_alloc with freelist first-fit. After rounding RDI up to 8, load the
+// GC base from the fixed slot [vaddr+8] (NOT R14 — helpers use R14 as scratch and
+// call kr_alloc with it clobbered), walk free_head ([gcbase+40]); blocks are
+// header addresses (size at [cur], next at [cur+8]). First block with size >= RDI
+// is unlinked, payload (cur+8) returned. Else bump. RCX/RDX saved/restored (old
+// kr_alloc clobbered only RAX; callers keep live values in RCX/RDX). 74 bytes.
 func emitKrAllocCode() {
     let c = ""
-    c = c + hexByte(0x48) + hexByte(0x83) + hexByte(0xC7) + hexByte(0x07)
-    c = c + hexByte(0x48) + hexByte(0x83) + hexByte(0xE7) + hexByte(0xF8)
-    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0x3F)
-    c = c + hexByte(0x49) + hexByte(0x8D) + hexByte(0x47) + hexByte(0x08)
-    c = c + hexByte(0x4D) + hexByte(0x8D) + hexByte(0x7C) + hexByte(0x3F) + hexByte(0x08)
-    c = c + hexByte(0xC3)
+    c = c + hexByte(0x48) + hexByte(0x83) + hexByte(0xC7) + hexByte(0x07)              // [0] ADD RDI,7
+    c = c + hexByte(0x48) + hexByte(0x83) + hexByte(0xE7) + hexByte(0xF8)              // [4] AND RDI,-8
+    c = c + hexByte(0x51)                                                              // [8] PUSH RCX
+    c = c + hexByte(0x52)                                                              // [9] PUSH RDX
+    c = c + hexByte(0x48) + hexByte(0x8B) + hexByte(0x0C) + hexByte(0x25) + hexDwordVaddr(8)  // [10] MOV RCX,[vaddr+8] (gcbase)
+    c = c + hexByte(0x48) + hexByte(0x8B) + hexByte(0x41) + hexByte(0x28)              // [17] MOV RAX,[RCX+40] (cur=free_head)
+    c = c + hexByte(0x48) + hexByte(0x8D) + hexByte(0x51) + hexByte(0x28)              // [21] LEA RDX,[RCX+40] (prevlink=&free_head)
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)                              // [25] .fl TEST RAX,RAX
+    c = c + hexByte(0x74) + hexByte(0x2D)                                              // [29] JZ .bump(+45 -> 76)
+    c = c + hexByte(0x48) + hexByte(0x39) + hexByte(0x38)                              // [30] CMP [RAX],RDI (block size vs need)
+    c = c + hexByte(0x73) + hexByte(0x0A)                                              // [33] JAE .hit(+10 -> 45)
+    c = c + hexByte(0x48) + hexByte(0x8D) + hexByte(0x50) + hexByte(0x08)              // [35] LEA RDX,[RAX+8]
+    c = c + hexByte(0x48) + hexByte(0x8B) + hexByte(0x40) + hexByte(0x08)              // [39] MOV RAX,[RAX+8] (cur=cur.next)
+    c = c + hexByte(0xEB) + hexByte(0xEC)                                              // [43] JMP .fl(-20 -> 25)
+    c = c + hexByte(0x48) + hexByte(0x8B) + hexByte(0x48) + hexByte(0x08)              // [46] .hit MOV RCX,[RAX+8] (next; gcbase done)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x0A)                              // [50] MOV [RDX],RCX (*prevlink=next)
+    c = c + hexByte(0x48) + hexByte(0x8D) + hexByte(0x40) + hexByte(0x08)              // [53] LEA RAX,[RAX+8] (payload)
+    // Zero the recycled payload (RDI rounded bytes) — helpers (e.g. kr_concat) rely
+    // on kr_alloc returning zeroed memory (true for bump/MAP_ANON; stale otherwise).
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC2)                              // [57] MOV RDX,RAX (save payload)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xF9)                              // [60] MOV RCX,RDI (count)
+    c = c + hexByte(0x31) + hexByte(0xC0)                                              // [63] XOR EAX,EAX (AL=0)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xD7)                              // [65] MOV RDI,RDX (dest)
+    c = c + hexByte(0xF3) + hexByte(0xAA)                                              // [68] REP STOSB
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xD0)                              // [70] MOV RAX,RDX (return payload)
+    c = c + hexByte(0x5A)                                                              // [73] POP RDX
+    c = c + hexByte(0x59)                                                              // [74] POP RCX
+    c = c + hexByte(0xC3)                                                              // [75] RET
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0x3F)                              // [76] .bump MOV [R15],RDI (header)
+    c = c + hexByte(0x49) + hexByte(0x8D) + hexByte(0x47) + hexByte(0x08)              // [79] LEA RAX,[R15+8] (payload; fresh mmap = zeroed)
+    c = c + hexByte(0x4D) + hexByte(0x8D) + hexByte(0x7C) + hexByte(0x3F) + hexByte(0x08)  // [83] LEA R15,[R15+RDI+8]
+    c = c + hexByte(0x5A)                                                              // [88] POP RDX
+    c = c + hexByte(0x59)                                                              // [89] POP RCX
+    c = c + hexByte(0xC3)                                                              // [90] RET
     emit c
 }
-func krAllocSize() { emit 21 }
+func krAllocSize() { emit 91 }
 
 // kr_strlen: count bytes until NUL.
 //   In:  RDI = string ptr
@@ -3487,7 +3521,7 @@ func krStrIntSize() { emit 91 }
 //   [71-73] 48 89 C7               MOV RDI, RAX                          (3)
 //   [74-78] B8 3C 00 00 00         MOV EAX, 60                           (5)
 //   [79-80] 0F 05                  SYSCALL                               (2)
-func startSize() { emit 98 }   // GC S1: +8 (heap_start + stack_base stores)
+func startSize() { emit 106 }  // GC S1/S3: +8 band stores +8 gcbase slot store
 func emitStartCode(callDisp, atoiDisp) {
     let c = ""
     c = c + hexByte(0x4C) + hexByte(0x8B) + hexByte(0x24) + hexByte(0x24)
@@ -3518,6 +3552,10 @@ func emitStartCode(callDisp, atoiDisp) {
     c = c + hexByte(0x4C) + hexByte(0x8D) + hexByte(0x78) + hexByte(0x48)  // LEA R15,[RAX+72] (heap_next past 3 globals + GC band)
     c = c + hexByte(0x4D) + hexByte(0x89) + hexByte(0x7E) + hexByte(0x18)  // MOV [R14+24],R15  (heap_start = sweep/mark lower bound)
     c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0x66) + hexByte(0x20)  // MOV [R14+32],RSP  (stack_base = entry RSP, conservative-scan upper bound)
+    // GC S3: stash the GC base (mmap result) at a fixed, post-load-unused writable
+    // slot in the ELF header (vaddr+8 = EI_PAD; segment is RWX). kr_alloc reads the
+    // free_head from here so it never needs R14, which helpers use as scratch.
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0x34) + hexByte(0x25) + hexDwordVaddr(8)  // MOV [vaddr+8], R14
     c = c + hexByte(0xE8) + hexDword(callDisp)
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)
     c = c + hexByte(0xE8) + hexDword(atoiDisp)
@@ -6705,14 +6743,14 @@ just run {
     let startVAddr = SEG_BASE_VADDR
     let mainVAddr = toInt(funcVAddr(funcVAddrs, "__main__"))
     // CALL __main__ ends at start-code offset 80 (was 72; +8 for GC S1 band stores).
-    let startCallDisp = mainVAddr - (startVAddr + 80)
+    let startCallDisp = mainVAddr - (startVAddr + 88)
     // A source file with no `just run` (e.g. a pure library of func defs) has no
     // __main__. mainVAddr is then garbage and _start would CALL into hyperspace
     // and SIGSEGV. Make the CALL target the very next instruction (disp 0) so it
     // falls straight through to SYS_exit(0) — running a library is a clean no-op.
     if mainIdx < 0 { startCallDisp = 0 }
     // CALL kr_atoi ends at start-code offset 88 (was 80; +8 for GC S1 band stores).
-    let startAtoiDisp = krAtoiVAddr - (startVAddr + 88)
+    let startAtoiDisp = krAtoiVAddr - (startVAddr + 96)
     let startCode = emitStartCode(startCallDisp, startAtoiDisp)
 
     let krPrintCode  = emitKrPrintCode()
@@ -6802,7 +6840,7 @@ just run {
 
     let ph = ""
     ph = ph + hexDword(1)              // PT_LOAD
-    ph = ph + hexDword(5)              // R+X
+    ph = ph + hexDword(7)              // RWX (GC S3: gcbase slot at vaddr+8 must be writable)
     ph = ph + hexQword(0)
     ph = ph + hexQwordVaddr(0)   // p_vaddr = VADDR_BASE + offset 0
     ph = ph + hexQwordVaddr(0)   // p_paddr
