@@ -112,6 +112,50 @@ func htButtonA(attrs, content)  { emit htElA("button", attrs, content) }
 func htSelect(nm, content)      { emit htElA("select", htName(nm), content) }
 func htOption(val, content)     { emit htElA("option", htValue(val), content) }
 
+// ── HTML5 interactive + media ─────────────────────────────────────
+
+func htDetails(content)          { emit htEl("details", content) }
+func htDetailsA(attrs, content)  { emit htElA("details", attrs, content) }
+func htSummary(content)          { emit htEl("summary", content) }
+func htDialog(content)           { emit htEl("dialog", content) }
+func htDialogA(attrs, content)   { emit htElA("dialog", attrs, content) }
+func htProgress(val, mx)         { emit htElA("progress", htValue(val) + htAttr("max", mx), "") }
+func htMeter(val, mn, mx)        { emit htElA("meter", htValue(val) + htAttr("min", mn) + htAttr("max", mx), "") }
+func htVideo(src, attrs)         { emit htElA("video", htSrc(src) + attrs, "Your browser does not support video.") }
+func htAudio(src, attrs)         { emit htElA("audio", htSrc(src) + attrs, "Your browser does not support audio.") }
+func htIframe(src, attrs)        { emit htElA("iframe", htSrc(src) + attrs, "") }
+func htCanvas(idVal, w, h)       { emit htElA("canvas", htId(idVal) + htAttr("width", w) + htAttr("height", h), "") }
+func htPicture(content)          { emit htEl("picture", content) }
+func htSource(src, typ)          { emit htVoid("source", htSrc(src) + htType(typ)) }
+func htFieldset(content)         { emit htEl("fieldset", content) }
+func htFieldsetA(attrs, content) { emit htElA("fieldset", attrs, content) }
+func htLegend(content)           { emit htEl("legend", content) }
+func htOptgroup(label, content)  { emit htElA("optgroup", htAttr("label", label), content) }
+func htDatalist(idVal, content)  { emit htElA("datalist", htId(idVal), content) }
+
+// ── Common attributes ────────────────────────────────────────────
+
+func htDisabled()   { emit " disabled" }
+func htRequired()   { emit " required" }
+func htReadonly()   { emit " readonly" }
+func htAutofocus()  { emit " autofocus" }
+func htChecked()    { emit " checked" }
+func htSelected()   { emit " selected" }
+func htAutoplay()   { emit " autoplay" }
+func htControls()   { emit " controls" }
+func htLoop()       { emit " loop" }
+func htMuted()      { emit " muted" }
+func htOpen()       { emit " open" }
+func htData(nm, v)  { emit htAttr("data-" + nm, v) }
+func htRole(r)      { emit htAttr("role", r) }
+func htAria(nm, v)  { emit htAttr("aria-" + nm, v) }
+func htTitle(t)     { emit htAttr("title", t) }
+func htAlt(a)       { emit htAttr("alt", a) }
+func htWidth(w)     { emit htAttr("width", w) }
+func htHeight(h)    { emit htAttr("height", h) }
+func htTarget(t)    { emit htAttr("target", t) }
+func htRel(r)       { emit htAttr("rel", r) }
+
 func htScript(src)              { emit htElA("script", htSrc(src), "") }
 func htScriptInline(code)       { emit "<script>" + code + "</script>" }
 func htStyle(content)           { emit htEl("style", content) }
@@ -119,6 +163,45 @@ func htLink(rel, href)          { emit htVoid("link", htAttr("rel", rel) + htHre
 func htMeta(name, content)      { emit htVoid("meta", htAttr("name", name) + htAttr("content", content)) }
 func htMetaCharset(charset)     { emit htVoid("meta", htAttr("charset", charset)) }
 func htMetaViewport()           { emit htVoid("meta", htAttr("name", "viewport") + htAttr("content", "width=device-width, initial-scale=1.0")) }
+
+// HTML5 inline / semantic gaps.
+func htFigure(content)           { emit htEl("figure", content) }
+func htFigcaption(content)       { emit htEl("figcaption", content) }
+func htMark(content)             { emit htEl("mark", content) }
+func htTime(datetime, content)   { emit htElA("time", htAttr("datetime", datetime), content) }
+func htAddress(content)          { emit htEl("address", content) }
+func htAbbr(title, content)      { emit htElA("abbr", htTitle(title), content) }
+func htCite(content)             { emit htEl("cite", content) }
+func htKbd(content)              { emit htEl("kbd", content) }
+func htSamp(content)             { emit htEl("samp", content) }
+func htVar(content)              { emit htEl("var", content) }
+func htQ(content)                { emit htEl("q", content) }
+func htSub(content)              { emit htEl("sub", content) }
+func htSup(content)              { emit htEl("sup", content) }
+func htSmall(content)            { emit htEl("small", content) }
+func htDel(content)              { emit htEl("del", content) }
+func htIns(content)              { emit htEl("ins", content) }
+func htHgroup(content)           { emit htEl("hgroup", content) }
+func htDl(content)               { emit htEl("dl", content) }
+func htDt(content)               { emit htEl("dt", content) }
+func htDd(content)               { emit htEl("dd", content) }
+func htCaption(content)          { emit htEl("caption", content) }
+func htTfoot(content)            { emit htEl("tfoot", content) }
+func htColgroup(content)         { emit htEl("colgroup", content) }
+func htCol(attrs)                { emit htVoid("col", attrs) }
+
+// htmx-style live-update attributes — pair with a 4 KB htmx.js
+// shim in the page <head> for in-place fragment swapping. Server-
+// side: hand the corresponding URLs through k:server and emit raw
+// HTML fragments (no full htPage wrap).
+func htHxGet(url)     { emit htAttr("hx-get", url) }
+func htHxPost(url)    { emit htAttr("hx-post", url) }
+func htHxPut(url)     { emit htAttr("hx-put", url) }
+func htHxDelete(url)  { emit htAttr("hx-delete", url) }
+func htHxTarget(sel)  { emit htAttr("hx-target", sel) }
+func htHxSwap(mode)   { emit htAttr("hx-swap", mode) }
+func htHxTrigger(ev)  { emit htAttr("hx-trigger", ev) }
+func htHxConfirm(msg) { emit htAttr("hx-confirm", msg) }
 
 func htPage(title, headExtra, body) {
     let NL = "\n"

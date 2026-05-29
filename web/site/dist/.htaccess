@@ -12,6 +12,7 @@ RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^([^.]+)$ $1.html [NC,L]
 
 # Security headers
+Header set X-Powered-By "Krypton 2.1.0"
 Header set X-Content-Type-Options "nosniff"
 Header set X-Frame-Options "DENY"
 Header set X-XSS-Protection "1; mode=block"

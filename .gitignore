@@ -65,3 +65,6 @@ docs/HANDOFF_M1.md
 .vscode/settings.json
 tests/krypton_rt.dll
 OVERNIGHT_REPORT.md
+
+# Marketing / demo video renders — large binaries, not source
+web/*.mp4
