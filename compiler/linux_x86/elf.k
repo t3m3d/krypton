@@ -1223,6 +1223,85 @@ func emitKrWritefileCode(thisVAddr, strlenVAddr) {
 }
 func krWritefileSize() { emit 66 }
 
+// kr_writebytes: hex-decode a "xHH" string and write the raw bytes to a file.
+// Mirrors the C runtime kr_writebytes: scan content; for each 'x' followed by two
+// hex digits, decode to a byte and write it. The backend builds the whole binary
+// as a hex string (hexByte → "xHH"), so this is what actually emits the output.
+//   In:  RDI = path ptr, RSI = hex content ptr (NUL-terminated)
+//   Out: RAX = 1
+// Strategy: open(path); over-allocate len(content) bytes; decode "xHH" triples
+// into the buffer; write(fd, buf, count); close(fd). Uppercase hex only (our
+// generator emits 0-9A-F), so the digit/letter split is a single CMP vs 'A'.
+//
+// Layout (157 bytes) — offsets in comments; relative jumps verified:
+//   [54] .loop  [78] hi_digit  [81] hi_done  [96] lo_digit  [98] lo_done
+//   [111] .skip  [116] .write
+func emitKrWritebytesCode(thisVAddr, strlenVAddr, allocVAddr) {
+    let dStrlen = strlenVAddr - (thisVAddr + 37)
+    let dAlloc  = allocVAddr  - (thisVAddr + 45)
+    let c = ""
+    c = c + hexByte(0x41) + hexByte(0x54)                          // [0]  PUSH R12
+    c = c + hexByte(0x41) + hexByte(0x55)                          // [2]  PUSH R13
+    c = c + hexByte(0x41) + hexByte(0x56)                          // [4]  PUSH R14
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xF4)          // [6]  MOV R12, RSI (hexstr)
+    c = c + hexByte(0xB8) + hexDword(2)                            // [9]  MOV EAX, 2 (open)
+    c = c + hexByte(0xBE) + hexDword(577)                          // [14] MOV ESI, 577
+    c = c + hexByte(0xBA) + hexDword(420)                          // [19] MOV EDX, 420
+    c = c + hexByte(0x0F) + hexByte(0x05)                          // [24] SYSCALL
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC5)          // [26] MOV R13, RAX (fd)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE7)          // [29] MOV RDI, R12
+    c = c + hexByte(0xE8) + hexDword(dStrlen)                      // [32] CALL kr_strlen (ends 37)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)          // [37] MOV RDI, RAX (hexlen)
+    c = c + hexByte(0xE8) + hexDword(dAlloc)                       // [40] CALL kr_alloc (ends 45)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC6)          // [45] MOV R14, RAX (buf)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE6)          // [48] MOV RSI, R12 (p)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xF7)          // [51] MOV RDI, R14 (q)
+    // .loop at 54:
+    c = c + hexByte(0x8A) + hexByte(0x06)                          // [54] MOV AL, [RSI]
+    c = c + hexByte(0x84) + hexByte(0xC0)                          // [56] TEST AL, AL
+    c = c + hexByte(0x74) + hexByte(0x38)                          // [58] JZ .write (116)
+    c = c + hexByte(0x3C) + hexByte(0x78)                          // [60] CMP AL, 'x'
+    c = c + hexByte(0x75) + hexByte(0x2F)                          // [62] JNE .skip (111)
+    c = c + hexByte(0x0F) + hexByte(0xB6) + hexByte(0x56) + hexByte(0x01)  // [64] MOVZX EDX,[RSI+1]
+    c = c + hexByte(0x80) + hexByte(0xFA) + hexByte(0x41)          // [68] CMP DL, 'A'
+    c = c + hexByte(0x72) + hexByte(0x05)                          // [71] JB hi_digit (78)
+    c = c + hexByte(0x80) + hexByte(0xEA) + hexByte(0x37)          // [73] SUB DL, 0x37 (letter)
+    c = c + hexByte(0xEB) + hexByte(0x03)                          // [76] JMP hi_done (81)
+    c = c + hexByte(0x80) + hexByte(0xEA) + hexByte(0x30)          // [78] hi_digit: SUB DL, 0x30
+    c = c + hexByte(0xC0) + hexByte(0xE2) + hexByte(0x04)          // [81] hi_done: SHL DL, 4
+    c = c + hexByte(0x0F) + hexByte(0xB6) + hexByte(0x46) + hexByte(0x02)  // [84] MOVZX EAX,[RSI+2]
+    c = c + hexByte(0x3C) + hexByte(0x41)                          // [88] CMP AL, 'A'
+    c = c + hexByte(0x72) + hexByte(0x04)                          // [90] JB lo_digit (96)
+    c = c + hexByte(0x2C) + hexByte(0x37)                          // [92] SUB AL, 0x37 (letter)
+    c = c + hexByte(0xEB) + hexByte(0x02)                          // [94] JMP lo_done (98)
+    c = c + hexByte(0x2C) + hexByte(0x30)                          // [96] lo_digit: SUB AL, 0x30
+    c = c + hexByte(0x08) + hexByte(0xD0)                          // [98] lo_done: OR AL, DL
+    c = c + hexByte(0x88) + hexByte(0x07)                          // [100] MOV [RDI], AL
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC7)          // [102] INC RDI
+    c = c + hexByte(0x48) + hexByte(0x83) + hexByte(0xC6) + hexByte(0x03)  // [105] ADD RSI, 3
+    c = c + hexByte(0xEB) + hexByte(0xC7)                          // [109] JMP .loop (54)  disp -57
+    // .skip at 111:
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC6)          // [111] INC RSI
+    c = c + hexByte(0xEB) + hexByte(0xC2)                          // [114] JMP .loop (54)  disp -62
+    // .write at 116:
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xFA)          // [116] MOV RDX, RDI (q)
+    c = c + hexByte(0x4C) + hexByte(0x29) + hexByte(0xF2)          // [119] SUB RDX, R14 (count)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xF6)          // [122] MOV RSI, R14 (buf)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xEF)          // [125] MOV RDI, R13 (fd)
+    c = c + hexByte(0xB8) + hexDword(1)                            // [128] MOV EAX, 1 (write)
+    c = c + hexByte(0x0F) + hexByte(0x05)                          // [133] SYSCALL
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xEF)          // [135] MOV RDI, R13
+    c = c + hexByte(0xB8) + hexDword(3)                            // [138] MOV EAX, 3 (close)
+    c = c + hexByte(0x0F) + hexByte(0x05)                          // [143] SYSCALL
+    c = c + hexByte(0xB8) + hexDword(1)                            // [145] MOV EAX, 1 (ret 1)
+    c = c + hexByte(0x41) + hexByte(0x5E)                          // [150] POP R14
+    c = c + hexByte(0x41) + hexByte(0x5D)                          // [152] POP R13
+    c = c + hexByte(0x41) + hexByte(0x5C)                          // [154] POP R12
+    c = c + hexByte(0xC3)                                          // [156] RET
+    emit c
+}
+func krWritebytesSize() { emit 157 }
+
 // kr_printerr: like kr_print, but writes to stderr (fd 2) instead of stdout.
 // Also appends a trailing newline to match printf("%s\n", s) parity.
 //   In:  RDI = string ptr (NUL-terminated)
@@ -2149,8 +2228,27 @@ func krModiSize() { emit 17 }
 // Why 64-bit SUB and not 32-bit: SUB EAX, ECX zero-extends the result to RAX,
 // turning -1 into 0xFFFFFFFF (huge positive). Caller's signed SETcc then sees
 // wrong sign. SUB RAX, RCX preserves the negative sign properly.
+// NOTE: a 4-byte guard is prepended so kr_strcmp never dereferences a non-pointer.
+// Krypton tags ints < 0x40000000 and pointers ≥ it. A comparison like
+// `someString == 0` (or string-vs-int) must NOT strcmp the int operand — the C
+// runtime treats mismatched types as not-equal. So: if EITHER operand is below
+// VADDR_BASE (a small int / null), return their raw signed difference (non-zero,
+// so EQ→false / NEQ→true) without touching memory. Real strings (data ≥
+// 0x40000078, heap ≈ 0x7ffff…) always pass the guard. New layout (56 bytes):
+//   [0-6]   48 81 FF imm32   CMP RDI, 0x40000000          (7)
+//   [7-8]   72 28            JB +0x28 → .mixed at 49      (2)
+//   [9-15]  48 81 FE imm32   CMP RSI, 0x40000000          (7)
+//   [16-17] 72 1F            JB +0x1F → .mixed at 49      (2)
+//   [18-48] (original strcmp body, unchanged, internal jumps are relative)
+//   [49-51] 48 89 F8         MOV RAX, RDI                 (3)
+//   [52-54] 48 29 F0         SUB RAX, RSI                 (3)
+//   [55]    C3               RET                          (1)
 func emitKrStrcmpCode() {
     let c = ""
+    c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDword(0x40000000)  // [0-6] CMP RDI, 0x40000000
+    c = c + hexByte(0x72) + hexByte(0x28)                                          // [7-8] JB → .mixed at 49
+    c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFE) + hexDword(0x40000000)  // [9-15] CMP RSI, 0x40000000
+    c = c + hexByte(0x72) + hexByte(0x1F)                                          // [16-17] JB → .mixed at 49
     c = c + hexByte(0x8A) + hexByte(0x07)
     c = c + hexByte(0x3A) + hexByte(0x06)
     c = c + hexByte(0x75) + hexByte(0x0C)
@@ -2165,9 +2263,12 @@ func emitKrStrcmpCode() {
     c = c + hexByte(0xC3)
     c = c + hexByte(0x31) + hexByte(0xC0)
     c = c + hexByte(0xC3)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xF8)   // [49-51] .mixed: MOV RAX, RDI
+    c = c + hexByte(0x48) + hexByte(0x29) + hexByte(0xF0)   // [52-54] SUB RAX, RSI
+    c = c + hexByte(0xC3)                                    // [55] RET
     emit c
 }
-func krStrcmpSize() { emit 31 }
+func krStrcmpSize() { emit 56 }
 
 // kr_cmpi: signed-integer-or-strcmp comparison helper for EQ/NEQ/LT/GT/LTE/GTE.
 //   If both args are "numeric" (small int OR digit-only string), returns
@@ -2928,6 +3029,7 @@ func opByteSize(op) {
     if op == "BUILTIN_SB_TOSTR"  { emit 0 }  // no-op: ptr stays on stack
     if op == "BUILTIN_READFILE"  { emit 7 }  // POP RDI + CALL kr_readfile + PUSH RAX
     if op == "BUILTIN_WRITEFILE" { emit 8 }  // POP RSI + POP RDI + CALL kr_writefile + PUSH RAX
+    if op == "BUILTIN_WRITEBYTES"{ emit 8 }  // POP RSI + POP RDI + CALL kr_writebytes + PUSH RAX
     if op == "BUILTIN_PRINTERR"  { emit 8 }  // POP RDI + CALL kr_printerr + PUSH 0
     if op == "BUILTIN_CHARCODE"  { emit 7 }  // POP RDI + CALL kr_charcode + PUSH RAX
     if op == "BUILTIN_FROMCHARCODE" { emit 7 } // POP RDI + CALL + PUSH RAX
@@ -3162,6 +3264,12 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_GETLINE")
                 } else if cname == "lineCount" {
                     opSb = sbAppend(opSb, "BUILTIN_LINECOUNT")
+                } else if cname == "writeBytes" {
+                    // writeBytes(path, hexContent): hex-decode "xHH" → raw bytes →
+                    // file. NOT writeFile (which writes a NUL-terminated string and
+                    // would stop at the binary's first 0 byte). Routes to the
+                    // dedicated kr_writebytes helper.
+                    opSb = sbAppend(opSb, "BUILTIN_WRITEBYTES")
                 } else {
                     opSb = sbAppend(opSb, "CALL_FUNC " + rest)
                 }
@@ -3885,6 +3993,15 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             let wfDisp = krWritefileVAddr - (funcStartVAddr + off + 7)
             c = c + hexByte(0xE8) + hexDword(wfDisp)
             c = c + hexByte(0x50)
+        } else if op == "BUILTIN_WRITEBYTES" {
+            // POP RSI (content) ; POP RDI (path) ; CALL kr_writebytes ; PUSH RAX
+            // kr_writebytes is laid out immediately after kr_writefile (66 bytes),
+            // so its vaddr is krWritefileVAddr + 66 (see the segment assembly).
+            c = c + hexByte(0x5E)
+            c = c + hexByte(0x5F)
+            let wbDisp = (krWritefileVAddr + 66) - (funcStartVAddr + off + 7)
+            c = c + hexByte(0xE8) + hexDword(wbDisp)
+            c = c + hexByte(0x50)
         } else if op == "BUILTIN_PRINTERR" {
             // POP RDI ; CALL kr_printerr ; PUSH 0  (8 bytes)
             c = c + hexByte(0x5F)
@@ -4559,6 +4676,7 @@ just run {
     let krSbSz = krSubstringSize()
     let krRfSz = krReadfileSize()
     let krWfSz = krWritefileSize()
+    let krWbSz = krWritebytesSize()
     let krPeSz = krPrinterrSize()
     let krCcdSz = krCharcodeSize()
     let krFccSz = krFromcharcodeSize()
@@ -4677,7 +4795,8 @@ just run {
     let krSubstringVAddr = krArgcountVAddr + krAcSz
     let krReadfileVAddr  = krSubstringVAddr + krSbSz
     let krWritefileVAddr = krReadfileVAddr + krRfSz
-    let krPrinterrVAddr  = krWritefileVAddr + krWfSz
+    let krWritebytesVAddr = krWritefileVAddr + krWfSz   // placed right after kr_writefile
+    let krPrinterrVAddr  = krWritebytesVAddr + krWbSz
     let krCharcodeVAddr  = krPrinterrVAddr + krPeSz
     let krFromcharcodeVAddr = krCharcodeVAddr + krCcdSz
     let krExitVAddr      = krFromcharcodeVAddr + krFccSz
@@ -4782,6 +4901,7 @@ just run {
     let krSubstringCode = emitKrSubstringCode(krSubstringVAddr, krAtoiVAddr, krAllocVAddr)
     let krReadfileCode  = emitKrReadfileCode(krReadfileVAddr, krAllocVAddr)
     let krWritefileCode = emitKrWritefileCode(krWritefileVAddr, krStrlenVAddr)
+    let krWritebytesCode = emitKrWritebytesCode(krWritebytesVAddr, krStrlenVAddr, krAllocVAddr)
     let krPrinterrCode  = emitKrPrinterrCode()
     let krCharcodeCode  = emitKrCharcodeCode()
     let krFromcharcodeCode = emitKrFromcharcodeCode(krFromcharcodeVAddr, krAtoiVAddr, krAllocVAddr)
@@ -4814,7 +4934,7 @@ just run {
     let krReplaceCode2   = emitKrReplaceCode(krReplaceVAddr, krStrlenVAddr, krAllocVAddr)
     let krReverseCode    = emitKrReverseCode(krReverseVAddr, krStrlenVAddr, krAllocVAddr)
 
-    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + krSubstringCode + krReadfileCode + krWritefileCode + krPrinterrCode + krCharcodeCode + krFromcharcodeCode + krExitCode + krIsdigitCode + krIsalphaCode + krAbsCode + krStartswithCode + krIstruthyCode + krLinecountCode + krGetlineCode + krTrimCode + krToupperCode + krTolowerCode + krPowCode + krRepeatCode + krIsnumCode + krPlusCode + krAtoi2Code + krSubiCode + krMuliCode + krDiviCode + krModiCode + krStrcmpCode + krCmpiCode + krStrstrCode + krContainsCode + krIndexofCode + krEndswithCode + krReplaceCode2 + krReverseCode + strData
+    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + krSubstringCode + krReadfileCode + krWritefileCode + krWritebytesCode + krPrinterrCode + krCharcodeCode + krFromcharcodeCode + krExitCode + krIsdigitCode + krIsalphaCode + krAbsCode + krStartswithCode + krIstruthyCode + krLinecountCode + krGetlineCode + krTrimCode + krToupperCode + krTolowerCode + krPowCode + krRepeatCode + krIsnumCode + krPlusCode + krAtoi2Code + krSubiCode + krMuliCode + krDiviCode + krModiCode + krStrcmpCode + krCmpiCode + krStrstrCode + krContainsCode + krIndexofCode + krEndswithCode + krReplaceCode2 + krReverseCode + strData
     let segSize = hexBytesLen(segment)
     let fileSize = HDR_SIZE + segSize
 
