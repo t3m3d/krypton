@@ -86,6 +86,24 @@ func hexQword(n) {
     emit hexDword(n) + hexDword(high)
 }
 
+// Emit the bytes of an ABSOLUTE vaddr given as a load-base-relative OFFSET.
+// The runtime tags any value >= 0x40000000 (== VADDR_BASE == the ELF load base)
+// as a pointer and would dereference it inside toInt/%//, so we must NEVER form
+// a full vaddr as a number. Instead all vaddr math is done in offset space
+// (offsets < 0x40000000 stay in int range) and the base is folded in here, at
+// emit time, as a byte-level OR into the top byte (VADDR_BASE = 0x40000000, so
+// its only nonzero byte is the high byte of the low dword = 0x40). This mirrors
+// macho_arm64_self.k's "page offsets relative to base" technique.
+func hexDwordVaddr(off) {
+    let v = off
+    let b0 = v % 256
+    let b1 = (v / 256) % 256
+    let b2 = (v / 65536) % 256
+    let b3 = (v / 16777216) % 256 + 64   // + 0x40 = VADDR_BASE's top byte
+    emit hexByte(b0) + hexByte(b1) + hexByte(b2) + hexByte(b3)
+}
+func hexQwordVaddr(off) { emit hexDwordVaddr(off) + hexDword(0) }
+
 func hexPad(n) {
     let out = ""
     let i = 0
@@ -389,13 +407,13 @@ func emitKrConcatCodeFinal(thisVAddr, strIntVAddr, strlenVAddr, allocVAddr) {
     c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xFC)                    // [5-7] MOV R12, RDI (a)
     c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xF5)                    // [8-10] MOV R13, RSI (b)
     // Convert a (R12) if it's a small int
-    c = c + hexByte(0x49) + hexByte(0x81) + hexByte(0xFC) + hexDword(0x40000000) // [11-17] CMP R12, 0x400000
+    c = c + hexByte(0x49) + hexByte(0x81) + hexByte(0xFC) + hexDwordVaddr(0) // [11-17] CMP R12, 0x400000
     c = c + hexByte(0x7D) + hexByte(0x0B)                                    // [18-19] JAE +11 → 31 (.a_ok)
     c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE7)                    // [20-22] MOV RDI, R12
     c = c + hexByte(0xE8) + hexDword(dStrInt1)                               // [23-27] CALL kr_str_int
     c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC4)                    // [28-30] MOV R12, RAX
     // .a_ok (31): convert b (R13) if it's a small int
-    c = c + hexByte(0x49) + hexByte(0x81) + hexByte(0xFD) + hexDword(0x40000000) // [31-37] CMP R13, 0x400000
+    c = c + hexByte(0x49) + hexByte(0x81) + hexByte(0xFD) + hexDwordVaddr(0) // [31-37] CMP R13, 0x400000
     c = c + hexByte(0x7D) + hexByte(0x0B)                                    // [38-39] JAE +11 → 51 (.b_ok)
     c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xEF)                    // [40-42] MOV RDI, R13
     c = c + hexByte(0xE8) + hexDword(dStrInt2)                               // [43-47] CALL kr_str_int
@@ -492,7 +510,7 @@ func krConcatSize() { emit 118 }
 // JMP .digits from [62-63] (after at 64): target 29. disp = 29-64 = -35 = 0xDD
 func emitKrAtoiCode() {
     let c = ""
-    c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDword(0x40000000)
+    c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDwordVaddr(0)
     c = c + hexByte(0x7D) + hexByte(0x04)
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xF8)
     c = c + hexByte(0xC3)
@@ -586,7 +604,7 @@ func krLengthSize() { emit 28 }
 //   .check at 27:
 //   ; non-empty: subtract 1 if the last byte was '\n' (trailing-NL convention)
 //   [27-30] 80 7F FF 0A      CMP byte [RDI-1], '\n'        (4)
-//   [31-32] 75 01            JNE +1 → .ret                 (2)
+//   [31-32] 75 02            JNE +2 → .ret at 35           (2)  ; skip DEC EAX
 //   [33-34] FF C8            DEC EAX                       (2)
 //   .ret at 35:
 //   [35]    C3               RET                           (1)
@@ -605,7 +623,7 @@ func emitKrLinecountCode() {
     c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC7)                       // [22-24] INC RDI
     c = c + hexByte(0xEB) + hexByte(256 - 18)                                   // [25-26] JMP → .loop at 9
     c = c + hexByte(0x80) + hexByte(0x7F) + hexByte(0xFF) + hexByte(0x0A)       // [27-30] CMP byte [RDI-1], '\n'
-    c = c + hexByte(0x75) + hexByte(0x01)                                       // [31-32] JNE +1 → .ret
+    c = c + hexByte(0x75) + hexByte(0x02)                                       // [31-32] JNE +2 → .ret at 35 (skip DEC EAX at 33-34)
     c = c + hexByte(0xFF) + hexByte(0xC8)                                       // [33-34] DEC EAX
     c = c + hexByte(0xC3)                                                       // [35]    RET
     emit c
@@ -1223,6 +1241,173 @@ func emitKrWritefileCode(thisVAddr, strlenVAddr) {
 }
 func krWritefileSize() { emit 66 }
 
+// kr_writebytes: hex-decode a "xHH" string and write the raw bytes to a file.
+// Mirrors the C runtime kr_writebytes: scan content; for each 'x' followed by two
+// hex digits, decode to a byte and write it. The backend builds the whole binary
+// as a hex string (hexByte → "xHH"), so this is what actually emits the output.
+//   In:  RDI = path ptr, RSI = hex content ptr (NUL-terminated)
+//   Out: RAX = 1
+// Strategy: open(path); over-allocate len(content) bytes; decode "xHH" triples
+// into the buffer; write(fd, buf, count); close(fd). Uppercase hex only (our
+// generator emits 0-9A-F), so the digit/letter split is a single CMP vs 'A'.
+//
+// Layout (157 bytes) — offsets in comments; relative jumps verified:
+//   [54] .loop  [78] hi_digit  [81] hi_done  [96] lo_digit  [98] lo_done
+//   [111] .skip  [116] .write
+func emitKrWritebytesCode(thisVAddr, strlenVAddr, allocVAddr) {
+    let dStrlen = strlenVAddr - (thisVAddr + 37)
+    let dAlloc  = allocVAddr  - (thisVAddr + 45)
+    let c = ""
+    c = c + hexByte(0x41) + hexByte(0x54)                          // [0]  PUSH R12
+    c = c + hexByte(0x41) + hexByte(0x55)                          // [2]  PUSH R13
+    c = c + hexByte(0x41) + hexByte(0x56)                          // [4]  PUSH R14
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xF4)          // [6]  MOV R12, RSI (hexstr)
+    c = c + hexByte(0xB8) + hexDword(2)                            // [9]  MOV EAX, 2 (open)
+    c = c + hexByte(0xBE) + hexDword(577)                          // [14] MOV ESI, 577
+    c = c + hexByte(0xBA) + hexDword(420)                          // [19] MOV EDX, 420
+    c = c + hexByte(0x0F) + hexByte(0x05)                          // [24] SYSCALL
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC5)          // [26] MOV R13, RAX (fd)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE7)          // [29] MOV RDI, R12
+    c = c + hexByte(0xE8) + hexDword(dStrlen)                      // [32] CALL kr_strlen (ends 37)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)          // [37] MOV RDI, RAX (hexlen)
+    c = c + hexByte(0xE8) + hexDword(dAlloc)                       // [40] CALL kr_alloc (ends 45)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC6)          // [45] MOV R14, RAX (buf)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE6)          // [48] MOV RSI, R12 (p)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xF7)          // [51] MOV RDI, R14 (q)
+    // .loop at 54:
+    c = c + hexByte(0x8A) + hexByte(0x06)                          // [54] MOV AL, [RSI]
+    c = c + hexByte(0x84) + hexByte(0xC0)                          // [56] TEST AL, AL
+    c = c + hexByte(0x74) + hexByte(0x38)                          // [58] JZ .write (116)
+    c = c + hexByte(0x3C) + hexByte(0x78)                          // [60] CMP AL, 'x'
+    c = c + hexByte(0x75) + hexByte(0x2F)                          // [62] JNE .skip (111)
+    c = c + hexByte(0x0F) + hexByte(0xB6) + hexByte(0x56) + hexByte(0x01)  // [64] MOVZX EDX,[RSI+1]
+    c = c + hexByte(0x80) + hexByte(0xFA) + hexByte(0x41)          // [68] CMP DL, 'A'
+    c = c + hexByte(0x72) + hexByte(0x05)                          // [71] JB hi_digit (78)
+    c = c + hexByte(0x80) + hexByte(0xEA) + hexByte(0x37)          // [73] SUB DL, 0x37 (letter)
+    c = c + hexByte(0xEB) + hexByte(0x03)                          // [76] JMP hi_done (81)
+    c = c + hexByte(0x80) + hexByte(0xEA) + hexByte(0x30)          // [78] hi_digit: SUB DL, 0x30
+    c = c + hexByte(0xC0) + hexByte(0xE2) + hexByte(0x04)          // [81] hi_done: SHL DL, 4
+    c = c + hexByte(0x0F) + hexByte(0xB6) + hexByte(0x46) + hexByte(0x02)  // [84] MOVZX EAX,[RSI+2]
+    c = c + hexByte(0x3C) + hexByte(0x41)                          // [88] CMP AL, 'A'
+    c = c + hexByte(0x72) + hexByte(0x04)                          // [90] JB lo_digit (96)
+    c = c + hexByte(0x2C) + hexByte(0x37)                          // [92] SUB AL, 0x37 (letter)
+    c = c + hexByte(0xEB) + hexByte(0x02)                          // [94] JMP lo_done (98)
+    c = c + hexByte(0x2C) + hexByte(0x30)                          // [96] lo_digit: SUB AL, 0x30
+    c = c + hexByte(0x08) + hexByte(0xD0)                          // [98] lo_done: OR AL, DL
+    c = c + hexByte(0x88) + hexByte(0x07)                          // [100] MOV [RDI], AL
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC7)          // [102] INC RDI
+    c = c + hexByte(0x48) + hexByte(0x83) + hexByte(0xC6) + hexByte(0x03)  // [105] ADD RSI, 3
+    c = c + hexByte(0xEB) + hexByte(0xC7)                          // [109] JMP .loop (54)  disp -57
+    // .skip at 111:
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC6)          // [111] INC RSI
+    c = c + hexByte(0xEB) + hexByte(0xC2)                          // [114] JMP .loop (54)  disp -62
+    // .write at 116:
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xFA)          // [116] MOV RDX, RDI (q)
+    c = c + hexByte(0x4C) + hexByte(0x29) + hexByte(0xF2)          // [119] SUB RDX, R14 (count)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xF6)          // [122] MOV RSI, R14 (buf)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xEF)          // [125] MOV RDI, R13 (fd)
+    c = c + hexByte(0xB8) + hexDword(1)                            // [128] MOV EAX, 1 (write)
+    c = c + hexByte(0x0F) + hexByte(0x05)                          // [133] SYSCALL
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xEF)          // [135] MOV RDI, R13
+    c = c + hexByte(0xB8) + hexDword(3)                            // [138] MOV EAX, 3 (close)
+    c = c + hexByte(0x0F) + hexByte(0x05)                          // [143] SYSCALL
+    c = c + hexByte(0xB8) + hexDword(1)                            // [145] MOV EAX, 1 (ret 1)
+    c = c + hexByte(0x41) + hexByte(0x5E)                          // [150] POP R14
+    c = c + hexByte(0x41) + hexByte(0x5D)                          // [152] POP R13
+    c = c + hexByte(0x41) + hexByte(0x5C)                          // [154] POP R12
+    c = c + hexByte(0xC3)                                          // [156] RET
+    emit c
+}
+func krWritebytesSize() { emit 157 }
+
+// ── Real StringBuilder (O(n) amortized) ────────────────────────────────────
+// The old sbAppend was kr_concat (O(n²): copies the whole buffer every append),
+// which made a full self-compile allocate >4 GB. These helpers give amortized
+// O(n): a handle is a single heap block [cap:8][len:8][data:cap]; sbAppend writes
+// in place and only re-allocs (doubling) on overflow. sbAppend returns the
+// (possibly relocated) handle — callers do `sb = sbAppend(sb, x)`, so that's fine.
+// sbToString returns the data pointer (NUL-terminated, maintained by sbAppend).
+// kr_sbnew() → RAX = block (cap=256, len=0). Layout 30 bytes.
+func emitKrSbnewCode(thisVAddr, allocVAddr) {
+    let dA = allocVAddr - (thisVAddr + 10)
+    let c = ""
+    c = c + hexByte(0xBF) + hexDword(272)                                       // MOV EDI, 272 (16+256)
+    c = c + hexByte(0xE8) + hexDword(dA)                                        // CALL kr_alloc → RAX=block
+    c = c + hexByte(0x48) + hexByte(0xC7) + hexByte(0x00) + hexDword(256)       // MOV QWORD [RAX], 256 (cap)
+    c = c + hexByte(0x48) + hexByte(0xC7) + hexByte(0x40) + hexByte(0x08) + hexDword(0)  // MOV QWORD [RAX+8], 0 (len)
+    c = c + hexByte(0xC6) + hexByte(0x40) + hexByte(0x10) + hexByte(0x00)       // MOV BYTE [RAX+16], 0
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krSbnewSize() { emit 30 }
+
+// kr_sbappend(RDI=handle, RSI=s) → RAX = handle (possibly relocated). 124 bytes.
+//   need = len+slen+1; if need>cap: newcap=need*2, alloc, copy [hdr..hdr+16+len];
+//   then memcpy s into data[len..], len+=slen, data[len]=0.
+func emitKrSbappendCode(thisVAddr, strlenVAddr, allocVAddr) {
+    let d1 = strlenVAddr - (thisVAddr + 21)
+    let d2 = allocVAddr  - (thisVAddr + 58)
+    let c = ""
+    c = c + hexByte(0x53)                                       // [0]  PUSH RBX
+    c = c + hexByte(0x41) + hexByte(0x54)                       // [1]  PUSH R12
+    c = c + hexByte(0x41) + hexByte(0x55)                       // [3]  PUSH R13
+    c = c + hexByte(0x41) + hexByte(0x56)                       // [5]  PUSH R14
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xFB)       // [7]  MOV RBX, RDI (handle)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xF4)       // [10] MOV R12, RSI (s)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE7)       // [13] MOV RDI, R12
+    c = c + hexByte(0xE8) + hexDword(d1)                        // [16] CALL kr_strlen → RAX=slen
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC5)       // [21] MOV R13, RAX (slen)
+    c = c + hexByte(0x4C) + hexByte(0x8B) + hexByte(0x73) + hexByte(0x08)  // [24] MOV R14, [RBX+8] (len)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xF1)       // [28] MOV RCX, R14
+    c = c + hexByte(0x4C) + hexByte(0x01) + hexByte(0xE9)       // [31] ADD RCX, R13
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC1)       // [34] INC RCX (need)
+    c = c + hexByte(0x48) + hexByte(0x3B) + hexByte(0x0B)       // [37] CMP RCX, [RBX] (cap)
+    c = c + hexByte(0x76) + hexByte(0x28)                       // [40] JBE .nogrow(82)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC8)       // [42] MOV RAX, RCX (need)
+    c = c + hexByte(0x48) + hexByte(0xD1) + hexByte(0xE0)       // [45] SHL RAX, 1 (newcap)
+    c = c + hexByte(0x50)                                       // [48] PUSH RAX
+    c = c + hexByte(0x48) + hexByte(0x8D) + hexByte(0x78) + hexByte(0x10)  // [49] LEA RDI,[RAX+16]
+    c = c + hexByte(0xE8) + hexDword(d2)                        // [53] CALL kr_alloc → RAX=nb
+    c = c + hexByte(0x5A)                                       // [58] POP RDX (newcap)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDE)       // [59] MOV RSI, RBX (old)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)       // [62] MOV RDI, RAX (nb)
+    c = c + hexByte(0x50)                                       // [65] PUSH RAX
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xF1)       // [66] MOV RCX, R14 (len)
+    c = c + hexByte(0x48) + hexByte(0x83) + hexByte(0xC1) + hexByte(0x10)  // [69] ADD RCX, 16
+    c = c + hexByte(0xF3) + hexByte(0xA4)                       // [73] REP MOVSB
+    c = c + hexByte(0x58)                                       // [75] POP RAX (nb)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x10)       // [76] MOV [RAX], RDX (cap=newcap)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC3)       // [79] MOV RBX, RAX (new handle)
+    // .nogrow at 82:
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDF)       // [82] MOV RDI, RBX
+    c = c + hexByte(0x48) + hexByte(0x83) + hexByte(0xC7) + hexByte(0x10)  // [85] ADD RDI, 16
+    c = c + hexByte(0x4C) + hexByte(0x01) + hexByte(0xF7)       // [89] ADD RDI, R14 (data+len)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE6)       // [92] MOV RSI, R12 (s)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE9)       // [95] MOV RCX, R13 (slen)
+    c = c + hexByte(0xF3) + hexByte(0xA4)                       // [98] REP MOVSB (append)
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xF0)       // [100] MOV RAX, R14 (len)
+    c = c + hexByte(0x4C) + hexByte(0x01) + hexByte(0xE8)       // [103] ADD RAX, R13 (newlen)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x43) + hexByte(0x08)  // [106] MOV [RBX+8], RAX
+    c = c + hexByte(0xC6) + hexByte(0x07) + hexByte(0x00)       // [110] MOV BYTE [RDI], 0
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xD8)       // [113] MOV RAX, RBX (return handle)
+    c = c + hexByte(0x41) + hexByte(0x5E)                       // [116] POP R14
+    c = c + hexByte(0x41) + hexByte(0x5D)                       // [118] POP R13
+    c = c + hexByte(0x41) + hexByte(0x5C)                       // [120] POP R12
+    c = c + hexByte(0x5B)                                       // [122] POP RBX
+    c = c + hexByte(0xC3)                                       // [123] RET
+    emit c
+}
+func krSbappendSize() { emit 124 }
+
+// kr_sbtostring(RDI=handle) → RAX = data ptr (handle+16). 5 bytes.
+func emitKrSbtostringCode() {
+    let c = ""
+    c = c + hexByte(0x48) + hexByte(0x8D) + hexByte(0x47) + hexByte(0x10)  // LEA RAX,[RDI+16]
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krSbtostringSize() { emit 5 }
+
 // kr_printerr: like kr_print, but writes to stderr (fd 2) instead of stdout.
 // Also appends a trailing newline to match printf("%s\n", s) parity.
 //   In:  RDI = string ptr (NUL-terminated)
@@ -1448,7 +1633,7 @@ func krAbsSize() { emit 14 }
 //   [78]    RET                             (1)
 func emitKrIstruthyCode(thisVAddr, atoiVAddr) {
     let c = ""
-    c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDword(0x40000000)  // [0-6] CMP RDI, 0x40000000
+    c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDwordVaddr(0)  // [0-6] CMP RDI, 0x40000000
     c = c + hexByte(0x7D) + hexByte(0x0A)                                          // [7-8] JGE → .str_path at 19
     // .int_path at 9
     c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xFF)                          // [9-11] TEST RDI, RDI
@@ -2003,13 +2188,13 @@ func emitKrPlusCode(thisVAddr, isnumVAddr, atoiVAddr, concatVAddr) {
     c = c + hexByte(0x41) + hexByte(0x54)
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xFB)
     c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xF4)
-    c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFB) + hexDword(0x40000000)
+    c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFB) + hexDwordVaddr(0)
     c = c + hexByte(0x7C) + hexByte(0x0C)        // JL +12 → past JZ (a small int incl negative → skip isnum)
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDF)
     c = c + hexByte(0xE8) + hexDword(dIsnumA)
     c = c + hexByte(0x85) + hexByte(0xC0)
     c = c + hexByte(0x74) + hexByte(0x2C)
-    c = c + hexByte(0x49) + hexByte(0x81) + hexByte(0xFC) + hexDword(0x40000000)
+    c = c + hexByte(0x49) + hexByte(0x81) + hexByte(0xFC) + hexDwordVaddr(0)
     c = c + hexByte(0x7C) + hexByte(0x0C)        // JL +12 → past JZ (b small int incl negative → skip isnum)
     c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE7)
     c = c + hexByte(0xE8) + hexDword(dIsnumB)
@@ -2149,8 +2334,27 @@ func krModiSize() { emit 17 }
 // Why 64-bit SUB and not 32-bit: SUB EAX, ECX zero-extends the result to RAX,
 // turning -1 into 0xFFFFFFFF (huge positive). Caller's signed SETcc then sees
 // wrong sign. SUB RAX, RCX preserves the negative sign properly.
+// NOTE: a 4-byte guard is prepended so kr_strcmp never dereferences a non-pointer.
+// Krypton tags ints < 0x40000000 and pointers ≥ it. A comparison like
+// `someString == 0` (or string-vs-int) must NOT strcmp the int operand — the C
+// runtime treats mismatched types as not-equal. So: if EITHER operand is below
+// VADDR_BASE (a small int / null), return their raw signed difference (non-zero,
+// so EQ→false / NEQ→true) without touching memory. Real strings (data ≥
+// 0x40000078, heap ≈ 0x7ffff…) always pass the guard. New layout (56 bytes):
+//   [0-6]   48 81 FF imm32   CMP RDI, 0x40000000          (7)
+//   [7-8]   72 28            JB +0x28 → .mixed at 49      (2)
+//   [9-15]  48 81 FE imm32   CMP RSI, 0x40000000          (7)
+//   [16-17] 72 1F            JB +0x1F → .mixed at 49      (2)
+//   [18-48] (original strcmp body, unchanged, internal jumps are relative)
+//   [49-51] 48 89 F8         MOV RAX, RDI                 (3)
+//   [52-54] 48 29 F0         SUB RAX, RSI                 (3)
+//   [55]    C3               RET                          (1)
 func emitKrStrcmpCode() {
     let c = ""
+    c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDwordVaddr(0)  // [0-6] CMP RDI, 0x40000000
+    c = c + hexByte(0x72) + hexByte(0x28)                                          // [7-8] JB → .mixed at 49
+    c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFE) + hexDwordVaddr(0)  // [9-15] CMP RSI, 0x40000000
+    c = c + hexByte(0x72) + hexByte(0x1F)                                          // [16-17] JB → .mixed at 49
     c = c + hexByte(0x8A) + hexByte(0x07)
     c = c + hexByte(0x3A) + hexByte(0x06)
     c = c + hexByte(0x75) + hexByte(0x0C)
@@ -2165,9 +2369,12 @@ func emitKrStrcmpCode() {
     c = c + hexByte(0xC3)
     c = c + hexByte(0x31) + hexByte(0xC0)
     c = c + hexByte(0xC3)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xF8)   // [49-51] .mixed: MOV RAX, RDI
+    c = c + hexByte(0x48) + hexByte(0x29) + hexByte(0xF0)   // [52-54] SUB RAX, RSI
+    c = c + hexByte(0xC3)                                    // [55] RET
     emit c
 }
-func krStrcmpSize() { emit 31 }
+func krStrcmpSize() { emit 56 }
 
 // kr_cmpi: signed-integer-or-strcmp comparison helper for EQ/NEQ/LT/GT/LTE/GTE.
 //   If both args are "numeric" (small int OR digit-only string), returns
@@ -2225,13 +2432,13 @@ func emitKrCmpiCode(thisVAddr, isnumVAddr, atoiVAddr, strcmpVAddr) {
     c = c + hexByte(0x41) + hexByte(0x54)
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xFB)
     c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xF4)
-    c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFB) + hexDword(0x40000000)
+    c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFB) + hexDwordVaddr(0)
     c = c + hexByte(0x7C) + hexByte(0x0C)        // JL +12 — signed so negatives count as int
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDF)
     c = c + hexByte(0xE8) + hexDword(dIsnumA)
     c = c + hexByte(0x85) + hexByte(0xC0)
     c = c + hexByte(0x74) + hexByte(0x2F)
-    c = c + hexByte(0x49) + hexByte(0x81) + hexByte(0xFC) + hexDword(0x40000000)
+    c = c + hexByte(0x49) + hexByte(0x81) + hexByte(0xFC) + hexDwordVaddr(0)
     c = c + hexByte(0x7C) + hexByte(0x0C)        // JL +12 — signed so negatives count as int
     c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE7)
     c = c + hexByte(0xE8) + hexDword(dIsnumB)
@@ -2813,7 +3020,11 @@ func emitStartCode(callDisp, atoiDisp) {
     c = c + hexByte(0x4C) + hexByte(0x8D) + hexByte(0x6C) + hexByte(0x24) + hexByte(0x08)
     c = c + hexByte(0xB8) + hexDword(9)
     c = c + hexByte(0x31) + hexByte(0xFF)
-    c = c + hexByte(0xBE) + hexDword(0x1000000)
+    // heap: 512 MB (bump-only, no GC; mmap lazy so only touched pages cost RAM).
+    // With the O(n) StringBuilder the full elf.kir self-compile peaks at ~260 MB,
+    // so 512 MB is comfortable headroom. 0x20000000 < the int/pointer threshold,
+    // so it emits cleanly through hexDword. MOV ESI, 0x20000000.
+    c = c + hexByte(0xBE) + hexDword(0x20000000)
     c = c + hexByte(0xBA) + hexDword(3)
     c = c + hexByte(0x41) + hexByte(0xBA) + hexDword(0x22)
     c = c + hexByte(0x49) + hexByte(0xC7) + hexByte(0xC0) + hexDword(0 - 1)
@@ -2923,11 +3134,12 @@ func opByteSize(op) {
     if op == "BUILTIN_ARG"   { emit 7 } // POP RDI + CALL kr_arg + PUSH RAX
     if op == "BUILTIN_ARGCOUNT"{ emit 6 } // CALL kr_argcount + PUSH RAX (no args)
     if op == "BUILTIN_SUBSTRING" { emit 9 } // POP RDX + POP RSI + POP RDI + CALL + PUSH RAX
-    if op == "BUILTIN_SB_NEW"    { emit 11 } // MOV EDI,1 + CALL kr_alloc + PUSH RAX
-    if op == "BUILTIN_SB_APPEND" { emit 8 }  // POP RSI + POP RDI + CALL kr_concat + PUSH RAX
-    if op == "BUILTIN_SB_TOSTR"  { emit 0 }  // no-op: ptr stays on stack
+    if op == "BUILTIN_SB_NEW"    { emit 6 }  // CALL kr_sbnew + PUSH RAX
+    if op == "BUILTIN_SB_APPEND" { emit 8 }  // POP RSI + POP RDI + CALL kr_sbappend + PUSH RAX
+    if op == "BUILTIN_SB_TOSTR"  { emit 7 }  // POP RDI + CALL kr_sbtostring + PUSH RAX
     if op == "BUILTIN_READFILE"  { emit 7 }  // POP RDI + CALL kr_readfile + PUSH RAX
     if op == "BUILTIN_WRITEFILE" { emit 8 }  // POP RSI + POP RDI + CALL kr_writefile + PUSH RAX
+    if op == "BUILTIN_WRITEBYTES"{ emit 8 }  // POP RSI + POP RDI + CALL kr_writebytes + PUSH RAX
     if op == "BUILTIN_PRINTERR"  { emit 8 }  // POP RDI + CALL kr_printerr + PUSH 0
     if op == "BUILTIN_CHARCODE"  { emit 7 }  // POP RDI + CALL kr_charcode + PUSH RAX
     if op == "BUILTIN_FROMCHARCODE" { emit 7 } // POP RDI + CALL + PUSH RAX
@@ -3162,6 +3374,12 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_GETLINE")
                 } else if cname == "lineCount" {
                     opSb = sbAppend(opSb, "BUILTIN_LINECOUNT")
+                } else if cname == "writeBytes" {
+                    // writeBytes(path, hexContent): hex-decode "xHH" → raw bytes →
+                    // file. NOT writeFile (which writes a NUL-terminated string and
+                    // would stop at the binary's first 0 byte). Routes to the
+                    // dedicated kr_writebytes helper.
+                    opSb = sbAppend(opSb, "BUILTIN_WRITEBYTES")
                 } else {
                     opSb = sbAppend(opSb, "CALL_FUNC " + rest)
                 }
@@ -3263,6 +3481,20 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_HASFIELD")
                 } else if bname == "structFields" {
                     opSb = sbAppend(opSb, "BUILTIN_STRUCTFIELDS")
+                } else if bname == "gcShadowCount" {
+                    // GC root-shadow ops emitted by the 2.x front-end. This
+                    // backend has no precise-GC shadow stack, so stub them — but
+                    // with the CORRECT stack effect or the eval stack desyncs
+                    // (the unsupported no-op left the following STORE popping a
+                    // never-pushed value). gcShadowCount() takes 0 args and
+                    // PUSHES a count → push a dummy 0.
+                    opSb = sbAppend(opSb, "PUSH_INT 0")
+                } else if bname == "gcShadowPush" || bname == "gcShadowPop" {
+                    // 1 arg, returns a value (the arg is the GC root / pop-count,
+                    // which we ignore). Consume the arg, push a dummy result so
+                    // the surrounding LOAD…POP stays balanced.
+                    opSb = sbAppend(opSb, "POP\nPUSH_INT 0")
+                    opCount += 1
                 } else {
                     // Unknown builtin: emit a marker and leave the stack
                     // alone. Programs that hit this are already incorrect;
@@ -3325,7 +3557,10 @@ func parseIR(ir) {
     }
 
     // resultSb already begins each func with "~~~\n", so just concatenate.
-    emit strTab + "\n" + sbToString(resultSb)
+    // Prefix the strTab with its line count so the reader can consume exactly
+    // that many lines: a string-table ENTRY may itself be "~~~" (the section
+    // delimiter), so scanning for "~~~" would truncate the table. Read by count.
+    emit strCount + "\n" + strTab + "\n" + sbToString(resultSb)
 }
 
 // ── Pass 2 (layout): compute label offsets and total code size ─────
@@ -3363,17 +3598,17 @@ func computeLayout(opList, localCount) {
 // funcStartVAddr: virtual address of THIS function's first byte (for CALL disp calc)
 // krPrintVAddr/krStrIntVAddr: vaddrs of runtime helpers, used by BUILTIN_KP/BUILTIN_TOSTR
 
-func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr, krStrcmpVAddr, krReverseVAddr) {
-    let c = ""
-    c = c + hexByte(0x55)                                             // [+0] PUSH RBP
-    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xE5)             // [+1] MOV RBP, RSP
+func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr, krStrcmpVAddr, krReverseVAddr, krSbnewVAddr, krSbappendVAddr, krSbtostringVAddr) {
+    let c = sbNew()
+    c = sbAppend(c, hexByte(0x55))  // [+0] PUSH RBP
+    c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xE5))  // [+1] MOV RBP, RSP
     if localCount > 0 {
         // SUB RSP, imm32 (allocate 8 bytes per local, 16-byte aligned)
         let bytes = localCount * 8
         let pad = 0
         if bytes % 16 != 0 { pad = 16 - (bytes % 16) }
         let total = bytes + pad
-        c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xEC) + hexDword(total)
+        c = sbAppend(c, hexByte(0x48) + hexByte(0x81) + hexByte(0xEC) + hexDword(total))
     }
 
     let off = prologueSize(localCount)
@@ -3389,36 +3624,36 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
 
         if op == "PUSH_STR" {
             let idx = toInt(rest)
-            let vaddr = toInt(getLine(strVAddrs, idx))
-            c = c + hexByte(0x48) + hexByte(0xBF) + hexQword(vaddr)
-            c = c + hexByte(0x57)
+            let vaddr = toInt(getLine(strVAddrs, idx))   // load-base offset
+            c = sbAppend(c, hexByte(0x48) + hexByte(0xBF) + hexQwordVaddr(vaddr))
+            c = sbAppend(c, hexByte(0x57))
         } else if op == "PUSH_INT" {
             let n = toInt(rest)
-            c = c + hexByte(0x48) + hexByte(0xBF) + hexQword(n)
-            c = c + hexByte(0x57)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0xBF) + hexQword(n))
+            c = sbAppend(c, hexByte(0x57))
         } else if op == "STORE_LOCAL" {
             let slot = toInt(rest)
             let dispVal = 0 - (slot * 8)
-            c = c + hexByte(0x58)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x85) + hexDword(dispVal)
+            c = sbAppend(c, hexByte(0x58))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x85) + hexDword(dispVal))
         } else if op == "LOAD_LOCAL" {
             let slot = toInt(rest)
             let dispVal = 0 - (slot * 8)
-            c = c + hexByte(0x48) + hexByte(0x8B) + hexByte(0x85) + hexDword(dispVal)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x8B) + hexByte(0x85) + hexDword(dispVal))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "LOAD_PARAM" {
             // PARAM idx 0 (first declared) is at the BOTTOM of pushed args, i.e. highest RBP offset.
             // Stack from caller: pushes p0, p1, ..., pN-1 in order. After CALL+prologue:
             //   [RBP+0]=savedRBP, [RBP+8]=retaddr, [RBP+16]=pN-1, [RBP+24]=pN-2, ..., [RBP+16+(N-1)*8]=p0
             let idx = toInt(rest)
             let dispVal = 16 + (argcount - 1 - idx) * 8
-            c = c + hexByte(0x48) + hexByte(0x8B) + hexByte(0x85) + hexDword(dispVal)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x8B) + hexByte(0x85) + hexDword(dispVal))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "STORE_PARAM" {
             let idx = toInt(rest)
             let dispVal = 16 + (argcount - 1 - idx) * 8
-            c = c + hexByte(0x58)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x85) + hexDword(dispVal)
+            c = sbAppend(c, hexByte(0x58))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x85) + hexDword(dispVal))
         } else if op == "ADD" {
             // Smart dispatch (35 bytes): if EITHER arg is a string ptr (≥ 0x400000),
             // call kr_concat (which auto-converts int args via kr_str_int). Else native int add.
@@ -3535,27 +3770,27 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             // Slow path now calls kr_plus (numeric-aware) instead of kr_concat:
             // matches C runtime semantics where "5"+"3" = 8, "5"+"x" = "5x".
             let plusDisp = krPlusVAddr - (funcStartVAddr + off + 34)
-            c = c + hexByte(0x59) + hexByte(0x58)                                  // [0-1] POP RCX, POP RAX
-            c = c + hexByte(0xBA) + hexDword(0x40000000)                              // [2-6] MOV EDX, 0x40000000
-            c = c + hexByte(0x48) + hexByte(0x39) + hexByte(0xD0)                  // [7-9] CMP RAX, RDX
-            c = c + hexByte(0x7D) + hexByte(0x0B)                                  // [10-11] JAE +11 → 23
-            c = c + hexByte(0x48) + hexByte(0x39) + hexByte(0xD1)                  // [12-14] CMP RCX, RDX
-            c = c + hexByte(0x7D) + hexByte(0x06)                                  // [15-16] JAE +6 → 23
-            c = c + hexByte(0x48) + hexByte(0x01) + hexByte(0xC8)                  // [17-19] ADD RAX, RCX (fast int path)
-            c = c + hexByte(0x50)                                                  // [20] PUSH RAX
-            c = c + hexByte(0xEB) + hexByte(0x0C)                                  // [21-22] JMP +12 → 35
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)                  // [23-25] MOV RDI, RAX
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xCE)                  // [26-28] MOV RSI, RCX
-            c = c + hexByte(0xE8) + hexDword(plusDisp)                              // [29-33] CALL kr_plus
-            c = c + hexByte(0x50)                                                  // [34] PUSH RAX
+            c = sbAppend(c, hexByte(0x59) + hexByte(0x58))  // [0-1] POP RCX, POP RAX
+            c = sbAppend(c, hexByte(0xBA) + hexDwordVaddr(0))  // [2-6] MOV EDX, 0x40000000
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x39) + hexByte(0xD0))  // [7-9] CMP RAX, RDX
+            c = sbAppend(c, hexByte(0x7D) + hexByte(0x0B))  // [10-11] JAE +11 → 23
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x39) + hexByte(0xD1))  // [12-14] CMP RCX, RDX
+            c = sbAppend(c, hexByte(0x7D) + hexByte(0x06))  // [15-16] JAE +6 → 23
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x01) + hexByte(0xC8))  // [17-19] ADD RAX, RCX (fast int path)
+            c = sbAppend(c, hexByte(0x50))  // [20] PUSH RAX
+            c = sbAppend(c, hexByte(0xEB) + hexByte(0x0C))  // [21-22] JMP +12 → 35
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xC7))  // [23-25] MOV RDI, RAX
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xCE))  // [26-28] MOV RSI, RCX
+            c = sbAppend(c, hexByte(0xE8) + hexDword(plusDisp))  // [29-33] CALL kr_plus
+            c = sbAppend(c, hexByte(0x50))  // [34] PUSH RAX
         } else if op == "CAT" {
             // String concat: POP RSI (b, top) ; POP RDI (a) ; CALL kr_concat ; PUSH RAX
             // CALL is at offset 2 from start of this op, ends at 7. disp computed from emit RIP.
-            c = c + hexByte(0x5E)                                     // POP RSI (b)
-            c = c + hexByte(0x5F)                                     // POP RDI (a)
+            c = sbAppend(c, hexByte(0x5E))  // POP RSI (b)
+            c = sbAppend(c, hexByte(0x5F))  // POP RDI (a)
             let catDisp = krConcatVAddr - (funcStartVAddr + off + 2 + 5)
-            c = c + hexByte(0xE8) + hexDword(catDisp)
-            c = c + hexByte(0x50)                                     // PUSH RAX
+            c = sbAppend(c, hexByte(0xE8) + hexDword(catDisp))
+            c = sbAppend(c, hexByte(0x50))  // PUSH RAX
         } else if op == "SUB" || op == "MUL" || op == "DIV" || op == "MOD" {
             // Smart-int dispatch (29 bytes): fast path if both args are small ints
             // (native op preserves correctness since both are real ints), otherwise
@@ -3627,18 +3862,18 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             // CALL helper: at offset slowOff + 6. Ends at slowOff + 11. disp = helperVAddr - (funcStartVAddr + off + slowOff + 11)
             let callDisp = helperVAddr - (funcStartVAddr + off + slowOff + 11)
 
-            c = c + hexByte(0x59) + hexByte(0x58)                                  // [0-1] POP RCX, POP RAX
-            c = c + hexByte(0xBA) + hexDword(0x40000000)                              // [2-6] MOV EDX, 0x40000000
-            c = c + hexByte(0x48) + hexByte(0x39) + hexByte(0xD0)                  // [7-9] CMP RAX, RDX
-            c = c + hexByte(0x7D) + hexByte(disp1)                                  // [10-11] JAE → slow
-            c = c + hexByte(0x48) + hexByte(0x39) + hexByte(0xD1)                  // [12-14] CMP RCX, RDX
-            c = c + hexByte(0x7D) + hexByte(disp2)                                  // [15-16] JAE → slow
-            c = c + fastBody                                                        // [17..] fast int path
-            c = c + hexByte(0xEB) + hexByte(disp3)                                  // JMP → .end
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)                  // [.slow] MOV RDI, RAX
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xCE)                  // MOV RSI, RCX
-            c = c + hexByte(0xE8) + hexDword(callDisp)                              // CALL kr_*i
-            c = c + hexByte(0x50)                                                  // PUSH RAX
+            c = sbAppend(c, hexByte(0x59) + hexByte(0x58))  // [0-1] POP RCX, POP RAX
+            c = sbAppend(c, hexByte(0xBA) + hexDwordVaddr(0))  // [2-6] MOV EDX, 0x40000000
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x39) + hexByte(0xD0))  // [7-9] CMP RAX, RDX
+            c = sbAppend(c, hexByte(0x7D) + hexByte(disp1))  // [10-11] JAE → slow
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x39) + hexByte(0xD1))  // [12-14] CMP RCX, RDX
+            c = sbAppend(c, hexByte(0x7D) + hexByte(disp2))  // [15-16] JAE → slow
+            c = sbAppend(c, fastBody)  // [17..] fast int path
+            c = sbAppend(c, hexByte(0xEB) + hexByte(disp3))  // JMP → .end
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xC7))  // [.slow] MOV RDI, RAX
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xCE))  // MOV RSI, RCX
+            c = sbAppend(c, hexByte(0xE8) + hexDword(callDisp))  // CALL kr_*i
+            c = sbAppend(c, hexByte(0x50))  // PUSH RAX
         } else if op == "EQ" || op == "NEQ" || op == "LT" || op == "GT" || op == "LTE" || op == "GTE" {
             // Numeric-or-strcmp dispatch (44 bytes). Fast path: both small ints
             // → CMP directly. Slow path: CALL kr_cmpi which handles
@@ -3675,23 +3910,23 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             if op == "GT"  { cc = 0x9F }
             if op == "LTE" { cc = 0x9E }
             if op == "GTE" { cc = 0x9D }
-            c = c + hexByte(0x59) + hexByte(0x58)                                  // [0-1]
-            c = c + hexByte(0xBA) + hexDword(0x40000000)                              // [2-6]
-            c = c + hexByte(0x48) + hexByte(0x39) + hexByte(0xD0)                  // [7-9] CMP RAX, RDX
-            c = c + hexByte(0x7D) + hexByte(0x0A)                                  // [10-11] JAE → 22
-            c = c + hexByte(0x48) + hexByte(0x39) + hexByte(0xD1)                  // [12-14] CMP RCX, RDX
-            c = c + hexByte(0x7D) + hexByte(0x05)                                  // [15-16] JAE → 22
-            c = c + hexByte(0x48) + hexByte(0x39) + hexByte(0xC8)                  // [17-19] CMP RAX, RCX (fast)
-            c = c + hexByte(0xEB) + hexByte(0x0E)                                  // [20-21] JMP → 36
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)                  // [22-24] MOV RDI, RAX
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xCE)                  // [25-27] MOV RSI, RCX
-            c = c + hexByte(0xE8) + hexDword(cmpiDisp)                              // [28-32] CALL kr_cmpi
-            c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)                  // [33-35] TEST RAX, RAX
+            c = sbAppend(c, hexByte(0x59) + hexByte(0x58))  // [0-1]
+            c = sbAppend(c, hexByte(0xBA) + hexDwordVaddr(0))  // [2-6]
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x39) + hexByte(0xD0))  // [7-9] CMP RAX, RDX
+            c = sbAppend(c, hexByte(0x7D) + hexByte(0x0A))  // [10-11] JAE → 22
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x39) + hexByte(0xD1))  // [12-14] CMP RCX, RDX
+            c = sbAppend(c, hexByte(0x7D) + hexByte(0x05))  // [15-16] JAE → 22
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x39) + hexByte(0xC8))  // [17-19] CMP RAX, RCX (fast)
+            c = sbAppend(c, hexByte(0xEB) + hexByte(0x0E))  // [20-21] JMP → 36
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xC7))  // [22-24] MOV RDI, RAX
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xCE))  // [25-27] MOV RSI, RCX
+            c = sbAppend(c, hexByte(0xE8) + hexDword(cmpiDisp))  // [28-32] CALL kr_cmpi
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x85) + hexByte(0xC0))  // [33-35] TEST RAX, RAX
             // SETcc reads flags set by CMP/TEST above — must NOT clobber flags first.
             // Use SETcc DL → MOVZX RDX, DL to zero-extend AFTER the SETcc.
-            c = c + hexByte(0x0F) + hexByte(cc) + hexByte(0xC2)                    // [36-38] SETcc DL
-            c = c + hexByte(0x48) + hexByte(0x0F) + hexByte(0xB6) + hexByte(0xD2)  // [39-42] MOVZX RDX, DL
-            c = c + hexByte(0x52)                                                  // [43] PUSH RDX
+            c = sbAppend(c, hexByte(0x0F) + hexByte(cc) + hexByte(0xC2))  // [36-38] SETcc DL
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x0F) + hexByte(0xB6) + hexByte(0xD2))  // [39-42] MOVZX RDX, DL
+            c = sbAppend(c, hexByte(0x52))  // [43] PUSH RDX
         } else if op == "LABEL" {
             // No code; nothing to emit.
         } else if op == "JUMP" {
@@ -3699,34 +3934,34 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             let target = toInt(targetStr)
             // E9 d32. After this 5-byte instruction, position is off+5.
             let disp = target - (off + 5)
-            c = c + hexByte(0xE9) + hexDword(disp)
+            c = sbAppend(c, hexByte(0xE9) + hexDword(disp))
         } else if op == "JUMPIFNOT" {
             let targetStr = labelOffset(labels, rest)
             let target = toInt(targetStr)
             // POP RAX (1) ; TEST RAX,RAX (3) ; JZ d32 (6). Total 10. After this, position = off+10.
-            c = c + hexByte(0x58)                                     // POP RAX
-            c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)     // TEST RAX, RAX
+            c = sbAppend(c, hexByte(0x58))  // POP RAX
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x85) + hexByte(0xC0))  // TEST RAX, RAX
             let disp = target - (off + 10)
-            c = c + hexByte(0x0F) + hexByte(0x84) + hexDword(disp)    // JZ d32
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x84) + hexDword(disp))  // JZ d32
         } else if op == "JUMPIF" {
             // Mirror of JUMPIFNOT but JNZ instead of JZ. compile.k uses
             // this for short-circuit OR (jump if true).
             let targetStr = labelOffset(labels, rest)
             let target = toInt(targetStr)
-            c = c + hexByte(0x58)                                     // POP RAX
-            c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)     // TEST RAX, RAX
+            c = sbAppend(c, hexByte(0x58))  // POP RAX
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x85) + hexByte(0xC0))  // TEST RAX, RAX
             let disp = target - (off + 10)
-            c = c + hexByte(0x0F) + hexByte(0x85) + hexDword(disp)    // JNZ d32
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x85) + hexDword(disp))  // JNZ d32
         } else if op == "RETURN" {
-            c = c + hexByte(0x58)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xEC)
-            c = c + hexByte(0x5D)
-            c = c + hexByte(0xC3)
+            c = sbAppend(c, hexByte(0x58))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xEC))
+            c = sbAppend(c, hexByte(0x5D))
+            c = sbAppend(c, hexByte(0xC3))
         } else if op == "NEG" {
             // POP RAX ; NEG RAX ; PUSH RAX (5 bytes)
-            c = c + hexByte(0x58)
-            c = c + hexByte(0x48) + hexByte(0xF7) + hexByte(0xD8)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0x58))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0xF7) + hexByte(0xD8))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "NOT" {
             // Use kr_istruthy then negate, so `!"false"` and `!"0"` (which
             // are non-zero string pointers but falsy per Krypton's truthiness
@@ -3734,11 +3969,11 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             // checked pointer-non-zero, missing the falsy-string cases.
             //
             // POP RDI ; CALL kr_istruthy ; XOR EAX, 1 ; PUSH RAX (10 bytes)
-            c = c + hexByte(0x5F)                                          // POP RDI
+            c = sbAppend(c, hexByte(0x5F))  // POP RDI
             let itDispNot = krIstruthyVAddr - (funcStartVAddr + off + 6)
-            c = c + hexByte(0xE8) + hexDword(itDispNot)                    // CALL kr_istruthy
-            c = c + hexByte(0x83) + hexByte(0xF0) + hexByte(0x01)          // XOR EAX, 1 (zero-extended)
-            c = c + hexByte(0x50)                                          // PUSH RAX
+            c = sbAppend(c, hexByte(0xE8) + hexDword(itDispNot))  // CALL kr_istruthy
+            c = sbAppend(c, hexByte(0x83) + hexByte(0xF0) + hexByte(0x01))  // XOR EAX, 1 (zero-extended)
+            c = sbAppend(c, hexByte(0x50))  // PUSH RAX
         } else if op == "BUILTIN_KP" {
             // Smart kp: convert int → string before printing.
             // Layout (25 bytes):
@@ -3751,31 +3986,31 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             //   [23-24] 6A 00                  PUSH 0
             let siDisp = krStrIntVAddr - (funcStartVAddr + off + 15)
             let kpDisp = krPrintVAddr  - (funcStartVAddr + off + 23)
-            c = c + hexByte(0x5F)
-            c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDword(0x40000000)
-            c = c + hexByte(0x7D) + hexByte(0x08)
-            c = c + hexByte(0xE8) + hexDword(siDisp)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)
-            c = c + hexByte(0xE8) + hexDword(kpDisp)
-            c = c + hexByte(0x6A) + hexByte(0x00)
+            c = sbAppend(c, hexByte(0x5F))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDwordVaddr(0))
+            c = sbAppend(c, hexByte(0x7D) + hexByte(0x08))
+            c = sbAppend(c, hexByte(0xE8) + hexDword(siDisp))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xC7))
+            c = sbAppend(c, hexByte(0xE8) + hexDword(kpDisp))
+            c = sbAppend(c, hexByte(0x6A) + hexByte(0x00))
         } else if op == "BUILTIN_TOSTR" {
             // POP RDI ; CALL kr_str_int ; PUSH RAX
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5F))
             let tsDisp = krStrIntVAddr - (funcStartVAddr + off + 6)
-            c = c + hexByte(0xE8) + hexDword(tsDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(tsDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_TOINT" {
             // POP RDI ; CALL kr_atoi ; PUSH RAX
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5F))
             let tiDisp = krAtoiVAddr - (funcStartVAddr + off + 6)
-            c = c + hexByte(0xE8) + hexDword(tiDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(tiDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_LENGTH" {
             // POP RDI ; CALL kr_length ; PUSH RAX
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5F))
             let lnDisp = krLengthVAddr - (funcStartVAddr + off + 6)
-            c = c + hexByte(0xE8) + hexDword(lnDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(lnDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_LEN" {
             // Smart-int len: convert int → string before strlen, so len(0)
             // returns "1" (the length of "0") rather than dereferencing
@@ -3793,217 +4028,229 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             //   [23]    50                     PUSH RAX
             let siDisp = krStrIntVAddr - (funcStartVAddr + off + 15)
             let slDisp = krStrlenVAddr - (funcStartVAddr + off + 23)
-            c = c + hexByte(0x5F)
-            c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDword(0x40000000)
-            c = c + hexByte(0x7D) + hexByte(0x08)
-            c = c + hexByte(0xE8) + hexDword(siDisp)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)
-            c = c + hexByte(0xE8) + hexDword(slDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0x5F))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDwordVaddr(0))
+            c = sbAppend(c, hexByte(0x7D) + hexByte(0x08))
+            c = sbAppend(c, hexByte(0xE8) + hexDword(siDisp))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xC7))
+            c = sbAppend(c, hexByte(0xE8) + hexDword(slDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_SPLIT" {
             // POP RSI (idx, top) ; POP RDI (list) ; CALL kr_split ; PUSH RAX
-            c = c + hexByte(0x5E)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5F))
             let spDisp = krSplitVAddr - (funcStartVAddr + off + 7)
-            c = c + hexByte(0xE8) + hexDword(spDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(spDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_RANGE" {
             // POP RSI (b, top) ; POP RDI (a) ; CALL kr_range ; PUSH RAX
-            c = c + hexByte(0x5E)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5F))
             let rgDisp = krRangeVAddr - (funcStartVAddr + off + 7)
-            c = c + hexByte(0xE8) + hexDword(rgDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(rgDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "INDEX" {
             // POP RSI (idx, top) ; POP RDI (string) ; CALL kr_index ; PUSH RAX
-            c = c + hexByte(0x5E)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5F))
             let ixDisp = krIndexVAddr - (funcStartVAddr + off + 7)
-            c = c + hexByte(0xE8) + hexDword(ixDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(ixDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_ARG" {
             // POP RDI ; CALL kr_arg ; PUSH RAX
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5F))
             let agDisp = krArgVAddr - (funcStartVAddr + off + 6)
-            c = c + hexByte(0xE8) + hexDword(agDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(agDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_ARGCOUNT" {
             // CALL kr_argcount ; PUSH RAX
             let acDisp = krArgcountVAddr - (funcStartVAddr + off + 5)
-            c = c + hexByte(0xE8) + hexDword(acDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(acDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_SUBSTRING" {
             // POP RDX (end, top) ; POP RSI (start) ; POP RDI (str) ; CALL kr_substring ; PUSH RAX
-            c = c + hexByte(0x5A)
-            c = c + hexByte(0x5E)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5A))
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5F))
             let sbDisp = krSubstringVAddr - (funcStartVAddr + off + 8)
-            c = c + hexByte(0xE8) + hexDword(sbDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(sbDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_SB_NEW" {
-            // MOV EDI, 1 ; CALL kr_alloc ; PUSH RAX  (sb starts as a 1-byte NUL)
-            c = c + hexByte(0xBF) + hexDword(1)
-            let snDisp = krAllocVAddr - (funcStartVAddr + off + 10)
-            c = c + hexByte(0xE8) + hexDword(snDisp)
-            c = c + hexByte(0x50)
+            // CALL kr_sbnew ; PUSH RAX
+            let snDisp = krSbnewVAddr - (funcStartVAddr + off + 5)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(snDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_SB_APPEND" {
-            // POP RSI (s) ; POP RDI (sb) ; CALL kr_concat ; PUSH RAX
-            c = c + hexByte(0x5E)
-            c = c + hexByte(0x5F)
-            let saDisp = krConcatVAddr - (funcStartVAddr + off + 7)
-            c = c + hexByte(0xE8) + hexDword(saDisp)
-            c = c + hexByte(0x50)
+            // POP RSI (s) ; POP RDI (handle) ; CALL kr_sbappend ; PUSH RAX
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5F))
+            let saDisp = krSbappendVAddr - (funcStartVAddr + off + 7)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(saDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_SB_TOSTR" {
-            // no-op: the sb pointer IS the string. Leave it on the stack untouched.
+            // POP RDI (handle) ; CALL kr_sbtostring ; PUSH RAX
+            c = sbAppend(c, hexByte(0x5F))
+            let stDisp = krSbtostringVAddr - (funcStartVAddr + off + 6)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(stDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_READFILE" {
             // POP RDI ; CALL kr_readfile ; PUSH RAX
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5F))
             let rfDisp = krReadfileVAddr - (funcStartVAddr + off + 6)
-            c = c + hexByte(0xE8) + hexDword(rfDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(rfDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_WRITEFILE" {
             // POP RSI (content, top) ; POP RDI (path) ; CALL kr_writefile ; PUSH RAX
-            c = c + hexByte(0x5E)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5F))
             let wfDisp = krWritefileVAddr - (funcStartVAddr + off + 7)
-            c = c + hexByte(0xE8) + hexDword(wfDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(wfDisp))
+            c = sbAppend(c, hexByte(0x50))
+        } else if op == "BUILTIN_WRITEBYTES" {
+            // POP RSI (content) ; POP RDI (path) ; CALL kr_writebytes ; PUSH RAX
+            // kr_writebytes is laid out immediately after kr_writefile (66 bytes),
+            // so its vaddr is krWritefileVAddr + 66 (see the segment assembly).
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5F))
+            let wbDisp = (krWritefileVAddr + 66) - (funcStartVAddr + off + 7)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(wbDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_PRINTERR" {
             // POP RDI ; CALL kr_printerr ; PUSH 0  (8 bytes)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5F))
             let peDisp = krPrinterrVAddr - (funcStartVAddr + off + 6)
-            c = c + hexByte(0xE8) + hexDword(peDisp)
-            c = c + hexByte(0x6A) + hexByte(0x00)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(peDisp))
+            c = sbAppend(c, hexByte(0x6A) + hexByte(0x00))
         } else if op == "BUILTIN_CHARCODE" {
             // POP RDI ; CALL kr_charcode ; PUSH RAX  (7 bytes)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5F))
             let ccDisp = krCharcodeVAddr - (funcStartVAddr + off + 6)
-            c = c + hexByte(0xE8) + hexDword(ccDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(ccDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_FROMCHARCODE" {
             // POP RDI ; CALL kr_fromcharcode ; PUSH RAX  (7 bytes)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5F))
             let fcDisp = krFromcharcodeVAddr - (funcStartVAddr + off + 6)
-            c = c + hexByte(0xE8) + hexDword(fcDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(fcDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_EXIT" {
             // POP RDI ; CALL kr_exit ; PUSH RAX (kr_exit doesn't return)  (7 bytes)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5F))
             let exDisp = krExitVAddr - (funcStartVAddr + off + 6)
-            c = c + hexByte(0xE8) + hexDword(exDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(exDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_ISDIGIT" {
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5F))
             let idDisp = krIsdigitVAddr - (funcStartVAddr + off + 6)
-            c = c + hexByte(0xE8) + hexDword(idDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(idDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_ISALPHA" {
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5F))
             let iaDisp = krIsalphaVAddr - (funcStartVAddr + off + 6)
-            c = c + hexByte(0xE8) + hexDword(iaDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(iaDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_ABS" {
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5F))
             let abDisp = krAbsVAddr - (funcStartVAddr + off + 6)
-            c = c + hexByte(0xE8) + hexDword(abDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(abDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_STARTSWITH" {
             // POP RSI (prefix, top) ; POP RDI (s) ; CALL ; PUSH RAX
-            c = c + hexByte(0x5E)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5F))
             let swDisp = krStartswithVAddr - (funcStartVAddr + off + 7)
-            c = c + hexByte(0xE8) + hexDword(swDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(swDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_ISTRUTHY" {
             // POP RDI ; CALL kr_istruthy ; PUSH RAX
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5F))
             let itDisp = krIstruthyVAddr - (funcStartVAddr + off + 6)
-            c = c + hexByte(0xE8) + hexDword(itDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(itDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_LINECOUNT" {
             // POP RDI ; CALL kr_linecount ; PUSH RAX (7 bytes)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5F))
             let lcDisp = krLinecountVAddr - (funcStartVAddr + off + 6)
-            c = c + hexByte(0xE8) + hexDword(lcDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(lcDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_GETLINE" {
             // POP RSI (idx, top) ; POP RDI (str) ; CALL kr_getline ; PUSH RAX
-            c = c + hexByte(0x5E)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5F))
             let glDisp = krGetlineVAddr - (funcStartVAddr + off + 7)
-            c = c + hexByte(0xE8) + hexDword(glDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(glDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_TRIM" {
             // POP RDI ; CALL kr_trim ; PUSH RAX (7 bytes)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5F))
             let trDisp = krTrimVAddr - (funcStartVAddr + off + 6)
-            c = c + hexByte(0xE8) + hexDword(trDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(trDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_TOUPPER" {
             // POP RDI ; CALL kr_toupper ; PUSH RAX (7 bytes)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5F))
             let tuDisp = krToupperVAddr - (funcStartVAddr + off + 6)
-            c = c + hexByte(0xE8) + hexDword(tuDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(tuDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_TOLOWER" {
             // POP RDI ; CALL kr_tolower ; PUSH RAX (7 bytes)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5F))
             let tlDisp = krTolowerVAddr - (funcStartVAddr + off + 6)
-            c = c + hexByte(0xE8) + hexDword(tlDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(tlDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_REVERSE" {
             // POP RDI ; CALL kr_reverse ; PUSH RAX (7 bytes)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5F))
             let rvDisp = krReverseVAddr - (funcStartVAddr + off + 6)
-            c = c + hexByte(0xE8) + hexDword(rvDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(rvDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_POW" {
             // POP RSI (exp) ; POP RDI (base) ; CALL kr_pow ; PUSH RAX (8 bytes)
-            c = c + hexByte(0x5E)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5F))
             let pwDisp = krPowVAddr - (funcStartVAddr + off + 7)
-            c = c + hexByte(0xE8) + hexDword(pwDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(pwDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_REPEAT" {
             // POP RSI (n) ; POP RDI (s) ; CALL kr_repeat ; PUSH RAX (8 bytes)
-            c = c + hexByte(0x5E)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5F))
             let rpDisp = krRepeatVAddr - (funcStartVAddr + off + 7)
-            c = c + hexByte(0xE8) + hexDword(rpDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(rpDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_CONTAINS" {
             // POP RSI (needle) ; POP RDI (s) ; CALL kr_contains ; PUSH RAX
-            c = c + hexByte(0x5E)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5F))
             let cnDisp = krContainsVAddr - (funcStartVAddr + off + 7)
-            c = c + hexByte(0xE8) + hexDword(cnDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(cnDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_INDEXOF" {
             // POP RSI (needle) ; POP RDI (s) ; CALL kr_indexof ; PUSH RAX
-            c = c + hexByte(0x5E)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5F))
             let ioDisp = krIndexofVAddr - (funcStartVAddr + off + 7)
-            c = c + hexByte(0xE8) + hexDword(ioDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(ioDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_ENDSWITH" {
             // POP RSI (suffix) ; POP RDI (s) ; CALL kr_endswith ; PUSH RAX
-            c = c + hexByte(0x5E)
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5F))
             let ewDisp = krEndswithVAddr - (funcStartVAddr + off + 7)
-            c = c + hexByte(0xE8) + hexDword(ewDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(ewDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_REPLACE" {
             // POP RDX (rep, top) ; POP RSI (find) ; POP RDI (s) ;
             // CALL kr_replace ; PUSH RAX. (9 bytes)
-            c = c + hexByte(0x5A)         // POP RDX
-            c = c + hexByte(0x5E)         // POP RSI
-            c = c + hexByte(0x5F)         // POP RDI
+            c = sbAppend(c, hexByte(0x5A))  // POP RDX
+            c = sbAppend(c, hexByte(0x5E))  // POP RSI
+            c = sbAppend(c, hexByte(0x5F))  // POP RDI
             let rpDisp = krReplaceVAddr - (funcStartVAddr + off + 8)
-            c = c + hexByte(0xE8) + hexDword(rpDisp)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(rpDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_ENVNEW" {
             // envNew() — push 0 (NULL env sentinel). 2 bytes.
-            c = c + hexByte(0x6A) + hexByte(0x00)
+            c = sbAppend(c, hexByte(0x6A) + hexByte(0x00))
         } else if op == "BUILTIN_ENVSET" {
             // envSet(env, name, val) — allocate 24-byte EnvEntry,
             // store {name, value, prev=env}, push entry ptr.
@@ -4028,21 +4275,21 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             //   [26-29] 48 89 78 10   MOV [RAX+16], RDI  ; entry.prev = env (4)
             //   [30]   50             PUSH RAX           ; result
             let alDisp1 = krAllocVAddr - (funcStartVAddr + off + 16)
-            c = c + hexByte(0x5A)
-            c = c + hexByte(0x5E)
-            c = c + hexByte(0x5F)
-            c = c + hexByte(0x57)
-            c = c + hexByte(0x56)
-            c = c + hexByte(0x52)
-            c = c + hexByte(0xBF) + hexDword(24)
-            c = c + hexByte(0xE8) + hexDword(alDisp1)
-            c = c + hexByte(0x5A)
-            c = c + hexByte(0x5E)
-            c = c + hexByte(0x5F)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x30)            // MOV [RAX], RSI
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x50) + hexByte(0x08)  // MOV [RAX+8], RDX
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x78) + hexByte(0x10)  // MOV [RAX+16], RDI
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0x5A))
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5F))
+            c = sbAppend(c, hexByte(0x57))
+            c = sbAppend(c, hexByte(0x56))
+            c = sbAppend(c, hexByte(0x52))
+            c = sbAppend(c, hexByte(0xBF) + hexDword(24))
+            c = sbAppend(c, hexByte(0xE8) + hexDword(alDisp1))
+            c = sbAppend(c, hexByte(0x5A))
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5F))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x30))  // MOV [RAX], RSI
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x50) + hexByte(0x08))  // MOV [RAX+8], RDX
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x78) + hexByte(0x10))  // MOV [RAX+16], RDI
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_ENVGET" {
             // envGet(env, name) — walk EnvEntry linked list, strcmp names,
             // return entry.value if match. If not found, return ptr to a
@@ -4082,28 +4329,28 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             //   [60]    50             PUSH RAX
             let scDisp = krStrcmpVAddr - (funcStartVAddr + off + 28)
             let alDisp2 = krAllocVAddr - (funcStartVAddr + off + 57)
-            c = c + hexByte(0x5E)
-            c = c + hexByte(0x5F)
-            c = c + hexByte(0x53)
-            c = c + hexByte(0x41) + hexByte(0x54)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xF3)
-            c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xFC)
-            c = c + hexByte(0x4D) + hexByte(0x85) + hexByte(0xE4)
-            c = c + hexByte(0x74) + hexByte(0x1F)
-            c = c + hexByte(0x49) + hexByte(0x8B) + hexByte(0x3C) + hexByte(0x24)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDE)
-            c = c + hexByte(0xE8) + hexDword(scDisp)
-            c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)
-            c = c + hexByte(0x75) + hexByte(0x07)
-            c = c + hexByte(0x49) + hexByte(0x8B) + hexByte(0x44) + hexByte(0x24) + hexByte(0x08)
-            c = c + hexByte(0xEB) + hexByte(0x11)
-            c = c + hexByte(0x4D) + hexByte(0x8B) + hexByte(0x64) + hexByte(0x24) + hexByte(0x10)
-            c = c + hexByte(0xEB) + hexByte(256 - 36)            // JMP -36 → .loop at 11
-            c = c + hexByte(0xBF) + hexDword(1)
-            c = c + hexByte(0xE8) + hexDword(alDisp2)
-            c = c + hexByte(0x41) + hexByte(0x5C)
-            c = c + hexByte(0x5B)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5F))
+            c = sbAppend(c, hexByte(0x53))
+            c = sbAppend(c, hexByte(0x41) + hexByte(0x54))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xF3))
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x89) + hexByte(0xFC))
+            c = sbAppend(c, hexByte(0x4D) + hexByte(0x85) + hexByte(0xE4))
+            c = sbAppend(c, hexByte(0x74) + hexByte(0x1F))
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x8B) + hexByte(0x3C) + hexByte(0x24))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xDE))
+            c = sbAppend(c, hexByte(0xE8) + hexDword(scDisp))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x85) + hexByte(0xC0))
+            c = sbAppend(c, hexByte(0x75) + hexByte(0x07))
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x8B) + hexByte(0x44) + hexByte(0x24) + hexByte(0x08))
+            c = sbAppend(c, hexByte(0xEB) + hexByte(0x11))
+            c = sbAppend(c, hexByte(0x4D) + hexByte(0x8B) + hexByte(0x64) + hexByte(0x24) + hexByte(0x10))
+            c = sbAppend(c, hexByte(0xEB) + hexByte(256 - 36))  // JMP -36 → .loop at 11
+            c = sbAppend(c, hexByte(0xBF) + hexDword(1))
+            c = sbAppend(c, hexByte(0xE8) + hexDword(alDisp2))
+            c = sbAppend(c, hexByte(0x41) + hexByte(0x5C))
+            c = sbAppend(c, hexByte(0x5B))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "SETFIELD_STR" {
             // setField(env, val) with name immediate from strTab[idx].
             // Stack on entry (top first): val, env.
@@ -4127,21 +4374,21 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             let idx = toInt(rest)
             let nameVAddr = toInt(getLine(strVAddrs, idx))
             let alDispS = krAllocVAddr - (funcStartVAddr + off + 25)
-            c = c + hexByte(0x5A)
-            c = c + hexByte(0x5F)
-            c = c + hexByte(0x57)
-            c = c + hexByte(0x52)
-            c = c + hexByte(0x48) + hexByte(0xBE) + hexQword(nameVAddr)
-            c = c + hexByte(0x56)
-            c = c + hexByte(0xBF) + hexDword(24)
-            c = c + hexByte(0xE8) + hexDword(alDispS)
-            c = c + hexByte(0x5E)
-            c = c + hexByte(0x5A)
-            c = c + hexByte(0x5F)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x30)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x50) + hexByte(0x08)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x78) + hexByte(0x10)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0x5A))
+            c = sbAppend(c, hexByte(0x5F))
+            c = sbAppend(c, hexByte(0x57))
+            c = sbAppend(c, hexByte(0x52))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0xBE) + hexQwordVaddr(nameVAddr))
+            c = sbAppend(c, hexByte(0x56))
+            c = sbAppend(c, hexByte(0xBF) + hexDword(24))
+            c = sbAppend(c, hexByte(0xE8) + hexDword(alDispS))
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5A))
+            c = sbAppend(c, hexByte(0x5F))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x30))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x50) + hexByte(0x08))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x78) + hexByte(0x10))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "GETFIELD_STR" {
             // getField(env) with name immediate from strTab[idx].
             // Stack on entry: env (top).
@@ -4177,28 +4424,28 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             let nameVA_G = toInt(getLine(strVAddrs, idxG))
             let scDispG = krStrcmpVAddr - (funcStartVAddr + off + 37)
             let alDispG = krAllocVAddr - (funcStartVAddr + off + 66)
-            c = c + hexByte(0x48) + hexByte(0xBE) + hexQword(nameVA_G)
-            c = c + hexByte(0x5F)
-            c = c + hexByte(0x53)
-            c = c + hexByte(0x41) + hexByte(0x54)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xF3)
-            c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xFC)
-            c = c + hexByte(0x4D) + hexByte(0x85) + hexByte(0xE4)
-            c = c + hexByte(0x74) + hexByte(0x1F)
-            c = c + hexByte(0x49) + hexByte(0x8B) + hexByte(0x3C) + hexByte(0x24)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDE)
-            c = c + hexByte(0xE8) + hexDword(scDispG)
-            c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)
-            c = c + hexByte(0x75) + hexByte(0x07)
-            c = c + hexByte(0x49) + hexByte(0x8B) + hexByte(0x44) + hexByte(0x24) + hexByte(0x08)
-            c = c + hexByte(0xEB) + hexByte(0x11)
-            c = c + hexByte(0x4D) + hexByte(0x8B) + hexByte(0x64) + hexByte(0x24) + hexByte(0x10)
-            c = c + hexByte(0xEB) + hexByte(256 - 36)
-            c = c + hexByte(0xBF) + hexDword(1)
-            c = c + hexByte(0xE8) + hexDword(alDispG)
-            c = c + hexByte(0x41) + hexByte(0x5C)
-            c = c + hexByte(0x5B)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0xBE) + hexQwordVaddr(nameVA_G))
+            c = sbAppend(c, hexByte(0x5F))
+            c = sbAppend(c, hexByte(0x53))
+            c = sbAppend(c, hexByte(0x41) + hexByte(0x54))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xF3))
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x89) + hexByte(0xFC))
+            c = sbAppend(c, hexByte(0x4D) + hexByte(0x85) + hexByte(0xE4))
+            c = sbAppend(c, hexByte(0x74) + hexByte(0x1F))
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x8B) + hexByte(0x3C) + hexByte(0x24))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xDE))
+            c = sbAppend(c, hexByte(0xE8) + hexDword(scDispG))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x85) + hexByte(0xC0))
+            c = sbAppend(c, hexByte(0x75) + hexByte(0x07))
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x8B) + hexByte(0x44) + hexByte(0x24) + hexByte(0x08))
+            c = sbAppend(c, hexByte(0xEB) + hexByte(0x11))
+            c = sbAppend(c, hexByte(0x4D) + hexByte(0x8B) + hexByte(0x64) + hexByte(0x24) + hexByte(0x10))
+            c = sbAppend(c, hexByte(0xEB) + hexByte(256 - 36))
+            c = sbAppend(c, hexByte(0xBF) + hexDword(1))
+            c = sbAppend(c, hexByte(0xE8) + hexDword(alDispG))
+            c = sbAppend(c, hexByte(0x41) + hexByte(0x5C))
+            c = sbAppend(c, hexByte(0x5B))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_HASFIELD" {
             // hasField(env, name) — return 1 if name in env, else 0.
             // Stack on entry: name (top), env.
@@ -4230,27 +4477,27 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             //   [52]   5B              POP RBX
             //   [53]   50              PUSH RAX
             let scDispH = krStrcmpVAddr - (funcStartVAddr + off + 28)
-            c = c + hexByte(0x5E)
-            c = c + hexByte(0x5F)
-            c = c + hexByte(0x53)
-            c = c + hexByte(0x41) + hexByte(0x54)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xF3)
-            c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xFC)
-            c = c + hexByte(0x4D) + hexByte(0x85) + hexByte(0xE4)
-            c = c + hexByte(0x74) + hexByte(0x1F)
-            c = c + hexByte(0x49) + hexByte(0x8B) + hexByte(0x3C) + hexByte(0x24)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDE)
-            c = c + hexByte(0xE8) + hexDword(scDispH)
-            c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)
-            c = c + hexByte(0x75) + hexByte(0x07)
-            c = c + hexByte(0xB8) + hexDword(1)
-            c = c + hexByte(0xEB) + hexByte(0x0A)
-            c = c + hexByte(0x4D) + hexByte(0x8B) + hexByte(0x64) + hexByte(0x24) + hexByte(0x10)
-            c = c + hexByte(0xEB) + hexByte(256 - 36)
-            c = c + hexByte(0x48) + hexByte(0x31) + hexByte(0xC0)
-            c = c + hexByte(0x41) + hexByte(0x5C)
-            c = c + hexByte(0x5B)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5F))
+            c = sbAppend(c, hexByte(0x53))
+            c = sbAppend(c, hexByte(0x41) + hexByte(0x54))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xF3))
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x89) + hexByte(0xFC))
+            c = sbAppend(c, hexByte(0x4D) + hexByte(0x85) + hexByte(0xE4))
+            c = sbAppend(c, hexByte(0x74) + hexByte(0x1F))
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x8B) + hexByte(0x3C) + hexByte(0x24))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xDE))
+            c = sbAppend(c, hexByte(0xE8) + hexDword(scDispH))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x85) + hexByte(0xC0))
+            c = sbAppend(c, hexByte(0x75) + hexByte(0x07))
+            c = sbAppend(c, hexByte(0xB8) + hexDword(1))
+            c = sbAppend(c, hexByte(0xEB) + hexByte(0x0A))
+            c = sbAppend(c, hexByte(0x4D) + hexByte(0x8B) + hexByte(0x64) + hexByte(0x24) + hexByte(0x10))
+            c = sbAppend(c, hexByte(0xEB) + hexByte(256 - 36))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x31) + hexByte(0xC0))
+            c = sbAppend(c, hexByte(0x41) + hexByte(0x5C))
+            c = sbAppend(c, hexByte(0x5B))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_STRUCTFIELDS" {
             // structFields(env) — return comma-separated list of field names (most-recent first).
             // Stack on entry: env (top).
@@ -4293,35 +4540,35 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             let alDispSF2 = krAllocVAddr - (funcStartVAddr + off + 35)
             let cnDispSF1 = krConcatVAddr - (funcStartVAddr + off + 55)
             let cnDispSF2 = krConcatVAddr - (funcStartVAddr + off + 69)
-            c = c + hexByte(0x5F)
-            c = c + hexByte(0x53)
-            c = c + hexByte(0x41) + hexByte(0x54)
-            c = c + hexByte(0x41) + hexByte(0x55)
-            c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xFC)
-            c = c + hexByte(0xBF) + hexDword(2)
-            c = c + hexByte(0xE8) + hexDword(alDispSF1)
-            c = c + hexByte(0xC6) + hexByte(0x00) + hexByte(0x2C)
-            c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC5)
-            c = c + hexByte(0xBF) + hexDword(1)
-            c = c + hexByte(0xE8) + hexDword(alDispSF2)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC3)
-            c = c + hexByte(0x4D) + hexByte(0x85) + hexByte(0xE4)
-            c = c + hexByte(0x74) + hexByte(0x24)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDF)
-            c = c + hexByte(0x49) + hexByte(0x8B) + hexByte(0x34) + hexByte(0x24)
-            c = c + hexByte(0xE8) + hexDword(cnDispSF1)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC3)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDF)
-            c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xEE)
-            c = c + hexByte(0xE8) + hexDword(cnDispSF2)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC3)
-            c = c + hexByte(0x4D) + hexByte(0x8B) + hexByte(0x64) + hexByte(0x24) + hexByte(0x10)
-            c = c + hexByte(0xEB) + hexByte(256 - 41)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xD8)
-            c = c + hexByte(0x41) + hexByte(0x5D)
-            c = c + hexByte(0x41) + hexByte(0x5C)
-            c = c + hexByte(0x5B)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0x5F))
+            c = sbAppend(c, hexByte(0x53))
+            c = sbAppend(c, hexByte(0x41) + hexByte(0x54))
+            c = sbAppend(c, hexByte(0x41) + hexByte(0x55))
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x89) + hexByte(0xFC))
+            c = sbAppend(c, hexByte(0xBF) + hexDword(2))
+            c = sbAppend(c, hexByte(0xE8) + hexDword(alDispSF1))
+            c = sbAppend(c, hexByte(0xC6) + hexByte(0x00) + hexByte(0x2C))
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x89) + hexByte(0xC5))
+            c = sbAppend(c, hexByte(0xBF) + hexDword(1))
+            c = sbAppend(c, hexByte(0xE8) + hexDword(alDispSF2))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xC3))
+            c = sbAppend(c, hexByte(0x4D) + hexByte(0x85) + hexByte(0xE4))
+            c = sbAppend(c, hexByte(0x74) + hexByte(0x24))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xDF))
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x8B) + hexByte(0x34) + hexByte(0x24))
+            c = sbAppend(c, hexByte(0xE8) + hexDword(cnDispSF1))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xC3))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xDF))
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xEE))
+            c = sbAppend(c, hexByte(0xE8) + hexDword(cnDispSF2))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xC3))
+            c = sbAppend(c, hexByte(0x4D) + hexByte(0x8B) + hexByte(0x64) + hexByte(0x24) + hexByte(0x10))
+            c = sbAppend(c, hexByte(0xEB) + hexByte(256 - 41))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xD8))
+            c = sbAppend(c, hexByte(0x41) + hexByte(0x5D))
+            c = sbAppend(c, hexByte(0x41) + hexByte(0x5C))
+            c = sbAppend(c, hexByte(0x5B))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "CALL_FUNC" {
             // Parse "name argcount"
             let cj = 0
@@ -4333,24 +4580,24 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             // CALL d32: disp = target - (current_vaddr + 5)
             let curVAddr = funcStartVAddr + off
             let disp = cVAddr - (curVAddr + 5)
-            c = c + hexByte(0xE8) + hexDword(disp)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(disp))
             // ADD RSP, argc*8 (clean up args; harmless when argc=0)
-            c = c + hexByte(0x48) + hexByte(0x81) + hexByte(0xC4) + hexDword(cargc * 8)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x81) + hexByte(0xC4) + hexDword(cargc * 8))
             // PUSH RAX (return value onto Krypton stack)
-            c = c + hexByte(0x50)
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "POP" {
-            c = c + hexByte(0x5F)
+            c = sbAppend(c, hexByte(0x5F))
         } else if op == "END_FUNC" {
-            c = c + hexByte(0x48) + hexByte(0x31) + hexByte(0xC0)
-            c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xEC)
-            c = c + hexByte(0x5D)
-            c = c + hexByte(0xC3)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x31) + hexByte(0xC0))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xEC))
+            c = sbAppend(c, hexByte(0x5D))
+            c = sbAppend(c, hexByte(0xC3))
         }
 
         if op != "LABEL" { off = off + opByteSize(op) }
         i += 1
     }
-    emit c
+    emit sbToString(c)
 }
 
 // ── Driver (just run gives us argc/argv plumbing) ──────────────────
@@ -4397,15 +4644,16 @@ just run {
     //     opCount
     //     opCount ops (each on its own line)
 
-    let pi = 0
+    // First line is the strTab line count. Read EXACTLY that many lines as the
+    // string table — do NOT scan for "~~~", because a table ENTRY may itself be
+    // the literal "~~~" (the section delimiter), which would truncate the table
+    // and leave later string indices dangling (→ vaddr 0 → null deref). Reading
+    // by count also correctly preserves interned "" (empty) entries.
+    let declaredStr = toInt(getLine(parsed, 0))
+    let pi = 1
     let strLines = 0
-    // First, collect strTab. Always insert a newline between lines based on
-    // iteration count, NOT on `len(strTab) > 0`: an interned "" (empty
-    // string) at index 0 produces an empty first line, and a length-based
-    // guard would silently drop it, shifting every later string by one.
-    while pi < pn {
+    while strLines < declaredStr {
         let pl = getLine(parsed, pi)
-        if pl == "~~~" { break }
         if strLines > 0 { strTab = strTab + "\n" }
         strTab = strTab + pl
         strLines += 1
@@ -4513,9 +4761,21 @@ just run {
     // work correctly as ints (vs the previous 4M limit at 0x400000). CMP
     // uses 32-bit sign-extended immediates, so 0x40000000 is the largest
     // POSITIVE-treated threshold we can encode in a single instruction.
-    let VADDR_BASE = 0x40000000
+    // NOTE: VADDR_BASE (0x40000000) is NOT bound as a runtime value here — it
+    // equals the int/pointer threshold, so `let VADDR_BASE = 0x40000000` would
+    // emit a PUSH_INT that the self-hosted backend mangles to 0 (the value is
+    // classified as a pointer and deref'd). The base is folded in at emit time
+    // by hexDwordVaddr/hexQwordVaddr instead, so no code below needs it.
     let HDR_SIZE = 120
-    let SEG_BASE_VADDR = VADDR_BASE + HDR_SIZE
+    // SEG_BASE_VADDR and every krXxxVAddr / funcVAddr / string vaddr below are
+    // LOAD-BASE-RELATIVE OFFSETS (not full vaddrs). The full vaddr is VADDR_BASE
+    // + offset, but VADDR_BASE == the int/pointer threshold, so doing arithmetic
+    // on full vaddrs makes the runtime treat them as pointers and deref them
+    // (toInt/%// → garbage). Keeping everything in offset space (< VADDR_BASE)
+    // keeps it in int range; CALL displacements (target-site) are unaffected
+    // because the base cancels; absolute addresses are emitted via
+    // hexQwordVaddr/hexDwordVaddr which fold the base in at the byte level.
+    let SEG_BASE_VADDR = HDR_SIZE
     let startSz = startSize()
     let krpSz = krPrintSize()
 
@@ -4541,6 +4801,10 @@ just run {
     let krSbSz = krSubstringSize()
     let krRfSz = krReadfileSize()
     let krWfSz = krWritefileSize()
+    let krWbSz = krWritebytesSize()
+    let krSnSz = krSbnewSize()
+    let krSaSz = krSbappendSize()
+    let krStSz = krSbtostringSize()
     let krPeSz = krPrinterrSize()
     let krCcdSz = krCharcodeSize()
     let krFccSz = krFromcharcodeSize()
@@ -4659,7 +4923,11 @@ just run {
     let krSubstringVAddr = krArgcountVAddr + krAcSz
     let krReadfileVAddr  = krSubstringVAddr + krSbSz
     let krWritefileVAddr = krReadfileVAddr + krRfSz
-    let krPrinterrVAddr  = krWritefileVAddr + krWfSz
+    let krWritebytesVAddr = krWritefileVAddr + krWfSz   // placed right after kr_writefile
+    let krSbnewVAddr = krWritebytesVAddr + krWbSz       // real StringBuilder helpers
+    let krSbappendVAddr = krSbnewVAddr + krSnSz
+    let krSbtostringVAddr = krSbappendVAddr + krSaSz
+    let krPrinterrVAddr  = krSbtostringVAddr + krStSz
     let krCharcodeVAddr  = krPrinterrVAddr + krPeSz
     let krFromcharcodeVAddr = krCharcodeVAddr + krCcdSz
     let krExitVAddr      = krFromcharcodeVAddr + krFccSz
@@ -4735,7 +5003,7 @@ just run {
         let nm2 = substring(hh, ss1 + 1, ss2)
         let funcStartV2 = toInt(funcVAddr(funcVAddrs, nm2))
 
-        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr, krStrcmpVAddr, krReverseVAddr)
+        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr, krStrcmpVAddr, krReverseVAddr, krSbnewVAddr, krSbappendVAddr, krSbtostringVAddr)
         allFuncCode = allFuncCode + codeI
         oIdx2 += 1
     }
@@ -4764,6 +5032,10 @@ just run {
     let krSubstringCode = emitKrSubstringCode(krSubstringVAddr, krAtoiVAddr, krAllocVAddr)
     let krReadfileCode  = emitKrReadfileCode(krReadfileVAddr, krAllocVAddr)
     let krWritefileCode = emitKrWritefileCode(krWritefileVAddr, krStrlenVAddr)
+    let krWritebytesCode = emitKrWritebytesCode(krWritebytesVAddr, krStrlenVAddr, krAllocVAddr)
+    let krSbnewCode = emitKrSbnewCode(krSbnewVAddr, krAllocVAddr)
+    let krSbappendCode = emitKrSbappendCode(krSbappendVAddr, krStrlenVAddr, krAllocVAddr)
+    let krSbtostringCode = emitKrSbtostringCode()
     let krPrinterrCode  = emitKrPrinterrCode()
     let krCharcodeCode  = emitKrCharcodeCode()
     let krFromcharcodeCode = emitKrFromcharcodeCode(krFromcharcodeVAddr, krAtoiVAddr, krAllocVAddr)
@@ -4796,7 +5068,7 @@ just run {
     let krReplaceCode2   = emitKrReplaceCode(krReplaceVAddr, krStrlenVAddr, krAllocVAddr)
     let krReverseCode    = emitKrReverseCode(krReverseVAddr, krStrlenVAddr, krAllocVAddr)
 
-    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + krSubstringCode + krReadfileCode + krWritefileCode + krPrinterrCode + krCharcodeCode + krFromcharcodeCode + krExitCode + krIsdigitCode + krIsalphaCode + krAbsCode + krStartswithCode + krIstruthyCode + krLinecountCode + krGetlineCode + krTrimCode + krToupperCode + krTolowerCode + krPowCode + krRepeatCode + krIsnumCode + krPlusCode + krAtoi2Code + krSubiCode + krMuliCode + krDiviCode + krModiCode + krStrcmpCode + krCmpiCode + krStrstrCode + krContainsCode + krIndexofCode + krEndswithCode + krReplaceCode2 + krReverseCode + strData
+    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + krSubstringCode + krReadfileCode + krWritefileCode + krWritebytesCode + krSbnewCode + krSbappendCode + krSbtostringCode + krPrinterrCode + krCharcodeCode + krFromcharcodeCode + krExitCode + krIsdigitCode + krIsalphaCode + krAbsCode + krStartswithCode + krIstruthyCode + krLinecountCode + krGetlineCode + krTrimCode + krToupperCode + krTolowerCode + krPowCode + krRepeatCode + krIsnumCode + krPlusCode + krAtoi2Code + krSubiCode + krMuliCode + krDiviCode + krModiCode + krStrcmpCode + krCmpiCode + krStrstrCode + krContainsCode + krIndexofCode + krEndswithCode + krReplaceCode2 + krReverseCode + strData
     let segSize = hexBytesLen(segment)
     let fileSize = HDR_SIZE + segSize
 
@@ -4809,7 +5081,7 @@ just run {
     eh = eh + hexWord(2)             // ET_EXEC
     eh = eh + hexWord(0x3E)          // EM_X86_64
     eh = eh + hexDword(1)
-    eh = eh + hexQword(entry)
+    eh = eh + hexQwordVaddr(entry)   // entry is a load-base offset
     eh = eh + hexQword(64)
     eh = eh + hexQword(0)
     eh = eh + hexDword(0)
@@ -4820,8 +5092,8 @@ just run {
     ph = ph + hexDword(1)              // PT_LOAD
     ph = ph + hexDword(5)              // R+X
     ph = ph + hexQword(0)
-    ph = ph + hexQword(VADDR_BASE)
-    ph = ph + hexQword(VADDR_BASE)
+    ph = ph + hexQwordVaddr(0)   // p_vaddr = VADDR_BASE + offset 0
+    ph = ph + hexQwordVaddr(0)   // p_paddr
     ph = ph + hexQword(fileSize)
     ph = ph + hexQword(fileSize)
     ph = ph + hexQword(0x1000)
