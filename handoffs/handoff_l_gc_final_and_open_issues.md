@@ -30,7 +30,15 @@
   in codegen specific to run_linux.k's 270 large ASCII-art literals).
 - run_linux.k source is committed (kryofetch repo `a20faf8`).
 
-## OPEN ISSUE 2 — PRE-EXISTING front-end bug: `x = x + literal` accumulation (NOT GC)
+## ✅ FIXED 2026-05-29 (commit 3dc3c73b) — Issue 2 front-end accumulation
+The FE now emits the existing CAT opcode (always kr_concat) for `+` when an operand is
+statically a string literal (string literals carry a new `;str` type tag, propagated
+through the precedence levels in compile.k). CAT result left untyped so `"" + 10 + 4`
+stays numeric (14). Rebuilt + committed compiler/linux_x86/kcc-x64. Verified:
+`a + "0123456789"` ×300 → 3000; "" +10+4 → 14; 5+3 → 8; suite 60/2/4; FE self-converges
+(kcc3==kcc4); backend self-hosts (h2==h3). Applies to all backends (all have CAT).
+
+## (was OPEN) ISSUE 2 — PRE-EXISTING front-end bug: `x = x + literal` accumulation (NOT GC)
 **Proven NOT a backend/GC bug:** the segregated-GC backend AND the pre-S0 bump backend
 produce the IDENTICAL wrong result, so the fault is in the SHARED front-end (kcc-x64)
 or optimizer / IR — my GC backend faithfully executes the same IR. It is narrow:
