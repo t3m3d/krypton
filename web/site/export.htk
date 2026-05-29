@@ -562,7 +562,7 @@ func pageLesson(file, prevFile, nextFile) {
         htP(htEm("Tip: this code box is editable " + DASH() +
             " tweak it, then copy into a .k file and run it.")) +
         outputBlock +
-        htP("Run it: " + htCode("kcc tutorial/" + file + ".k &gt; out.c &amp;&amp; gcc out.c -o out")) +
+        htP("Run it: " + htCode("kcc -r tutorial/" + file + ".k")) +
         htP(navStr) +
         "</div></section>"
 
