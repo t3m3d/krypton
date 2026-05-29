@@ -379,77 +379,53 @@ func krPrintSize() { emit 60 }
 // sees the spills), reset, restore. GC base from the fixed slot (R14 is helper
 // scratch). thisVAddr = krAllocVAddr; gcVAddr = krGcCollectVAddr. 170 bytes.
 func emitKrAllocCode(thisVAddr, gcVAddr) {
-    let dGc = gcVAddr - (thisVAddr + 149)
+    let dGc = gcVAddr - (thisVAddr + 143)
     let c = ""
-    c = c + hexByte(0x48) + hexByte(0x83) + hexByte(0xC7) + hexByte(0x07)              // [0] ADD RDI,7
-    c = c + hexByte(0x48) + hexByte(0x83) + hexByte(0xE7) + hexByte(0xF8)              // [4] AND RDI,-8
-    c = c + hexByte(0x51)                                                              // [8] PUSH RCX
-    c = c + hexByte(0x52)                                                              // [9] PUSH RDX
-    c = c + hexByte(0x48) + hexByte(0x8B) + hexByte(0x0C) + hexByte(0x25) + hexDwordVaddr(8)  // [10] MOV RCX,[vaddr+8] (gcbase)
-    c = c + hexByte(0x48) + hexByte(0x8B) + hexByte(0x41) + hexByte(0x28)              // [18] MOV RAX,[RCX+40] (cur=free_head)
-    c = c + hexByte(0x48) + hexByte(0x8D) + hexByte(0x51) + hexByte(0x28)              // [22] LEA RDX,[RCX+40] (prevlink)
-    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)                              // [26] .fl TEST RAX,RAX
-    c = c + hexByte(0x74) + hexByte(0x2C)                                              // [29] JZ .bump(+44 -> 75)
-    c = c + hexByte(0x48) + hexByte(0x39) + hexByte(0x38)                              // [31] CMP [RAX],RDI
-    c = c + hexByte(0x73) + hexByte(0x0A)                                              // [34] JAE .hit(+10 -> 46)
-    c = c + hexByte(0x48) + hexByte(0x8D) + hexByte(0x50) + hexByte(0x08)              // [36] LEA RDX,[RAX+8]
-    c = c + hexByte(0x48) + hexByte(0x8B) + hexByte(0x40) + hexByte(0x08)              // [40] MOV RAX,[RAX+8]
-    c = c + hexByte(0xEB) + hexByte(0xEC)                                              // [44] JMP .fl(-20 -> 26)
-    c = c + hexByte(0x48) + hexByte(0x8B) + hexByte(0x48) + hexByte(0x08)              // [46] .hit MOV RCX,[RAX+8] (next)
-    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x0A)                              // [50] MOV [RDX],RCX (unlink)
-    c = c + hexByte(0x48) + hexByte(0x8D) + hexByte(0x40) + hexByte(0x08)              // [53] LEA RAX,[RAX+8] (payload)
-    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC2)                              // [57] MOV RDX,RAX (save)
-    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xF9)                              // [60] MOV RCX,RDI (count)
-    c = c + hexByte(0x31) + hexByte(0xC0)                                              // [63] XOR EAX,EAX
-    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xD7)                              // [65] MOV RDI,RDX (dest)
-    c = c + hexByte(0xF3) + hexByte(0xAA)                                              // [68] REP STOSB (zero recycled block)
-    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xD0)                              // [70] MOV RAX,RDX (payload)
-    c = c + hexByte(0xEB) + hexByte(0x0C)                                              // [73] JMP .tail(+12 -> 87)
-    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0x3F)                              // [75] .bump MOV [R15],RDI (header)
-    c = c + hexByte(0x49) + hexByte(0x8D) + hexByte(0x47) + hexByte(0x08)              // [78] LEA RAX,[R15+8] (payload)
-    c = c + hexByte(0x4D) + hexByte(0x8D) + hexByte(0x7C) + hexByte(0x3F) + hexByte(0x08)  // [82] LEA R15,[R15+RDI+8]
-    // .tail [87]: auto-collect bookkeeping
-    c = c + hexByte(0x48) + hexByte(0x8B) + hexByte(0x0C) + hexByte(0x25) + hexDwordVaddr(8)  // [87] MOV RCX,[vaddr+8] (gcbase)
-    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0x41) + hexByte(0x38)              // [95] INC qword [RCX+56] (allocs_since++)
-    c = c + hexByte(0x48) + hexByte(0x8B) + hexByte(0x51) + hexByte(0x30)              // [99] MOV RDX,[RCX+48] (threshold)
-    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xD2)                              // [103] TEST RDX,RDX
-    c = c + hexByte(0x74) + hexByte(0x3B)                                              // [106] JZ .ret(+59 -> 167) (threshold 0 = disabled)
-    c = c + hexByte(0x48) + hexByte(0x8B) + hexByte(0x51) + hexByte(0x38)              // [108] MOV RDX,[RCX+56] (allocs_since)
-    c = c + hexByte(0x48) + hexByte(0x3B) + hexByte(0x51) + hexByte(0x30)              // [112] CMP RDX,[RCX+48]
-    c = c + hexByte(0x72) + hexByte(0x31)                                              // [116] JB .ret(+49 -> 167)
-    c = c + hexByte(0x48) + hexByte(0xC7) + hexByte(0x41) + hexByte(0x38) + hexByte(0x00) + hexByte(0x00) + hexByte(0x00) + hexByte(0x00)  // [118] MOV qword [RCX+56],0 (reset)
-    // SAFEPOINT: spill 12 GP roots (keep R14/R15), collect, restore
-    c = c + hexByte(0x50)                                                              // [126] PUSH RAX
-    c = c + hexByte(0x51)                                                              // [127] PUSH RCX
-    c = c + hexByte(0x52)                                                              // [128] PUSH RDX
-    c = c + hexByte(0x56)                                                              // [129] PUSH RSI
-    c = c + hexByte(0x57)                                                              // [130] PUSH RDI
-    c = c + hexByte(0x41) + hexByte(0x50)                                              // [131] PUSH R8
-    c = c + hexByte(0x41) + hexByte(0x51)                                              // [133] PUSH R9
-    c = c + hexByte(0x41) + hexByte(0x52)                                              // [135] PUSH R10
-    c = c + hexByte(0x41) + hexByte(0x53)                                              // [137] PUSH R11
-    c = c + hexByte(0x53)                                                              // [139] PUSH RBX
-    c = c + hexByte(0x41) + hexByte(0x54)                                              // [140] PUSH R12
-    c = c + hexByte(0x41) + hexByte(0x55)                                              // [142] PUSH R13
-    c = c + hexByte(0xE8) + hexDword(dGc)                                              // [144] CALL kr_gc_collect
-    c = c + hexByte(0x41) + hexByte(0x5D)                                              // [149] POP R13
-    c = c + hexByte(0x41) + hexByte(0x5C)                                              // [151] POP R12
-    c = c + hexByte(0x5B)                                                              // [153] POP RBX
-    c = c + hexByte(0x41) + hexByte(0x5B)                                              // [154] POP R11
-    c = c + hexByte(0x41) + hexByte(0x5A)                                              // [156] POP R10
-    c = c + hexByte(0x41) + hexByte(0x59)                                              // [158] POP R9
-    c = c + hexByte(0x41) + hexByte(0x58)                                              // [160] POP R8
-    c = c + hexByte(0x5F)                                                              // [162] POP RDI
-    c = c + hexByte(0x5E)                                                              // [163] POP RSI
-    c = c + hexByte(0x5A)                                                              // [164] POP RDX
-    c = c + hexByte(0x59)                                                              // [165] POP RCX
-    c = c + hexByte(0x58)                                                              // [166] POP RAX
-    c = c + hexByte(0x5A)                                                              // [167] .ret POP RDX (entry)
-    c = c + hexByte(0x59)                                                              // [168] POP RCX (entry)
-    c = c + hexByte(0xC3)                                                              // [169] RET
+    c = c + hexByte(0x48)+hexByte(0x83)+hexByte(0xC7)+hexByte(0x07)              // [0] ADD RDI,7
+    c = c + hexByte(0x48)+hexByte(0x83)+hexByte(0xE7)+hexByte(0xF8)              // [4] AND RDI,-8
+    c = c + hexByte(0x51)                                                        // [8] PUSH RCX
+    c = c + hexByte(0x52)                                                        // [9] PUSH RDX
+    c = c + hexByte(0x48)+hexByte(0x81)+hexByte(0xFF)+hexByte(0x00)+hexByte(0x08)+hexByte(0x00)+hexByte(0x00)  // [10] CMP RDI,2048
+    c = c + hexByte(0x77)+hexByte(0x32)                                          // [17] JA .bump(->69) large
+    c = c + hexByte(0x48)+hexByte(0x8B)+hexByte(0x0C)+hexByte(0x25)+hexDwordVaddr(8)  // [19] MOV RCX,[vaddr+8] (gcbase)
+    c = c + hexByte(0x48)+hexByte(0x8D)+hexByte(0x54)+hexByte(0x39)+hexByte(0x48)  // [27] LEA RDX,[RCX+RDI+72] (bucket=gcbase+72+size)
+    c = c + hexByte(0x48)+hexByte(0x8B)+hexByte(0x02)                            // [32] MOV RAX,[RDX] (bucket head)
+    c = c + hexByte(0x48)+hexByte(0x85)+hexByte(0xC0)                            // [35] TEST RAX,RAX
+    c = c + hexByte(0x74)+hexByte(0x1D)                                          // [38] JZ .bump(->69) empty
+    c = c + hexByte(0x48)+hexByte(0x8B)+hexByte(0x48)+hexByte(0x08)              // [40] MOV RCX,[RAX+8] (next; exact size, no walk)
+    c = c + hexByte(0x48)+hexByte(0x89)+hexByte(0x0A)                            // [44] MOV [RDX],RCX ([bucket]=next)
+    c = c + hexByte(0x48)+hexByte(0x8D)+hexByte(0x40)+hexByte(0x08)              // [47] LEA RAX,[RAX+8] (payload)
+    c = c + hexByte(0x48)+hexByte(0x89)+hexByte(0xC2)                            // [51] MOV RDX,RAX (save)
+    c = c + hexByte(0x48)+hexByte(0x89)+hexByte(0xF9)                            // [54] MOV RCX,RDI (count)
+    c = c + hexByte(0x31)+hexByte(0xC0)                                          // [57] XOR EAX,EAX
+    c = c + hexByte(0x48)+hexByte(0x89)+hexByte(0xD7)                            // [59] MOV RDI,RDX (dest)
+    c = c + hexByte(0xF3)+hexByte(0xAA)                                          // [62] REP STOSB (zero block)
+    c = c + hexByte(0x48)+hexByte(0x89)+hexByte(0xD0)                            // [64] MOV RAX,RDX (payload)
+    c = c + hexByte(0xEB)+hexByte(0x0C)                                          // [67] JMP .tail(->81)
+    c = c + hexByte(0x49)+hexByte(0x89)+hexByte(0x3F)                            // [69] .bump MOV [R15],RDI (header)
+    c = c + hexByte(0x49)+hexByte(0x8D)+hexByte(0x47)+hexByte(0x08)              // [72] LEA RAX,[R15+8] (payload)
+    c = c + hexByte(0x4D)+hexByte(0x8D)+hexByte(0x7C)+hexByte(0x3F)+hexByte(0x08)  // [76] LEA R15,[R15+RDI+8]
+    c = c + hexByte(0x48)+hexByte(0x8B)+hexByte(0x0C)+hexByte(0x25)+hexDwordVaddr(8)  // [81] .tail MOV RCX,[vaddr+8]
+    c = c + hexByte(0x48)+hexByte(0xFF)+hexByte(0x41)+hexByte(0x38)              // [89] INC qword [RCX+56]
+    c = c + hexByte(0x48)+hexByte(0x8B)+hexByte(0x51)+hexByte(0x30)              // [93] MOV RDX,[RCX+48] (threshold)
+    c = c + hexByte(0x48)+hexByte(0x85)+hexByte(0xD2)                            // [97] TEST RDX,RDX
+    c = c + hexByte(0x74)+hexByte(0x3B)                                          // [100] JZ .ret(->161)
+    c = c + hexByte(0x48)+hexByte(0x8B)+hexByte(0x51)+hexByte(0x38)              // [102] MOV RDX,[RCX+56]
+    c = c + hexByte(0x48)+hexByte(0x3B)+hexByte(0x51)+hexByte(0x30)              // [106] CMP RDX,[RCX+48]
+    c = c + hexByte(0x72)+hexByte(0x31)                                          // [110] JB .ret(->161)
+    c = c + hexByte(0x48)+hexByte(0xC7)+hexByte(0x41)+hexByte(0x38)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00)  // [112] MOV qword [RCX+56],0
+    c = c + hexByte(0x50)+hexByte(0x51)+hexByte(0x52)+hexByte(0x56)+hexByte(0x57)  // [120] PUSH RAX,RCX,RDX,RSI,RDI
+    c = c + hexByte(0x41)+hexByte(0x50)+hexByte(0x41)+hexByte(0x51)+hexByte(0x41)+hexByte(0x52)+hexByte(0x41)+hexByte(0x53)  // [125] PUSH R8,R9,R10,R11
+    c = c + hexByte(0x53)+hexByte(0x41)+hexByte(0x54)+hexByte(0x41)+hexByte(0x55)  // [133] PUSH RBX,R12,R13
+    c = c + hexByte(0xE8)+hexDword(dGc)                                          // [138] CALL kr_gc_collect
+    c = c + hexByte(0x41)+hexByte(0x5D)+hexByte(0x41)+hexByte(0x5C)+hexByte(0x5B)  // [143] POP R13,R12,RBX
+    c = c + hexByte(0x41)+hexByte(0x5B)+hexByte(0x41)+hexByte(0x5A)+hexByte(0x41)+hexByte(0x59)+hexByte(0x41)+hexByte(0x58)  // [148] POP R11,R10,R9,R8
+    c = c + hexByte(0x5F)+hexByte(0x5E)+hexByte(0x5A)+hexByte(0x59)+hexByte(0x58)  // [156] POP RDI,RSI,RDX,RCX,RAX
+    c = c + hexByte(0x5A)+hexByte(0x59)                                          // [161] .ret POP RDX,RCX (entry)
+    c = c + hexByte(0xC3)                                                        // [163] RET
     emit c
 }
-func krAllocSize() { emit 170 }
+func krAllocSize() { emit 164 }
 
 // kr_strlen: count bytes until NUL.
 //   In:  RDI = string ptr
@@ -2444,62 +2420,93 @@ func krFformatSize() { emit 219 }
 // SWEEP: walk headers p from heap_start; if marked, clear mark; else (size!=0) link
 //   onto free_head ([p+8]=old free_head; [R14+40]=p). Advance p += size + 8.
 // Self-contained (no CALLs). 140 bytes.
+// GC S5: kr_gc_collect = conservative mark (stack roots) + TRANSITIVE mark
+// (fixpoint over heap: scan marked objects' interiors for more heap pointers) +
+// sweep. RDI holds the bit63 mark constant throughout. R8=gcbase, R15=heap top
+// (read-only). Called from kr_alloc's safepoint, which pushes every reg this
+// clobbers (RAX,RCX,RDX,RSI,RDI,R8,R9,R10,R11). 301 bytes.
 func emitKrGcCollectCode() {
     let c = ""
-    // GC S4: load GC base from the fixed slot (not R14 — the auto-collect safepoint
-    // calls this from inside kr_alloc, where R14 may be helper scratch). R8 = gcbase
-    // throughout; band fields at [R8+24/+32/+40]. (8B preamble; internal rel-jumps
-    // shift uniformly so they're unchanged.)
-    c = c + hexByte(0x4C) + hexByte(0x8B) + hexByte(0x04) + hexByte(0x25) + hexDwordVaddr(8)  // MOV R8,[vaddr+8]
-    // --- MARK ---
-    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xE6)                  // [0] MOV RSI,RSP (scan lo)
-    c = c + hexByte(0x49) + hexByte(0x8B) + hexByte(0x50) + hexByte(0x20)  // [3] MOV RDX,[R8+32] (stack_base)
-    c = c + hexByte(0x48) + hexByte(0x39) + hexByte(0xD6)                  // [7] .markloop CMP RSI,RDX
-    c = c + hexByte(0x73) + hexByte(0x28)                                  // [10] JAE .sweepinit(+40 -> 52)
-    c = c + hexByte(0x48) + hexByte(0x8B) + hexByte(0x06)                  // [12] MOV RAX,[RSI] (v)
-    c = c + hexByte(0x49) + hexByte(0x8B) + hexByte(0x48) + hexByte(0x18)  // [15] MOV RCX,[R8+24] (heap_start)
-    c = c + hexByte(0x48) + hexByte(0x39) + hexByte(0xC8)                  // [19] CMP RAX,RCX
-    c = c + hexByte(0x72) + hexByte(0x16)                                  // [22] JB .marknext(+22 -> 46)
-    c = c + hexByte(0x4C) + hexByte(0x39) + hexByte(0xF8)                  // [24] CMP RAX,R15
-    c = c + hexByte(0x73) + hexByte(0x11)                                  // [27] JAE .marknext(+17 -> 46)
-    c = c + hexByte(0xA8) + hexByte(0x07)                                  // [29] TEST AL,7
-    c = c + hexByte(0x75) + hexByte(0x0D)                                  // [31] JNZ .marknext(+13 -> 46)
-    c = c + hexByte(0xB9) + hexDword(1)                                    // [33] MOV ECX,1
-    c = c + hexByte(0x48) + hexByte(0xC1) + hexByte(0xE1) + hexByte(0x3F)  // [38] SHL RCX,63 (mark bit)
-    c = c + hexByte(0x48) + hexByte(0x09) + hexByte(0x48) + hexByte(0xF8)  // [42] OR [RAX-8],RCX (set mark)
-    c = c + hexByte(0x48) + hexByte(0x83) + hexByte(0xC6) + hexByte(0x08)  // [46] .marknext ADD RSI,8
-    c = c + hexByte(0xEB) + hexByte(0xD3)                                  // [50] JMP .markloop(-45 -> 7)
+    // --- setup ---
+    c = c + hexByte(0x48)+hexByte(0xBF)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00)+hexByte(0x80)  // [0] MOVABS RDI,0x8000000000000000 (mark bit)
+    c = c + hexByte(0x4C)+hexByte(0x8B)+hexByte(0x04)+hexByte(0x25)+hexDwordVaddr(8)  // [10] MOV R8,[vaddr+8] (gcbase)
+    // --- STACK MARK: scan [RSP,stack_base) ---
+    c = c + hexByte(0x48)+hexByte(0x89)+hexByte(0xE6)                  // [18] MOV RSI,RSP
+    c = c + hexByte(0x49)+hexByte(0x8B)+hexByte(0x50)+hexByte(0x20)    // [21] MOV RDX,[R8+32] (stack_base)
+    c = c + hexByte(0x48)+hexByte(0x39)+hexByte(0xD6)                  // [25] .smloop CMP RSI,RDX
+    c = c + hexByte(0x0F)+hexByte(0x83)+hexDword(28)                   // [28] JAE .smdone(->62)
+    c = c + hexByte(0x48)+hexByte(0x8B)+hexByte(0x06)                  // [34] MOV RAX,[RSI] (v)
+    c = c + hexByte(0x49)+hexByte(0x3B)+hexByte(0x40)+hexByte(0x18)    // [37] CMP RAX,[R8+24] (heap_start)
+    c = c + hexByte(0x72)+hexByte(0x0D)                                // [41] JB .smnext(->56)
+    c = c + hexByte(0x4C)+hexByte(0x39)+hexByte(0xF8)                  // [43] CMP RAX,R15
+    c = c + hexByte(0x73)+hexByte(0x08)                                // [46] JAE .smnext(->56)
+    c = c + hexByte(0xA8)+hexByte(0x07)                                // [48] TEST AL,7
+    c = c + hexByte(0x75)+hexByte(0x04)                                // [50] JNZ .smnext(->56)
+    c = c + hexByte(0x48)+hexByte(0x09)+hexByte(0x78)+hexByte(0xF8)    // [52] OR [RAX-8],RDI (mark)
+    c = c + hexByte(0x48)+hexByte(0x83)+hexByte(0xC6)+hexByte(0x08)    // [56] .smnext ADD RSI,8
+    c = c + hexByte(0xEB)+hexByte(0xDB)                                // [60] JMP .smloop(->25)
+    // --- TRANSITIVE MARK FIXPOINT ---
+    c = c + hexByte(0x45)+hexByte(0x31)+hexByte(0xC9)                  // [62] .txpass XOR R9D,R9D (changed=0)
+    c = c + hexByte(0x49)+hexByte(0x8B)+hexByte(0x70)+hexByte(0x18)    // [65] MOV RSI,[R8+24] (heap_start)
+    c = c + hexByte(0x4C)+hexByte(0x39)+hexByte(0xFE)                  // [69] .txblk CMP RSI,R15
+    c = c + hexByte(0x0F)+hexByte(0x83)+hexDword(118)                  // [72] JAE .txpassend(->196)
+    c = c + hexByte(0x48)+hexByte(0x8B)+hexByte(0x06)                  // [78] MOV RAX,[RSI] (header)
+    c = c + hexByte(0x48)+hexByte(0x85)+hexByte(0xF8)                  // [81] TEST RAX,RDI (marked?)
+    c = c + hexByte(0x0F)+hexByte(0x84)+hexDword(88)                   // [84] JZ .txadv(->178)
+    c = c + hexByte(0x48)+hexByte(0x89)+hexByte(0xC2)                  // [90] MOV RDX,RAX
+    c = c + hexByte(0x48)+hexByte(0x0F)+hexByte(0xBA)+hexByte(0xF2)+hexByte(0x3F)  // [93] BTR RDX,63 (RDX=size)
+    c = c + hexByte(0x4C)+hexByte(0x8D)+hexByte(0x56)+hexByte(0x08)    // [98] LEA R10,[RSI+8] (scan cur)
+    c = c + hexByte(0x4C)+hexByte(0x8D)+hexByte(0x5C)+hexByte(0x16)+hexByte(0x08)  // [102] LEA R11,[RSI+RDX+8] (scan end; REX.WR — X=0 so SIB index=RDX not R10)
+    c = c + hexByte(0x4D)+hexByte(0x39)+hexByte(0xDA)                  // [107] .txscan CMP R10,R11
+    c = c + hexByte(0x0F)+hexByte(0x83)+hexDword(62)                   // [110] JAE .txadv(->178)
+    c = c + hexByte(0x49)+hexByte(0x8B)+hexByte(0x02)                  // [116] MOV RAX,[R10] (w)
+    c = c + hexByte(0x49)+hexByte(0x3B)+hexByte(0x40)+hexByte(0x18)    // [119] CMP RAX,[R8+24] (heap_start)
+    c = c + hexByte(0x0F)+hexByte(0x82)+hexDword(40)                   // [123] JB .txscannext(->169)
+    c = c + hexByte(0x4C)+hexByte(0x39)+hexByte(0xF8)                  // [129] CMP RAX,R15
+    c = c + hexByte(0x0F)+hexByte(0x83)+hexDword(31)                   // [132] JAE .txscannext(->169)
+    c = c + hexByte(0xA8)+hexByte(0x07)                                // [138] TEST AL,7
+    c = c + hexByte(0x0F)+hexByte(0x85)+hexDword(23)                   // [140] JNZ .txscannext(->169)
+    c = c + hexByte(0x48)+hexByte(0x8B)+hexByte(0x48)+hexByte(0xF8)    // [146] MOV RCX,[RAX-8]
+    c = c + hexByte(0x48)+hexByte(0x85)+hexByte(0xF9)                  // [150] TEST RCX,RDI (already marked?)
+    c = c + hexByte(0x0F)+hexByte(0x85)+hexDword(10)                   // [153] JNZ .txscannext(->169)
+    c = c + hexByte(0x48)+hexByte(0x09)+hexByte(0x78)+hexByte(0xF8)    // [159] OR [RAX-8],RDI (mark)
+    c = c + hexByte(0x41)+hexByte(0xB9)+hexByte(0x01)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00)  // [163] MOV R9D,1 (changed)
+    c = c + hexByte(0x49)+hexByte(0x83)+hexByte(0xC2)+hexByte(0x08)    // [169] .txscannext ADD R10,8
+    c = c + hexByte(0xE9)+hexDword(0 - 71)                             // [173] JMP .txscan(->107)
+    c = c + hexByte(0x48)+hexByte(0x8B)+hexByte(0x06)                  // [178] .txadv MOV RAX,[RSI]
+    c = c + hexByte(0x48)+hexByte(0x0F)+hexByte(0xBA)+hexByte(0xF8)+hexByte(0x3F)  // [181] BTR RAX,63 (size)
+    c = c + hexByte(0x48)+hexByte(0x8D)+hexByte(0x74)+hexByte(0x06)+hexByte(0x08)  // [186] LEA RSI,[RSI+RAX+8]
+    c = c + hexByte(0xE9)+hexDword(0 - 127)                            // [191] JMP .txblk(->69)
+    c = c + hexByte(0x45)+hexByte(0x85)+hexByte(0xC9)                  // [196] .txpassend TEST R9D,R9D
+    c = c + hexByte(0x0F)+hexByte(0x85)+hexDword(0 - 143)              // [199] JNZ .txpass(->62)
     // --- SWEEP ---
-    c = c + hexByte(0x49) + hexByte(0x8B) + hexByte(0x70) + hexByte(0x18)  // [52] .sweepinit MOV RSI,[R8+24] (p=heap_start)
-    c = c + hexByte(0x4C) + hexByte(0x39) + hexByte(0xFE)                  // [56] .sweeploop CMP RSI,R15
-    c = c + hexByte(0x73) + hexByte(0x4E)                                  // [59] JAE .sweepdone(+78 -> 139)
-    c = c + hexByte(0x48) + hexByte(0x8B) + hexByte(0x06)                  // [61] MOV RAX,[RSI] (header)
-    c = c + hexByte(0xB9) + hexDword(1)                                    // [64] MOV ECX,1
-    c = c + hexByte(0x48) + hexByte(0xC1) + hexByte(0xE1) + hexByte(0x3F)  // [69] SHL RCX,63 (mark bit)
-    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC8)                  // [73] TEST RAX,RCX (marked?)
-    c = c + hexByte(0x75) + hexByte(0x13)                                  // [76] JNZ .clearmark(+19 -> 97)
-    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)                  // [78] TEST RAX,RAX (size==0?)
-    c = c + hexByte(0x74) + hexByte(0x1D)                                  // [81] JZ .advance(+29 -> 112)
-    c = c + hexByte(0x49) + hexByte(0x8B) + hexByte(0x48) + hexByte(0x28)  // [83] MOV RCX,[R8+40] (free_head)
-    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x4E) + hexByte(0x08)  // [87] MOV [RSI+8],RCX (next-link)
-    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0x70) + hexByte(0x28)  // [91] MOV [R8+40],RSI (free_head=p)
-    c = c + hexByte(0xEB) + hexByte(0x0F)                                  // [95] JMP .advance(+15 -> 112)
-    c = c + hexByte(0xB9) + hexDword(1)                                    // [97] .clearmark MOV ECX,1
-    c = c + hexByte(0x48) + hexByte(0xC1) + hexByte(0xE1) + hexByte(0x3F)  // [102] SHL RCX,63
-    c = c + hexByte(0x48) + hexByte(0xF7) + hexByte(0xD1)                  // [106] NOT RCX (~mark)
-    c = c + hexByte(0x48) + hexByte(0x21) + hexByte(0x0E)                  // [109] AND [RSI],RCX (clear mark)
-    c = c + hexByte(0x48) + hexByte(0x8B) + hexByte(0x06)                  // [112] .advance MOV RAX,[RSI]
-    c = c + hexByte(0xB9) + hexDword(1)                                    // [115] MOV ECX,1
-    c = c + hexByte(0x48) + hexByte(0xC1) + hexByte(0xE1) + hexByte(0x3F)  // [120] SHL RCX,63
-    c = c + hexByte(0x48) + hexByte(0xF7) + hexByte(0xD1)                  // [124] NOT RCX
-    c = c + hexByte(0x48) + hexByte(0x21) + hexByte(0xC8)                  // [127] AND RAX,RCX (size, mark cleared)
-    c = c + hexByte(0x48) + hexByte(0x01) + hexByte(0xC6)                  // [130] ADD RSI,RAX
-    c = c + hexByte(0x48) + hexByte(0x83) + hexByte(0xC6) + hexByte(0x08)  // [133] ADD RSI,8
-    c = c + hexByte(0xEB) + hexByte(0xAD)                                  // [137] JMP .sweeploop(-83 -> 56)
-    c = c + hexByte(0xC3)                                                  // [139] .sweepdone RET
+    c = c + hexByte(0x49)+hexByte(0x8B)+hexByte(0x70)+hexByte(0x18)    // [205] .sweepinit MOV RSI,[R8+24]
+    c = c + hexByte(0x4C)+hexByte(0x39)+hexByte(0xFE)                  // [209] .sweeploop CMP RSI,R15
+    c = c + hexByte(0x0F)+hexByte(0x83)+hexDword(82)                   // [212] JAE .sweepdone(->300)
+    c = c + hexByte(0x48)+hexByte(0x8B)+hexByte(0x06)                  // [218] MOV RAX,[RSI] (header)
+    c = c + hexByte(0x48)+hexByte(0x85)+hexByte(0xF8)                  // [221] TEST RAX,RDI (marked?)
+    c = c + hexByte(0x0F)+hexByte(0x85)+hexDword(41)                   // [224] JNZ .clearmark(->271)
+    c = c + hexByte(0x48)+hexByte(0x85)+hexByte(0xC0)                  // [230] TEST RAX,RAX (size==0?)
+    c = c + hexByte(0x0F)+hexByte(0x84)+hexDword(41)                   // [233] JZ .advance(->280)
+    c = c + hexByte(0x48)+hexByte(0x3D)+hexByte(0x00)+hexByte(0x08)+hexByte(0x00)+hexByte(0x00)  // [239] CMP RAX,2048
+    c = c + hexByte(0x0F)+hexByte(0x87)+hexDword(29)                   // [245] JA .advance(->280) drop large
+    c = c + hexByte(0x49)+hexByte(0x8D)+hexByte(0x54)+hexByte(0x00)+hexByte(0x48)  // [251] LEA RDX,[R8+RAX+72] (bucket)
+    c = c + hexByte(0x48)+hexByte(0x8B)+hexByte(0x0A)                  // [256] MOV RCX,[RDX] (old bucket head)
+    c = c + hexByte(0x48)+hexByte(0x89)+hexByte(0x4E)+hexByte(0x08)    // [259] MOV [RSI+8],RCX (next-link)
+    c = c + hexByte(0x48)+hexByte(0x89)+hexByte(0x32)                  // [263] MOV [RDX],RSI (bucket=p)
+    c = c + hexByte(0xE9)+hexDword(9)                                  // [266] JMP .advance(->280)
+    c = c + hexByte(0x48)+hexByte(0x89)+hexByte(0xF9)                  // [271] .clearmark MOV RCX,RDI
+    c = c + hexByte(0x48)+hexByte(0xF7)+hexByte(0xD1)                  // [274] NOT RCX
+    c = c + hexByte(0x48)+hexByte(0x21)+hexByte(0x0E)                  // [277] AND [RSI],RCX (clear mark)
+    c = c + hexByte(0x48)+hexByte(0x8B)+hexByte(0x06)                  // [280] .advance MOV RAX,[RSI]
+    c = c + hexByte(0x48)+hexByte(0x0F)+hexByte(0xBA)+hexByte(0xF8)+hexByte(0x3F)  // [283] BTR RAX,63 (size)
+    c = c + hexByte(0x48)+hexByte(0x01)+hexByte(0xC6)                  // [288] ADD RSI,RAX
+    c = c + hexByte(0x48)+hexByte(0x83)+hexByte(0xC6)+hexByte(0x08)    // [291] ADD RSI,8
+    c = c + hexByte(0xE9)+hexDword(0 - 91)                             // [295] JMP .sweeploop(->209)
+    c = c + hexByte(0xC3)                                              // [300] .sweepdone RET
     emit c
 }
-func krGcCollectSize() { emit 148 }
+func krGcCollectSize() { emit 301 }
 
 // kr_repeat: build a string formed by concatenating s n times.
 //   In:  RDI = s (string ptr), RSI = n (small int OR string via kr_atoi)
@@ -3565,7 +3572,7 @@ func krStrIntSize() { emit 91 }
 //   [71-73] 48 89 C7               MOV RDI, RAX                          (3)
 //   [74-78] B8 3C 00 00 00         MOV EAX, 60                           (5)
 //   [79-80] 0F 05                  SYSCALL                               (2)
-func startSize() { emit 106 }  // GC S1/S3: +8 band stores +8 gcbase slot store
+func startSize() { emit 109 }  // +3 for disp32 R15 init (bucket band)
 func emitStartCode(callDisp, atoiDisp) {
     let c = ""
     c = c + hexByte(0x4C) + hexByte(0x8B) + hexByte(0x24) + hexByte(0x24)
@@ -3593,7 +3600,10 @@ func emitStartCode(callDisp, atoiDisp) {
     // GC S1: carve a GC-globals band [R14+24..+71] (heap_start, stack_base,
     // free_head, collect_threshold, allocs_since, +spares). heap_next (R15) starts
     // past it at RAX+72. free_head/threshold/allocs_since are 0 from MAP_ANON.
-    c = c + hexByte(0x4C) + hexByte(0x8D) + hexByte(0x78) + hexByte(0x48)  // LEA R15,[RAX+72] (heap_next past 3 globals + GC band)
+    // GC S4b: segregated free lists. Bucket array at [gcbase+80 .. gcbase+2128)
+    // (256 size classes; bucket for rounded size S = gcbase+72+S). heap_next starts
+    // past it at RAX+2176. Buckets are 0 from MAP_ANON.
+    c = c + hexByte(0x4C) + hexByte(0x8D) + hexByte(0xB8) + hexByte(0x80) + hexByte(0x08) + hexByte(0x00) + hexByte(0x00)  // LEA R15,[RAX+2176]
     c = c + hexByte(0x4D) + hexByte(0x89) + hexByte(0x7E) + hexByte(0x18)  // MOV [R14+24],R15  (heap_start = sweep/mark lower bound)
     c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0x66) + hexByte(0x20)  // MOV [R14+32],RSP  (stack_base = entry RSP, conservative-scan upper bound)
     // GC S3: stash the GC base (mmap result) at a fixed, post-load-unused writable
@@ -6359,6 +6369,7 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
 // ── Driver (just run gives us argc/argv plumbing) ──────────────────
 
 just run {
+    gcSetThreshold(1000000)
     let inFile = arg("0")
     let outFile = arg("1")
     if len(inFile) == 0 || len(outFile) == 0 {
@@ -6796,14 +6807,14 @@ just run {
     let startVAddr = SEG_BASE_VADDR
     let mainVAddr = toInt(funcVAddr(funcVAddrs, "__main__"))
     // CALL __main__ ends at start-code offset 80 (was 72; +8 for GC S1 band stores).
-    let startCallDisp = mainVAddr - (startVAddr + 88)
+    let startCallDisp = mainVAddr - (startVAddr + 91)
     // A source file with no `just run` (e.g. a pure library of func defs) has no
     // __main__. mainVAddr is then garbage and _start would CALL into hyperspace
     // and SIGSEGV. Make the CALL target the very next instruction (disp 0) so it
     // falls straight through to SYS_exit(0) — running a library is a clean no-op.
     if mainIdx < 0 { startCallDisp = 0 }
     // CALL kr_atoi ends at start-code offset 88 (was 80; +8 for GC S1 band stores).
-    let startAtoiDisp = krAtoiVAddr - (startVAddr + 96)
+    let startAtoiDisp = krAtoiVAddr - (startVAddr + 99)
     let startCode = emitStartCode(startCallDisp, startAtoiDisp)
 
     let krPrintCode  = emitKrPrintCode()
