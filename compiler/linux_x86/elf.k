@@ -586,7 +586,7 @@ func krLengthSize() { emit 28 }
 //   .check at 27:
 //   ; non-empty: subtract 1 if the last byte was '\n' (trailing-NL convention)
 //   [27-30] 80 7F FF 0A      CMP byte [RDI-1], '\n'        (4)
-//   [31-32] 75 01            JNE +1 → .ret                 (2)
+//   [31-32] 75 02            JNE +2 → .ret at 35           (2)  ; skip DEC EAX
 //   [33-34] FF C8            DEC EAX                       (2)
 //   .ret at 35:
 //   [35]    C3               RET                           (1)
@@ -605,7 +605,7 @@ func emitKrLinecountCode() {
     c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC7)                       // [22-24] INC RDI
     c = c + hexByte(0xEB) + hexByte(256 - 18)                                   // [25-26] JMP → .loop at 9
     c = c + hexByte(0x80) + hexByte(0x7F) + hexByte(0xFF) + hexByte(0x0A)       // [27-30] CMP byte [RDI-1], '\n'
-    c = c + hexByte(0x75) + hexByte(0x01)                                       // [31-32] JNE +1 → .ret
+    c = c + hexByte(0x75) + hexByte(0x02)                                       // [31-32] JNE +2 → .ret at 35 (skip DEC EAX at 33-34)
     c = c + hexByte(0xFF) + hexByte(0xC8)                                       // [33-34] DEC EAX
     c = c + hexByte(0xC3)                                                       // [35]    RET
     emit c
@@ -3263,6 +3263,20 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_HASFIELD")
                 } else if bname == "structFields" {
                     opSb = sbAppend(opSb, "BUILTIN_STRUCTFIELDS")
+                } else if bname == "gcShadowCount" {
+                    // GC root-shadow ops emitted by the 2.x front-end. This
+                    // backend has no precise-GC shadow stack, so stub them — but
+                    // with the CORRECT stack effect or the eval stack desyncs
+                    // (the unsupported no-op left the following STORE popping a
+                    // never-pushed value). gcShadowCount() takes 0 args and
+                    // PUSHES a count → push a dummy 0.
+                    opSb = sbAppend(opSb, "PUSH_INT 0")
+                } else if bname == "gcShadowPush" || bname == "gcShadowPop" {
+                    // 1 arg, returns a value (the arg is the GC root / pop-count,
+                    // which we ignore). Consume the arg, push a dummy result so
+                    // the surrounding LOAD…POP stays balanced.
+                    opSb = sbAppend(opSb, "POP\nPUSH_INT 0")
+                    opCount += 1
                 } else {
                     // Unknown builtin: emit a marker and leave the stack
                     // alone. Programs that hit this are already incorrect;
@@ -3325,7 +3339,10 @@ func parseIR(ir) {
     }
 
     // resultSb already begins each func with "~~~\n", so just concatenate.
-    emit strTab + "\n" + sbToString(resultSb)
+    // Prefix the strTab with its line count so the reader can consume exactly
+    // that many lines: a string-table ENTRY may itself be "~~~" (the section
+    // delimiter), so scanning for "~~~" would truncate the table. Read by count.
+    emit strCount + "\n" + strTab + "\n" + sbToString(resultSb)
 }
 
 // ── Pass 2 (layout): compute label offsets and total code size ─────
@@ -4397,15 +4414,16 @@ just run {
     //     opCount
     //     opCount ops (each on its own line)
 
-    let pi = 0
+    // First line is the strTab line count. Read EXACTLY that many lines as the
+    // string table — do NOT scan for "~~~", because a table ENTRY may itself be
+    // the literal "~~~" (the section delimiter), which would truncate the table
+    // and leave later string indices dangling (→ vaddr 0 → null deref). Reading
+    // by count also correctly preserves interned "" (empty) entries.
+    let declaredStr = toInt(getLine(parsed, 0))
+    let pi = 1
     let strLines = 0
-    // First, collect strTab. Always insert a newline between lines based on
-    // iteration count, NOT on `len(strTab) > 0`: an interned "" (empty
-    // string) at index 0 produces an empty first line, and a length-based
-    // guard would silently drop it, shifting every later string by one.
-    while pi < pn {
+    while strLines < declaredStr {
         let pl = getLine(parsed, pi)
-        if pl == "~~~" { break }
         if strLines > 0 { strTab = strTab + "\n" }
         strTab = strTab + pl
         strLines += 1
