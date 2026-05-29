@@ -352,20 +352,31 @@ func krPrintSize() { emit 60 }
 
 // kr_alloc: bump allocator using R15 (heap_next).
 //   In:  RDI = size in bytes
-//   Out: RAX = pointer to allocated block
+//   Out: RAX = pointer to allocated block (PAYLOAD, past an 8-byte header)
 //
-// Layout (7 bytes):
-//   [0]  4C 89 F8         MOV RAX, R15          (3)
-//   [3]  49 01 FF         ADD R15, RDI          (3)
-//   [6]  C3               RET                   (1)
+// GC S0: every allocation now carries an 8-byte header at [ptr-8] holding the
+// rounded payload size in bits[0..62], mark in bit63 (0 from lazy mmap). Callers
+// still receive the payload start and never touch [ptr-8]; mark/sweep read it.
+// Payload size rounded up to a multiple of 8 so headers stay 8-aligned.
+//
+// Layout (21 bytes):
+//   [0]  48 83 C7 07         ADD RDI, 7              (4)  round up...
+//   [4]  48 83 E7 F8         AND RDI, -8             (4)  ...to mult of 8
+//   [8]  49 89 3F            MOV [R15], RDI          (3)  header = payload size
+//   [11] 49 8D 47 08         LEA RAX, [R15+8]        (4)  payload ptr
+//   [15] 4D 8D 7C 3F 08      LEA R15, [R15+RDI+8]    (5)  bump past hdr+payload
+//   [20] C3                  RET                     (1)
 func emitKrAllocCode() {
     let c = ""
-    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xF8)
-    c = c + hexByte(0x49) + hexByte(0x01) + hexByte(0xFF)
+    c = c + hexByte(0x48) + hexByte(0x83) + hexByte(0xC7) + hexByte(0x07)
+    c = c + hexByte(0x48) + hexByte(0x83) + hexByte(0xE7) + hexByte(0xF8)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0x3F)
+    c = c + hexByte(0x49) + hexByte(0x8D) + hexByte(0x47) + hexByte(0x08)
+    c = c + hexByte(0x4D) + hexByte(0x8D) + hexByte(0x7C) + hexByte(0x3F) + hexByte(0x08)
     c = c + hexByte(0xC3)
     emit c
 }
-func krAllocSize() { emit 7 }
+func krAllocSize() { emit 21 }
 
 // kr_strlen: count bytes until NUL.
 //   In:  RDI = string ptr
