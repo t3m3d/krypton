@@ -1,13 +1,17 @@
 // kweb — Krypton Web Framework CLI
-// Build: kcc kweb.htk > /tmp/kweb.c && gcc /tmp/kweb.c -o kweb.exe -lws2_32 -w
+// Build: kcc kweb.htk > /tmp/kweb.c && gcc /tmp/kweb.c -o kweb.exe -lws2_32 -lpsapi -lpdh -w
+//   (psapi/pdh are pulled in by head:windows via k:fs; deploy needs them.)
 // Usage:
 //   kweb init mysite        — scaffold a new .htk project
 //   kweb build              — compile .htk to static HTML in dist/
 //   kweb serve [port]       — local dev server
-//   kweb deploy host user   — upload dist/ via curl SFTP
+//   kweb deploy host user   — upload dist/ (recursively) via curl SFTP
 
+import "head:windows"
+import "head:fileio"
 import "k:htmk"
 import "k:server"
+import "k:fs"
 
 func printUsage() {
     printErr("kweb — Krypton Web Framework")
@@ -159,27 +163,65 @@ func doServe(port) {
     }
 }
 
-func doDeploy(sftpHost, sftpUser) {
-    printErr("kweb: deploying dist/ to " + sftpUser + "@" + sftpHost + ":/public_html/")
-    printErr("kweb: enter password when prompted")
-
-    // Use curl SFTP for each file
-    let files = exec("ls dist/")
+// Recursively collect every file under base/, returning newline-separated
+// paths RELATIVE to base (e.g. "index.html", "learn/07_functions.html").
+// Uses k:fs (FindFirstFile) so it works from the native exe — no reliance
+// on a unix `ls` that cmd.exe doesn't have.
+func _walkDir(base, rel) {
+    let dirPath = base
+    if len(rel) > 0 { dirPath = base + "/" + rel }
+    let entries = fsListDir(dirPath)
+    let out = sbNew()
+    let n = lineCount(entries)
     let i = 0
-    let n = lineCount(files)
     while i < n {
-        let f = getLine(files, i)
-        if len(f) > 0 {
-            let cmd = "curl -T dist/" + f + " sftp://" + sftpHost + "/public_html/" + f + " --user " + sftpUser + " --insecure 2>&1"
-            printErr("  uploading " + f + "...")
-            let out = exec(cmd)
-            if len(out) > 0 {
-                printErr("  " + out)
+        let line = getLine(entries, i)
+        if len(line) > 0 {
+            let tab = indexOf(line, fromCharCode(9))
+            if tab >= 0 {
+                let typ = substring(line, 0, tab)
+                let name = substring(line, tab + 1, len(line))
+                let childRel = name
+                if len(rel) > 0 { childRel = rel + "/" + name }
+                if typ == "D" {
+                    out = sbAppend(out, _walkDir(base, childRel))
+                } else {
+                    out = sbAppend(out, childRel + fromCharCode(10))
+                }
             }
         }
         i += 1
     }
-    printErr("kweb: deploy complete")
+    emit sbToString(out)
+}
+
+func doDeploy(sftpHost, sftpUser) {
+    printErr("kweb: deploying dist/ to " + sftpUser + "@" + sftpHost + ":/public_html/")
+    printErr("kweb: enter password when prompted")
+
+    // Walk dist/ recursively so subfolders (e.g. learn/) are included.
+    // --ftp-create-dirs makes curl create remote folders as needed.
+    let files = _walkDir("dist", "")
+    let n = lineCount(files)
+    let i = 0
+    let count = 0
+    while i < n {
+        let rel = getLine(files, i)
+        if len(rel) > 0 {
+            let local = "dist/" + rel
+            let remote = "sftp://" + sftpHost + "/public_html/" + rel
+            let cmd = "curl --ftp-create-dirs -T " + local + " " + remote +
+                " --user " + sftpUser + " --insecure 2>&1"
+            printErr("  uploading " + rel + "...")
+            let out = exec(cmd)
+            if len(out) > 0 {
+                printErr("  " + out)
+            }
+            count = count + 1
+        }
+        i += 1
+    }
+    printErr("kweb: deploy complete (" + count + " files)")
 }
 
 just run {

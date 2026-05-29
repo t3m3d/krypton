@@ -66,6 +66,7 @@ func siteCSS() {
         ".card h3{margin-top:0;color:var(--primary);font-size:1.2rem}" +
         "pre{background:var(--code-bg);color:var(--code-text);padding:20px;border-radius:10px;overflow-x:auto;font-size:0.9rem;line-height:1.6;border:1px solid #313244}" +
         "code{font-family:'Cascadia Code','Fira Code',Consolas,monospace}" +
+        "code[contenteditable]:focus{outline:2px solid var(--primary);outline-offset:4px}" +
         "p code{background:#f0edff;padding:2px 8px;border-radius:4px;font-size:0.88em;color:var(--primary-dark)}" +
         ".kw{color:#cba6f7}.fn{color:#89b4fa}.str{color:#a6e3a1}.cm{color:#6c7086;font-style:italic}.num{color:#fab387}" +
         ".table-wrap{overflow-x:auto}" +
@@ -156,6 +157,7 @@ func siteNav(active) {
          htA("/", "Home") +
          htA("/about.html", "About") +
          htA("/features.html", "Features") +
+         htA("/learn.html", "Learn") +
          htA("/programs.html", "Programs") +
          htA("/downloads.html", "Downloads") +
          htA("/contact.html", "Contact") +
@@ -177,8 +179,11 @@ func floaters() {
 }
 
 func sitePage(title, content) {
-    emit htPage("Krypton - " + title,
-        siteCSS() + htMetaViewport(),
+    emit "<!-- Built with Krypton | krypton-lang.org -->" + fromCharCode(10) +
+        htPage("Krypton - " + title,
+        siteCSS() + htMetaViewport() +
+        htVoid("meta", htAttr("name", "generator") + htAttr("content", "Krypton 2.1.0")) +
+        htVoid("meta", htAttr("name", "author") + htAttr("content", "KryptonBytes")),
         floaters() + siteNav(title) + content + siteFooter() + siteJS()
     )
 }
@@ -357,6 +362,213 @@ func pageContact() {
     emit sitePage("Contact", content)
 }
 
+// ── Learn / Tutorials ────────────────────────────────────────────────
+
+func _esc(c) {
+    if c == "&" { emit "&amp;" }
+    if c == "<" { emit "&lt;" }
+    if c == ">" { emit "&gt;" }
+    emit c
+}
+
+func _isKw(w) {
+    let kws = ",func,fn,let,if,else,while,for,in,emit,return,just,run,go,match,try,catch,throw,struct,import,module,break,continue,do,true,false,and,or,not,"
+    if indexOf(kws, "," + w + ",") >= 0 { emit "1" }
+    emit "0"
+}
+
+// Server-side Krypton syntax highlighter. Escapes HTML and wraps
+// comments / strings / numbers / keywords in the .cm/.str/.num/.kw spans
+// already defined in siteCSS(). No client JS, no regex — a single char walk.
+func hlCode(src) {
+    let out = sbNew()
+    let i = 0
+    let n = len(src)
+    while i < n {
+        let c = src[i]
+        if c == "/" && i + 1 < n && src[i + 1] == "/" {
+            let cm = sbNew()
+            let j = i
+            while j < n && src[j] != fromCharCode(10) {
+                cm = sbAppend(cm, _esc(src[j]))
+                j += 1
+            }
+            out = sbAppend(out, "<span class=" + DQ() + "cm" + DQ() + ">" + sbToString(cm) + "</span>")
+            i = j
+        } else if c == DQ() {
+            let st = sbNew()
+            st = sbAppend(st, "&quot;")
+            let j = i + 1
+            while j < n && src[j] != DQ() {
+                if src[j] == fromCharCode(92) && j + 1 < n {
+                    st = sbAppend(st, _esc(src[j]))
+                    st = sbAppend(st, _esc(src[j + 1]))
+                    j += 2
+                } else {
+                    st = sbAppend(st, _esc(src[j]))
+                    j += 1
+                }
+            }
+            if j < n { st = sbAppend(st, "&quot;"); j += 1 }
+            out = sbAppend(out, "<span class=" + DQ() + "str" + DQ() + ">" + sbToString(st) + "</span>")
+            i = j
+        } else if isDigit(c) {
+            let num = sbNew()
+            let j = i
+            while j < n && isDigit(src[j]) { num = sbAppend(num, src[j]); j += 1 }
+            out = sbAppend(out, "<span class=" + DQ() + "num" + DQ() + ">" + sbToString(num) + "</span>")
+            i = j
+        } else if isAlpha(c) || c == "_" {
+            let id = sbNew()
+            let j = i
+            while j < n && (isAlpha(src[j]) || isDigit(src[j]) || src[j] == "_") {
+                id = sbAppend(id, src[j])
+                j += 1
+            }
+            let word = sbToString(id)
+            if _isKw(word) == "1" {
+                out = sbAppend(out, "<span class=" + DQ() + "kw" + DQ() + ">" + word + "</span>")
+            } else {
+                out = sbAppend(out, word)
+            }
+            i = j
+        } else {
+            out = sbAppend(out, _esc(c))
+            i += 1
+        }
+    }
+    emit sbToString(out)
+}
+
+// Ordered core-track lesson filenames (without .k).
+func lessonFiles() {
+    emit "01_hello_world" + NL() + "02_variables" + NL() + "03_strings" + NL() +
+         "04_arithmetic" + NL() + "05_conditionals" + NL() + "06_while_loops" + NL() +
+         "07_functions" + NL() + "08_print" + NL() + "09_to_int" + NL() +
+         "10_booleans" + NL() + "11_lists" + NL() + "12_string_builder" + NL() +
+         "13_pairs" + NL() + "14_file_io" + NL() + "15_arguments" + NL() +
+         "16_environment" + NL() + "17_go_blocks" + NL() + "18_lines" + NL() +
+         "19_pattern_matching" + NL() + "20_putting_it_together" + NL() +
+         "21_structs" + NL() + "22_try_catch" + NL() + "23_for_in" + NL() +
+         "24_string_interpolation" + NL() + "25_match" + NL() + "26_booleans" + NL() +
+         "27_imports" + NL() + "28_maps" + NL() + "29_closures" + NL() +
+         "30_json" + NL() + "31_http_client"
+}
+
+func _lessonSrc(file) {
+    emit readFile("../../tutorial/" + file + ".k")
+}
+
+func _lessonTitle(src) {
+    let first = getLine(src, 0)
+    let pos = indexOf(first, ": ")
+    if pos < 0 { emit "Lesson" }
+    emit substring(first, pos + 2, len(first))
+}
+
+func _lessonNum(file) {
+    emit substring(file, 0, 2)
+}
+
+func pageLearnIndex() {
+    let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
+        htH1("Learn Krypton") +
+        htP("A hands-on tour of the language, one short lesson at a time " + DASH() +
+            " from " + DQ() + "Hello, World" + DQ() + " to JSON and HTTP.") +
+        "</div>"
+
+    let cards = sbNew()
+    let files = lessonFiles()
+    let cnt = lineCount(files)
+    let i = 0
+    while i < cnt {
+        let file = getLine(files, i)
+        if len(file) > 0 {
+            let title = _lessonTitle(_lessonSrc(file))
+            cards = sbAppend(cards,
+                "<a class=" + DQ() + "card" + DQ() + " href=" + DQ() + "/learn/" + file + ".html" + DQ() + ">" +
+                "<span class=" + DQ() + "tag" + DQ() + ">Lesson " + _lessonNum(file) + "</span>" +
+                htH3(title) +
+                "</a>")
+        }
+        i += 1
+    }
+
+    let body = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
+        htH2("Core Language Track") +
+        htP("" + cnt + " lessons. Each is a complete, runnable program.") +
+        "<div class=" + DQ() + "grid" + DQ() + ">" + sbToString(cards) + "</div>" +
+        "</div></section>"
+
+    emit sitePage("Learn", hero + body)
+}
+
+// Intro paragraph = the contiguous comment lines right after the title
+// line (the lesson's own one-line description), stripped of "// ".
+func _lessonIntro(src) {
+    let out = ""
+    let n = lineCount(src)
+    let i = 1
+    let stop = 0
+    while i < n && stop == 0 {
+        let line = getLine(src, i)
+        if startsWith(line, "//") {
+            let t = trim(substring(line, 2, len(line)))
+            if len(t) > 0 {
+                if len(out) > 0 { out = out + " " }
+                out = out + t
+            }
+            i += 1
+        } else {
+            stop = 1
+        }
+    }
+    emit out
+}
+
+func pageLesson(file, prevFile, nextFile) {
+    let src = _lessonSrc(file)
+    let title = _lessonTitle(src)
+    let intro = _lessonIntro(src)
+    let outRaw = readFile("lesson_out/" + file + ".txt")
+
+    let nav = sbNew()
+    nav = sbAppend(nav, htA("/learn.html", fromCharCode(8592) + " All lessons"))
+    if len(prevFile) > 0 {
+        nav = sbAppend(nav, " &nbsp; " + htA("/learn/" + prevFile + ".html", "Prev"))
+    }
+    if len(nextFile) > 0 {
+        nav = sbAppend(nav, " &nbsp; " + htA("/learn/" + nextFile + ".html", "Next " + fromCharCode(8594)))
+    }
+    let navStr = sbToString(nav)
+
+    let introBlock = ""
+    if len(intro) > 0 { introBlock = htP(intro) }
+
+    let outputBlock = ""
+    if len(outRaw) > 0 {
+        outputBlock = htH3("Output") +
+            "<pre><code>" + htEscape(outRaw) + "</code></pre>"
+    }
+
+    let body = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
+        "<span class=" + DQ() + "tag" + DQ() + ">Lesson " + _lessonNum(file) + "</span>" +
+        htH1(title) +
+        introBlock +
+        htP(navStr) +
+        "<pre><code class=" + DQ() + "k" + DQ() +
+            " contenteditable=" + DQ() + "true" + DQ() +
+            " spellcheck=" + DQ() + "false" + DQ() + ">" + hlCode(src) + "</code></pre>" +
+        htP(htEm("Tip: this code box is editable " + DASH() +
+            " tweak it, then copy into a .k file and run it.")) +
+        outputBlock +
+        htP("Run it: " + htCode("kcc -r tutorial/" + file + ".k")) +
+        htP(navStr) +
+        "</div></section>"
+
+    emit sitePage(title, body)
+}
+
 // ── Static export (writes .html files) ───────────────────────────────
 
 func writePage(path, html) {
@@ -374,5 +586,25 @@ just run {
     writePage(dist + "/downloads.html", pageDownloads())
     writePage(dist + "/contact.html", pageContact())
 
-    printErr("done: 6 pages in " + dist + "/")
+    // Learn section: index + one page per tutorial lesson.
+    // cmd.exe mkdir (backslash path; creates intermediates, errors harmlessly
+    // if it already exists).
+    shellRun("mkdir dist" + fromCharCode(92) + "learn")
+    writePage(dist + "/learn.html", pageLearnIndex())
+    let files = lessonFiles()
+    let cnt = lineCount(files)
+    let i = 0
+    while i < cnt {
+        let file = getLine(files, i)
+        if len(file) > 0 {
+            let prevFile = ""
+            let nextFile = ""
+            if i > 0 { prevFile = getLine(files, i - 1) }
+            if i + 1 < cnt { nextFile = getLine(files, i + 1) }
+            writePage(dist + "/learn/" + file + ".html", pageLesson(file, prevFile, nextFile))
+        }
+        i += 1
+    }
+
+    printErr("done: 6 pages + learn index + " + cnt + " lessons in " + dist + "/")
 }
