@@ -23,7 +23,42 @@ Self-host with GC-on took ~22 min.
 - This made it **FAST** (h3 build reached 16s vs 22min). Code preserved at
   `/tmp/elf.k.segregated_wip` on L's box (copy into handoff if box wiped — see below).
 
-### 2. Heap-walk DESYNC crash (the real remaining blocker)
+### 2. DEFINITIVE ROOT CAUSE — missing transitive (heap→heap) marking
+**(supersedes the "mark corrupts a header" theory below, now DISPROVEN)**
+
+The crash is a **use-after-free**, not a mark-side header corruption:
+- Mark's only write is `OR [RAX-8],bit63` (set mark). It touches **only bit63**; the
+  size lives in bits 0..62. Sweep masks bit63 off before advancing (`AND RAX,~bit63`).
+  ⇒ mark **cannot** corrupt a size field ⇒ cannot cause a heap-walk desync.
+- kr_concat allocs `la+lb+1`, writes `la+lb` (NUL slot stays in-block, zeroed by the
+  bucket-pop REP STOSB). No payload overflow. kr_alloc bucket-pop zeroes exactly the
+  payload (header untouched). All audited alloc/write paths are size-correct.
+
+**The actual bug:** `kr_gc_collect` MARK scans ONLY the stack
+(`[RSP_entry, stack_base)`). It does NOT scan the interiors of marked objects. So a
+live object A reachable **only** through another heap object B (heap→heap pointer) is
+never marked. Sweep frees A (links it into a bucket, writes a free-link into A's
+payload[0]), alloc later hands A out and zeroes it — while B still points to A. When
+the program follows B→A it reads freelist-link / zeroed / reused bytes and eventually
+**dereferences string content as a pointer** (RAX=0x6309707369447374 = ASCII). That is
+the SIGSEGV. Small tests pass because their live sets are stack-rooted (no heap→heap
+chains deep enough to matter); elf.k's compile state has heap→heap structure ⇒ it bites.
+
+**FIX = add transitive marking** between the stack-scan and the sweep:
+- Simplest, no extra memory — **fixpoint over the heap**: repeat { walk blocks p; for
+  each MARKED p, scan its payload qwords w; if `heap_start<=w<R15 && w&7==0` and
+  `[w-8]` not yet marked, set its mark + set `changed` } until `!changed`. O(heap·passes)
+  — correct but can be slow with frequent collects.
+- Better — **worklist/mark-stack**: push stack-root-marked blocks; pop, scan payload,
+  push+mark newly found; O(heap) per collect. Needs a scratch buffer (carve another GC
+  band slot for a mark-stack region, or reuse the top of the heap).
+- Recommend: land fixpoint first for correctness (verify kryofetch builds), then swap to
+  worklist for speed.
+
+Either way the conservative scan inside an object is the SAME predicate already used for
+the stack scan (in-range, 8-aligned) — reuse it.
+
+### (OLD/DISPROVEN) Heap-walk DESYNC theory — kept for history
 With segregated GC on, self-compiling `elf.k` SIGSEGVs at ~16s.
 gdb: crash in cv_h2 code at `+0x9988a`; **RAX=0x6309707369447374** — that is
 **ASCII string bytes** ("tsDispt\tc" byte-reversed) being used as a header/pointer.
