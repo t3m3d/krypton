@@ -3429,7 +3429,7 @@ func krStrIntSize() { emit 91 }
 //   [71-73] 48 89 C7               MOV RDI, RAX                          (3)
 //   [74-78] B8 3C 00 00 00         MOV EAX, 60                           (5)
 //   [79-80] 0F 05                  SYSCALL                               (2)
-func startSize() { emit 90 }
+func startSize() { emit 98 }   // GC S1: +8 (heap_start + stack_base stores)
 func emitStartCode(callDisp, atoiDisp) {
     let c = ""
     c = c + hexByte(0x4C) + hexByte(0x8B) + hexByte(0x24) + hexByte(0x24)
@@ -3454,7 +3454,12 @@ func emitStartCode(callDisp, atoiDisp) {
     c = c + hexByte(0x4B) + hexByte(0x8D) + hexByte(0x4C) + hexByte(0xE5) + hexByte(0x08)  // LEA RCX,[R13+R12*8+8]
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x48) + hexByte(0x10)                  // MOV [RAX+16],RCX
     c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC6)
-    c = c + hexByte(0x4C) + hexByte(0x8D) + hexByte(0x78) + hexByte(0x18)  // LEA R15,[RAX+24] (heap_next past 3 globals)
+    // GC S1: carve a GC-globals band [R14+24..+71] (heap_start, stack_base,
+    // free_head, collect_threshold, allocs_since, +spares). heap_next (R15) starts
+    // past it at RAX+72. free_head/threshold/allocs_since are 0 from MAP_ANON.
+    c = c + hexByte(0x4C) + hexByte(0x8D) + hexByte(0x78) + hexByte(0x48)  // LEA R15,[RAX+72] (heap_next past 3 globals + GC band)
+    c = c + hexByte(0x4D) + hexByte(0x89) + hexByte(0x7E) + hexByte(0x18)  // MOV [R14+24],R15  (heap_start = sweep/mark lower bound)
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0x66) + hexByte(0x20)  // MOV [R14+32],RSP  (stack_base = entry RSP, conservative-scan upper bound)
     c = c + hexByte(0xE8) + hexDword(callDisp)
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)
     c = c + hexByte(0xE8) + hexDword(atoiDisp)
@@ -6619,15 +6624,15 @@ just run {
     // _start: CALL __main__ (mmap'd heap initialization is in emitStartCode)
     let startVAddr = SEG_BASE_VADDR
     let mainVAddr = toInt(funcVAddr(funcVAddrs, "__main__"))
-    // CALL __main__ ends at start-code offset 72 (was 63; +9 for the envp save).
-    let startCallDisp = mainVAddr - (startVAddr + 72)
+    // CALL __main__ ends at start-code offset 80 (was 72; +8 for GC S1 band stores).
+    let startCallDisp = mainVAddr - (startVAddr + 80)
     // A source file with no `just run` (e.g. a pure library of func defs) has no
     // __main__. mainVAddr is then garbage and _start would CALL into hyperspace
     // and SIGSEGV. Make the CALL target the very next instruction (disp 0) so it
     // falls straight through to SYS_exit(0) — running a library is a clean no-op.
     if mainIdx < 0 { startCallDisp = 0 }
-    // CALL kr_atoi ends at start-code offset 80 (was 71).
-    let startAtoiDisp = krAtoiVAddr - (startVAddr + 80)
+    // CALL kr_atoi ends at start-code offset 88 (was 80; +8 for GC S1 band stores).
+    let startAtoiDisp = krAtoiVAddr - (startVAddr + 88)
     let startCode = emitStartCode(startCallDisp, startAtoiDisp)
 
     let krPrintCode  = emitKrPrintCode()
