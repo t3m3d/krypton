@@ -1,4 +1,24 @@
-# Handoff (L → M/W): linux_x86 GC — S0–S4 committed, segregated allocator + heap-walk-desync crash
+# Handoff (L → M/W): linux_x86 GC — ✅ SOLVED & committed (segregated alloc + transitive mark)
+
+## ✅ RESOLVED 2026-05-29 (commit 6cbffc1c, pushed)
+GC now works at scale. Two stacked bugs fixed:
+1. **Missing transitive mark** (the UAF) → added a fixpoint transitive pass to
+   kr_gc_collect (now 301B: stack-mark → transitive fixpoint → sweep).
+2. **A 1-byte REX bug in the new code**: `LEA R11,[RSI+RDX+8]` was emitted `0x4E`
+   (REX.WRX); REX.X=1 promoted the SIB index from RDX→R10, so R11=2·RSI+16 garbage →
+   the scan ran off into unmapped memory. Fix: `0x4E`→`0x4C` (REX.WR).
+Result: self-host **CONVERGED h2==h3** byte-identical (643173B); GC-on self-compile
+74s, heap plateau ~26MB (was SIGSEGV ~13s). Suite 60 pass / 4 skip; the 2 fails
+(test_array, test_static) are **pre-existing** (identical on the GC-off pre-S0 backend).
+GC auto-collect left **ON** (gcSetThreshold 1M at backend entry) so big compiles cap
+memory. Segregated exact-size free lists (committed too) keep alloc O(1).
+
+NEXT: S6 mirror to linux_arm64/elf.k. Optional: swap the fixpoint for a worklist
+mark-stack (fixpoint is O(heap·passes)/collect; fine here, matters for huge inputs).
+
+---
+## (historical) original handoff below
+# linux_x86 GC — S0–S4 committed, segregated allocator + heap-walk-desync crash
 
 ## State
 - **S0–S4 GC engine** committed + pushed on `feat/arm64-native-pipeline`
