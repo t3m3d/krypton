@@ -124,13 +124,16 @@ func hexPad(n) {
 }
 
 func hexStr(s) {
-    let out = ""
+    // O(n) via sbAppend. The old `out = out + ...` per char was O(n^2): each concat
+    // copied the whole growing buffer, and once >2048 bytes those copies are large
+    // blocks the GC can't reuse -> multi-GB bump for large literals (kryofetch art).
+    let out = sbNew()
     let i = 0
     while i < len(s) {
-        out = out + hexByte(charCode(s[i]))
+        out = sbAppend(out, hexByte(charCode(s[i])))
         i += 1
     }
-    emit out
+    emit sbToString(out)
 }
 
 // hexBytesLen: number of bytes encoded in a hexByte stream (each byte is "xHH" = 3 chars)
@@ -6787,21 +6790,23 @@ just run {
 
     // String virtual addresses (after all runtime helpers)
     let stringsBase = krGcCollectVAddr + krGcSz
-    let strVAddrs = ""
-    let strData = ""
+    let strVAddrsSb = sbNew()
+    let strDataSb = sbNew()
     let curOff = 0
     let si = 0
     while si < strCount {
         let sv = decodeStr(getLine(strTab, si))
-        if si > 0 { strVAddrs = strVAddrs + "\n" }
-        strVAddrs = strVAddrs + (stringsBase + curOff)
-        strData = strData + hexStr(sv) + hexByte(0)
+        if si > 0 { strVAddrsSb = sbAppend(strVAddrsSb, "\n") }
+        strVAddrsSb = sbAppend(strVAddrsSb, (stringsBase + curOff) + "")
+        strDataSb = sbAppend(strDataSb, hexStr(sv) + hexByte(0))
         curOff = curOff + len(sv) + 1
         si += 1
     }
+    let strVAddrs = sbToString(strVAddrsSb)
+    let strData = sbToString(strDataSb)
 
     // ── Emit pass: for each function in order, emit code with resolved CALL targets ──
-    let allFuncCode = ""
+    let allFuncCodeSb = sbNew()
     let oIdx2 = 0
     while oIdx2 < funcCount {
         let fid2 = toInt(getLine(order, oIdx2))
@@ -6830,9 +6835,10 @@ just run {
         let funcStartV2 = toInt(funcVAddr(funcVAddrs, nm2))
 
         let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr, krStrcmpVAddr, krReverseVAddr, krSbnewVAddr, krSbappendVAddr, krSbtostringVAddr, krMinVAddr, krMaxVAddr, krBitandVAddr, krBitorVAddr, krBitxorVAddr, krBitnotVAddr, krShlVAddr, krShrVAddr, krHexVAddr, krBinVAddr, krPadleftVAddr, krPadrightVAddr, krFformatVAddr, krGcCollectVAddr)
-        allFuncCode = allFuncCode + codeI
+        allFuncCodeSb = sbAppend(allFuncCodeSb, codeI)
         oIdx2 += 1
     }
+    let allFuncCode = sbToString(allFuncCodeSb)
 
     // _start: CALL __main__ (mmap'd heap initialization is in emitStartCode)
     let startVAddr = SEG_BASE_VADDR
