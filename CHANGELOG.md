@@ -2,6 +2,40 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [2.1.1] - 2026-05-28 — macOS arm64 self-hosting
+
+Theme: **the macOS arm64 native backend (`macho_arm64_self.k`) now fully
+self-hosts** — it compiles its own KIR into a byte-for-byte identical native
+Mach-O across generations (C-bootstrap host → gen1 → gen2 → gen3 all share one
+SHA-256), with no `clang`/`as`/`ld`/`codesign` in the loop (self-emitted load
+commands + ad-hoc SHA-256 signature).
+
+**Backend fixes (`compiler/macos_arm64/macho_arm64_self.k`):**
+
+- **JUMPIFNOT/JUMPIF**: replaced single `CBZ`/`CBNZ` (19-bit ±256K range) with
+  `pop; cbnz/cbz +2; b target` so large functions don't overflow the branch
+  immediate (was silently wrapping to a wrong in-range target).
+- **Ad-hoc code signature**: emit the full embedded-signature SuperBlob the
+  Apple-Silicon kernel requires — CodeDirectory (2 special slots) + empty
+  Requirements blob + empty CMS signature slot — and set `execSegLimit` to the
+  real `__TEXT` vmsize. Native binaries previously loaded only under a debugger
+  and were `SIGKILL`'d (CODESIGNING / Invalid Page) at exec.
+- **`toInt`**: now parses a leading `-`. The KIR encodes large constants as
+  signed (e.g. `0xfeedfacf` → `-17958193`); the old loop bailed at `'-'` and
+  returned 0, mis-encoding every such `PUSH_INT` during a self-compile.
+- **StringBuilder rework**: `sbNew/sbAppend/sbToString` use a stable handle that
+  holds a buffer pointer, so realloc-on-grow never invalidates a caller's
+  handle (fixes corruption from the many in-place `sbAppend(sb, …)` sites).
+  `emitOneFunction`, `emitTextFromIR`, `buildFunctionLabelTable`, and the
+  SHA-256 chunk/schedule builders now build via O(n) sb instead of O(n²)
+  string concatenation; per-instruction hex uses a 256-entry lookup table.
+- **Heap layout**: 1.5 GB bump arena clear of the dyld shared cache, module
+  globals relocated above the heap, and the GC shadow-stack write dropped
+  (count-only) so a full self-compile stays within budget without reclamation.
+- Cached the per-function op-block base so op access is O(1) instead of
+  re-parsing the function header and re-scanning the whole parsed program per
+  op (also collapses the former O(n²) self-compile time).
+
 ## [2.1.0] - 2026-05-25 — Python-replacement push
 
 Theme: **make Krypton viable as a scripting alternative to small Python
