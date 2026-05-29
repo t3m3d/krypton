@@ -1043,15 +1043,27 @@ func irAdditive(tokens, pos, ntoks, lc, types) {
         // runtime: it only float-ifies when a STATIC f64 is involved; string
         // concat is unaffected because neither operand is f64-typed).
         let isFloat = ty == "f64" || pairType(rp) == "f64"
+        // If either operand is statically a string, `+` is concatenation: emit the
+        // dedicated CAT op (always kr_concat) instead of polymorphic ADD. ADD's runtime
+        // kr_plus is numeric-aware ("5"+"3"=8) and would int-add digit-strings, which
+        // breaks string accumulation like `s = s + "0123456789"`. Result stays ;str so
+        // chained `a + "x" + "y"` keeps concatenating.
+        let isStr = ty == "str" || pairType(rp) == "str"
         if op == "PLUS" {
             if isFloat { code = code + rcode + "BUILTIN fadd 2\n"  ty = "f64" }
+            // CAT (always concat) when a string-literal operand is involved. ty stays
+            // untyped — do NOT mark the result ;str, else the numeric idiom
+            // `"" + 10 + 4` would chain into a second CAT ("104") instead of staying
+            // numeric (14). A subsequent `+` then uses kr_plus (numeric-aware) again.
+            else if isStr { code = code + rcode + "CAT\n"  ty = "" }
             else       { code = code + rcode + "ADD\n" }
         } else {
             if isFloat { code = code + rcode + "BUILTIN fsub 2\n"  ty = "f64" }
-            else       { code = code + rcode + "SUB\n" }
+            else       { code = code + rcode + "SUB\n"  ty = "" }
         }
     }
     if ty == "f64" { emit code + "," + p + ";f64" }
+    if ty == "str" { emit code + "," + p + ";str" }
     emit code + "," + p
 }
 
@@ -1079,6 +1091,7 @@ func irMultiplicative(tokens, pos, ntoks, lc, types) {
         if op == "MOD" { code = code + rcode + "MOD\n"  ty = "" }
     }
     if ty == "f64" { emit code + "," + p + ";f64" }
+    if ty == "str" { emit code + "," + p + ";str" }
     emit code + "," + p
 }
 
@@ -1096,6 +1109,7 @@ func irPow(tokens, pos, ntoks, lc, types) {
         ty = ""   // ** is integer-only (no fpow); result is not float
     }
     if ty == "f64" { emit code + "," + p + ";f64" }
+    if ty == "str" { emit code + "," + p + ";str" }
     emit code + "," + p
 }
 
@@ -1210,6 +1224,7 @@ func irPostfix(tokens, pos, ntoks, lc, types) {
         }
     }
     if p == primaryEnd && primaryType == "f64" { emit code + "," + p + ";f64" }
+    if p == primaryEnd && primaryType == "str" { emit code + "," + p + ";str" }
     emit code + "," + p
 }
 
@@ -1240,7 +1255,7 @@ func irPrimary(tokens, pos, ntoks, lc, types) {
         // (matching what gcc would do for the C-emit path).
         // Don't double-escape — that produced "\\n" 3-char IR which
         // parseQuoted decoded as literal "\n" 2-char (broken on native).
-        emit "PUSH \"" + tv + "\"\n," + (pos + 1)
+        emit "PUSH \"" + tv + "\"\n," + (pos + 1) + ";str"
     }
 
     // Backtick interpolation - emit as PUSH + CAT chain
