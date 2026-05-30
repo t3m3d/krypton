@@ -22,7 +22,7 @@
 **Bundled CLIs (one package, three commands):**
 
 - `kcc` / `krypton` — compiler.
-- `kweb` (new in 2.1.1) — web framework CLI: `kweb init <name>`, `kweb build`, `kweb serve`, `kweb deploy <host> <user>`. Ships in the same `brew install krypton` (no extra package).
+- `kweb` — web framework CLI (`kweb init <name>`, `kweb build`, `kweb serve`, `kweb deploy <host> <user>`). **Windows-only in 2.1.1**; macOS port targets 2.1.2 once `stdlib/fs.k` finishes its POSIX rewrite.
 
 Krypton is a dynamically typed language with clean syntax, ~150 built-in functions, and a compiler written in itself.
 

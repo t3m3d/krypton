@@ -29,6 +29,38 @@ while [ -L "$SOURCE" ]; do
 done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 
+# 2.1.1: short-circuit --version / -v / -h / --help BEFORE we route to
+# the native pipeline. Without this, --version becomes SRCFILE="--version"
+# and the wrapper kicks off the full compile, which hangs on a file that
+# doesn't exist.
+case "$1" in
+    --version|-v)
+        echo "kcc version 2.1.1"
+        exit 0
+        ;;
+    -h|--help)
+        cat <<EOF
+kcc — Krypton compiler driver (2.1.1)
+
+Usage: kcc <source.k> [flags]
+
+  --native     (default) emit native binary at ./<basename>
+  --c          emit C source to stdout
+  --llvm       emit LLVM IR to stdout
+  --ir         emit Krypton IR to stdout
+  -o FILE      output path (with --native or --c)
+  -r FILE      compile, run, delete (like python file.py)
+  -e CODE      compile + run an inline snippet (like python -c)
+  --version    print version
+  --help       this help
+
+Bundled CLIs: kcc, krypton (alias), kweb (web framework).
+Site: https://krypton-lang.org
+EOF
+        exit 0
+        ;;
+esac
+
 # 2.1.1: expose install root to kcc via env var. compile.k's import
 # resolver reads $KRYPTON_ROOT and falls back to /usr/local/krypton on
 # POSIX or C:\krypton on Windows. Homebrew + tarball installs land
@@ -43,8 +75,18 @@ case "$(uname -s 2>/dev/null)" in
     *)       PLATFORM=windows ;;
 esac
 
-if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
-    KCC_EXE="$SCRIPT_DIR/kcc"
+if [[ "$PLATFORM" == "macos" ]]; then
+    # 2.1.1: point at the platform binary directly, NOT at a libexec/kcc
+    # dispatcher. The 2.0.0 tarball shipped a 1.4KB dispatcher script at
+    # libexec/kcc; the 2.1.1 repo accidentally has a 15.5KB stale copy of
+    # kcc.sh at the same path, which causes infinite recursion.
+    KCC_EXE="$SCRIPT_DIR/compiler/macos_arm64/kcc-arm64"
+    KCC_HEADERS="$SCRIPT_DIR/headers"
+elif [[ "$PLATFORM" == "linux" ]]; then
+    KCC_EXE="$SCRIPT_DIR/compiler/linux_x86/kcc-x64"
+    if [[ "$(uname -m 2>/dev/null)" == "aarch64" || "$(uname -m 2>/dev/null)" == "arm64" ]]; then
+        KCC_EXE="$SCRIPT_DIR/compiler/linux_arm64/kcc-linux-arm64"
+    fi
     KCC_HEADERS="$SCRIPT_DIR/headers"
 else
     KCC_EXE="$SCRIPT_DIR/kcc.exe"
