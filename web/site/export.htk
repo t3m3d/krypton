@@ -322,7 +322,7 @@ func sitePage(title, content) {
         htVoid("meta", htAttr("name", "theme-color") + htAttr("content", "#5d16da")) +
         htVoid("meta", htAttr("name", "apple-mobile-web-app-capable") + htAttr("content", "yes")) +
         htVoid("meta", htAttr("name", "apple-mobile-web-app-status-bar-style") + htAttr("content", "black-translucent")) +
-        htVoid("meta", htAttr("name", "generator") + htAttr("content", "Krypton 2.1.0")) +
+        htVoid("meta", htAttr("name", "generator") + htAttr("content", "Krypton 2.1.1")) +
         htVoid("meta", htAttr("name", "author") + htAttr("content", "KryptonBytes")) +
         // Open Graph (Facebook, LinkedIn, Slack, Discord previews).
         htVoid("meta", htAttr("property", "og:title")       + htAttr("content", fullTitle)) +
@@ -412,7 +412,7 @@ func pageAbout() {
         "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Small Surface") + htP("The entire language specification fits on a single EBNF page, with the compiler under 5,000 lines.") + "</div>" +
         "</div>" +
         htH2("Current Status") +
-        htP("Krypton reached version 2.1.0 in May 2026. Three native backends, a self-hosting compiler, 36 standard library modules, 84 example programs.") +
+        htP("Krypton reached version 2.1.1 in May 2026. Three native backends, a self-hosting compiler, 36 standard library modules, 84 example programs.") +
         htH2("Credits") +
         htP("Developed by t3m3d under KryptonBytes, licensed under Apache 2.0.") +
         "</div></section>"
@@ -483,7 +483,7 @@ func pageDownloads() {
     let BS = fromCharCode(92)
     let content = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
         htH1("Downloads") +
-        "<span class=" + DQ() + "tag" + DQ() + ">Latest: 2.1.0</span>" +
+        "<span class=" + DQ() + "tag" + DQ() + ">Latest: 2.1.1</span>" +
         htP("Released May 25, 2026.") +
         htH2("Windows Installer") +
         htP("One-click install to C:" + BS + "krypton with automatic PATH configuration. 2.5 MB. Windows 10/11 x64.") +

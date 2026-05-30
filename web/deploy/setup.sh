@@ -132,7 +132,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
 
     # Security headers
-    add_header X-Powered-By "Krypton 2.1.0" always;
+    add_header X-Powered-By "Krypton 2.1.1" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "DENY" always;
     add_header X-XSS-Protection "1; mode=block" always;

@@ -3242,7 +3242,7 @@ func cRuntime() {
 
     r = sbAppend(r, "static char* kr_charcode(const char* s) {\n    if (!*s) return _K_ZERO;\n    return kr_itoa((unsigned char)s[0]);\n}\n\n")
 
-    r = sbAppend(r, "static char* kr_fromcharcode(const char* ns) {\n    char buf[2] = {(char)atoi(ns), 0};\n    return kr_str(buf);\n}\n\n")
+    r = sbAppend(r, "static char* kr_fromcharcode(const char* ns) {\n    unsigned int v = (unsigned int)atoi(ns);\n    char buf[5] = {0};\n    if (v < 0x80) { buf[0] = (char)v; }\n    else if (v < 0x800) {\n        buf[0] = (char)(0xC0 | (v >> 6));\n        buf[1] = (char)(0x80 | (v & 0x3F));\n    } else if (v < 0x10000) {\n        buf[0] = (char)(0xE0 | (v >> 12));\n        buf[1] = (char)(0x80 | ((v >> 6) & 0x3F));\n        buf[2] = (char)(0x80 | (v & 0x3F));\n    } else {\n        buf[0] = (char)(0xF0 | (v >> 18));\n        buf[1] = (char)(0x80 | ((v >> 12) & 0x3F));\n        buf[2] = (char)(0x80 | ((v >> 6) & 0x3F));\n        buf[3] = (char)(0x80 | (v & 0x3F));\n    }\n    return kr_str(buf);\n}\n\n")
 
     r = sbAppend(r, "static char* kr_slice(const char* lst, const char* starts, const char* ends) {\n    int cnt = kr_listlen(lst);\n    int s = atoi(starts), e = atoi(ends);\n    if (s < 0) s = cnt + s;\n    if (e < 0) e = cnt + e;\n    if (s < 0) s = 0;\n    if (e > cnt) e = cnt;\n    if (s >= e) return _K_EMPTY;\n")
     r = sbAppend(r, "    char* out = kr_split(lst, kr_itoa(s));\n    for (int i = s + 1; i < e; i++)\n        out = kr_cat(kr_cat(out, \",\"), kr_split(lst, kr_itoa(i)));\n    return out;\n}\n\n")
@@ -5317,8 +5317,21 @@ just run {
     // source for patterns needing attention before a 2.0 upgrade.
     let irMode = 0
     let portMode = 0
-    let installRoot = "C:\\krypton"
-    let headersDir  = installRoot + "\\headers"   // legacy var, kept for bin-dir derivation
+    // Install root resolution order (2.1.1):
+    //   1. $KRYPTON_ROOT env var (set by kcc.sh wrapper from $SCRIPT_DIR).
+    //   2. POSIX default ($HOME present) → /usr/local/krypton.
+    //   3. Windows fallback → C:\krypton.
+    // kcc.sh on macOS/Linux sets KRYPTON_ROOT to its own libexec dir,
+    // which is where Homebrew + tarball installs place stdlib/ + headers/.
+    let installRoot = environ("KRYPTON_ROOT")
+    if installRoot == "" {
+        if environ("HOME") != "" {
+            installRoot = "/usr/local/krypton"
+        } else {
+            installRoot = "C:\\krypton"
+        }
+    }
+    let headersDir  = installRoot + "/headers"   // legacy var, kept for bin-dir derivation
     let outFile = ""
     let file = arg("0")
     let argIdx = 0
@@ -6265,8 +6278,13 @@ just run {
             let irLibText = sbToString(sbIRlib)
             if len(outFile) > 0 {
                 let compilerDir = replace(headersDir, "headers", "bin")
-                let tmpIR  = "C:\\krypton\\tmp_kcc_build.ir"
-                let tmpOpt = "C:\\krypton\\tmp_kcc_build_opt.ir"
+                let tmpDir = "C:\\krypton"
+                if environ("HOME") != "" {
+                    tmpDir = environ("TMPDIR")
+                    if tmpDir == "" { tmpDir = "/tmp" }
+                }
+                let tmpIR  = tmpDir + "/tmp_kcc_build.ir"
+                let tmpOpt = tmpDir + "/tmp_kcc_build_opt.ir"
                 writeFile(tmpIR, irLibText)
                 let optCmd2  = compilerDir + "\\optimize_host.exe " + tmpIR + " > " + tmpOpt
                 let codeCmd2 = compilerDir + "\\x64_host_new.exe " + tmpOpt + " " + outFile
@@ -6423,8 +6441,13 @@ just run {
         // -o mode: run full native pipeline internally
         if len(outFile) > 0 {
             let compilerDir = replace(headersDir, "headers", "bin")
-            let tmpIR  = "C:\\krypton\\tmp_kcc_build.ir"
-            let tmpOpt = "C:\\krypton\\tmp_kcc_build_opt.ir"
+            let tmpDir = "C:\\krypton"
+            if environ("HOME") != "" {
+                tmpDir = environ("TMPDIR")
+                if tmpDir == "" { tmpDir = "/tmp" }
+            }
+            let tmpIR  = tmpDir + "/tmp_kcc_build.ir"
+            let tmpOpt = tmpDir + "/tmp_kcc_build_opt.ir"
             writeFile(tmpIR, irText)
             let optCmd  = compilerDir + "\\optimize_host.exe " + tmpIR + " > " + tmpOpt
             let codeCmd = compilerDir + "\\x64_host_new.exe " + tmpOpt + " " + outFile

@@ -2,7 +2,69 @@
 
 All notable changes to the Krypton language and compiler.
 
-## [2.1.1] - 2026-05-28 — macOS arm64 self-hosting
+## [2.1.1] - 2026-05-30 — macOS arm64 self-hosting + portability bug-fix series
+
+**Bug fix series (2026-05-30):**
+
+- **Bug 1 — `installRoot` hardcoded to `C:\krypton`** (compile.k:5320).
+  Mac/Linux builds couldn't resolve `import "k:*"` without a workaround
+  symlink (`mkdir 'C:\krypton' && ln -s ... 'C:\krypton/stdlib'`). Fixed
+  by reading the `KRYPTON_ROOT` environment variable, with platform
+  defaults: `/usr/local/krypton` on POSIX, `C:\krypton` on Windows.
+  `kcc.sh` now exports `KRYPTON_ROOT="$SCRIPT_DIR"` before invoking
+  the binary, so Homebrew + tarball installs resolve stdlib + headers
+  from the libexec dir directly.
+- **Bug 1b — temp file paths** also hardcoded to `C:\krypton\` (two
+  call sites in compile.k). Now use `$TMPDIR` (fallback `/tmp`) on POSIX.
+- **Bug 2 — `fromCharCode(N)` for N > 127 emitted single-byte mojibake**
+  in HTML/HTTP output. Replaced single-byte cast with full UTF-8
+  multi-byte encoding (compile.k:3245). `fromCharCode(8593)` (↑) now
+  emits `e2 86 91` instead of corrupted `91`. Fixes the krypton-lang.org
+  arrow / hamburger / dash icons that previously appeared as
+  `?-in-diamond` replacement chars.
+- **Bug 7 — `--version` / `-v` flag** wasn't recognized by the
+  2.0.0-built binary (was already in source). Rebuilding from 2.1.1
+  source surfaces `kcc version 2.1.1`.
+
+**Deferred to 2.1.2:**
+
+- **Bug 3 — `fromCharCode(0)` drops the byte** (C-string truncation).
+  Workaround: `writeBytes(path, hexString)` — see
+  `wasm_proof/FINDING.md`. Real fix needs length-tracked strings.
+- **Bug 4 — `s[i]` returns a 1-char string** so `toInt(s[i])` is 0.
+  Workaround: `toInt(charCode(s[i]))` — same pattern stdlib/url.k uses.
+- **Bug 5 — `fn` as a parameter name** confuses the parser → undefined
+  identifier in emitted C. Workaround: rename to `f`. Real fix needs the
+  param-emit path to ignore the keyword check for parameter positions.
+- **Bug 6 — `: closure` type annotation** hangs the parser. Workaround:
+  omit annotations.
+
+**Install hot-fix for users on Mac with 2.0.0 already installed:**
+
+```bash
+CELLAR=/opt/homebrew/Cellar/krypton/2.0.0/libexec
+cp /Users/.../GitHub/krypton/stdlib  "$CELLAR/" -r
+cp /Users/.../GitHub/krypton/kcc.sh  "$CELLAR/kcc.sh"
+# Build new kcc-arm64 from updated compile.k, drop in:
+cp /tmp/kcc-arm64-new "$CELLAR/compiler/macos_arm64/kcc-arm64"
+codesign -s - -f "$CELLAR/compiler/macos_arm64/kcc-arm64"  # required for AMFI
+```
+
+**Windows release status:** the same `compile.k` source applies — Bug 1
++ Bug 2 fixes are platform-agnostic. Need to rebuild `kcc.exe` from the
+updated source via the existing Inno Setup `.iss` pipeline. See
+`docs/RELEASE_2.1.1.md`.
+
+**Bundled tools (Homebrew + tarball):**
+
+- `kcc` — compiler driver (kcc.sh → kcc-arm64 binary)
+- `krypton` — alias of `kcc` (matches Chocolatey package name)
+- `kweb` (new in 2.1.1) — web framework CLI: `kweb init`, `kweb build`,
+  `kweb serve`, `kweb deploy`. Same package; no extra brew install.
+
+---
+
+## [2.1.1-pre] - 2026-05-28 — macOS arm64 self-hosting (initial)
 
 Theme: **the macOS arm64 native backend (`macho_arm64_self.k`) now fully
 self-hosts** — it compiles its own KIR into a byte-for-byte identical native
