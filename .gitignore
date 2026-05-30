@@ -23,6 +23,7 @@ backup/
 *.kir
 *.ll
 .claude/
+docs/claude/
 archive/
 test_features.c
 test_features.exe
