@@ -2,10 +2,27 @@
 
 **A self-hosting programming language that emits native machine code without a C compiler in the loop.**
 
-> Version 2.0 (lean ship — see [`CHANGELOG.md`](CHANGELOG.md))
+> **Current version: 2.1.1** — macOS arm64 self-hosting + bug-fix series.
+> See [`CHANGELOG.md`](CHANGELOG.md) for the full history.
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-2.0-brightgreen)
+![Version](https://img.shields.io/badge/version-2.1.1-brightgreen)
+![macOS](https://img.shields.io/badge/macOS-arm64%202.1.1-success)
+![Linux](https://img.shields.io/badge/Linux-x86__64%202.1.1-yellow)
+![Windows](https://img.shields.io/badge/Windows-x86__64%202.0.0-orange)
+
+**Platform release status (2026-05-30):**
+
+| Platform | Shipped version | Notes |
+|----------|-----------------|-------|
+| macOS arm64 | **2.1.1** | Homebrew tap: `brew tap t3m3d/krypton && brew install krypton`. Backend self-hosts; KRYPTON_ROOT-based install; UTF-8 fromCharCode fix. |
+| Linux x86_64 | 2.1.1 (source) | Build from `compile.k` via the existing 2.0.0 elf seed. Same source as macOS — fixes carry over. |
+| Windows x86_64 | 2.0.0 | **Needs 2.1.1 rebuild.** Same compile.k applies; produce a new `kcc.exe` + installer `.iss` bump + Inno Setup pkg. See [`docs/RELEASE_2.1.1.md`](docs/RELEASE_2.1.1.md). |
+
+**Bundled CLIs (one package, three commands):**
+
+- `kcc` / `krypton` — compiler.
+- `kweb` (new in 2.1.1) — web framework CLI: `kweb init <name>`, `kweb build`, `kweb serve`, `kweb deploy <host> <user>`. Ships in the same `brew install krypton` (no extra package).
 
 Krypton is a dynamically typed language with clean syntax, ~150 built-in functions, and a compiler written in itself.
 
