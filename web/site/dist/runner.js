@@ -64,6 +64,13 @@
       return orig;
     });
 
+    // 10. Wrap I/O builtins that need to block (fetch, sleep) with `await`
+    //     so the in-page runner can suspend on real network calls. User code
+    //     stays sync-looking; the async happens around it. khn-browser uses
+    //     fetch.
+    s = s.replace(/\bfetch\s*\(/g, 'await fetch(');
+    s = s.replace(/\bsleepMs\s*\(/g, 'await sleepMs(');
+
     return s;
   }
 
@@ -152,6 +159,7 @@
       toUpper: function (s) { return s.toUpperCase(); },
       toLower: function (s) { return s.toLowerCase(); },
       replaceAll: function (s, a, b) { return s.split(a).join(b); },
+      replace: function (s, a, b) { return s.split(a).join(b); },
 
       // Booleans.
       isTruthy: function (x) { return !!x; },
@@ -349,6 +357,67 @@
       kcssRgba:     function (r, g, b, a) { return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')'; },
       kcssLinearGradient: function (deg, colors) { return 'linear-gradient(' + deg + ',' + colors + ')'; },
 
+      // JSON parse (matches stdlib/k:json_parse shape).
+      // Backed by native JSON.parse — paths are dot-separated.
+      jpParse: function (text) {
+        try { return JSON.parse(text); }
+        catch (e) { return null; }
+      },
+      jpGet: function (obj, path) {
+        if (obj === null || obj === undefined) return '';
+        var parts = String(path).split('.');
+        var cur = obj;
+        for (var i = 0; i < parts.length; i++) {
+          if (parts[i] === '') continue;
+          if (cur === null || cur === undefined) return '';
+          cur = cur[parts[i]];
+        }
+        if (cur === null || cur === undefined) return '';
+        return typeof cur === 'object' ? JSON.stringify(cur) : String(cur);
+      },
+      jpHas: function (obj, path) {
+        if (obj === null || obj === undefined) return false;
+        var parts = String(path).split('.');
+        var cur = obj;
+        for (var i = 0; i < parts.length; i++) {
+          if (parts[i] === '') continue;
+          if (cur === null || typeof cur !== 'object') return false;
+          if (!(parts[i] in cur)) return false;
+          cur = cur[parts[i]];
+        }
+        return cur !== null && cur !== undefined;
+      },
+      jpArrLen: function (obj, path) {
+        if (obj === null || obj === undefined) return 0;
+        var parts = String(path).split('.');
+        var cur = obj;
+        for (var i = 0; i < parts.length; i++) {
+          if (parts[i] === '') continue;
+          if (cur === null || typeof cur !== 'object') return 0;
+          cur = cur[parts[i]];
+        }
+        return Array.isArray(cur) ? cur.length : 0;
+      },
+      jpTypeOf: function (obj, path) {
+        var v = obj;
+        if (path !== '' && path !== undefined) {
+          var parts = String(path).split('.');
+          for (var i = 0; i < parts.length; i++) {
+            if (parts[i] === '') continue;
+            if (v === null || typeof v !== 'object') return '';
+            v = v[parts[i]];
+          }
+        }
+        if (v === null) return 'z';
+        if (typeof v === 'undefined') return '';
+        if (typeof v === 'string') return 's';
+        if (typeof v === 'number') return 'n';
+        if (typeof v === 'boolean') return 'b';
+        if (Array.isArray(v)) return 'arr';
+        if (typeof v === 'object') return 'obj';
+        return '';
+      },
+
       // JSON emit (matches stdlib/k:json shape).
       jsonStr: function (s) { return JSON.stringify(String(s)); },
       jsonNum: function (n) { return String(Number(n)); },
@@ -382,14 +451,27 @@
         return '{' + parts.join(',') + '}';
       },
 
+      // Async I/O. Translator inserts `await` in front of fetch/sleepMs
+      // calls so user code stays sync-looking.
+      fetch: function (url) {
+        return window.fetch(url).then(function (r) { return r.text(); });
+      },
+      sleepMs: function (ms) {
+        return new Promise(function (res) { setTimeout(res, ms); });
+      },
+
       // No-op stubs (browser can't do these).
       argCount: function () { return 0; },
       arg: function () { return ''; },
       environ: function () { return ''; },
-      readFile: function () { return ''; }
+      readFile: function () { return ''; },
+      // Browser equivalent of `exec("date +%s")` — returns unix seconds.
+      nowSec: function () { return Math.floor(Date.now() / 1000); }
     };
   }
 
+  // krun returns a Promise<{ok, output}> so user programs can do fetch().
+  // Sync programs resolve immediately; the async wrapper costs nothing.
   function krun(src) {
     // Unsupported-feature gates — friendlier than a stack trace.
     // Detect WHICH feature blocks the runner and surface concrete next steps.
@@ -450,27 +532,32 @@
     var js;
     try { js = kbToJs(src); }
     catch (e) {
-      return { ok: false, output: 'Transpile error: ' + e.message };
+      return Promise.resolve({ ok: false, output: 'Transpile error: ' + e.message });
     }
-    try {
-      // Bind every API name as a local var before user code runs. User
-      // function declarations later in the source hoist over these, so
-      // user-defined wrappers take precedence (lessons 16, 20 etc.).
-      var apiKeys = Object.keys(api);
-      var prelude = apiKeys.map(function (k) {
-        return 'var ' + k + ' = __api__.' + k + ';';
-      }).join('\n');
-      var runner = new Function('__api__', prelude + '\n' + js);
-      runner(api);
-      return {
-        ok: true,
-        output: output.length ? output.join('\n') : '(no output)'
-      };
-    } catch (e) {
+    // Bind every API name as a local var before user code runs. Wrap the
+    // whole user body in an async IIFE so transpiler-inserted `await`s
+    // (around fetch/sleepMs) compile cleanly.
+    var apiKeys = Object.keys(api);
+    var prelude = apiKeys.map(function (k) {
+      return 'var ' + k + ' = __api__.' + k + ';';
+    }).join('\n');
+    var body =
+      'return (async function(){\n' +
+      prelude + '\n' +
+      js +
+      '\n})();';
+    var runner;
+    try { runner = new Function('__api__', body); }
+    catch (e) {
+      return Promise.resolve({ ok: false, output: 'Syntax error: ' + e.message });
+    }
+    return runner(api).then(function () {
+      return { ok: true, output: output.length ? output.join('\n') : '(no output)' };
+    }, function (e) {
       var msg = output.join('\n');
       if (output.length) msg += '\n';
-      return { ok: false, output: msg + 'Runtime error: ' + e.message };
-    }
+      return { ok: false, output: msg + 'Runtime error: ' + (e && e.message ? e.message : String(e)) };
+    });
   }
 
   window.krun = krun;
@@ -486,12 +573,11 @@
     btn.textContent = 'Running…';
     out.className = 'run-out';
     out.textContent = '';
-    setTimeout(function () {
-      var r = krun(src);
+    Promise.resolve(krun(src)).then(function (r) {
       out.textContent = r.output;
       out.className = 'run-out ' + (r.ok ? 'ok' : 'err');
       btn.disabled = false;
       btn.textContent = label;
-    }, 10);
+    });
   };
 })();

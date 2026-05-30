@@ -124,6 +124,7 @@ GCC_EXPLICIT=0  # --gcc explicitly passed (vs implicit macOS fallback)
 C_MODE=0
 EVAL_CODE=""
 RUN_MODE=0
+WASM_MODE=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -132,6 +133,7 @@ while [[ $# -gt 0 ]]; do
         --llvm)    LLVM_MODE=1; shift ;;
         --gcc)     GCC_MODE=1; GCC_EXPLICIT=1; shift ;;
         --c)       C_MODE=1; shift ;;
+        --wasm)    WASM_MODE=1; shift ;;
         -o)        OUTFILE="$2"; shift 2 ;;
         -e)        EVAL_CODE="$2"; shift 2 ;;
         -r)        RUN_MODE=1; shift
