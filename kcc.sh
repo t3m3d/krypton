@@ -29,6 +29,14 @@ while [ -L "$SOURCE" ]; do
 done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 
+# 2.1.1: expose install root to kcc via env var. compile.k's import
+# resolver reads $KRYPTON_ROOT and falls back to /usr/local/krypton on
+# POSIX or C:\krypton on Windows. Homebrew + tarball installs land
+# stdlib/ + headers/ next to this script, so SCRIPT_DIR IS the root.
+if [[ -z "$KRYPTON_ROOT" ]]; then
+    export KRYPTON_ROOT="$SCRIPT_DIR"
+fi
+
 case "$(uname -s 2>/dev/null)" in
     Linux*)  PLATFORM=linux ;;
     Darwin*) PLATFORM=macos ;;
