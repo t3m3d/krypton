@@ -59,8 +59,18 @@ updated source via the existing Inno Setup `.iss` pipeline. See
 
 - `kcc` — compiler driver (kcc.sh → kcc-arm64 binary)
 - `krypton` — alias of `kcc` (matches Chocolatey package name)
-- `kweb` (new in 2.1.1) — web framework CLI: `kweb init`, `kweb build`,
-  `kweb serve`, `kweb deploy`. Same package; no extra brew install.
+- `kweb` — Windows-only in 2.1.1. macOS port blocked on `stdlib/fs.k`
+  POSIX rewrite (currently has ungated `FindFirstFileA`/`WIN32_FIND_DATAA`
+  calls that don't compile on POSIX). Targeting 2.1.2 for the Mac kweb.
+
+**macOS bootstrap quirk:** the macho self-host produces a kcc-arm64 that
+runs `--version` cleanly but silently fails the actual IR-emission step
+on substantial input (3.3 MB output, vs ~290 KB for the clang-built
+binary). 2.1.1 ships the clang-built binary while the macho self-host
+regression is investigated. File at `compiler/macos_arm64/kcc-arm64`
+should be rebuilt with `kcc --c compiler/compile.k > /tmp/k.c &&
+clang /tmp/k.c -o compiler/macos_arm64/kcc-arm64 -w && codesign -s - -f
+compiler/macos_arm64/kcc-arm64` until 2.1.2 lands the native fix.
 
 ---
 
