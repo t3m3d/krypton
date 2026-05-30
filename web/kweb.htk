@@ -7,6 +7,9 @@
 //   kweb serve [port]       — local dev server
 //   kweb deploy host user   — upload dist/ (recursively) via curl SFTP
 
+// Note: kweb currently ships only on Windows in 2.1.1. k:fs has
+// ungated Win32 calls (FindFirstFileA etc.) so kweb doesn't compile on
+// macOS / Linux without a stdlib/fs.k POSIX port. Deferred to 2.1.2.
 import "head:windows"
 import "head:fileio"
 import "k:htmk"
@@ -14,15 +17,16 @@ import "k:server"
 import "k:fs"
 
 func printUsage() {
-    printErr("kweb — Krypton Web Framework")
-    printErr("")
-    printErr("Usage:")
-    printErr("  kweb init <name>            Create a new .htk project")
-    printErr("  kweb build                  Build dist/ from site.htk")
-    printErr("  kweb serve [port]           Start local dev server (default: 8080)")
-    printErr("  kweb deploy <host> <user>   Deploy dist/ via SFTP")
-    printErr("")
-    printErr("https://krypton-lang.org")
+    let NL = fromCharCode(10)
+    printErr("kweb — Krypton Web Framework" + NL)
+    printErr(NL)
+    printErr("Usage:" + NL)
+    printErr("  kweb init <name>            Create a new .htk project" + NL)
+    printErr("  kweb build                  Build dist/ from site.htk" + NL)
+    printErr("  kweb serve [port]           Start local dev server (default: 8080)" + NL)
+    printErr("  kweb deploy <host> <user>   Deploy dist/ via SFTP" + NL)
+    printErr(NL)
+    printErr("https://krypton-lang.org" + NL)
 }
 
 func scaffoldCSS() {
@@ -225,9 +229,12 @@ func doDeploy(sftpHost, sftpUser) {
 }
 
 just run {
+    let NL = fromCharCode(10)
     let cmd = arg("0")
 
-    if cmd == "" {
+    // argCount() guard avoids the Krypton quirk where arg("0") returns
+    // the literal "0" when no args were given.
+    if argCount() == 0 || cmd == "" || cmd == "0" {
         printUsage()
         emit 0
     }
@@ -235,7 +242,7 @@ just run {
     if cmd == "init" {
         let projectName = arg("1")
         if projectName == "" {
-            printErr("kweb: usage: kweb init <project-name>")
+            printErr("kweb: usage: kweb init <project-name>" + NL)
             emit 1
         }
         doInit(projectName)
@@ -249,12 +256,12 @@ just run {
         let sftpHost = arg("1")
         let sftpUser = arg("2")
         if sftpHost == "" || sftpUser == "" {
-            printErr("kweb: usage: kweb deploy <sftp-host> <username>")
+            printErr("kweb: usage: kweb deploy <sftp-host> <username>" + NL)
             emit 1
         }
         doDeploy(sftpHost, sftpUser)
     } else {
-        printErr("kweb: unknown command: " + cmd)
+        printErr("kweb: unknown command: " + cmd + NL)
         printUsage()
         emit 1
     }
