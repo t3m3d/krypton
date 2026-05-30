@@ -4,20 +4,54 @@
 // Run:   export.exe
 
 import "k:htmk"
+import "k:kcss"
 
 // ── Theme colors + CSS ───────────────────────────────────────────────
+// CSS authored via kcss (the Krypton CSS DSL).
+// Theme custom properties and breakpoints go through kcss helpers;
+// dense rule bodies stay as raw strings since CSS itself is already
+// terse and wrapping every declaration would hurt readability more than
+// help. Pattern: kcss for structure, raw strings for property soup.
+
+func siteTheme() {
+    emit kcssRoot(
+        kcssVar("primary",      "#7722ff") +
+        kcssVar("primary-dark", "#5d16da") +
+        kcssVar("bg",           "#fafafa") +
+        kcssVar("text",         "#222") +
+        kcssVar("text-light",   "#555") +
+        kcssVar("card-bg",      "#fff") +
+        kcssVar("card-border",  "#e0e0e0") +
+        kcssVar("code-bg",      "#1e1e2e") +
+        kcssVar("code-text",    "#cdd6f4") +
+        kcssVar("nav-bg",       "#0a0a0f") +
+        kcssVar("nav-text",     "#eee")
+    )
+}
+
+func siteAnims() {
+    emit kcssKeyframes("gradShift",
+            "0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}") +
+         kcssKeyframes("fadeUp",
+            "from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}") +
+         kcssKeyframes("pulse",
+            "0%,100%{box-shadow:0 0 0 0 rgba(119,34,255,0.3)}50%{box-shadow:0 0 0 12px rgba(119,34,255,0)}") +
+         kcssKeyframes("float1",
+            "0%,100%{transform:translate(0,0) rotate(0deg)}25%{transform:translate(30px,-20px) rotate(90deg)}50%{transform:translate(-10px,-40px) rotate(180deg)}75%{transform:translate(-30px,-10px) rotate(270deg)}") +
+         kcssKeyframes("float2",
+            "0%,100%{transform:translate(0,0) rotate(45deg)}33%{transform:translate(-40px,20px) rotate(135deg)}66%{transform:translate(20px,-30px) rotate(225deg)}") +
+         kcssKeyframes("glow",
+            "0%,100%{opacity:0.3}50%{opacity:0.7}") +
+         kcssKeyframes("logoGlow",
+            "0%,100%{text-shadow:0 0 8px rgba(119,34,255,0.6)}50%{text-shadow:0 0 20px rgba(119,34,255,1),0 0 40px rgba(119,34,255,0.4)}") +
+         kcssKeyframes("typeBar",
+            "0%,100%{border-color:var(--code-text)}50%{border-color:transparent}")
+}
 
 func siteCSS() {
-    emit htStyle(
-        ":root{--primary:#7722ff;--primary-dark:#5d16da;--bg:#fafafa;--text:#222;--text-light:#555;--card-bg:#fff;--card-border:#e0e0e0;--code-bg:#1e1e2e;--code-text:#cdd6f4;--nav-bg:#0a0a0f;--nav-text:#eee}" +
-        "@keyframes gradShift{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}" +
-        "@keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}" +
-        "@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(119,34,255,0.3)}50%{box-shadow:0 0 0 12px rgba(119,34,255,0)}}" +
-        "@keyframes float1{0%,100%{transform:translate(0,0) rotate(0deg)}25%{transform:translate(30px,-20px) rotate(90deg)}50%{transform:translate(-10px,-40px) rotate(180deg)}75%{transform:translate(-30px,-10px) rotate(270deg)}}" +
-        "@keyframes float2{0%,100%{transform:translate(0,0) rotate(45deg)}33%{transform:translate(-40px,20px) rotate(135deg)}66%{transform:translate(20px,-30px) rotate(225deg)}}" +
-        "@keyframes glow{0%,100%{opacity:0.3}50%{opacity:0.7}}" +
-        "@keyframes logoGlow{0%,100%{text-shadow:0 0 8px rgba(119,34,255,0.6)}50%{text-shadow:0 0 20px rgba(119,34,255,1),0 0 40px rgba(119,34,255,0.4)}}" +
-        "@keyframes typeBar{0%,100%{border-color:var(--code-text)}50%{border-color:transparent}}" +
+    emit kcssStyle(
+        siteTheme() +
+        siteAnims() +
         ".reveal{opacity:0;transform:translateY(30px);transition:opacity 0.6s ease,transform 0.6s ease}.reveal.visible{opacity:1;transform:translateY(0)}" +
         "*{box-sizing:border-box;margin:0;padding:0}" +
         "html{scroll-behavior:smooth}" +
@@ -79,13 +113,87 @@ func siteCSS() {
         ".tag{display:inline-block;background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;padding:4px 14px;border-radius:20px;font-size:0.8rem;margin-bottom:8px;font-weight:600}" +
         ".stat{text-align:center;padding:20px}.stat .num{font-size:2.5rem;font-weight:800;color:var(--primary);display:block}.stat .label{font-size:0.95rem;color:var(--text-light)}" +
         "ul{margin:8px 0 8px 24px}li{margin:4px 0}" +
-        "@media(max-width:700px){.hero h1{font-size:2rem}.hero{padding:60px 16px 50px}nav .links a{margin-left:12px;font-size:0.85rem}.grid{grid-template-columns:1fr}}"
+        ".nav-sponsor{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(135deg,#ff5277,#d9326a);color:#fff!important;padding:6px 14px;border-radius:999px;font-weight:600;font-size:0.88rem;margin-left:18px;transition:transform 0.15s,box-shadow 0.15s;-webkit-tap-highlight-color:transparent;box-shadow:0 2px 8px rgba(217,50,106,0.35)}" +
+        ".nav-sponsor:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(217,50,106,0.5);text-decoration:none}" +
+        ".nav-sponsor::after{display:none!important}" +
+        ".tier-recommended{position:relative;border:2px solid var(--primary);box-shadow:0 8px 24px rgba(119,34,255,0.18);transform:translateY(-4px)}" +
+        ".tier-recommended:hover{transform:translateY(-8px)}" +
+        ".tier-badge{position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#ff5277,#d9326a);color:#fff;padding:4px 14px;border-radius:999px;font-size:0.72rem;font-weight:700;letter-spacing:0.5px;box-shadow:0 2px 8px rgba(217,50,106,0.4);white-space:nowrap}" +
+        ".run-btn{display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;border:none;border-radius:8px;padding:10px 22px;font-size:0.95rem;font-weight:600;cursor:pointer;margin:14px 0 12px;box-shadow:0 4px 12px rgba(119,34,255,0.25);transition:transform 0.15s,box-shadow 0.15s,opacity 0.15s;-webkit-tap-highlight-color:transparent}" +
+        ".run-btn:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(119,34,255,0.35)}" +
+        ".run-btn:active{transform:translateY(0)}" +
+        ".run-btn:disabled{opacity:0.6;cursor:wait;transform:none;box-shadow:none}" +
+        ".run-out{background:#0f0f17;color:#cdd6f4;padding:16px;border-radius:10px;border:1px solid #2a2a3a;font-family:'Cascadia Code','Fira Code',Consolas,monospace;font-size:0.88rem;line-height:1.55;white-space:pre-wrap;word-break:break-word;min-height:48px;margin:0 0 18px;border-left:3px solid var(--primary)}" +
+        ".run-out.ok{border-left-color:#a6e3a1}" +
+        ".run-out.err{border-left-color:#f38ba8;color:#f5c2c7}" +
+        ".nav-toggle{display:none;background:transparent;border:1px solid rgba(255,255,255,0.18);border-radius:8px;width:42px;height:42px;color:#fff;font-size:1.25rem;cursor:pointer;padding:0;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent;transition:border-color 0.2s,background 0.2s}" +
+        ".nav-toggle:hover{border-color:rgba(255,255,255,0.45);background:rgba(255,255,255,0.04)}" +
+        kcssOnTablet(
+            "nav .links a{margin-left:14px;font-size:0.9rem}" +
+            ".hero h1{font-size:2.4rem}" +
+            ".hero{padding:80px 20px 60px}" +
+            ".hero p{font-size:1.15rem}" +
+            ".grid{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}" +
+            "section{padding:48px 20px}"
+        ) +
+        kcssOnMobile(
+            "nav .wrap{flex-wrap:wrap;padding:0 14px}" +
+            "nav .logo{font-size:1.2rem}" +
+            "nav .logo span{font-size:1.4rem}" +
+            ".nav-toggle{display:flex}" +
+            "nav .links{display:none;flex-basis:100%;flex-direction:column;margin-top:10px;padding-top:6px;border-top:1px solid rgba(119,34,255,0.18)}" +
+            "nav .links.open{display:flex}" +
+            "nav .links a{margin:0;padding:12px 4px;font-size:1rem;border-bottom:1px solid rgba(255,255,255,0.06)}" +
+            "nav .links a:last-child{border-bottom:none}" +
+            "nav .links a::after{display:none}" +
+            ".hero{padding:52px 18px 44px}" +
+            ".hero h1{font-size:1.9rem;letter-spacing:-0.5px}" +
+            ".hero p{font-size:1rem;margin-bottom:24px;padding:0 6px}" +
+            ".hero .btn{display:block;margin:10px auto;max-width:260px;padding:12px 24px;-webkit-tap-highlight-color:transparent}" +
+            ".hero .tag{margin-bottom:14px}" +
+            "section{padding:36px 14px}" +
+            ".wrap{padding:0 14px}" +
+            "h2{font-size:1.5rem}h3{font-size:1.1rem}" +
+            ".grid{grid-template-columns:1fr;gap:14px}" +
+            ".card{padding:20px}" +
+            "pre{padding:14px;font-size:0.78rem;border-radius:8px;line-height:1.55}" +
+            ".stat .num{font-size:2rem}" +
+            ".stat .label{font-size:0.85rem}" +
+            "footer{padding:24px 14px;font-size:0.85rem}" +
+            "#topBtn{width:44px;height:44px;bottom:16px;right:16px;font-size:1.2rem}" +
+            ".floater.f1{width:200px;height:200px;right:-100px}" +
+            ".floater.f2{width:130px;height:130px}" +
+            ".floater.f3{width:110px;height:110px}" +
+            ".floater.f4{display:none}" +
+            "table{font-size:0.85rem}" +
+            "th,td{padding:10px 12px}"
+        ) +
+        kcssReducedMotion(
+            "*,*::before,*::after{animation-duration:0.001s!important;animation-iteration-count:1!important;transition-duration:0.001s!important}" +
+            "#heroCanvas{display:none}"
+        )
     )
 }
 
 func siteJS() {
     emit htScriptInline(
         "document.addEventListener('DOMContentLoaded',function(){" +
+        "var navT=document.querySelector('.nav-toggle');" +
+        "var navL=document.getElementById('navLinks');" +
+        "if(navT&&navL){" +
+            "navT.addEventListener('click',function(){" +
+                "var open=navL.classList.toggle('open');" +
+                "navT.setAttribute('aria-expanded',open);" +
+                "navT.innerHTML=open?'\\u00d7':'\\u2630';" +
+            "});" +
+            "navL.querySelectorAll('a').forEach(function(a){" +
+                "a.addEventListener('click',function(){" +
+                    "navL.classList.remove('open');" +
+                    "navT.setAttribute('aria-expanded','false');" +
+                    "navT.innerHTML='\\u2630';" +
+                "});" +
+            "});" +
+        "}" +
         "var stats=document.querySelectorAll('.stat .num');" +
         "stats.forEach(function(el){" +
         "var target=parseInt(el.getAttribute('data-n'));" +
@@ -124,7 +232,10 @@ func siteJS() {
         "var w,h,pts=[];" +
         "function resize(){w=c.width=c.parentElement.offsetWidth;h=c.height=c.parentElement.offsetHeight;}" +
         "resize();window.addEventListener('resize',resize);" +
-        "for(var i=0;i<60;i++){pts.push({x:Math.random()*w,y:Math.random()*h,vx:(Math.random()-0.5)*0.6,vy:(Math.random()-0.5)*0.6,r:Math.random()*2+1});}" +
+        "var isMobile=window.innerWidth<600;" +
+        "var pcount=isMobile?22:60;" +
+        "var pdist=isMobile?90:120;" +
+        "for(var i=0;i<pcount;i++){pts.push({x:Math.random()*w,y:Math.random()*h,vx:(Math.random()-0.5)*0.6,vy:(Math.random()-0.5)*0.6,r:Math.random()*2+1});}" +
         "function draw(){" +
         "ctx.clearRect(0,0,w,h);" +
         "for(var i=0;i<pts.length;i++){" +
@@ -136,8 +247,8 @@ func siteJS() {
         "ctx.fillStyle='rgba(255,255,255,0.5)';ctx.fill();" +
         "for(var j=i+1;j<pts.length;j++){" +
         "var q=pts[j];var dx=p.x-q.x;var dy=p.y-q.y;var d=Math.sqrt(dx*dx+dy*dy);" +
-        "if(d<120){ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(q.x,q.y);" +
-        "ctx.strokeStyle='rgba(255,255,255,'+(0.15*(1-d/120))+')';ctx.stroke();}" +
+        "if(d<pdist){ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(q.x,q.y);" +
+        "ctx.strokeStyle='rgba(255,255,255,'+(0.15*(1-d/pdist))+')';ctx.stroke();}" +
         "}}" +
         "requestAnimationFrame(draw);}" +
         "draw();}" +
@@ -153,22 +264,40 @@ func DOT() { emit "&middot;" }
 func siteNav(active) {
     emit "<nav><div class=" + DQ() + "wrap" + DQ() + ">" +
          "<a href=" + DQ() + "/" + DQ() + " class=" + DQ() + "logo" + DQ() + "><span>K</span>rypton</a>" +
-         "<div class=" + DQ() + "links" + DQ() + ">" +
+         "<button class=" + DQ() + "nav-toggle" + DQ() +
+             " aria-label=" + DQ() + "Toggle menu" + DQ() +
+             " aria-controls=" + DQ() + "navLinks" + DQ() +
+             " aria-expanded=" + DQ() + "false" + DQ() + ">" +
+             "&#9776;</button>" +
+         "<div class=" + DQ() + "links" + DQ() + " id=" + DQ() + "navLinks" + DQ() + ">" +
          htA("/", "Home") +
          htA("/about.html", "About") +
          htA("/features.html", "Features") +
          htA("/learn.html", "Learn") +
+         htA("/playground.html", "Playground") +
+         htA("/blog.html", "Blog") +
+         htA("/docs.html", "Docs") +
          htA("/programs.html", "Programs") +
+         htA("/kcode.html", "kcode") +
          htA("/downloads.html", "Downloads") +
          htA("/contact.html", "Contact") +
+         "<a href=" + DQ() + "/sponsor.html" + DQ() +
+             " class=" + DQ() + "nav-sponsor" + DQ() + ">&#10084; Sponsor</a>" +
          "</div></div></nav>"
 }
 
 func siteFooter() {
-    emit "<footer>Powered by <a href=" + DQ() + "https://www.kryptonbytes.com" + DQ() + ">KryptonBytes</a> | " +
-         "<a href=" + DQ() + "https://github.com/t3m3d/krypton" + DQ() + ">View on GitHub</a>" +
+    emit "<footer>" +
+         "<p style=" + DQ() + "margin-bottom:8px" + DQ() + ">" +
+         "Built and maintained by Brian. Support the project on " +
+         htA("/sponsor.html", "&#10084; GitHub Sponsors") +
+         " " + DASH() + " keeps Krypton shipping." +
+         "</p>" +
+         "Powered by <a href=" + DQ() + "https://www.kryptonbytes.com" + DQ() + ">KryptonBytes</a> | " +
+         "<a href=" + DQ() + "https://github.com/t3m3d/krypton" + DQ() + ">View on GitHub</a> | " +
+         htA("/sponsor.html", "Sponsor") +
          " | All rights reserved.</footer>" +
-         "<button id=" + DQ() + "topBtn" + DQ() + " onclick=" + DQ() + "window.scrollTo({top:0,behavior:'smooth'})" + DQ() + ">" + fromCharCode(8593) + "</button>"
+         "<button id=" + DQ() + "topBtn" + DQ() + " onclick=" + DQ() + "window.scrollTo({top:0,behavior:'smooth'})" + DQ() + ">&uarr;</button>"
 }
 
 func floaters() {
@@ -178,12 +307,40 @@ func floaters() {
          "<div class=" + DQ() + "floater f4" + DQ() + "></div>"
 }
 
+// Default OG/Twitter description used on every page. Overridable later
+// by adding a per-page metaDesc(title) lookup if SEO copy varies.
+func siteDesc() {
+    emit "Krypton is a self-hosted programming language with native ELF, PE, and Mach-O backends. No LLVM, no GCC. Includes a full web framework (htmk, kcss, ks) and a self-hosted compiler."
+}
+
 func sitePage(title, content) {
+    let fullTitle = "Krypton - " + title
     emit "<!-- Built with Krypton | krypton-lang.org -->" + fromCharCode(10) +
-        htPage("Krypton - " + title,
+        htPage(fullTitle,
         siteCSS() + htMetaViewport() +
+        htVoid("meta", htAttr("name", "description") + htAttr("content", siteDesc())) +
+        htVoid("meta", htAttr("name", "theme-color") + htAttr("content", "#5d16da")) +
+        htVoid("meta", htAttr("name", "apple-mobile-web-app-capable") + htAttr("content", "yes")) +
+        htVoid("meta", htAttr("name", "apple-mobile-web-app-status-bar-style") + htAttr("content", "black-translucent")) +
         htVoid("meta", htAttr("name", "generator") + htAttr("content", "Krypton 2.1.0")) +
-        htVoid("meta", htAttr("name", "author") + htAttr("content", "KryptonBytes")),
+        htVoid("meta", htAttr("name", "author") + htAttr("content", "KryptonBytes")) +
+        // Open Graph (Facebook, LinkedIn, Slack, Discord previews).
+        htVoid("meta", htAttr("property", "og:title")       + htAttr("content", fullTitle)) +
+        htVoid("meta", htAttr("property", "og:description") + htAttr("content", siteDesc())) +
+        htVoid("meta", htAttr("property", "og:type")        + htAttr("content", "website")) +
+        htVoid("meta", htAttr("property", "og:site_name")   + htAttr("content", "Krypton")) +
+        htVoid("meta", htAttr("property", "og:image")       + htAttr("content", "https://krypton-lang.org/og.svg")) +
+        htVoid("meta", htAttr("property", "og:url")         + htAttr("content", "https://krypton-lang.org/")) +
+        // Twitter / X cards.
+        htVoid("meta", htAttr("name", "twitter:card")        + htAttr("content", "summary_large_image")) +
+        htVoid("meta", htAttr("name", "twitter:title")       + htAttr("content", fullTitle)) +
+        htVoid("meta", htAttr("name", "twitter:description") + htAttr("content", siteDesc())) +
+        htVoid("meta", htAttr("name", "twitter:image")       + htAttr("content", "https://krypton-lang.org/og.svg")) +
+        // PWA + iOS home screen icon.
+        htVoid("link", htAttr("rel", "manifest") + htAttr("href", "/manifest.json")) +
+        htVoid("link", htAttr("rel", "icon") + htAttr("type", "image/svg+xml") + htAttr("href", "/icon.svg")) +
+        htVoid("link", htAttr("rel", "apple-touch-icon") + htAttr("href", "/icon.svg")) +
+        htVoid("link", htAttr("rel", "alternate") + htAttr("type", "application/atom+xml") + htAttr("title", "Krypton Dev Log") + htAttr("href", "/atom.xml")),
         floaters() + siteNav(title) + content + siteFooter() + siteJS()
     )
 }
@@ -205,13 +362,15 @@ func pageHome() {
         "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
         htH1("Krypton Programming Language") +
         htP("A self-hosting language that compiles to native code " + DASH() + " no C in the loop.") +
-        "<a href=" + DQ() + "https://github.com/t3m3d/krypton" + DQ() + " class=" + DQ() + "btn primary" + DQ() + ">Get Started</a>" +
+        "<a href=" + DQ() + "/playground.html" + DQ() + " class=" + DQ() + "btn primary" + DQ() + ">&#9654; Try in browser</a>" +
+        "<a href=" + DQ() + "https://github.com/t3m3d/krypton" + DQ() + " class=" + DQ() + "btn outline" + DQ() + ">Get Started</a>" +
         "<a href=" + DQ() + "/features.html" + DQ() + " class=" + DQ() + "btn outline" + DQ() + ">See Features</a>" +
         "</div>"
 
     let intro = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
         htH2("Krypton in 30 Seconds") +
         "<pre><code id=" + DQ() + "typeCode" + DQ() + " class=" + DQ() + "type-cursor" + DQ() + "></code></pre>" +
+        htP(htEm("Want to edit + run live? Open the " + htA("/playground.html", "playground") + " or pick any " + htA("/learn.html", "lesson") + " " + DASH() + " each has a Run button.")) +
         "</div></section>"
 
     let diff = "<section style=" + DQ() + "background:#f4f0ff" + DQ() + " class=" + DQ() + "dotbg" + DQ() + "><div class=" + DQ() + "wrap" + DQ() + ">" +
@@ -362,6 +521,499 @@ func pageContact() {
     emit sitePage("Contact", content)
 }
 
+// ── Playground page ──────────────────────────────────────────────────
+// Standalone editor + Run button. No lesson context; visitor can write
+// arbitrary Krypton in the subset the runner supports.
+
+func pagePlayground() {
+    let starterCode =
+        "// Welcome to the Krypton playground." + NL() +
+        "// Edit the code below and hit Run." + NL() +
+        "" + NL() +
+        "func fib(n) {" + NL() +
+        "    if n <= 1 { emit n }" + NL() +
+        "    emit fib(n - 1) + fib(n - 2)" + NL() +
+        "}" + NL() +
+        "" + NL() +
+        "just run {" + NL() +
+        "    let i = 0" + NL() +
+        "    while i < 10 {" + NL() +
+        "        kp(\"fib(\" + i + \") = \" + fib(i))" + NL() +
+        "        i = i + 1" + NL() +
+        "    }" + NL() +
+        "}" + NL()
+
+    let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
+        "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
+        "<span class=" + DQ() + "tag" + DQ() + ">Live in your browser</span>" +
+        htH1("Krypton Playground") +
+        htP("Write Krypton, hit Run, see output " + DASH() +
+            " no install, no signup. The full lang subset that runs in-browser today.") +
+        "</div>"
+
+    let body = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
+        htP(htEm("Tip: edit the code below. Drop in your own functions, try the stdlib helpers (kp, len, listNew, mapNew, htmk, kcss). Lessons covering match/struct/try, file I/O, HTTP, JSON need the real local kcc " + DASH() + " try " + htCode("kcc -r yourfile.k") + ".")) +
+        "<pre><code class=" + DQ() + "k" + DQ() +
+            " contenteditable=" + DQ() + "true" + DQ() +
+            " spellcheck=" + DQ() + "false" + DQ() + ">" + hlCode(starterCode) + "</code></pre>" +
+        "<button class=" + DQ() + "run-btn" + DQ() +
+            " onclick=" + DQ() + "runK(this)" + DQ() + ">&#9654; Run</button>" +
+        "<pre class=" + DQ() + "run-out" + DQ() + ">Click &#9654; Run to execute.</pre>" +
+        htP("Want guided lessons instead? Start at " + htA("/learn.html", "Learn Krypton") + ".") +
+        "</div></section>" +
+        "<script src=" + DQ() + "/runner.js?v=4" + DQ() + "></script>"
+
+    emit sitePage("Playground", hero + body)
+}
+
+// ── Blog ─────────────────────────────────────────────────────────────
+// Minimal markdown subset → HTML. Handles headers (# / ## / ###),
+// fenced code blocks (```), paragraphs (blank-line separated), inline
+// code (`x`), bold (**x**), and links ([t](u)). No image, list, blockquote,
+// or table support yet — add when first post needs it.
+
+func _mdEscape(s) {
+    let out = sbNew()
+    let i = 0
+    while i < len(s) {
+        let c = s[i]
+        if c == "<" { out = sbAppend(out, "&lt;") }
+        else if c == ">" { out = sbAppend(out, "&gt;") }
+        else if c == "&" { out = sbAppend(out, "&amp;") }
+        else { out = sbAppend(out, c) }
+        i += 1
+    }
+    emit sbToString(out)
+}
+
+// Inline pass: backtick code, bold, links. Plain text otherwise.
+func _mdInline(s) {
+    let out = sbNew()
+    let i = 0
+    let n = len(s)
+    while i < n {
+        let c = s[i]
+        if c == "`" {
+            let j = i + 1
+            let buf = sbNew()
+            while j < n && s[j] != "`" {
+                buf = sbAppend(buf, s[j])
+                j += 1
+            }
+            out = sbAppend(out, "<code>" + _mdEscape(sbToString(buf)) + "</code>")
+            i = j + 1
+        } else if c == "*" && i + 1 < n && s[i + 1] == "*" {
+            let j = i + 2
+            let buf = sbNew()
+            while j + 1 < n && !(s[j] == "*" && s[j + 1] == "*") {
+                buf = sbAppend(buf, s[j])
+                j += 1
+            }
+            out = sbAppend(out, "<strong>" + sbToString(buf) + "</strong>")
+            i = j + 2
+        } else if c == "[" {
+            let j = i + 1
+            let txt = sbNew()
+            while j < n && s[j] != "]" { txt = sbAppend(txt, s[j]); j += 1 }
+            if j < n && j + 1 < n && s[j + 1] == "(" {
+                let k = j + 2
+                let url = sbNew()
+                while k < n && s[k] != ")" { url = sbAppend(url, s[k]); k += 1 }
+                out = sbAppend(out, "<a href=" + DQ() + sbToString(url) + DQ() + ">" + sbToString(txt) + "</a>")
+                i = k + 1
+            } else {
+                out = sbAppend(out, c)
+                i += 1
+            }
+        } else if c == "<" {
+            out = sbAppend(out, "&lt;"); i += 1
+        } else if c == ">" {
+            out = sbAppend(out, "&gt;"); i += 1
+        } else {
+            out = sbAppend(out, c)
+            i += 1
+        }
+    }
+    emit sbToString(out)
+}
+
+func mdToHtml(src) {
+    let out = sbNew()
+    let n = lineCount(src)
+    let i = 0
+    let inCode = 0
+    let inPara = 0
+    let codeBuf = sbNew()
+    let paraBuf = sbNew()
+    while i < n {
+        let line = getLine(src, i)
+        if inCode == 1 {
+            if len(line) >= 3 && substring(line, 0, 3) == "```" {
+                out = sbAppend(out, "<pre><code>" + sbToString(codeBuf) + "</code></pre>")
+                codeBuf = sbNew()
+                inCode = 0
+            } else {
+                codeBuf = sbAppend(codeBuf, _mdEscape(line) + fromCharCode(10))
+            }
+            i += 1
+        } else if len(line) >= 3 && substring(line, 0, 3) == "```" {
+            if inPara == 1 {
+                out = sbAppend(out, "<p>" + _mdInline(sbToString(paraBuf)) + "</p>")
+                paraBuf = sbNew()
+                inPara = 0
+            }
+            inCode = 1
+            i += 1
+        } else if len(line) >= 4 && substring(line, 0, 4) == "### " {
+            if inPara == 1 { out = sbAppend(out, "<p>" + _mdInline(sbToString(paraBuf)) + "</p>"); paraBuf = sbNew(); inPara = 0 }
+            out = sbAppend(out, htH3(_mdInline(substring(line, 4, len(line)))))
+            i += 1
+        } else if len(line) >= 3 && substring(line, 0, 3) == "## " {
+            if inPara == 1 { out = sbAppend(out, "<p>" + _mdInline(sbToString(paraBuf)) + "</p>"); paraBuf = sbNew(); inPara = 0 }
+            out = sbAppend(out, htH2(_mdInline(substring(line, 3, len(line)))))
+            i += 1
+        } else if len(line) >= 2 && substring(line, 0, 2) == "# " {
+            if inPara == 1 { out = sbAppend(out, "<p>" + _mdInline(sbToString(paraBuf)) + "</p>"); paraBuf = sbNew(); inPara = 0 }
+            out = sbAppend(out, htH1(_mdInline(substring(line, 2, len(line)))))
+            i += 1
+        } else if len(line) == 0 {
+            if inPara == 1 {
+                out = sbAppend(out, "<p>" + _mdInline(sbToString(paraBuf)) + "</p>")
+                paraBuf = sbNew()
+                inPara = 0
+            }
+            i += 1
+        } else if len(line) >= 4 && substring(line, 0, 4) == "--- " {
+            if inPara == 1 { out = sbAppend(out, "<p>" + _mdInline(sbToString(paraBuf)) + "</p>"); paraBuf = sbNew(); inPara = 0 }
+            out = sbAppend(out, "<hr>")
+            i += 1
+        } else if len(line) == 3 && line == "---" {
+            if inPara == 1 { out = sbAppend(out, "<p>" + _mdInline(sbToString(paraBuf)) + "</p>"); paraBuf = sbNew(); inPara = 0 }
+            out = sbAppend(out, "<hr>")
+            i += 1
+        } else {
+            if inPara == 1 {
+                paraBuf = sbAppend(paraBuf, " " + line)
+            } else {
+                paraBuf = sbAppend(paraBuf, line)
+                inPara = 1
+            }
+            i += 1
+        }
+    }
+    if inPara == 1 {
+        out = sbAppend(out, "<p>" + _mdInline(sbToString(paraBuf)) + "</p>")
+    }
+    if inCode == 1 {
+        out = sbAppend(out, "<pre><code>" + sbToString(codeBuf) + "</code></pre>")
+    }
+    emit sbToString(out)
+}
+
+// Blog post registry. Add new posts here (slug, date, title, md path).
+// Newest first.
+func blogPosts() {
+    emit "2026-06-01-elf-from-scratch|2026-06-01|Linux x86_64: writing your own ELF (no linker, no libc)|../../docs/blog/2026-06-01-elf-from-scratch.md" + NL() +
+         "2026-05-30-launch-week|2026-05-30|Launch week: kcss, the lesson runner, and a 95-byte WASM proof|../../docs/blog/2026-05-30-launch-week.md"
+}
+
+func _splitPipe(line, idx) {
+    let parts = sbNew()
+    let count = 0
+    let i = 0
+    let n = len(line)
+    let buf = sbNew()
+    while i < n {
+        if line[i] == "|" {
+            if count == idx { emit sbToString(buf) }
+            buf = sbNew()
+            count += 1
+        } else {
+            buf = sbAppend(buf, line[i])
+        }
+        i += 1
+    }
+    if count == idx { emit sbToString(buf) }
+    emit ""
+}
+
+func _postSlug(line)  { emit _splitPipe(line, 0) }
+func _postDate(line)  { emit _splitPipe(line, 1) }
+func _postTitle(line) { emit _splitPipe(line, 2) }
+func _postPath(line)  { emit _splitPipe(line, 3) }
+
+func _blogIndexCard(line) {
+    let slug = _postSlug(line)
+    let date = _postDate(line)
+    let title = _postTitle(line)
+    emit "<a class=" + DQ() + "card" + DQ() + " href=" + DQ() + "/blog/" + slug + ".html" + DQ() + ">" +
+         "<span class=" + DQ() + "tag" + DQ() + ">" + date + "</span>" +
+         htH3(title) +
+         "</a>"
+}
+
+func pageBlog() {
+    let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
+        "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
+        "<span class=" + DQ() + "tag" + DQ() + ">Dev log</span>" +
+        htH1("Krypton Blog") +
+        htP("What's shipping this week. Design notes, postmortems, occasional rants.") +
+        "</div>"
+
+    let body = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
+        "<div class=" + DQ() + "grid" + DQ() + ">" +
+        htEach(blogPosts(), funcptr(_blogIndexCard)) +
+        "</div>" +
+        "</div></section>"
+
+    emit sitePage("Blog", hero + body)
+}
+
+func pageBlogPost(line) {
+    let slug = _postSlug(line)
+    let date = _postDate(line)
+    let title = _postTitle(line)
+    let path = _postPath(line)
+    let src = readFile(path)
+    let bodyHtml = mdToHtml(src)
+
+    let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
+        "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
+        "<span class=" + DQ() + "tag" + DQ() + ">" + date + "</span>" +
+        htH1(title) +
+        htP("Dev log " + DASH() + " " + htA("/blog.html", "back to all posts")) +
+        "</div>"
+
+    let body = "<section><div class=" + DQ() + "wrap" + DQ() + " style=" + DQ() + "max-width:780px" + DQ() + ">" +
+        bodyHtml +
+        htP(htEm(htA("/blog.html", "&larr; All posts"))) +
+        "</div></section>"
+
+    emit sitePage(title, hero + body)
+}
+
+// ── Docs index (renders selected docs/*.md in-site) ──────────────────
+
+func siteDocs() {
+    emit "kcss-design|kcss DSL|Krypton CSS DSL — the missing third leg of the framework. Mirrors htmk and ks. Theme primitives, breakpoints, keyframes.|../../docs/kcss_design.md" + NL() +
+         "wasm-backend|WASM backend|kcc --wasm design + Phase 0 finding. WebAssembly as a first-class native target alongside ELF / PE / Mach-O.|../../docs/wasm_backend_design.md" + NL() +
+         "course-outline|Book outline|12-chapter outline for the self-hosting compiler book. Free sample chapter (ELF) on the blog.|../../docs/course_outline.md"
+}
+
+func _docsIndexCard(line) {
+    let slug = _splitPipe(line, 0)
+    let title = _splitPipe(line, 1)
+    let desc = _splitPipe(line, 2)
+    emit "<a class=" + DQ() + "card" + DQ() + " href=" + DQ() + "/docs/" + slug + ".html" + DQ() + ">" +
+         htH3(title) +
+         htP(desc) +
+         "</a>"
+}
+
+func pageDocsIndex() {
+    let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
+        "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
+        "<span class=" + DQ() + "tag" + DQ() + ">Design notes</span>" +
+        htH1("Docs") +
+        htP("Design docs for each major piece of Krypton. Source of truth for what's shipping, what's in design, and why.") +
+        "</div>"
+
+    let body = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
+        "<div class=" + DQ() + "grid" + DQ() + ">" +
+        htEach(siteDocs(), funcptr(_docsIndexCard)) +
+        "</div>" +
+        "</div></section>"
+
+    emit sitePage("Docs", hero + body)
+}
+
+func pageDocsPost(line) {
+    let slug = _splitPipe(line, 0)
+    let title = _splitPipe(line, 1)
+    let path = _splitPipe(line, 3)
+    let src = readFile(path)
+    let bodyHtml = mdToHtml(src)
+
+    let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
+        "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
+        "<span class=" + DQ() + "tag" + DQ() + ">Design</span>" +
+        htH1(title) +
+        htP(htA("/docs.html", "&larr; All docs")) +
+        "</div>"
+
+    let body = "<section><div class=" + DQ() + "wrap" + DQ() + " style=" + DQ() + "max-width:780px" + DQ() + ">" +
+        bodyHtml +
+        htP(htEm(htA("/docs.html", "&larr; All docs"))) +
+        "</div></section>"
+
+    emit sitePage(title, hero + body)
+}
+
+// ── Sitemap + robots ─────────────────────────────────────────────────
+
+func _sitemapUrl(loc) {
+    emit "  <url><loc>https://krypton-lang.org" + loc + "</loc></url>" + NL()
+}
+
+func _sitemapLesson(file) {
+    emit _sitemapUrl("/learn/" + file + ".html")
+}
+
+func _sitemapPost(line) {
+    emit _sitemapUrl("/blog/" + _postSlug(line) + ".html")
+}
+
+func buildSitemap() {
+    let head = "<?xml version=" + DQ() + "1.0" + DQ() + " encoding=" + DQ() + "UTF-8" + DQ() + "?>" + NL() +
+               "<urlset xmlns=" + DQ() + "http://www.sitemaps.org/schemas/sitemap/0.9" + DQ() + ">" + NL()
+    let topPages =
+        _sitemapUrl("/") +
+        _sitemapUrl("/about.html") +
+        _sitemapUrl("/features.html") +
+        _sitemapUrl("/learn.html") +
+        _sitemapUrl("/playground.html") +
+        _sitemapUrl("/blog.html") +
+        _sitemapUrl("/programs.html") +
+        _sitemapUrl("/kcode.html") +
+        _sitemapUrl("/downloads.html") +
+        _sitemapUrl("/contact.html") +
+        _sitemapUrl("/sponsor.html")
+    let lessons = htEach(lessonFiles(), funcptr(_sitemapLesson))
+    let posts = htEach(blogPosts(), funcptr(_sitemapPost))
+    let tail = "</urlset>" + NL()
+    emit head + topPages + lessons + posts + tail
+}
+
+func buildRobots() {
+    emit "User-agent: *" + NL() +
+         "Allow: /" + NL() +
+         "Sitemap: https://krypton-lang.org/sitemap.xml" + NL()
+}
+
+func _feedEntry(line) {
+    let slug = _postSlug(line)
+    let date = _postDate(line)
+    let title = _postTitle(line)
+    emit "  <entry>" + NL() +
+         "    <title>" + title + "</title>" + NL() +
+         "    <link href=" + DQ() + "https://krypton-lang.org/blog/" + slug + ".html" + DQ() + "/>" + NL() +
+         "    <id>https://krypton-lang.org/blog/" + slug + ".html</id>" + NL() +
+         "    <updated>" + date + "T00:00:00Z</updated>" + NL() +
+         "    <summary>" + title + "</summary>" + NL() +
+         "  </entry>" + NL()
+}
+
+func buildAtomFeed() {
+    let posts = blogPosts()
+    let latest = getLine(posts, 0)
+    let latestDate = _postDate(latest)
+    emit "<?xml version=" + DQ() + "1.0" + DQ() + " encoding=" + DQ() + "utf-8" + DQ() + "?>" + NL() +
+         "<feed xmlns=" + DQ() + "http://www.w3.org/2005/Atom" + DQ() + ">" + NL() +
+         "  <title>Krypton Dev Log</title>" + NL() +
+         "  <link href=" + DQ() + "https://krypton-lang.org/atom.xml" + DQ() + " rel=" + DQ() + "self" + DQ() + "/>" + NL() +
+         "  <link href=" + DQ() + "https://krypton-lang.org/blog.html" + DQ() + "/>" + NL() +
+         "  <updated>" + latestDate + "T00:00:00Z</updated>" + NL() +
+         "  <id>https://krypton-lang.org/atom.xml</id>" + NL() +
+         "  <author><name>Brian</name><email>brian@krypton-lang.org</email></author>" + NL() +
+         htEach(posts, funcptr(_feedEntry)) +
+         "</feed>" + NL()
+}
+
+// ── Sponsor page ─────────────────────────────────────────────────────
+
+func pageSponsor() {
+    let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
+        "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
+        "<span class=" + DQ() + "tag" + DQ() + ">Open source</span>" +
+        htH1("Sponsor Krypton") +
+        htP("Krypton is built by one person (hi, I'm Brian). Sponsorship keeps it shipping, keeps it free, and funds the long-arc pieces " + DASH() + " WASM backend, course material, hosting.") +
+        "<a href=" + DQ() + "https://github.com/sponsors/t3m3d" + DQ() +
+            " target=" + DQ() + "_blank" + DQ() + " rel=" + DQ() + "noopener" + DQ() +
+            " class=" + DQ() + "btn primary" + DQ() + ">&#10084; Sponsor on GitHub</a>" +
+        "</div>"
+
+    let what = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
+        htH2("What sponsorship funds") +
+        "<div class=" + DQ() + "grid" + DQ() + ">" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("WASM backend") + htP("kcc --wasm: Krypton compiles to WebAssembly so .k programs run in the browser, on Cloudflare Workers, in wasmtime. The most-requested feature; weeks of work.") + "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Hosting + infra") + htP("krypton-lang.org, the FTP/SSL renewals, the Homebrew taps, the WinSetup signing certs. Real recurring cost.") + "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Lesson runner v2") + htP("Replacing the JS bridge with a real WASM-backed runtime so the in-browser \"Run\" button runs actual Krypton.") + "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Stdlib expansion") + htP("SSE for live updates. Session middleware. multipart/form-data parsing. Real datetime arithmetic.") + "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Documentation") + htP("Per-builtin reference docs, a published spec PDF, design notes for every stdlib module.") + "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Course writing time") + htP("\"Building a Self-Hosting Compiler\" book: 12 chapters, 250 pages. Sponsorship buys writing hours.") + "</div>" +
+        "</div>" +
+        "</div></section>"
+
+    let tiers = "<section class=" + DQ() + "dotbg" + DQ() + "><div class=" + DQ() + "wrap" + DQ() + ">" +
+        htH2("Tiers") +
+        "<div class=" + DQ() + "grid" + DQ() + ">" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("$5/mo") + htP("Backer. Your name in the AUTHORS file and on this page (opt-in).") + "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("$10/mo") + htP("Supporter. Backer perks + a private \"build log\" feed with what I'm working on this week.") + "</div>" +
+        "<div class=" + DQ() + "card tier-recommended" + DQ() + "><span class=" + DQ() + "tier-badge" + DQ() + ">Recommended</span>" + htH3("$25/mo") + htP("Patron. Supporter perks + early access to the course chapters as they're written.") + "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("$100/mo") + htP("Sponsor. Patron perks + your company logo on the homepage and in the README. 30-min monthly office hours.") + "</div>" +
+        "</div>" +
+        htP(htEm("All tiers cancellable any time. One-time tips also welcome on the same page.")) +
+        "</div></section>"
+
+    let cta = "<section><div class=" + DQ() + "wrap" + DQ() + " style=" + DQ() + "text-align:center" + DQ() + ">" +
+        "<a href=" + DQ() + "https://github.com/sponsors/t3m3d" + DQ() +
+            " target=" + DQ() + "_blank" + DQ() + " rel=" + DQ() + "noopener" + DQ() +
+            " class=" + DQ() + "btn primary" + DQ() +
+            " style=" + DQ() + "background:linear-gradient(135deg,#ff5277,#d9326a);color:#fff;padding:14px 32px" + DQ() +
+            ">&#10084; Sponsor on GitHub</a>" +
+        "</div></section>"
+
+    emit sitePage("Sponsor", hero + what + tiers + cta)
+}
+
+// ── kcode landing page ───────────────────────────────────────────────
+// Paid Krypton-aware terminal IDE. The Buy button URL is set via
+// kcodeBuyUrl(); replace the placeholder string once Gumroad / Stripe
+// product is enrolled. Until then the link target is a stub anchor
+// (#purchase-coming-soon) so clicking it is harmless.
+
+func kcodeBuyUrl() {
+    // TODO: replace with Gumroad / Stripe Payment Link URL once enrolled.
+    emit "#purchase-coming-soon"
+}
+
+func kcodePrice() { emit "$29" }
+
+func pageKcode() {
+    let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
+        "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
+        "<span class=" + DQ() + "tag" + DQ() + ">macOS arm64</span>" +
+        htH1("kcode") +
+        htP("A terminal-native IDE for Krypton " + DASH() +
+            " syntax highlighting, jump-to-definition, integrated kcc, " +
+            "and a project explorer that understands stdlib imports.") +
+        "<a href=" + DQ() + kcodeBuyUrl() + DQ() + " class=" + DQ() + "btn primary" + DQ() + ">Buy " + kcodePrice() + "</a>" +
+        "<a href=" + DQ() + "https://github.com/t3m3d/krypton" + DQ() + " class=" + DQ() + "btn outline" + DQ() + ">View Source</a>" +
+        "</div>"
+
+    let features = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
+        htH2("Built for Krypton, in Krypton") +
+        htP("kcode is written end-to-end in Krypton. The editor, the syntax engine, the file tree, and the kcc invocation pipeline are all .k source. Nothing else underneath.") +
+        "<div class=" + DQ() + "grid" + DQ() + ">" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Syntax-aware editing") + htP("Highlighting tuned to Krypton: keywords, builtins, stdlib calls, comments, strings, numbers. No Treesitter, no LSP overhead.") + "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Integrated kcc") + htP("F5 builds the current file. Errors land in a panel with file:line jumps. Output streams live.") + "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Stdlib-aware imports") + htP("Type-as-you-go autocomplete for k: imports — htmk, kcss, ks, server, router, fs, http, all 36 modules.") + "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Project explorer") + htP("Tree-view of your project root, jump to file with fuzzy search, in-buffer find-across-files.") + "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Tiny binary") + htP("Single Mach-O, ad-hoc signed, runs on Tahoe arm64 with no dependencies. Starts in under 50ms.") + "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Future-proof") + htP("Lifetime updates for kcode 1.x. Same install handles 2.0+, 2.1+, and the upcoming WASM target.") + "</div>" +
+        "</div>" +
+        "</div></section>"
+
+    let buy = "<section class=" + DQ() + "dotbg" + DQ() + "><div class=" + DQ() + "wrap" + DQ() + " style=" + DQ() + "text-align:center" + DQ() + ">" +
+        htH2("Get kcode") +
+        htP("One-time purchase, " + kcodePrice() + ". Includes the kcode 1.x line. macOS arm64 only at v1; Linux x86_64 next.") +
+        "<a href=" + DQ() + kcodeBuyUrl() + DQ() + " class=" + DQ() + "btn primary" + DQ() + " style=" + DQ() + "background:linear-gradient(135deg,#7722ff,#5d16da);color:#fff;padding:14px 32px" + DQ() + ">Buy " + kcodePrice() + "</a>" +
+        htP(htEm("Or " + htA("https://github.com/sponsors/t3m3d", "sponsor on GitHub") + " for kcode + early access to new features.")) +
+        "</div></section>"
+
+    emit sitePage("kcode", hero + features + buy)
+}
+
 // ── Learn / Tutorials ────────────────────────────────────────────────
 
 func _esc(c) {
@@ -452,7 +1104,8 @@ func lessonFiles() {
          "21_structs" + NL() + "22_try_catch" + NL() + "23_for_in" + NL() +
          "24_string_interpolation" + NL() + "25_match" + NL() + "26_booleans" + NL() +
          "27_imports" + NL() + "28_maps" + NL() + "29_closures" + NL() +
-         "30_json" + NL() + "31_http_client"
+         "30_json" + NL() + "31_http_client" + NL() +
+         "32_html_with_htmk" + NL() + "33_styling_with_kcss"
 }
 
 func _lessonSrc(file) {
@@ -470,34 +1123,32 @@ func _lessonNum(file) {
     emit substring(file, 0, 2)
 }
 
+// _lessonCard: build one lesson card for the Learn index grid.
+// Used by pageLearnIndex via htEach over the lessonFiles() list.
+func _lessonCard(file) {
+    let title = _lessonTitle(_lessonSrc(file))
+    emit "<a class=" + DQ() + "card" + DQ() + " href=" + DQ() + "/learn/" + file + ".html" + DQ() + ">" +
+         "<span class=" + DQ() + "tag" + DQ() + ">Lesson " + _lessonNum(file) + "</span>" +
+         htH3(title) +
+         "</a>"
+}
+
 func pageLearnIndex() {
     let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
+        "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
         htH1("Learn Krypton") +
         htP("A hands-on tour of the language, one short lesson at a time " + DASH() +
             " from " + DQ() + "Hello, World" + DQ() + " to JSON and HTTP.") +
         "</div>"
 
-    let cards = sbNew()
     let files = lessonFiles()
     let cnt = lineCount(files)
-    let i = 0
-    while i < cnt {
-        let file = getLine(files, i)
-        if len(file) > 0 {
-            let title = _lessonTitle(_lessonSrc(file))
-            cards = sbAppend(cards,
-                "<a class=" + DQ() + "card" + DQ() + " href=" + DQ() + "/learn/" + file + ".html" + DQ() + ">" +
-                "<span class=" + DQ() + "tag" + DQ() + ">Lesson " + _lessonNum(file) + "</span>" +
-                htH3(title) +
-                "</a>")
-        }
-        i += 1
-    }
+    let cards = htEach(files, funcptr(_lessonCard))
 
     let body = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
         htH2("Core Language Track") +
         htP("" + cnt + " lessons. Each is a complete, runnable program.") +
-        "<div class=" + DQ() + "grid" + DQ() + ">" + sbToString(cards) + "</div>" +
+        "<div class=" + DQ() + "grid" + DQ() + ">" + cards + "</div>" +
         "</div></section>"
 
     emit sitePage("Learn", hero + body)
@@ -533,12 +1184,12 @@ func pageLesson(file, prevFile, nextFile) {
     let outRaw = readFile("lesson_out/" + file + ".txt")
 
     let nav = sbNew()
-    nav = sbAppend(nav, htA("/learn.html", fromCharCode(8592) + " All lessons"))
+    nav = sbAppend(nav, htA("/learn.html", "&larr; All lessons"))
     if len(prevFile) > 0 {
         nav = sbAppend(nav, " &nbsp; " + htA("/learn/" + prevFile + ".html", "Prev"))
     }
     if len(nextFile) > 0 {
-        nav = sbAppend(nav, " &nbsp; " + htA("/learn/" + nextFile + ".html", "Next " + fromCharCode(8594)))
+        nav = sbAppend(nav, " &nbsp; " + htA("/learn/" + nextFile + ".html", "Next &rarr;"))
     }
     let navStr = sbToString(nav)
 
@@ -551,20 +1202,30 @@ func pageLesson(file, prevFile, nextFile) {
             "<pre><code>" + htEscape(outRaw) + "</code></pre>"
     }
 
-    let body = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
+    let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
+        "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
         "<span class=" + DQ() + "tag" + DQ() + ">Lesson " + _lessonNum(file) + "</span>" +
         htH1(title) +
         introBlock +
+        "</div>"
+
+    let body = hero +
+        "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
         htP(navStr) +
         "<pre><code class=" + DQ() + "k" + DQ() +
             " contenteditable=" + DQ() + "true" + DQ() +
             " spellcheck=" + DQ() + "false" + DQ() + ">" + hlCode(src) + "</code></pre>" +
+        "<button class=" + DQ() + "run-btn" + DQ() +
+            " onclick=" + DQ() + "runK(this)" + DQ() + ">&#9654; Run</button>" +
+        "<pre class=" + DQ() + "run-out" + DQ() + ">Click &#9654; Run to execute. " +
+            "Lessons using k:fs/k:http/match/struct need the real runtime.</pre>" +
         htP(htEm("Tip: this code box is editable " + DASH() +
-            " tweak it, then copy into a .k file and run it.")) +
+            " tweak it, then hit Run, or copy into a .k file and run locally.")) +
         outputBlock +
-        htP("Run it: " + htCode("kcc -r tutorial/" + file + ".k")) +
+        htP("Run it locally: " + htCode("kcc -r tutorial/" + file + ".k")) +
         htP(navStr) +
-        "</div></section>"
+        "</div></section>" +
+        "<script src=" + DQ() + "/runner.js?v=4" + DQ() + "></script>"
 
     emit sitePage(title, body)
 }
@@ -585,6 +1246,37 @@ just run {
     writePage(dist + "/programs.html", pagePrograms())
     writePage(dist + "/downloads.html", pageDownloads())
     writePage(dist + "/contact.html", pageContact())
+    writePage(dist + "/kcode.html", pageKcode())
+    writePage(dist + "/sponsor.html", pageSponsor())
+    writePage(dist + "/playground.html", pagePlayground())
+    writePage(dist + "/blog.html", pageBlog())
+    shellRun("mkdir dist" + fromCharCode(47) + "blog")
+    let posts = blogPosts()
+    let postCnt = lineCount(posts)
+    let pi = 0
+    while pi < postCnt {
+        let post = getLine(posts, pi)
+        if len(post) > 0 {
+            writePage(dist + "/blog/" + _postSlug(post) + ".html", pageBlogPost(post))
+        }
+        pi += 1
+    }
+    writePage(dist + "/sitemap.xml", buildSitemap())
+    writePage(dist + "/robots.txt", buildRobots())
+    writePage(dist + "/atom.xml", buildAtomFeed())
+
+    writePage(dist + "/docs.html", pageDocsIndex())
+    shellRun("mkdir dist" + fromCharCode(47) + "docs")
+    let docs = siteDocs()
+    let docsCnt = lineCount(docs)
+    let di = 0
+    while di < docsCnt {
+        let doc = getLine(docs, di)
+        if len(doc) > 0 {
+            writePage(dist + "/docs/" + _splitPipe(doc, 0) + ".html", pageDocsPost(doc))
+        }
+        di += 1
+    }
 
     // Learn section: index + one page per tutorial lesson.
     // cmd.exe mkdir (backslash path; creates intermediates, errors harmlessly

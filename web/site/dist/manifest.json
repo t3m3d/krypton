@@ -1,0 +1,17 @@
+{
+  "name": "Krypton Programming Language",
+  "short_name": "Krypton",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#5d16da",
+  "description": "Self-hosted programming language with native ELF, PE, Mach-O, and WASM backends.",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
