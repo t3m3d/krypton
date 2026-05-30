@@ -5337,7 +5337,7 @@ just run {
     let argIdx = 0
 
     if file == "--version" || file == "-v" {
-        printErr("kcc version " + kccVer)
+        printErr("kcc version " + kccVer + "\n")
         emit 0
     }
 
