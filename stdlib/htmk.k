@@ -218,3 +218,107 @@ func htPage(title, headExtra, body) {
          "</body>" + NL +
          "</html>"
 }
+
+// htWhen: emit html if cond is truthy, else empty string.
+func htWhen(cond, html) {
+    if cond {
+        emit html
+    }
+    emit ""
+}
+
+// htUnless: emit html if cond is falsy.
+func htUnless(cond, html) {
+    if cond {
+        emit ""
+    }
+    emit html
+}
+
+// htEither: emit ifTrue when cond truthy, else ifFalse.
+func htEither(cond, ifTrue, ifFalse) {
+    if cond {
+        emit ifTrue
+    }
+    emit ifFalse
+}
+
+// htEach: map each item in newline-list through fn, concat results.
+// fn is a funcptr — call via callPtr per Krypton's calling convention.
+func htEach(list, f) {
+    let out = sbNew()
+    let n = lineCount(list)
+    let i = 0
+    while i < n {
+        let item = getLine(list, i)
+        if len(item) > 0 {
+            out = sbAppend(out, callPtr(f, item))
+        }
+        i = i + 1
+    }
+    emit sbToString(out)
+}
+
+// htEachI: like htEach, but fn receives (item, index).
+func htEachI(list, f) {
+    let out = sbNew()
+    let n = lineCount(list)
+    let i = 0
+    while i < n {
+        let item = getLine(list, i)
+        if len(item) > 0 {
+            out = sbAppend(out, callPtr(f, item, i))
+        }
+        i = i + 1
+    }
+    emit sbToString(out)
+}
+
+// htJoin: concat every non-empty line of a newline-list.
+func htJoin(list) {
+    let out = sbNew()
+    let n = lineCount(list)
+    let i = 0
+    while i < n {
+        let item = getLine(list, i)
+        if len(item) > 0 {
+            out = sbAppend(out, item)
+        }
+        i = i + 1
+    }
+    emit sbToString(out)
+}
+
+// htJoinSep: like htJoin, but inserts sep between items.
+func htJoinSep(list, sep) {
+    let out = sbNew()
+    let n = lineCount(list)
+    let i = 0
+    let first = 1
+    while i < n {
+        let item = getLine(list, i)
+        if len(item) > 0 {
+            if first == 0 { out = sbAppend(out, sep) }
+            out = sbAppend(out, item)
+            first = 0
+        }
+        i = i + 1
+    }
+    emit sbToString(out)
+}
+
+// htWrap: wrap each item in a newline-list with before/after, concat.
+// Closure-free shortcut for the common <li>X</li> case.
+func htWrap(list, before, after) {
+    let out = sbNew()
+    let n = lineCount(list)
+    let i = 0
+    while i < n {
+        let item = getLine(list, i)
+        if len(item) > 0 {
+            out = sbAppend(out, before + item + after)
+        }
+        i = i + 1
+    }
+    emit sbToString(out)
+}
