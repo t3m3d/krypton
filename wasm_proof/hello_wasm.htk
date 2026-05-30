@@ -1,0 +1,148 @@
+// hello_wasm.htk
+// Phase 0 of docs/wasm_backend_design.md — hand-emit a hello.wasm from
+// pure Krypton. Validates the binary-format design strategy before
+// kcc --wasm is built.
+//
+// Strategy: build a hex-encoded byte sequence (xHH per byte), then
+// writeBytes() to file. This is the same pattern elf.k and
+// macho_arm64_self.k use to emit binary with embedded \0 bytes —
+// concat-via-fromCharCode loses nulls because of C-string semantics.
+//
+// Build & run:
+//   kcc --c hello_wasm.htk > /tmp/hw.c && clang /tmp/hw.c -o /tmp/hw -w
+//   /tmp/hw                     # writes /tmp/hello.wasm
+//   xxd /tmp/hello.wasm | head
+//
+// Validate the module:
+//   In a browser console / Node / wasmtime — see FINDING.md for the
+//   JS snippet that loads the module and prints "Hello".
+
+// hexByte: encode a 0-255 integer as "xHH" so writeBytes() emits the
+// real byte. Mirrors compiler/linux_x86/elf.k:28.
+func hexByte(n) {
+    let HEX = "0123456789ABCDEF"
+    let v = toInt(n)
+    if v < 0 { v = v + 256 }
+    if v > 255 { v = v % 256 }
+    emit "x" + HEX[v / 16] + HEX[v % 16]
+}
+
+// Shorthand. Everything in the WASM emitter calls b(n).
+func b(n) { emit hexByte(n) }
+
+// hexBytes: count actual bytes encoded by a hex-string (each byte = 3
+// chars: "x", high nibble, low nibble).
+func hexBytes(s) { emit len(s) / 3 }
+
+// LEB128 unsigned. Every WASM length / index uses this.
+func leb(n) {
+    let out = sbNew()
+    let v = n
+    while v >= 128 {
+        out = sbAppend(out, b((v % 128) + 128))
+        v = v / 128
+    }
+    out = sbAppend(out, b(v))
+    emit sbToString(out)
+}
+
+// Emit ASCII bytes from a Krypton string. Caller passes only ASCII
+// (no chars > 127); no UTF-8 handling needed for WASM module structure.
+func bstr(s) {
+    let out = sbNew()
+    let i = 0
+    while i < len(s) {
+        out = sbAppend(out, hexByte(toInt(charCode(s[i]))))
+        i += 1
+    }
+    emit sbToString(out)
+}
+
+// One section: 1-byte ID, LEB128 payload length, payload bytes.
+func wasmSection(id, payload) {
+    emit b(id) + leb(hexBytes(payload)) + payload
+}
+
+// Magic "\0asm" + version 1.
+func wasmHeader() {
+    emit b(0) + b(97) + b(115) + b(109) +
+         b(1) + b(0) + b(0) + b(0)
+}
+
+// Type section. Two function types:
+//   type 0: (i32, i32) -> ()    (matches console_log's signature)
+//   type 1: () -> ()            (matches our _start)
+func wasmTypes() {
+    let payload =
+        b(2) +
+        b(96) + b(2) + b(127) + b(127) + b(0) +
+        b(96) + b(0) + b(0)
+    emit wasmSection(1, payload)
+}
+
+// Import section: env.console_log : type 0.
+func wasmImports() {
+    let payload =
+        b(1) +
+        b(3) + bstr("env") +
+        b(11) + bstr("console_log") +
+        b(0) + b(0)
+    emit wasmSection(2, payload)
+}
+
+// Function section: one function, type idx 1.
+func wasmFuncs() {
+    let payload = b(1) + b(1)
+    emit wasmSection(3, payload)
+}
+
+// Memory section: 1 memory, no max, initial=1 page (64KB).
+func wasmMemory() {
+    let payload = b(1) + b(0) + b(1)
+    emit wasmSection(5, payload)
+}
+
+// Export section: memory + _start.
+func wasmExports() {
+    let payload =
+        b(2) +
+        b(6) + bstr("memory") + b(2) + b(0) +
+        b(6) + bstr("_start") + b(0) + b(1)
+    emit wasmSection(7, payload)
+}
+
+// Code section. _start body: push (0, 5) → call import 0 → end.
+func wasmCode() {
+    let body =
+        b(0) +                    // locals count
+        b(65) + b(0) +            // i32.const 0   (ptr)
+        b(65) + b(5) +            // i32.const 5   (len)
+        b(16) + b(0) +            // call 0
+        b(11)                     // end
+    let payload = b(1) + leb(hexBytes(body)) + body
+    emit wasmSection(10, payload)
+}
+
+// Data section: write "Hello" into memory at offset 0.
+func wasmData() {
+    let payload =
+        b(1) +
+        b(0) +
+        b(65) + b(0) + b(11) +
+        b(5) +
+        bstr("Hello")
+    emit wasmSection(11, payload)
+}
+
+just run {
+    let mod = wasmHeader() +
+              wasmTypes() +
+              wasmImports() +
+              wasmFuncs() +
+              wasmMemory() +
+              wasmExports() +
+              wasmCode() +
+              wasmData()
+    writeBytes("/tmp/hello.wasm", mod)
+    kp("wrote /tmp/hello.wasm: " + hexBytes(mod) + " bytes")
+}

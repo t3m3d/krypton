@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Krypton Dev Log</title>
+  <link href="https://krypton-lang.org/atom.xml" rel="self"/>
+  <link href="https://krypton-lang.org/blog.html"/>
+  <updated>2026-06-01T00:00:00Z</updated>
+  <id>https://krypton-lang.org/atom.xml</id>
+  <author><name>Brian</name><email>brian@krypton-lang.org</email></author>
+  <entry>
+    <title>Linux x86_64: writing your own ELF (no linker, no libc)</title>
+    <link href="https://krypton-lang.org/blog/2026-06-01-elf-from-scratch.html"/>
+    <id>https://krypton-lang.org/blog/2026-06-01-elf-from-scratch.html</id>
+    <updated>2026-06-01T00:00:00Z</updated>
+    <summary>Linux x86_64: writing your own ELF (no linker, no libc)</summary>
+  </entry>
+  <entry>
+    <title>Launch week: kcss, the lesson runner, and a 95-byte WASM proof</title>
+    <link href="https://krypton-lang.org/blog/2026-05-30-launch-week.html"/>
+    <id>https://krypton-lang.org/blog/2026-05-30-launch-week.html</id>
+    <updated>2026-05-30T00:00:00Z</updated>
+    <summary>Launch week: kcss, the lesson runner, and a 95-byte WASM proof</summary>
+  </entry>
+</feed>

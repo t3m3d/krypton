@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7722ff"/>
+      <stop offset="50%" stop-color="#5d16da"/>
+      <stop offset="100%" stop-color="#3a0ca3"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fff" stop-opacity="0.15"/>
+      <stop offset="60%" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="900" cy="200" r="280" fill="url(#glow)"/>
+  <circle cx="200" cy="450" r="220" fill="url(#glow)"/>
+  <g fill="#ffffff" font-family="-apple-system, 'Segoe UI', system-ui, sans-serif">
+    <text x="80" y="220" font-size="60" font-weight="700" opacity="0.85">A self-hosted programming language</text>
+    <text x="80" y="380" font-size="180" font-weight="800" letter-spacing="-6">Krypton</text>
+    <text x="80" y="460" font-size="44" opacity="0.92">No LLVM. No GCC. ELF, PE, Mach-O — direct.</text>
+    <text x="80" y="565" font-size="34" opacity="0.75">krypton-lang.org</text>
+  </g>
+</svg>
