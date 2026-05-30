@@ -561,7 +561,7 @@ func pagePlayground() {
         "<pre class=" + DQ() + "run-out" + DQ() + ">Click &#9654; Run to execute.</pre>" +
         htP("Want guided lessons instead? Start at " + htA("/learn.html", "Learn Krypton") + ".") +
         "</div></section>" +
-        "<script src=" + DQ() + "/runner.js?v=4" + DQ() + "></script>"
+        "<script src=" + DQ() + "/runner.js?v=5" + DQ() + "></script>"
 
     emit sitePage("Playground", hero + body)
 }
@@ -1105,7 +1105,8 @@ func lessonFiles() {
          "24_string_interpolation" + NL() + "25_match" + NL() + "26_booleans" + NL() +
          "27_imports" + NL() + "28_maps" + NL() + "29_closures" + NL() +
          "30_json" + NL() + "31_http_client" + NL() +
-         "32_html_with_htmk" + NL() + "33_styling_with_kcss"
+         "32_html_with_htmk" + NL() + "33_styling_with_kcss" + NL() +
+         "34_browser_hn"
 }
 
 func _lessonSrc(file) {
@@ -1225,7 +1226,7 @@ func pageLesson(file, prevFile, nextFile) {
         htP("Run it locally: " + htCode("kcc -r tutorial/" + file + ".k")) +
         htP(navStr) +
         "</div></section>" +
-        "<script src=" + DQ() + "/runner.js?v=4" + DQ() + "></script>"
+        "<script src=" + DQ() + "/runner.js?v=5" + DQ() + "></script>"
 
     emit sitePage(title, body)
 }
