@@ -1,22 +1,20 @@
 // wasm_self.k — Krypton-to-WebAssembly backend.
 //
 // Phase 1.0  ✅ skeleton + emit helpers
-// Phase 1.1  ✅ parse FUNC blocks, build string table, IR-driven
-//               Type/Import/Function/Memory/Export/Data sections
-// Phase 1.2  🟡 partial — `PUSH "string"` + `BUILTIN kp 1` lowered;
-//               lessons 01 + 02 + 03 produce matching output via the
-//               Agent B Node loader. arithmetic / locals / calls land next.
-// Phase 1.3+ ⏳ see docs/WASM_PHASE_1_SPLIT.md
+// Phase 1.1  ✅ parse FUNC blocks, build string table, IR-driven sections
+// Phase 1.2  ✅ LOCAL / STORE / LOAD / PUSH "str" / PUSH N / BUILTIN kp /
+//               ADD / SUB / POP / gc bookkeeping → lessons 01 and 04 run
+//               end-to-end. Lesson 02 (string concat) hits ADD as i32 which
+//               is wrong for strings but doesn't crash; real concat is 1.3.
+// Phase 1.3+ ⏳ string concat runtime, function calls, control flow,
+//               funcptr table, full stdlib subset.
 //
-// See docs/wasm_backend_design.md for the long-arc design and
-// docs/WASM_HOST_ABI.md for the locked contract this code emits against.
+// See docs/wasm_backend_design.md, docs/WASM_HOST_ABI.md, and
+// docs/WASM_PHASE_1_SPLIT.md.
 
 module wasm_self
 
 // ── Byte-emit helpers ────────────────────────────────────────────────
-// Every byte goes through hexByte → "xHH"; writeBytes() at the end
-// decodes hex pairs into raw bytes (avoids Krypton's null-terminator
-// truncation on string concat).
 
 func hexByte(n) {
     let HEX = "0123456789ABCDEF"
@@ -30,140 +28,39 @@ func b(n) { emit hexByte(n) }
 
 func hexBytes(s) { emit len(s) / 3 }
 
-// LEB128 unsigned, multi-byte safe.
 func leb(n) {
-    let out = sbNew()
+    let out = ""
     let v = n
     while v >= 128 {
-        out = sbAppend(out, b((v % 128) + 128))
+        out = out + b((v % 128) + 128)
         v = v / 128
     }
-    out = sbAppend(out, b(v))
-    emit sbToString(out)
+    emit out + b(v)
 }
 
-// ASCII string → hex bytes.
 func bstr(s) {
-    let out = sbNew()
+    let out = ""
     let i = 0
     while i < len(s) {
-        out = sbAppend(out, hexByte(toInt(charCode(s[i]))))
+        out = out + hexByte(toInt(charCode(s[i])))
         i += 1
     }
-    emit sbToString(out)
+    emit out
 }
 
-// One section: id + LEB128 length + payload.
 func wasmSection(id, payload) {
     emit b(id) + leb(hexBytes(payload)) + payload
 }
 
-// Magic "\0asm" + version 1.
 func wasmHeader() {
     emit b(0) + b(97) + b(115) + b(109) +
          b(1) + b(0) + b(0) + b(0)
 }
 
-// ── IR parsing ───────────────────────────────────────────────────────
-// State is encoded as comma-format strings; both `funcs` and `strs`
-// use newline-encoded line tables. Each row stores all the data we
-// need for that record.
-
-// ── String table ─────────────────────────────────────────────────────
-// Rows: "literal\toffset\tlength" — one per unique string literal.
+// ── Tab/util ─────────────────────────────────────────────────────────
 
 func tab() { emit fromCharCode(9) }
 
-func strTableNew() { emit "" }
-
-// Returns the offset of `s` in the table. Appends if new.
-// The returned table includes the new row.
-func strTableAdd(table, s) {
-    let n = lineCount(table)
-    let i = 0
-    let totalLen = 0
-    while i < n {
-        let row = getLine(table, i)
-        if len(row) > 0 {
-            let tabPos = indexOf(row, tab())
-            let literal = substring(row, 0, tabPos)
-            if literal == s {
-                emit table
-            }
-            // accumulate length of stored literals to compute next offset
-            let rest = substring(row, tabPos + 1, len(row))
-            let secondTab = indexOf(rest, tab())
-            let lenStr = substring(rest, secondTab + 1, len(rest))
-            totalLen = totalLen + toInt(lenStr)
-        }
-        i += 1
-    }
-    // Not found — append at current totalLen offset.
-    let newRow = s + tab() + totalLen + tab() + len(s)
-    if len(table) == 0 {
-        emit newRow
-    }
-    emit table + fromCharCode(10) + newRow
-}
-
-func strTableOffset(table, s) {
-    let n = lineCount(table)
-    let i = 0
-    while i < n {
-        let row = getLine(table, i)
-        if len(row) > 0 {
-            let tabPos = indexOf(row, tab())
-            let literal = substring(row, 0, tabPos)
-            if literal == s {
-                let rest = substring(row, tabPos + 1, len(row))
-                let secondTab = indexOf(rest, tab())
-                emit toInt(substring(rest, 0, secondTab))
-            }
-        }
-        i += 1
-    }
-    emit 0
-}
-
-func strTableLen(table, s) {
-    let n = lineCount(table)
-    let i = 0
-    while i < n {
-        let row = getLine(table, i)
-        if len(row) > 0 {
-            let tabPos = indexOf(row, tab())
-            let literal = substring(row, 0, tabPos)
-            if literal == s {
-                let rest = substring(row, tabPos + 1, len(row))
-                let secondTab = indexOf(rest, tab())
-                emit toInt(substring(rest, secondTab + 1, len(rest)))
-            }
-        }
-        i += 1
-    }
-    emit 0
-}
-
-// Concatenate all literal bytes for the Data section payload.
-func strTableBlob(table) {
-    let out = sbNew()
-    let n = lineCount(table)
-    let i = 0
-    while i < n {
-        let row = getLine(table, i)
-        if len(row) > 0 {
-            let tabPos = indexOf(row, tab())
-            let literal = substring(row, 0, tabPos)
-            out = sbAppend(out, literal)
-        }
-        i += 1
-    }
-    emit sbToString(out)
-}
-
-// ── IR helpers ───────────────────────────────────────────────────────
-
-// Strip leading whitespace.
 func ltrim(s) {
     let i = 0
     let n = len(s)
@@ -175,8 +72,104 @@ func ltrim(s) {
     emit ""
 }
 
-// Find the literal between the first pair of double quotes on a line.
-// Returns "" if none.
+// Check whether the line literally starts with `prefix`.
+func lineStarts(line, prefix) {
+    if len(line) < len(prefix) { emit 0 }
+    if substring(line, 0, len(prefix)) == prefix { emit 1 }
+    emit 0
+}
+
+// ── String table ─────────────────────────────────────────────────────
+// Strings are stored in linear memory as [length:u32 little-endian][bytes].
+// A "handle" is the offset of the length field. PUSH "str" emits
+// i32.const <handle>. kp dereferences: ptr = handle+4, len = mem[handle].
+
+func strTableNew() { emit "" }
+
+func strRowLiteral(row) {
+    let p = indexOf(row, tab())
+    emit substring(row, 0, p)
+}
+
+func strRowOffset(row) {
+    let p1 = indexOf(row, tab())
+    let rest = substring(row, p1 + 1, len(row))
+    let p2 = indexOf(rest, tab())
+    emit toInt(substring(rest, 0, p2))
+}
+
+func strRowLen(row) {
+    let p1 = indexOf(row, tab())
+    let rest = substring(row, p1 + 1, len(row))
+    let p2 = indexOf(rest, tab())
+    emit toInt(substring(rest, p2 + 1, len(rest)))
+}
+
+// Total bytes currently used by the table (each entry = 4 header + length).
+func strTableUsed(table) {
+    let n = lineCount(table)
+    let i = 0
+    let total = 0
+    while i < n {
+        let row = getLine(table, i)
+        if len(row) > 0 {
+            total = total + 4 + strRowLen(row)
+        }
+        i += 1
+    }
+    emit total
+}
+
+func strTableAdd(table, s) {
+    let n = lineCount(table)
+    let i = 0
+    while i < n {
+        let row = getLine(table, i)
+        if len(row) > 0 && strRowLiteral(row) == s {
+            emit table
+        }
+        i += 1
+    }
+    let off = strTableUsed(table)
+    let newRow = s + tab() + off + tab() + len(s)
+    if len(table) == 0 { emit newRow }
+    emit table + fromCharCode(10) + newRow
+}
+
+func strTableOffset(table, s) {
+    let n = lineCount(table)
+    let i = 0
+    while i < n {
+        let row = getLine(table, i)
+        if len(row) > 0 && strRowLiteral(row) == s {
+            emit strRowOffset(row)
+        }
+        i += 1
+    }
+    emit 0
+}
+
+// Emit one 4-byte little-endian length prefix followed by the literal
+// bytes, for every row. Caller wraps in a Data segment.
+func strTableBlob(table) {
+    let out = ""
+    let n = lineCount(table)
+    let i = 0
+    while i < n {
+        let row = getLine(table, i)
+        if len(row) > 0 {
+            let l = strRowLen(row)
+            // u32 little-endian length
+            out = out + b(l) + b(l / 256) + b((l / 65536) % 256) + b((l / 16777216) % 256)
+            out = out + bstr(strRowLiteral(row))
+        }
+        i += 1
+    }
+    emit out
+}
+
+// ── Quoted-string + integer helpers ──────────────────────────────────
+
 func strBetweenQuotes(line) {
     let first = indexOf(line, "\"")
     if first < 0 { emit "" }
@@ -186,73 +179,168 @@ func strBetweenQuotes(line) {
     emit substring(rest, 0, second)
 }
 
-// Pre-scan a function's body and add every PUSH "str" literal to the
-// string table.
+// Returns 1 if `line` matches `PUSH <integer>` (no quotes).
+func isPushInt(line) {
+    if !lineStarts(line, "PUSH ") { emit 0 }
+    let rest = substring(line, 5, len(line))
+    if len(rest) == 0 { emit 0 }
+    let c0 = rest[0]
+    if c0 == "\"" { emit 0 }
+    if c0 == "-" { emit 1 }
+    if c0 >= "0" && c0 <= "9" { emit 1 }
+    emit 0
+}
+
+func parseInt(line) {
+    let rest = substring(line, 5, len(line))
+    emit toInt(rest)
+}
+
+// ── Local-name table per function ────────────────────────────────────
+// Newline-list of names. Index = position in list. The kp temp lives
+// at index = list length (added implicitly).
+
+func localsNew() { emit "" }
+
+func localsAdd(list, name) {
+    if len(list) == 0 { emit name }
+    emit list + fromCharCode(10) + name
+}
+
+func localsIndex(list, name) {
+    let n = lineCount(list)
+    let i = 0
+    while i < n {
+        if getLine(list, i) == name { emit i }
+        i += 1
+    }
+    emit -1
+}
+
+func localsCount(list) {
+    if len(list) == 0 { emit 0 }
+    emit lineCount(list)
+}
+
+// ── Body lowering ────────────────────────────────────────────────────
+
+// First pass: collect every LOCAL declaration in the body.
+func collectLocals(body) {
+    let n = lineCount(body)
+    let i = 0
+    let lst = localsNew()
+    while i < n {
+        let line = ltrim(getLine(body, i))
+        if lineStarts(line, "LOCAL ") {
+            let name = substring(line, 6, len(line))
+            lst = localsAdd(lst, name)
+        }
+        i += 1
+    }
+    emit lst
+}
+
+// Scan for string literals.
 func collectStrings(body, table) {
     let n = lineCount(body)
     let i = 0
     let t = table
     while i < n {
         let line = ltrim(getLine(body, i))
-        if startsWith(line, "PUSH \"") {
-            let s = strBetweenQuotes(line)
-            t = strTableAdd(t, s)
+        if lineStarts(line, "PUSH \"") {
+            t = strTableAdd(t, strBetweenQuotes(line))
         }
         i += 1
     }
     emit t
 }
 
-// ── Per-function body lowering ───────────────────────────────────────
-// Phase 1.2 minimum: PUSH "str", BUILTIN kp 1, POP, END.
-// Returns the body hex bytes (NOT including the function-body length
-// prefix). Caller adds the length prefix.
+// Emit one function body. Returns the body hex (locals vec + opcodes + end).
+// `kpTmpIdx` is the local index reserved for the kp dereference dance.
+func emitFuncBody(body, table, localsList) {
+    let userCount = localsCount(localsList)
+    let kpTmpIdx = userCount
+    let totalLocals = userCount + 1            // +1 for kpTmp
 
-func emitFuncBody(body, table) {
-    let bb = b(0)                          // locals vec: empty
-    let depth = 0                          // WASM stack depth tracker
+    // Locals vec: 1 entry, <total> i32 (type 0x7F).
+    let bb = b(1) + leb(totalLocals) + b(127)
+
     let n = lineCount(body)
     let i = 0
     while i < n {
         let line = ltrim(getLine(body, i))
-        if startsWith(line, "PUSH \"") {
+        if lineStarts(line, "LOCAL ") {
+            // Already accounted for in the locals header. No opcode.
+        } else if lineStarts(line, "PUSH \"") {
             let s = strBetweenQuotes(line)
-            let off = strTableOffset(table, s)
-            let slen = strTableLen(table, s)
-            bb = bb + b(65) + leb(off) + b(65) + leb(slen)
-            depth = depth + 2
-        } else if startsWith(line, "BUILTIN kp ") {
-            // call 0 (env.console_log) — pops 2 (ptr+len), returns void.
-            // Don't push a dummy: the matching IR POP will not fire
-            // because we depth-gate the drop emit.
-            bb = bb + b(16) + b(0)
-            depth = depth - 2
+            let h = strTableOffset(table, s)
+            bb = bb + b(65) + leb(h)            // i32.const handle
+        } else if isPushInt(line) > 0 {
+            let v = parseInt(line)
+            bb = bb + b(65) + leb(v)            // i32.const v
+        } else if lineStarts(line, "STORE ") {
+            let name = substring(line, 6, len(line))
+            let idx = localsIndex(localsList, name)
+            if idx < 0 { idx = kpTmpIdx }
+            bb = bb + b(33) + leb(idx)          // local.set
+        } else if lineStarts(line, "LOAD ") {
+            let name = substring(line, 5, len(line))
+            let idx = localsIndex(localsList, name)
+            if idx < 0 { idx = kpTmpIdx }
+            bb = bb + b(32) + leb(idx)          // local.get
+        } else if line == "ADD" {
+            bb = bb + b(106)                    // i32.add
+        } else if line == "SUB" {
+            bb = bb + b(107)                    // i32.sub
+        } else if line == "MUL" {
+            bb = bb + b(108)                    // i32.mul
+        } else if line == "DIV" {
+            bb = bb + b(109)                    // i32.div_s
+        } else if line == "MOD" {
+            bb = bb + b(111)                    // i32.rem_s
+        } else if lineStarts(line, "BUILTIN kp ") {
+            // Stack top: handle (i32 offset into the string area).
+            // tee kpTmp → (handle+4) → load length → call console_log,
+            // then push dummy 0 to match IR's "every BUILTIN returns 1
+            // value" convention. The trailing POP drops it cleanly.
+            bb = bb + b(34) + leb(kpTmpIdx)     // local.tee kpTmp
+            bb = bb + b(65) + leb(4)            // i32.const 4
+            bb = bb + b(106)                    // i32.add  (ptr = handle + 4)
+            bb = bb + b(32) + leb(kpTmpIdx)     // local.get kpTmp
+            bb = bb + b(40) + b(2) + b(0)       // i32.load align=2 offset=0
+            bb = bb + b(16) + b(0)              // call 0 (env.console_log)
+            bb = bb + b(65) + b(0)              // i32.const 0  (dummy result)
+        } else if lineStarts(line, "BUILTIN gcShadowCount ") {
+            // Treated as a no-op that returns 0. IR pushes its result.
+            bb = bb + b(65) + b(0)              // i32.const 0
+        } else if lineStarts(line, "BUILTIN gcShadowPush ") {
+            // Takes 1 arg, returns void. Drop the arg, push 0 to match
+            // IR's "every BUILTIN returns 1 value" convention.
+            bb = bb + b(26)                     // drop
+            bb = bb + b(65) + b(0)              // i32.const 0
+        } else if lineStarts(line, "BUILTIN gcShadowPop ") {
+            // Takes 1 arg, returns void. Drop, push 0 (same reason).
+            bb = bb + b(26)                     // drop
+            bb = bb + b(65) + b(0)              // i32.const 0
         } else if line == "POP" {
-            if depth > 0 {
-                bb = bb + b(26)            // drop
-                depth = depth - 1
-            }
+            bb = bb + b(26)                     // drop
+        } else if line == "RETURN" {
+            bb = bb + b(15)                     // return
         }
-        // Everything else (LOCAL/LOAD/STORE/BUILTIN gcShadow*/SUB/RETURN):
-        // skip in Phase 1.2. Phase 1.3 implements them faithfully.
+        // Unhandled IR ops are skipped silently. Track them in 1.3.
         i += 1
     }
-    bb = bb + b(11)                        // end
+    bb = bb + b(11)                             // end
     emit bb
 }
 
-// ── Section builders (IR-driven) ─────────────────────────────────────
+// ── Section builders ─────────────────────────────────────────────────
 
-// Type section. We ship two function types:
-//   type 0: (i32, i32) -> ()    matches env.console_log
-//   type 1: () -> ()            matches every Krypton func in 1.2
-//
-// 1.3 will expand this to one type per unique (param-arity, return) shape.
 func wasmTypes() {
     let payload =
         b(2) +
-        b(96) + b(2) + b(127) + b(127) + b(0) +
-        b(96) + b(0) + b(0)
+        b(96) + b(2) + b(127) + b(127) + b(0) +     // (i32,i32)->void
+        b(96) + b(0) + b(0)                         // ()->void
     emit wasmSection(1, payload)
 }
 
@@ -265,13 +353,11 @@ func wasmImports() {
     emit wasmSection(2, payload)
 }
 
-// One function per user-defined func in the IR. Phase 1.2 gives every
-// one type-1 (() -> ()).
 func wasmFuncs(funcCount) {
     let payload = leb(funcCount)
     let i = 0
     while i < funcCount {
-        payload = payload + b(1)    // type 1
+        payload = payload + b(1)
         i += 1
     }
     emit wasmSection(3, payload)
@@ -282,8 +368,6 @@ func wasmMemory() {
     emit wasmSection(5, payload)
 }
 
-// Phase 1.2 exports memory + _start (= __main__). User funcs are not
-// individually exported.
 func wasmExports(mainIdx) {
     let payload =
         b(2) +
@@ -292,8 +376,6 @@ func wasmExports(mainIdx) {
     emit wasmSection(7, payload)
 }
 
-// Code section. funcBodies is a newline-list; one body per line as a
-// hex string (already includes locals vec + opcodes + 0x0b end).
 func wasmCode(funcBodies) {
     let cnt = lineCount(funcBodies)
     let payload = leb(cnt)
@@ -308,60 +390,48 @@ func wasmCode(funcBodies) {
     emit wasmSection(10, payload)
 }
 
-// One data segment loading the whole string blob at offset 0.
 func wasmData(blob) {
-    if len(blob) == 0 {
-        // No strings used. Skip the section entirely.
-        emit ""
-    }
-    let bytes = bstr(blob)
+    if len(blob) == 0 { emit "" }
     let payload =
         b(1) +
-        b(0) +                        // memory 0, active
-        b(65) + b(0) + b(11) +        // offset: i32.const 0, end
-        leb(len(blob)) + bytes
+        b(0) +                              // memory 0, active
+        b(65) + b(0) + b(11) +              // offset: i32.const 0, end
+        leb(hexBytes(blob)) + blob
     emit wasmSection(11, payload)
 }
 
 // ── Driver ───────────────────────────────────────────────────────────
-// Parse FUNC blocks out of the IR, walk each, build the module.
 
 func buildModule(ir) {
-    // Walk IR line by line. State machine: between funcs, inside func.
     let n = lineCount(ir)
     let strTab = strTableNew()
-    let funcBodies = ""             // newline-list of hex-encoded bodies
+    let funcBodies = ""
     let funcCount = 0
     let mainIdx = 0
-    let funcNames = ""              // newline-list of names in declaration order
+    let funcNames = ""
     let i = 0
     while i < n {
         let line = ltrim(getLine(ir, i))
-        if startsWith(line, "FUNC ") {
-            // Collect this func's body until END.
+        if lineStarts(line, "FUNC ") {
             let body = ""
             i += 1
             while i < n {
                 let l2 = ltrim(getLine(ir, i))
-                if l2 == "END" {
-                    i += 1
-                    break
-                }
+                if l2 == "END" { i += 1  break }
                 if len(body) == 0 { body = l2 }
                 else              { body = body + fromCharCode(10) + l2 }
                 i += 1
             }
             strTab = collectStrings(body, strTab)
-            let hex = emitFuncBody(body, strTab)
+            let locals = collectLocals(body)
+            let hex = emitFuncBody(body, strTab, locals)
             if len(funcBodies) == 0 { funcBodies = hex }
             else                    { funcBodies = funcBodies + fromCharCode(10) + hex }
-            // Track function name → index for _start lookup.
-            // Header: "FUNC __main__ 0". Field at position 1 is the name.
             let rest = substring(line, 5, len(line))
             let spacePos = indexOf(rest, " ")
             let name = rest
             if spacePos > 0 { name = substring(rest, 0, spacePos) }
-            if name == "__main__" { mainIdx = funcCount + 1 } // +1 because import is index 0
+            if name == "__main__" { mainIdx = funcCount + 1 }    // +1 for import
             if len(funcNames) == 0 { funcNames = name }
             else                   { funcNames = funcNames + fromCharCode(10) + name }
             funcCount += 1
