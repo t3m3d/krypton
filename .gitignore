@@ -69,3 +69,4 @@ OVERNIGHT_REPORT.md
 
 # Marketing / demo video renders — large binaries, not source
 web/*.mp4
+compiler/wasm32/wasm_self
