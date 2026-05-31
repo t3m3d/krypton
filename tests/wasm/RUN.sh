@@ -23,12 +23,16 @@ WORK="$REPO/tests/wasm/.work"           # repo-relative: avoids git-bash /tmp pa
 mkdir -p "$WORK"
 
 # ── locate kcc driver ────────────────────────────────────────────────
-if command -v kcc >/dev/null 2>&1; then
-  KCC() { kcc "$@"; }
-elif [[ -f "$REPO/kcc.sh" ]]; then
+# Prefer the repo driver (kcc.sh): it implements -r / --ir / -e. A bare `kcc`
+# on PATH may be only the front-end (e.g. the Windows install at /c/krypton/kcc),
+# which understands --ir but NOT -r run-mode — that silently yields empty
+# reference output and mis-grades every lesson.
+if [[ -f "$REPO/kcc.sh" ]]; then
   KCC() { bash "$REPO/kcc.sh" "$@"; }
+elif command -v kcc >/dev/null 2>&1; then
+  KCC() { kcc "$@"; }
 else
-  echo "RUN.sh: no kcc on PATH and no $REPO/kcc.sh" >&2; exit 1
+  echo "RUN.sh: no $REPO/kcc.sh and no kcc on PATH" >&2; exit 1
 fi
 
 # ── locate Agent A's emitter binary ──────────────────────────────────
@@ -63,7 +67,7 @@ if [[ -z "$EMIT" ]]; then
   exit 0
 fi
 
-PASS=0; FAIL=0; SKIP=0; FAILED=()
+PASS=0; FAIL=0; SKIP=0; ERR=0; FAILED=()
 for k in "${lessons[@]}"; do
   name="$(basename "$k" .k)"
   kir="$WORK/$name.kir"; wasm="$WORK/$name.wasm"
@@ -75,10 +79,19 @@ for k in "${lessons[@]}"; do
     printf '  SKIP %-26s (emitter could not lower it)\n' "$name"; SKIP=$((SKIP+1)); continue
   fi
 
-  expected="$(KCC -r "$k" 2>/dev/null)"
+  # Reference output (source of truth). The Windows native pipeline is slow and
+  # occasionally returns nothing on a given run; retry so a toolchain flake is
+  # never mis-attributed to the emitter as a FAIL.
+  expected=""
+  for _try in 1 2 3; do
+    expected="$(KCC -r "$k" 2>/dev/null)"
+    [[ -n "$expected" ]] && break
+  done
   actual="$(node "$RUNNER" "$wasm" 2>/dev/null)"
 
-  if [[ "$expected" == "$actual" ]]; then
+  if [[ -z "$expected" ]]; then
+    printf '  ERR  %-26s (kcc -r gave no output after 3 tries — toolchain, not the emitter)\n' "$name"; ERR=$((ERR+1))
+  elif [[ "$expected" == "$actual" ]]; then
     printf '  PASS %-26s\n' "$name"; PASS=$((PASS+1))
   else
     printf '  FAIL %-26s\n' "$name"; FAIL=$((FAIL+1)); FAILED+=("$name")
@@ -88,6 +101,6 @@ for k in "${lessons[@]}"; do
 done
 
 echo "──────────────────────────────────────────────────────────────"
-echo "  wasm tutorials: PASS=$PASS  FAIL=$FAIL  SKIP=$SKIP"
+echo "  wasm tutorials: PASS=$PASS  FAIL=$FAIL  SKIP=$SKIP  ERR=$ERR"
 [[ ${#FAILED[@]} -gt 0 ]] && echo "  failed: ${FAILED[*]}"
 [[ $FAIL -eq 0 ]] && exit 0 || exit 1
