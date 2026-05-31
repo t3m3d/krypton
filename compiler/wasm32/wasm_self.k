@@ -311,6 +311,7 @@ func emitFuncBody(body, table, localsList) {
 
     let n = lineCount(body)
     let i = 0
+    let labelStack = ""        // newline-list of pending if-end labels (forward jumps)
     while i < n {
         let line = ltrim(getLine(body, i))
         if lineStarts(line, "LOCAL ") {
@@ -381,12 +382,49 @@ func emitFuncBody(body, table, localsList) {
             // Takes 1 arg, returns void. Drop, push 0 (same reason).
             bb = bb + b(26)                     // drop
             bb = bb + b(65) + b(0)              // i32.const 0
+        } else if line == "INDEX" {
+            bb = bb + iCALL(5)                  // $index(str, idx) -> tagged 1-char str
+        } else if lineStarts(line, "BUILTIN len ") {
+            // tagged str -> tagged int length. base=v>>1u; load[base]; <<1.
+            bb = bb + iC(1) + b(118) + b(40) + b(2) + b(0) + iC(1) + b(116)
+        } else if lineStarts(line, "BUILTIN substring ") {
+            bb = bb + iCALL(6)                  // $substring(str,start,end)
+        } else if lineStarts(line, "BUILTIN startsWith ") {
+            bb = bb + iCALL(7)                  // $startsWith(str,prefix) -> tagged bool
+        } else if lineStarts(line, "BUILTIN isTruthy ") {
+            // tagged v -> tagged bool: (v != 0) << 1. (false=0, true=2)
+            bb = bb + iC(0) + b(71) + iC(1) + b(116)
+        } else if lineStarts(line, "JUMPIFNOT ") {
+            // Forward structured if: tagged cond on stack (false=0 skips,
+            // true=2 enters). Open an `if`; the matching LABEL closes it.
+            let lbl = substring(line, 10, len(line))
+            bb = bb + b(4) + b(64)             // if (void)
+            if len(labelStack) == 0 { labelStack = lbl }
+            else { labelStack = labelStack + fromCharCode(10) + lbl }
+        } else if lineStarts(line, "LABEL ") {
+            // Close the matching forward `if` opened by JUMPIFNOT.
+            let lbl = substring(line, 6, len(line))
+            let top = ""
+            let lc = lineCount(labelStack)
+            if lc > 0 { top = getLine(labelStack, lc - 1) }
+            if top == lbl {
+                bb = bb + b(11)                // end (close the if)
+                if lc <= 1 { labelStack = "" }
+                else {
+                    // drop last line
+                    let nw = getLine(labelStack, 0)
+                    let k = 1
+                    while k < lc - 1 { nw = nw + fromCharCode(10) + getLine(labelStack, k)  k += 1 }
+                    labelStack = nw
+                }
+            }
+            // Non-if labels (loop/backward targets) are 1.4-CFG work; skipped.
         } else if line == "POP" {
             bb = bb + b(26)                     // drop
         } else if line == "RETURN" {
             bb = bb + b(15)                     // return
         }
-        // Unhandled IR ops are skipped silently. Track them in 1.3.
+        // Unhandled IR ops are skipped silently. Track them in 1.4.
         i += 1
     }
     bb = bb + b(11)                             // end
@@ -469,6 +507,79 @@ func emitInt2Str() {
     emit bb
 }
 
+// $index(str,idx) -> tagged 1-char string. params 0=str,1=idx.
+// locals: 2 base, 3 i, 4 dst, 5 byte.
+func emitIndex() {
+    let bb = b(1) + leb(4) + b(127)
+    bb = bb + iLG(0) + iC(1) + b(118) + iLS(2)          // base = str>>1
+    bb = bb + iLG(1) + iC(1) + b(117) + iLS(3)          // i = idx>>1
+    bb = bb + iLG(2) + iC(4) + b(106) + iLG(3) + b(106) // base+4+i
+    bb = bb + b(45) + b(0) + b(0) + iLS(5)              // byte = load8_u
+    bb = bb + b(35) + leb(0) + iLS(4)                   // dst = bump
+    bb = bb + iLG(4) + iC(1) + b(54) + b(2) + b(0)      // [dst] = 1
+    bb = bb + iLG(4) + iC(4) + b(106) + iLG(5) + b(58) + b(0) + b(0)  // [dst+4]=byte
+    bb = bb + b(35) + leb(0) + iC(5) + b(106) + b(36) + leb(0)        // bump += 5
+    bb = bb + iLG(4) + iC(1) + b(116) + iC(1) + b(114)  // (dst<<1)|1
+    bb = bb + b(11)
+    emit bb
+}
+
+// $substring(str,start,end) -> tagged string. params 0=str,1=start,2=end.
+// locals: 3 base, 4 s, 5 e, 6 n, 7 dst, 8 i.
+func emitSubstr() {
+    let bb = b(1) + leb(6) + b(127)
+    bb = bb + iLG(0) + iC(1) + b(118) + iLS(3)          // base
+    bb = bb + iLG(1) + iC(1) + b(117) + iLS(4)          // s
+    bb = bb + iLG(2) + iC(1) + b(117) + iLS(5)          // e
+    bb = bb + iLG(5) + iLG(4) + b(107) + iLS(6)         // n = e - s
+    bb = bb + b(35) + leb(0) + iLS(7)                   // dst = bump
+    bb = bb + iLG(7) + iLG(6) + b(54) + b(2) + b(0)     // [dst] = n
+    bb = bb + iC(0) + iLS(8)                            // i = 0
+    bb = bb + b(2) + b(64) + b(3) + b(64)               // block; loop
+    bb = bb + iLG(8) + iLG(6) + b(79) + b(13) + leb(1)  // i>=n br 1
+    bb = bb + iLG(7) + iC(4) + b(106) + iLG(8) + b(106) // dst+4+i
+    bb = bb + iLG(3) + iC(4) + b(106) + iLG(4) + b(106) + iLG(8) + b(106) + b(45) + b(0) + b(0)  // load8 base+4+s+i
+    bb = bb + b(58) + b(0) + b(0)                       // store8
+    bb = bb + iLG(8) + iC(1) + b(106) + iLS(8)          // i++
+    bb = bb + b(12) + leb(0)                            // br 0
+    bb = bb + b(11) + b(11)                             // end loop; block
+    bb = bb + b(35) + leb(0) + iC(4) + b(106) + iLG(6) + b(106) + b(36) + leb(0)  // bump += 4+n
+    bb = bb + iLG(7) + iC(1) + b(116) + iC(1) + b(114) // (dst<<1)|1
+    bb = bb + b(11)
+    emit bb
+}
+
+// $startsWith(str,prefix) -> tagged bool. params 0=str,1=prefix.
+// locals: 2 sb, 3 pb, 4 sl, 5 pl, 6 i, 7 res.
+func emitStartsWith() {
+    let bb = b(1) + leb(6) + b(127)
+    bb = bb + iLG(0) + iC(1) + b(118) + iLS(2)          // sb = str>>1
+    bb = bb + iLG(1) + iC(1) + b(118) + iLS(3)          // pb = prefix>>1
+    bb = bb + iLG(2) + b(40) + b(2) + b(0) + iLS(4)     // sl = load[sb]
+    bb = bb + iLG(3) + b(40) + b(2) + b(0) + iLS(5)     // pl = load[pb]
+    bb = bb + iC(1) + iLS(7)                            // res = 1
+    bb = bb + iLG(5) + iLG(4) + b(74)                   // pl > sl (gt_s)
+    bb = bb + b(4) + b(64)                              // if
+    bb = bb + iC(0) + iLS(7)                            //   res = 0
+    bb = bb + b(5)                                      // else
+    bb = bb + iC(0) + iLS(6)                            //   i = 0
+    bb = bb + b(2) + b(64) + b(3) + b(64)               //   block; loop
+    bb = bb + iLG(6) + iLG(5) + b(79) + b(13) + leb(1)  //   i>=pl br 1
+    bb = bb + iLG(2) + iC(4) + b(106) + iLG(6) + b(106) + b(45) + b(0) + b(0)  // s[i]
+    bb = bb + iLG(3) + iC(4) + b(106) + iLG(6) + b(106) + b(45) + b(0) + b(0)  // p[i]
+    bb = bb + b(71)                                     //   ne
+    bb = bb + b(4) + b(64)                              //   if
+    bb = bb + iC(0) + iLS(7) + b(12) + leb(2)           //     res=0; br 2 (exit block)
+    bb = bb + b(11)                                     //   end if
+    bb = bb + iLG(6) + iC(1) + b(106) + iLS(6)          //   i++
+    bb = bb + b(12) + leb(0)                            //   br 0
+    bb = bb + b(11) + b(11)                             //   end loop; block
+    bb = bb + b(11)                                     // end if/else
+    bb = bb + iLG(7) + iC(1) + b(116)                   // res<<1 (tagged)
+    bb = bb + b(11)
+    emit bb
+}
+
 // $tostr(v:i32 tagged) -> i32 base ptr. param 0 = v. No extra locals.
 func emitToStr() {
     let bb = b(0)                                      // 0 local groups
@@ -525,12 +636,13 @@ func emitConcat() {
 
 func wasmTypes() {
     let payload =
-        b(5) +
+        b(6) +
         b(96) + b(2) + b(127) + b(127) + b(0) +            // 0 (i32,i32)->void
         b(96) + b(0) + b(0) +                              // 1 ()->void
         b(96) + b(1) + b(127) + b(0) +                     // 2 (i32)->void
         b(96) + b(1) + b(127) + b(1) + b(127) +            // 3 (i32)->i32
-        b(96) + b(2) + b(127) + b(127) + b(1) + b(127)     // 4 (i32,i32)->i32
+        b(96) + b(2) + b(127) + b(127) + b(1) + b(127) +   // 4 (i32,i32)->i32
+        b(96) + b(3) + b(127) + b(127) + b(127) + b(1) + b(127)  // 5 (i32,i32,i32)->i32
     emit wasmSection(1, payload)
 }
 
@@ -542,9 +654,12 @@ func wasmImports() {
     emit wasmSection(2, payload)
 }
 
-// Defined funcs: 3 helpers (int2str:t3, tostr:t3, concat:t4) + user funcs (t1).
+// Defined funcs (6 helpers + user funcs). Type indices in func-index order:
+//   2 int2str:t3, 3 tostr:t3, 4 concat:t4, 5 index:t4, 6 substr:t5,
+//   7 startsWith:t4, then user funcs:t1.
 func wasmFuncs(funcCount) {
-    let payload = leb(3 + funcCount) + b(3) + b(3) + b(4)
+    let payload = leb(6 + funcCount) +
+                  b(3) + b(3) + b(4) + b(4) + b(5) + b(4)
     let i = 0
     while i < funcCount {
         payload = payload + b(1)
@@ -630,7 +745,7 @@ func buildModule(ir) {
             let spacePos = indexOf(rest, " ")
             let name = rest
             if spacePos > 0 { name = substring(rest, 0, spacePos) }
-            if name == "__main__" { mainIdx = funcCount + 5 }    // 2 imports + 3 helpers
+            if name == "__main__" { mainIdx = funcCount + 8 }    // 2 imports + 6 helpers
             if len(funcNames) == 0 { funcNames = name }
             else                   { funcNames = funcNames + fromCharCode(10) + name }
             funcCount += 1
@@ -643,9 +758,12 @@ func buildModule(ir) {
     let bumpStart = strBase() + strTableUsed(strTab)   // +5 for fixed newline string
 
     // Prepend the 3 runtime helper bodies (indices 2,3,4) to the user funcs.
-    let helperBodies = emitInt2Str() + fromCharCode(10) +
-                       emitToStr()   + fromCharCode(10) +
-                       emitConcat()
+    let helperBodies = emitInt2Str()    + fromCharCode(10) +
+                       emitToStr()      + fromCharCode(10) +
+                       emitConcat()     + fromCharCode(10) +
+                       emitIndex()      + fromCharCode(10) +
+                       emitSubstr()     + fromCharCode(10) +
+                       emitStartsWith()
     let allBodies = helperBodies
     if len(funcBodies) > 0 { allBodies = helperBodies + fromCharCode(10) + funcBodies }
 
