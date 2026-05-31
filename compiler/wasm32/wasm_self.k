@@ -296,12 +296,16 @@ func collectStrings(body, table) {
     emit t
 }
 
-// ── Control-flow frame stack (structured if / if-else) ───────────────
-// IR uses goto-style JUMPIFNOT/JUMP/LABEL; wasm needs structured
-// if/else/end. Each open `if` is one frame line: elseLabel TAB closeLabel
-// ("-" = none). Forward if-blocks only; backward JUMP (loops) is later work.
-func cfPush(s, elseL, closeL) {
-    let row = elseL + tab() + closeL
+// ── Control-flow construct stack (structured if/else + while loops) ───
+// IR is goto-style (JUMPIFNOT/JUMP/LABEL); wasm needs structured
+// if/else/end + block/loop/br. One stack row per OPEN wasm construct
+// (top = innermost), so `br` depths compute directly. Row format:
+//   kind TAB labelA TAB labelB
+//   "if"  CLOSE  ELSE   (if/if-else; CLOSE "-" until JUMP sets it)
+//   "blk" WEND   -      (loop's outer block; br target = loop exit)
+//   "lp"  WLOOP  -      (loop's inner loop;  br target = continue)
+// labelA is the br target for that construct.
+func cfPush(s, row) {
     if len(s) == 0 { emit row }
     emit s + fromCharCode(10) + row
 }
@@ -318,24 +322,44 @@ func cfDrop(s) {
     while k < n - 1 { out = out + fromCharCode(10) + getLine(s, k)  k += 1 }
     emit out
 }
+// field idx (0=kind,1=labelA,2=labelB) of a TAB-split row.
+func cfField(row, idx) {
+    let r = row
+    let i = 0
+    while i < idx {
+        let p = indexOf(r, tab())
+        r = substring(r, p + 1, len(r))
+        i += 1
+    }
+    let p = indexOf(r, tab())
+    if p < 0 { emit r }
+    emit substring(r, 0, p)
+}
+// Set labelA (the close label) of the top frame — used when JUMP reveals
+// an if-else's endif target.
 func cfSetClose(s, closeL) {
     let n = lineCount(s)
     let top = getLine(s, n - 1)
-    let p = indexOf(top, tab())
-    let row = substring(top, 0, p) + tab() + closeL
+    let kind = cfField(top, 0)
+    let elseL = cfField(top, 2)
+    let row = kind + tab() + closeL + tab() + elseL
     if n <= 1 { emit row }
     let out = getLine(s, 0)
     let k = 1
     while k < n - 1 { out = out + fromCharCode(10) + getLine(s, k)  k += 1 }
     emit out + fromCharCode(10) + row
 }
-func cfElseOf(frame) {
-    let p = indexOf(frame, tab())
-    emit substring(frame, 0, p)
-}
-func cfCloseOf(frame) {
-    let p = indexOf(frame, tab())
-    emit substring(frame, p + 1, len(frame))
+// br depth to the construct whose labelA == label (0 = innermost / top).
+func cfDepth(s, label) {
+    let n = lineCount(s)
+    let d = 0
+    let k = n - 1
+    while k >= 0 {
+        if cfField(getLine(s, k), 1) == label { emit d }
+        d += 1
+        k -= 1
+    }
+    emit 0
 }
 
 // Emit one function body. Returns the body hex (locals vec + opcodes + end).
@@ -449,31 +473,53 @@ func emitFuncBody(body, table, localsList) {
             // tagged v -> tagged bool: (v != 0) << 1. (false=0, true=2)
             bb = bb + iC(0) + b(71) + iC(1) + b(116)
         } else if lineStarts(line, "JUMPIFNOT ") {
-            // tagged cond on stack (false=0 skip, true=2 enter). Open `if`.
-            // `_else` target -> if/else; any other target -> plain if.
             let lbl = substring(line, 10, len(line))
-            bb = bb + b(4) + b(64)             // if (void)
-            if lineStarts(lbl, "_else") { labelStack = cfPush(labelStack, lbl, "-") }
-            else                        { labelStack = cfPush(labelStack, "-", lbl) }
+            if lineStarts(lbl, "_wend") {
+                // Loop exit test: branch out of the enclosing block if !cond.
+                bb = bb + b(69)                            // i32.eqz (true=2->0, false=0->1)
+                bb = bb + b(13) + leb(cfDepth(labelStack, lbl))  // br_if <block>
+            } else if lineStarts(lbl, "_else") {
+                // if-else: open `if`; else label recorded, close set later by JUMP.
+                bb = bb + b(4) + b(64)                     // if (void)
+                labelStack = cfPush(labelStack, "if" + tab() + "-" + tab() + lbl)
+            } else {
+                // plain if: skip target is the endif (close) label.
+                bb = bb + b(4) + b(64)                     // if (void)
+                labelStack = cfPush(labelStack, "if" + tab() + lbl + tab() + "-")
+            }
         } else if lineStarts(line, "JUMP ") {
-            // End of then-branch jumping over the else body -> emit `else`,
-            // record the endif label as the frame's close. (Forward only.)
             let lbl = substring(line, 5, len(line))
-            let top = cfTop(labelStack)
-            if len(top) > 0 && cfElseOf(top) != "-" {
-                bb = bb + b(5)                 // else
+            if lineStarts(lbl, "_wloop") {
+                bb = bb + b(12) + leb(cfDepth(labelStack, lbl))  // br <loop> (continue)
+            } else if lineStarts(lbl, "_wend") {
+                bb = bb + b(12) + leb(cfDepth(labelStack, lbl))  // br <block> (break)
+            } else {
+                // then-branch end of an if-else: emit `else`, record endif as close.
+                bb = bb + b(5)                             // else
                 labelStack = cfSetClose(labelStack, lbl)
             }
-            // backward JUMP (loops) -> later CFG work; skipped.
         } else if lineStarts(line, "LABEL ") {
             let lbl = substring(line, 6, len(line))
-            let top = cfTop(labelStack)
-            if len(top) > 0 {
-                if lbl == cfElseOf(top) {
-                    // `_else` label; else already emitted by JUMP -> consume.
-                } else if lbl == cfCloseOf(top) {
-                    bb = bb + b(11)            // end (close the if/if-else)
-                    labelStack = cfDrop(labelStack)
+            if lineStarts(lbl, "_wloop") {
+                // Loop start: outer block (exit target) + inner loop (continue).
+                let wend = "_wend_" + substring(lbl, 7, len(lbl))
+                bb = bb + b(2) + b(64)                     // block (void)
+                bb = bb + b(3) + b(64)                     // loop (void)
+                labelStack = cfPush(labelStack, "blk" + tab() + wend + tab() + "-")
+                labelStack = cfPush(labelStack, "lp" + tab() + lbl + tab() + "-")
+            } else if lineStarts(lbl, "_wend") {
+                bb = bb + b(11) + b(11)                    // end loop; end block
+                labelStack = cfDrop(labelStack)
+                labelStack = cfDrop(labelStack)
+            } else {
+                let top = cfTop(labelStack)
+                if len(top) > 0 {
+                    if lbl == cfField(top, 2) {
+                        // if-else else label; `else` already emitted by JUMP -> consume.
+                    } else if lbl == cfField(top, 1) {
+                        bb = bb + b(11)                    // end (close if/if-else)
+                        labelStack = cfDrop(labelStack)
+                    }
                 }
             }
         } else if line == "POP" {
