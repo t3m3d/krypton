@@ -281,6 +281,59 @@ func collectLocals(body) {
     emit lst
 }
 
+// Collect PARAM names (wasm local indices 0..P-1, before declared locals).
+func collectParams(body) {
+    let n = lineCount(body)
+    let i = 0
+    let lst = localsNew()
+    while i < n {
+        let line = ltrim(getLine(body, i))
+        if lineStarts(line, "PARAM ") {
+            let name = substring(line, 6, len(line))
+            lst = localsAdd(lst, name)
+        }
+        i += 1
+    }
+    emit lst
+}
+
+// Concatenate two newline name-lists (params first, then locals).
+func nameListJoin(a, c) {
+    if len(a) == 0 { emit c }
+    if len(c) == 0 { emit a }
+    emit a + fromCharCode(10) + c
+}
+
+// True (1) if the body has any RETURN -> the func returns an i32 value.
+func bodyHasReturn(body) {
+    let n = lineCount(body)
+    let i = 0
+    while i < n {
+        if ltrim(getLine(body, i)) == "RETURN" { emit 1 }
+        i += 1
+    }
+    emit 0
+}
+
+// wasm func-index of a user function name (imports 0-1, helpers 2-7, users 8+).
+func funcIndexOf(funcNames, name) {
+    let n = lineCount(funcNames)
+    let i = 0
+    while i < n {
+        if getLine(funcNames, i) == name { emit 8 + i }
+        i += 1
+    }
+    emit 8
+}
+
+// Second token of "CALL name N".
+func callName(line) {
+    let rest = substring(line, 5, len(line))
+    let p = indexOf(rest, " ")
+    if p < 0 { emit rest }
+    emit substring(rest, 0, p)
+}
+
 // Scan for string literals.
 func collectStrings(body, table) {
     let n = lineCount(body)
@@ -364,16 +417,19 @@ func cfDepth(s, label) {
 
 // Emit one function body. Returns the body hex (locals vec + opcodes + end).
 // Values are tagged i32 (see header): int N -> (N<<1), string H -> (H<<1)|1.
-// Scratch locals appended after user locals: kpTmp, t0, t1.
-func emitFuncBody(body, table, localsList) {
-    let userCount = localsCount(localsList)
-    let kpTmpIdx = userCount
-    let t0Idx = userCount + 1
-    let t1Idx = userCount + 2
-    let totalLocals = userCount + 3            // kpTmp, t0, t1
+// localsList = params ++ declared-locals (combined, for index lookup);
+// paramCount of those are wasm function params (not declared in the vec).
+// Scratch locals (kpTmp,t0,t1) follow all of them. funcNames resolves CALL.
+func emitFuncBody(body, table, localsList, paramCount, funcNames) {
+    let combinedCount = localsCount(localsList)
+    let kpTmpIdx = combinedCount
+    let t0Idx = combinedCount + 1
+    let t1Idx = combinedCount + 2
+    // Locals declared in the vec = non-param locals + 3 scratch.
+    let declLocals = (combinedCount - paramCount) + 3
 
-    // Locals vec: 1 entry, <total> i32 (type 0x7F).
-    let bb = b(1) + leb(totalLocals) + b(127)
+    // Locals vec: 1 entry, <declLocals> i32 (type 0x7F).
+    let bb = b(1) + leb(declLocals) + b(127)
 
     let n = lineCount(body)
     let i = 0
@@ -382,6 +438,11 @@ func emitFuncBody(body, table, localsList) {
         let line = ltrim(getLine(body, i))
         if lineStarts(line, "LOCAL ") {
             // Already accounted for in the locals header. No opcode.
+        } else if lineStarts(line, "PARAM ") {
+            // Function parameter; already a wasm local 0..P-1. No opcode.
+        } else if lineStarts(line, "CALL ") {
+            // Args already on stack (left-to-right). call <funcidx>.
+            bb = bb + iCALL(funcIndexOf(funcNames, callName(line)))
         } else if lineStarts(line, "PUSH \"") {
             let s = strBetweenQuotes(line)
             let h = strTableOffset(table, s)
@@ -757,15 +818,36 @@ func wasmImports() {
     emit wasmSection(2, payload)
 }
 
-// Defined funcs (6 helpers + user funcs). Type indices in func-index order:
-//   2 int2str:t3, 3 tostr:t3, 4 concat:t4, 5 index:t4, 6 substr:t5,
-//   7 startsWith:t4, then user funcs:t1.
-func wasmFuncs(funcCount) {
-    let payload = leb(6 + funcCount) +
+// Map (paramCount, returnsVal) -> a type index from wasmTypes().
+// types: 0 (i32,i32)->void, 1 ()->void, 2 (i32)->void, 3 (i32)->i32,
+//        4 (i32,i32)->i32, 5 (i32,i32,i32)->i32.
+func userFuncType(p, r) {
+    if r == 0 {
+        if p == 0 { emit 1 }
+        if p == 1 { emit 2 }
+        if p == 2 { emit 0 }
+        emit 1
+    }
+    if p == 1 { emit 3 }
+    if p == 2 { emit 4 }
+    if p == 3 { emit 5 }
+    emit 3                       // fallback: (i32)->i32
+}
+
+// Defined funcs (6 helpers + user funcs). Helper type indices in
+// func-index order: 2 int2str:t3, 3 tostr:t3, 4 concat:t4, 5 index:t4,
+// 6 substr:t5, 7 startsWith:t4. funcSigs = newline list of "P,R" per user func.
+func wasmFuncs(funcSigs) {
+    let cnt = lineCount(funcSigs)
+    let payload = leb(6 + cnt) +
                   b(3) + b(3) + b(4) + b(4) + b(5) + b(4)
     let i = 0
-    while i < funcCount {
-        payload = payload + b(1)
+    while i < cnt {
+        let row = getLine(funcSigs, i)
+        let cpos = indexOf(row, ",")
+        let p = toInt(substring(row, 0, cpos))
+        let r = toInt(substring(row, cpos + 1, len(row)))
+        payload = payload + b(userFuncType(p, r))
         i += 1
     }
     emit wasmSection(3, payload)
@@ -819,14 +901,35 @@ func wasmData(blob) {
 
 // ── Driver ───────────────────────────────────────────────────────────
 
+// Parse "FUNC name P" -> name (token after FUNC, before next space).
+func funcLineName(line) {
+    let rest = substring(line, 5, len(line))
+    let sp = indexOf(rest, " ")
+    if sp > 0 { emit substring(rest, 0, sp) }
+    emit rest
+}
+
 func buildModule(ir) {
     let n = lineCount(ir)
-    let strTab = strTableNew()
-    let funcBodies = ""
-    let funcCount = 0
-    let mainIdx = 0
+
+    // Pass 1: collect all user func names (in order) for CALL resolution.
     let funcNames = ""
     let i = 0
+    while i < n {
+        let line = ltrim(getLine(ir, i))
+        if lineStarts(line, "FUNC ") {
+            funcNames = nameListJoin(funcNames, funcLineName(line))
+        }
+        i += 1
+    }
+
+    // Pass 2: emit each func body; collect string table, signatures, mainIdx.
+    let strTab = strTableNew()
+    let funcBodies = ""
+    let funcSigs = ""           // newline list of "P,R" per user func
+    let mainIdx = 0
+    let fIdx = 0
+    i = 0
     while i < n {
         let line = ltrim(getLine(ir, i))
         if lineStarts(line, "FUNC ") {
@@ -840,18 +943,18 @@ func buildModule(ir) {
                 i += 1
             }
             strTab = collectStrings(body, strTab)
-            let locals = collectLocals(body)
-            let hex = emitFuncBody(body, strTab, locals)
+            let params = collectParams(body)
+            let pCount = localsCount(params)
+            let combined = nameListJoin(params, collectLocals(body))
+            let rVal = bodyHasReturn(body)
+            let hex = emitFuncBody(body, strTab, combined, pCount, funcNames)
             if len(funcBodies) == 0 { funcBodies = hex }
             else                    { funcBodies = funcBodies + fromCharCode(10) + hex }
-            let rest = substring(line, 5, len(line))
-            let spacePos = indexOf(rest, " ")
-            let name = rest
-            if spacePos > 0 { name = substring(rest, 0, spacePos) }
-            if name == "__main__" { mainIdx = funcCount + 8 }    // 2 imports + 6 helpers
-            if len(funcNames) == 0 { funcNames = name }
-            else                   { funcNames = funcNames + fromCharCode(10) + name }
-            funcCount += 1
+            let sig = pCount + "," + rVal
+            if len(funcSigs) == 0 { funcSigs = sig }
+            else                  { funcSigs = funcSigs + fromCharCode(10) + sig }
+            if funcLineName(line) == "__main__" { mainIdx = fIdx + 8 }  // 2 imports + 6 helpers
+            fIdx += 1
         } else {
             i += 1
         }
@@ -873,7 +976,7 @@ func buildModule(ir) {
     emit wasmHeader() +
          wasmTypes() +
          wasmImports() +
-         wasmFuncs(funcCount) +
+         wasmFuncs(funcSigs) +
          wasmMemory() +
          wasmGlobals(bumpStart) +
          wasmExports(mainIdx) +
