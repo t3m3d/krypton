@@ -296,6 +296,48 @@ func collectStrings(body, table) {
     emit t
 }
 
+// ── Control-flow frame stack (structured if / if-else) ───────────────
+// IR uses goto-style JUMPIFNOT/JUMP/LABEL; wasm needs structured
+// if/else/end. Each open `if` is one frame line: elseLabel TAB closeLabel
+// ("-" = none). Forward if-blocks only; backward JUMP (loops) is later work.
+func cfPush(s, elseL, closeL) {
+    let row = elseL + tab() + closeL
+    if len(s) == 0 { emit row }
+    emit s + fromCharCode(10) + row
+}
+func cfTop(s) {
+    let n = lineCount(s)
+    if n == 0 { emit "" }
+    emit getLine(s, n - 1)
+}
+func cfDrop(s) {
+    let n = lineCount(s)
+    if n <= 1 { emit "" }
+    let out = getLine(s, 0)
+    let k = 1
+    while k < n - 1 { out = out + fromCharCode(10) + getLine(s, k)  k += 1 }
+    emit out
+}
+func cfSetClose(s, closeL) {
+    let n = lineCount(s)
+    let top = getLine(s, n - 1)
+    let p = indexOf(top, tab())
+    let row = substring(top, 0, p) + tab() + closeL
+    if n <= 1 { emit row }
+    let out = getLine(s, 0)
+    let k = 1
+    while k < n - 1 { out = out + fromCharCode(10) + getLine(s, k)  k += 1 }
+    emit out + fromCharCode(10) + row
+}
+func cfElseOf(frame) {
+    let p = indexOf(frame, tab())
+    emit substring(frame, 0, p)
+}
+func cfCloseOf(frame) {
+    let p = indexOf(frame, tab())
+    emit substring(frame, p + 1, len(frame))
+}
+
 // Emit one function body. Returns the body hex (locals vec + opcodes + end).
 // Values are tagged i32 (see header): int N -> (N<<1), string H -> (H<<1)|1.
 // Scratch locals appended after user locals: kpTmp, t0, t1.
@@ -311,7 +353,7 @@ func emitFuncBody(body, table, localsList) {
 
     let n = lineCount(body)
     let i = 0
-    let labelStack = ""        // newline-list of pending if-end labels (forward jumps)
+    let labelStack = ""        // control-flow frame stack (see cfPush): one row per open if
     while i < n {
         let line = ltrim(getLine(body, i))
         if lineStarts(line, "LOCAL ") {
@@ -354,6 +396,18 @@ func emitFuncBody(body, table, localsList) {
             bb = bb + b(109) + iC(1) + b(116)  // i32.div_s; i32.const 1; shl
         } else if line == "MOD" {
             bb = bb + b(111)                    // i32.rem_s ((2N)%(2M)=2(N%M))
+        } else if line == "EQ" {
+            bb = bb + b(70) + iC(1) + b(116)   // i32.eq;   retag <<1 (tagged bool)
+        } else if line == "NEQ" {
+            bb = bb + b(71) + iC(1) + b(116)   // i32.ne
+        } else if line == "LT" {
+            bb = bb + b(72) + iC(1) + b(116)   // i32.lt_s
+        } else if line == "GT" {
+            bb = bb + b(74) + iC(1) + b(116)   // i32.gt_s
+        } else if line == "LTE" {
+            bb = bb + b(76) + iC(1) + b(116)   // i32.le_s
+        } else if line == "GTE" {
+            bb = bb + b(78) + iC(1) + b(116)   // i32.ge_s
         } else if lineStarts(line, "BUILTIN kp ") {
             // Tag dispatch on stack top: LSB 1 -> string (console_log),
             // LSB 0 -> int (console_log_int). Push dummy 0 after (IR's
@@ -395,30 +449,33 @@ func emitFuncBody(body, table, localsList) {
             // tagged v -> tagged bool: (v != 0) << 1. (false=0, true=2)
             bb = bb + iC(0) + b(71) + iC(1) + b(116)
         } else if lineStarts(line, "JUMPIFNOT ") {
-            // Forward structured if: tagged cond on stack (false=0 skips,
-            // true=2 enters). Open an `if`; the matching LABEL closes it.
+            // tagged cond on stack (false=0 skip, true=2 enter). Open `if`.
+            // `_else` target -> if/else; any other target -> plain if.
             let lbl = substring(line, 10, len(line))
             bb = bb + b(4) + b(64)             // if (void)
-            if len(labelStack) == 0 { labelStack = lbl }
-            else { labelStack = labelStack + fromCharCode(10) + lbl }
+            if lineStarts(lbl, "_else") { labelStack = cfPush(labelStack, lbl, "-") }
+            else                        { labelStack = cfPush(labelStack, "-", lbl) }
+        } else if lineStarts(line, "JUMP ") {
+            // End of then-branch jumping over the else body -> emit `else`,
+            // record the endif label as the frame's close. (Forward only.)
+            let lbl = substring(line, 5, len(line))
+            let top = cfTop(labelStack)
+            if len(top) > 0 && cfElseOf(top) != "-" {
+                bb = bb + b(5)                 // else
+                labelStack = cfSetClose(labelStack, lbl)
+            }
+            // backward JUMP (loops) -> later CFG work; skipped.
         } else if lineStarts(line, "LABEL ") {
-            // Close the matching forward `if` opened by JUMPIFNOT.
             let lbl = substring(line, 6, len(line))
-            let top = ""
-            let lc = lineCount(labelStack)
-            if lc > 0 { top = getLine(labelStack, lc - 1) }
-            if top == lbl {
-                bb = bb + b(11)                // end (close the if)
-                if lc <= 1 { labelStack = "" }
-                else {
-                    // drop last line
-                    let nw = getLine(labelStack, 0)
-                    let k = 1
-                    while k < lc - 1 { nw = nw + fromCharCode(10) + getLine(labelStack, k)  k += 1 }
-                    labelStack = nw
+            let top = cfTop(labelStack)
+            if len(top) > 0 {
+                if lbl == cfElseOf(top) {
+                    // `_else` label; else already emitted by JUMP -> consume.
+                } else if lbl == cfCloseOf(top) {
+                    bb = bb + b(11)            // end (close the if/if-else)
+                    labelStack = cfDrop(labelStack)
                 }
             }
-            // Non-if labels (loop/backward targets) are 1.4-CFG work; skipped.
         } else if line == "POP" {
             bb = bb + b(26)                     // drop
         } else if line == "RETURN" {
