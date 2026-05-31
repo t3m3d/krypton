@@ -3,10 +3,18 @@
 // Phase 1.0  ✅ skeleton + emit helpers
 // Phase 1.1  ✅ parse FUNC blocks, build string table, IR-driven sections
 // Phase 1.2  ✅ LOCAL / STORE / LOAD / PUSH "str" / PUSH N / BUILTIN kp /
-//               ADD / SUB / POP / gc bookkeeping → lessons 01 and 04 run
-//               end-to-end. Lesson 02 (string concat) hits ADD as i32 which
-//               is wrong for strings but doesn't crash; real concat is 1.3.
-// Phase 1.3+ ⏳ string concat runtime, function calls, control flow,
+//               ADD / SUB / POP / gc bookkeeping → lesson 01 runs e2e.
+// Phase 1.3  ✅ string concat (tagged-i32 scheme). Values are tagged i32:
+//               int N -> (N<<1), string handle H -> (H<<1)|1; LSB is the tag.
+//               ADD dispatches int-add vs $concat. kp dispatches
+//               console_log_int vs console_log, +console_log(4,1) newline.
+//               Helpers $int2str/$tostr/$concat hand-emitted (fn idx 2,3,4);
+//               bump allocator in global 0. Newline string at fixed mem
+//               offset 0; real string handles start at strBase()=5.
+//               → RUN.sh lessons 01,02,04 PASS (PASS=3/8).
+// Phase 1.4  ⏳ string builtins (len/index/substring/startsWith → 03),
+//               control flow (JUMPIF/JUMP/LABEL → 05,06), function calls
+//               (CALL/BUILTIN user funcs → 07), more print (08),
 //               funcptr table, full stdlib subset.
 //
 // See docs/wasm_backend_design.md, docs/WASM_HOST_ABI.md, and
@@ -36,6 +44,29 @@ func leb(n) {
         v = v / 128
     }
     emit out + b(v)
+}
+
+// Signed LEB128 for non-negative i32.const operands. Unsigned leb misreads
+// any single byte with bit 6 set (values 64..127) as negative, so an extra
+// zero continuation byte is appended whenever the final group's sign bit
+// would otherwise be set. All compile-time constants we emit are >= 0
+// (handles, tags, offsets, bump pointer, non-negative literals); runtime
+// negatives come from SUB/NEG, never from i32.const.
+func sleb(n) {
+    let out = ""
+    let v = n
+    let more = 1
+    while more == 1 {
+        let byte = v % 128
+        v = v / 128
+        if v == 0 && byte < 64 {
+            more = 0                         // last group, sign bit clear
+        } else {
+            byte = byte + 128                // continuation bit
+        }
+        out = out + b(byte)
+    }
+    emit out
 }
 
 func bstr(s) {
@@ -136,23 +167,29 @@ func strTableAdd(table, s) {
     emit table + fromCharCode(10) + newRow
 }
 
+// Newline string lives at a FIXED offset 0 ([len=1][0x0a] = 5 bytes), NOT in
+// the table — storing a literal "\n" as a table value would corrupt the
+// newline-separated row parsing. Real string handles start after it.
+func strBase() { emit 5 }
+
 func strTableOffset(table, s) {
     let n = lineCount(table)
     let i = 0
     while i < n {
         let row = getLine(table, i)
         if len(row) > 0 && strRowLiteral(row) == s {
-            emit strRowOffset(row)
+            emit strRowOffset(row) + strBase()
         }
         i += 1
     }
-    emit 0
+    emit strBase()
 }
 
-// Emit one 4-byte little-endian length prefix followed by the literal
-// bytes, for every row. Caller wraps in a Data segment.
+// Emit the fixed newline string at offset 0, then a 4-byte little-endian
+// length prefix + literal bytes for every table row. Caller wraps in Data.
 func strTableBlob(table) {
-    let out = ""
+    // newline string: len=1, byte 0x0a. kp prints it via console_log(4,1).
+    let out = b(1) + b(0) + b(0) + b(0) + b(10)
     let n = lineCount(table)
     let i = 0
     while i < n {
@@ -187,11 +224,15 @@ func isPushInt(line) {
     let c0 = rest[0]
     if c0 == "\"" { emit 0 }
     if c0 == "-" { emit 1 }
-    if c0 >= "0" && c0 <= "9" { emit 1 }
+    // String `<=` is unreliable in Krypton; compare codepoints numerically.
+    let cc = toInt(charCode(c0))
+    if cc >= 48 && cc <= 57 { emit 1 }
     emit 0
 }
 
-func parseInt(line) {
+// NB: named pushIntVal, not parseInt — `parseInt` is a Krypton builtin that
+// shadows user funcs and would parse the whole "PUSH N" line, yielding garbage.
+func pushIntVal(line) {
     let rest = substring(line, 5, len(line))
     emit toInt(rest)
 }
@@ -256,11 +297,14 @@ func collectStrings(body, table) {
 }
 
 // Emit one function body. Returns the body hex (locals vec + opcodes + end).
-// `kpTmpIdx` is the local index reserved for the kp dereference dance.
+// Values are tagged i32 (see header): int N -> (N<<1), string H -> (H<<1)|1.
+// Scratch locals appended after user locals: kpTmp, t0, t1.
 func emitFuncBody(body, table, localsList) {
     let userCount = localsCount(localsList)
     let kpTmpIdx = userCount
-    let totalLocals = userCount + 1            // +1 for kpTmp
+    let t0Idx = userCount + 1
+    let t1Idx = userCount + 2
+    let totalLocals = userCount + 3            // kpTmp, t0, t1
 
     // Locals vec: 1 entry, <total> i32 (type 0x7F).
     let bb = b(1) + leb(totalLocals) + b(127)
@@ -274,42 +318,57 @@ func emitFuncBody(body, table, localsList) {
         } else if lineStarts(line, "PUSH \"") {
             let s = strBetweenQuotes(line)
             let h = strTableOffset(table, s)
-            bb = bb + b(65) + leb(h)            // i32.const handle
+            bb = bb + iC((h * 2) + 1)           // i32.const (handle<<1)|1
         } else if isPushInt(line) > 0 {
-            let v = parseInt(line)
-            bb = bb + b(65) + leb(v)            // i32.const v
+            let v = pushIntVal(line)
+            bb = bb + iC(v * 2)                 // i32.const (N<<1)
         } else if lineStarts(line, "STORE ") {
             let name = substring(line, 6, len(line))
             let idx = localsIndex(localsList, name)
             if idx < 0 { idx = kpTmpIdx }
-            bb = bb + b(33) + leb(idx)          // local.set
+            bb = bb + iLS(idx)                  // local.set
         } else if lineStarts(line, "LOAD ") {
             let name = substring(line, 5, len(line))
             let idx = localsIndex(localsList, name)
             if idx < 0 { idx = kpTmpIdx }
-            bb = bb + b(32) + leb(idx)          // local.get
+            bb = bb + iLG(idx)                  // local.get
         } else if line == "ADD" {
-            bb = bb + b(106)                    // i32.add
+            // Tag dispatch: if either operand is a pointer (LSB 1) -> $concat,
+            // else plain i32.add (two tagged ints sum to a tagged int).
+            bb = bb + iLS(t1Idx) + iLS(t0Idx)               // t1=b, t0=a
+            bb = bb + iLG(t0Idx) + iLG(t1Idx) + b(114)      // a | b
+            bb = bb + iC(1) + b(113)                        // & 1
+            bb = bb + b(4) + b(127)                         // if (result i32)
+            bb = bb + iLG(t0Idx) + iLG(t1Idx) + iCALL(4)    //   $concat
+            bb = bb + b(5)                                  // else
+            bb = bb + iLG(t0Idx) + iLG(t1Idx) + b(106)      //   i32.add
+            bb = bb + b(11)                                 // end
         } else if line == "SUB" {
-            bb = bb + b(107)                    // i32.sub
+            bb = bb + b(107)                    // i32.sub  ((2N)-(2M)=2(N-M))
         } else if line == "MUL" {
-            bb = bb + b(108)                    // i32.mul
+            // a * (b>>1): (N<<1)*M = (N*M)<<1.
+            bb = bb + iC(1) + b(117) + b(108)  // i32.const 1; shr_s; i32.mul
         } else if line == "DIV" {
-            bb = bb + b(109)                    // i32.div_s
+            // (a/b)<<1: (2N)/(2M)=N/M, retag.
+            bb = bb + b(109) + iC(1) + b(116)  // i32.div_s; i32.const 1; shl
         } else if line == "MOD" {
-            bb = bb + b(111)                    // i32.rem_s
+            bb = bb + b(111)                    // i32.rem_s ((2N)%(2M)=2(N%M))
         } else if lineStarts(line, "BUILTIN kp ") {
-            // Stack top: handle (i32 offset into the string area).
-            // tee kpTmp → (handle+4) → load length → call console_log,
-            // then push dummy 0 to match IR's "every BUILTIN returns 1
-            // value" convention. The trailing POP drops it cleanly.
-            bb = bb + b(34) + leb(kpTmpIdx)     // local.tee kpTmp
-            bb = bb + b(65) + leb(4)            // i32.const 4
-            bb = bb + b(106)                    // i32.add  (ptr = handle + 4)
-            bb = bb + b(32) + leb(kpTmpIdx)     // local.get kpTmp
-            bb = bb + b(40) + b(2) + b(0)       // i32.load align=2 offset=0
-            bb = bb + b(16) + b(0)              // call 0 (env.console_log)
-            bb = bb + b(65) + b(0)              // i32.const 0  (dummy result)
+            // Tag dispatch on stack top: LSB 1 -> string (console_log),
+            // LSB 0 -> int (console_log_int). Push dummy 0 after (IR's
+            // "every BUILTIN returns 1 value"); trailing POP drops it.
+            bb = bb + iLT(kpTmpIdx) + iC(1) + b(113)        // tee; &1
+            bb = bb + b(4) + b(64)                          // if (void)
+            bb = bb + iLG(kpTmpIdx) + iC(1) + b(118) + iLS(kpTmpIdx)  // base=v>>1u (set, not tee)
+            bb = bb + iLG(kpTmpIdx) + iC(4) + b(106)        // bytes ptr = base+4
+            bb = bb + iLG(kpTmpIdx) + b(40) + b(2) + b(0)   // len = i32.load base
+            bb = bb + iCALL(0)                              // console_log(ptr,len)
+            bb = bb + b(5)                                  // else
+            bb = bb + iLG(kpTmpIdx) + iC(1) + b(117) + iCALL(1)  // console_log_int(v>>1s)
+            bb = bb + b(11)                                 // end
+            // kp is print-with-newline: emit the seeded "\n" (bytes at offset 4).
+            bb = bb + iC(4) + iC(1) + iCALL(0)             // console_log(4, 1)
+            bb = bb + iC(0)                                 // dummy result
         } else if lineStarts(line, "BUILTIN gcShadowCount ") {
             // Treated as a no-op that returns 0. IR pushes its result.
             bb = bb + b(65) + b(0)              // i32.const 0
@@ -334,33 +393,173 @@ func emitFuncBody(body, table, localsList) {
     emit bb
 }
 
+// ── Opcode shorthands (variable-operand ops; single-byte ops use b()) ─
+func iLG(i)   { emit b(32) + leb(i) }      // local.get
+func iLS(i)   { emit b(33) + leb(i) }      // local.set
+func iLT(i)   { emit b(34) + leb(i) }      // local.tee
+func iC(v)    { emit b(65) + sleb(v) }     // i32.const (signed LEB, non-neg)
+func iCALL(i) { emit b(16) + leb(i) }      // call
+
+// ── Runtime helper functions (hand-emitted wasm) ─────────────────────
+// Function index map: 0 console_log(import), 1 console_log_int(import),
+// 2 $int2str, 3 $tostr, 4 $concat, 5+ user funcs. global 0 = bump pointer.
+// Single-byte opcodes used below:
+//   load i32 = 28/02/00, load8_u = 2d/00/00, store i32 = 36/02/00,
+//   store8 = 3a/00/00, add 6a sub 6b mul 6c div_u 6e rem_u 70,
+//   and 71 or 72 shl 74 shr_s 75 shr_u 76, eqz 45 lt_s 48 ge_u 4f,
+//   if 04 (40 void / 7f i32) else 05 end 0b block 02/40 loop 03/40
+//   br 0c brif 0d. global.get 23/00 global.set 24/00.
+
+// $int2str(n:i32) -> i32 base ptr to [len:u32][ascii]. param 0 = n.
+// Locals: 1 neg, 2 cnt, 3 len, 4 dst, 5 pos, 6 t.
+func emitInt2Str() {
+    let bb = b(1) + leb(6) + b(127)                    // 6 i32 locals
+    // if n < 0 { neg=1; n = 0 - n }
+    bb = bb + iLG(0) + iC(0) + b(72)                   // n < 0  (lt_s)
+    bb = bb + b(4) + b(64)
+    bb = bb + iC(1) + iLS(1)                           // neg = 1
+    bb = bb + iC(0) + iLG(0) + b(107) + iLS(0)         // n = 0 - n
+    bb = bb + b(11)
+    // count digits -> cnt
+    bb = bb + iLG(0) + b(69)                           // n == 0 (eqz)
+    bb = bb + b(4) + b(64)
+    bb = bb + iC(1) + iLS(2)                           // cnt = 1
+    bb = bb + b(5)                                     // else
+    bb = bb + iLG(0) + iLS(6)                          // t = n
+    bb = bb + b(2) + b(64) + b(3) + b(64)             // block; loop
+    bb = bb + iLG(6) + b(69) + b(13) + leb(1)          // if t==0 br 1 (exit)
+    bb = bb + iLG(2) + iC(1) + b(106) + iLS(2)         // cnt++
+    bb = bb + iLG(6) + iC(10) + b(110) + iLS(6)        // t /= 10 (div_u)
+    bb = bb + b(12) + leb(0)                           // br 0 (loop)
+    bb = bb + b(11) + b(11)                            // end loop; end block
+    bb = bb + b(11)                                    // end if
+    // len = cnt + neg
+    bb = bb + iLG(2) + iLG(1) + b(106) + iLS(3)
+    // dst = bump
+    bb = bb + b(35) + leb(0) + iLS(4)                  // global.get 0
+    // store len u32 at dst
+    bb = bb + iLG(4) + iLG(3) + b(54) + b(2) + b(0)    // i32.store
+    // if neg: store '-' (45) at dst+4
+    bb = bb + iLG(1) + b(4) + b(64)
+    bb = bb + iLG(4) + iC(4) + b(106) + iC(45) + b(58) + b(0) + b(0)  // store8
+    bb = bb + b(11)
+    // pos = dst + 4 + len
+    bb = bb + iLG(4) + iC(4) + b(106) + iLG(3) + b(106) + iLS(5)
+    // fill digits
+    bb = bb + iLG(0) + b(69)                           // n == 0
+    bb = bb + b(4) + b(64)
+    bb = bb + iLG(5) + iC(1) + b(107) + iC(48) + b(58) + b(0) + b(0)  // buf[pos-1]='0'
+    bb = bb + b(5)                                     // else
+    bb = bb + iLG(0) + iLS(6)                          // t = n
+    bb = bb + b(2) + b(64) + b(3) + b(64)             // block; loop
+    bb = bb + iLG(6) + b(69) + b(13) + leb(1)          // if t==0 br 1
+    bb = bb + iLG(5) + iC(1) + b(107) + iLS(5)         // pos--
+    bb = bb + iLG(5)                                   // addr = pos
+    bb = bb + iLG(6) + iC(10) + b(112) + iC(48) + b(106)  // '0' + t%10 (rem_u)
+    bb = bb + b(58) + b(0) + b(0)                      // store8
+    bb = bb + iLG(6) + iC(10) + b(110) + iLS(6)        // t /= 10
+    bb = bb + b(12) + leb(0)                           // br 0
+    bb = bb + b(11) + b(11)                            // end loop; end block
+    bb = bb + b(11)                                    // end if
+    // bump = dst + 4 + len
+    bb = bb + iLG(4) + iC(4) + b(106) + iLG(3) + b(106) + b(36) + leb(0)  // global.set 0
+    // return dst
+    bb = bb + iLG(4)
+    bb = bb + b(11)                                    // end func
+    emit bb
+}
+
+// $tostr(v:i32 tagged) -> i32 base ptr. param 0 = v. No extra locals.
+func emitToStr() {
+    let bb = b(0)                                      // 0 local groups
+    bb = bb + iLG(0) + iC(1) + b(113)                 // v & 1
+    bb = bb + b(4) + b(127)                            // if (result i32)
+    bb = bb + iLG(0) + iC(1) + b(118)                 //   v >> 1 (unsigned) = ptr
+    bb = bb + b(5)                                     // else
+    bb = bb + iLG(0) + iC(1) + b(117) + iCALL(2)      //   $int2str(v>>1 signed)
+    bb = bb + b(11)                                    // end if
+    bb = bb + b(11)                                    // end func
+    emit bb
+}
+
+// $concat(a:i32, b:i32) -> i32 tagged string. params 0=a, 1=b.
+// Locals: 2 pa, 3 pb, 4 la, 5 lb, 6 dst, 7 i.
+func emitConcat() {
+    let bb = b(1) + leb(6) + b(127)                    // 6 i32 locals
+    bb = bb + iLG(0) + iCALL(3) + iLS(2)              // pa = $tostr(a)
+    bb = bb + iLG(1) + iCALL(3) + iLS(3)              // pb = $tostr(b)
+    bb = bb + iLG(2) + b(40) + b(2) + b(0) + iLS(4)   // la = load[pa]
+    bb = bb + iLG(3) + b(40) + b(2) + b(0) + iLS(5)   // lb = load[pb]
+    bb = bb + b(35) + leb(0) + iLS(6)                 // dst = bump
+    // store len = la+lb at dst
+    bb = bb + iLG(6) + iLG(4) + iLG(5) + b(106) + b(54) + b(2) + b(0)
+    // copy a: i=0; while i<la
+    bb = bb + iC(0) + iLS(7)
+    bb = bb + b(2) + b(64) + b(3) + b(64)
+    bb = bb + iLG(7) + iLG(4) + b(79) + b(13) + leb(1)   // i>=la (ge_u) br 1
+    bb = bb + iLG(6) + iC(4) + b(106) + iLG(7) + b(106)  // dst+4+i
+    bb = bb + iLG(2) + iC(4) + b(106) + iLG(7) + b(106) + b(45) + b(0) + b(0)  // load8 pa+4+i
+    bb = bb + b(58) + b(0) + b(0)                        // store8
+    bb = bb + iLG(7) + iC(1) + b(106) + iLS(7)           // i++
+    bb = bb + b(12) + leb(0)
+    bb = bb + b(11) + b(11)
+    // copy b: i=0; while i<lb
+    bb = bb + iC(0) + iLS(7)
+    bb = bb + b(2) + b(64) + b(3) + b(64)
+    bb = bb + iLG(7) + iLG(5) + b(79) + b(13) + leb(1)   // i>=lb br 1
+    bb = bb + iLG(6) + iC(4) + b(106) + iLG(4) + b(106) + iLG(7) + b(106)  // dst+4+la+i
+    bb = bb + iLG(3) + iC(4) + b(106) + iLG(7) + b(106) + b(45) + b(0) + b(0)  // load8 pb+4+i
+    bb = bb + b(58) + b(0) + b(0)                        // store8
+    bb = bb + iLG(7) + iC(1) + b(106) + iLS(7)           // i++
+    bb = bb + b(12) + leb(0)
+    bb = bb + b(11) + b(11)
+    // bump = dst + 4 + la + lb
+    bb = bb + iLG(6) + iC(4) + b(106) + iLG(4) + b(106) + iLG(5) + b(106) + b(36) + leb(0)
+    // return (dst<<1)|1
+    bb = bb + iLG(6) + iC(1) + b(116) + iC(1) + b(114)
+    bb = bb + b(11)                                      // end func
+    emit bb
+}
+
 // ── Section builders ─────────────────────────────────────────────────
 
 func wasmTypes() {
     let payload =
-        b(2) +
-        b(96) + b(2) + b(127) + b(127) + b(0) +     // (i32,i32)->void
-        b(96) + b(0) + b(0)                         // ()->void
+        b(5) +
+        b(96) + b(2) + b(127) + b(127) + b(0) +            // 0 (i32,i32)->void
+        b(96) + b(0) + b(0) +                              // 1 ()->void
+        b(96) + b(1) + b(127) + b(0) +                     // 2 (i32)->void
+        b(96) + b(1) + b(127) + b(1) + b(127) +            // 3 (i32)->i32
+        b(96) + b(2) + b(127) + b(127) + b(1) + b(127)     // 4 (i32,i32)->i32
     emit wasmSection(1, payload)
 }
 
 func wasmImports() {
     let payload =
-        b(1) +
-        b(3) + bstr("env") +
-        b(11) + bstr("console_log") +
-        b(0) + b(0)
+        b(2) +
+        b(3) + bstr("env") + b(11) + bstr("console_log")     + b(0) + b(0) +
+        b(3) + bstr("env") + b(15) + bstr("console_log_int") + b(0) + b(2)
     emit wasmSection(2, payload)
 }
 
+// Defined funcs: 3 helpers (int2str:t3, tostr:t3, concat:t4) + user funcs (t1).
 func wasmFuncs(funcCount) {
-    let payload = leb(funcCount)
+    let payload = leb(3 + funcCount) + b(3) + b(3) + b(4)
     let i = 0
     while i < funcCount {
         payload = payload + b(1)
         i += 1
     }
     emit wasmSection(3, payload)
+}
+
+// Global 0: mutable i32 bump pointer, init to end of static string data.
+func wasmGlobals(bumpStart) {
+    let payload =
+        b(1) +
+        b(127) + b(1) +                       // i32, mutable
+        b(65) + sleb(bumpStart) + b(11)       // init: i32.const bumpStart; end
+    emit wasmSection(6, payload)
 }
 
 func wasmMemory() {
@@ -431,7 +630,7 @@ func buildModule(ir) {
             let spacePos = indexOf(rest, " ")
             let name = rest
             if spacePos > 0 { name = substring(rest, 0, spacePos) }
-            if name == "__main__" { mainIdx = funcCount + 1 }    // +1 for import
+            if name == "__main__" { mainIdx = funcCount + 5 }    // 2 imports + 3 helpers
             if len(funcNames) == 0 { funcNames = name }
             else                   { funcNames = funcNames + fromCharCode(10) + name }
             funcCount += 1
@@ -441,13 +640,23 @@ func buildModule(ir) {
     }
 
     let blob = strTableBlob(strTab)
+    let bumpStart = strBase() + strTableUsed(strTab)   // +5 for fixed newline string
+
+    // Prepend the 3 runtime helper bodies (indices 2,3,4) to the user funcs.
+    let helperBodies = emitInt2Str() + fromCharCode(10) +
+                       emitToStr()   + fromCharCode(10) +
+                       emitConcat()
+    let allBodies = helperBodies
+    if len(funcBodies) > 0 { allBodies = helperBodies + fromCharCode(10) + funcBodies }
+
     emit wasmHeader() +
          wasmTypes() +
          wasmImports() +
          wasmFuncs(funcCount) +
          wasmMemory() +
+         wasmGlobals(bumpStart) +
          wasmExports(mainIdx) +
-         wasmCode(funcBodies) +
+         wasmCode(allBodies) +
          wasmData(blob)
 }
 

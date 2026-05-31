@@ -41,6 +41,18 @@ for cand in "$REPO/compiler/wasm32/wasm_self" "$REPO/compiler/wasm32/wasm_self.e
   [[ -x "$cand" || -f "$cand" ]] && { EMIT="$cand"; break; }
 done
 
+# The committed binary is gitignored (.gitignore: compiler/wasm32/wasm_self), so a
+# fresh `git pull` brings the updated wasm_self.k source but no rebuilt binary —
+# running a stale/missing binary mis-grades every lesson. Build from source into
+# $WORK if no binary is present, so the test always reflects current wasm_self.k.
+if [[ -z "$EMIT" ]]; then
+  built="$WORK/wasm_self"
+  if KCC --gcc "$REPO/compiler/wasm32/wasm_self.k" -o "$built" 2>/dev/null \
+     || KCC "$REPO/compiler/wasm32/wasm_self.k" -o "$built" 2>/dev/null; then
+    [[ -s "$built" ]] && EMIT="$built"
+  fi
+fi
+
 RUNNER="$REPO/scripts/run_wasm.js"
 if ! command -v node >/dev/null 2>&1; then
   echo "RUN.sh: node not found (needed by scripts/run_wasm.js)" >&2; exit 1
