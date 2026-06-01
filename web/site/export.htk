@@ -480,22 +480,43 @@ func pagePrograms() {
     emit sitePage("Programs", content)
 }
 
+// Styled download button -> a direct release asset. Links go straight to the
+// asset, not the /releases listing (which mis-sorts the newest tag).
+func dlBtn(url, label) {
+    emit htAA(htHref(url) + htStyleAttr("display:inline-block;background:var(--primary);color:#fff;padding:10px 24px;border-radius:6px;font-weight:600"), label)
+}
+
 func pageDownloads() {
     let BS = fromCharCode(92)
+    let REL = "https://github.com/t3m3d/krypton/releases/download"
     let content = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
         htH1("Downloads") +
         "<span class=" + DQ() + "tag" + DQ() + ">Latest: 2.1.1</span>" +
-        htP("Released May 25, 2026.") +
+        htP("Released May 31, 2026. Ships the native compiler (kcc), the Krypton web framework (kweb), and the VS Code / Google Antigravity extension.") +
+
         htH2("Windows Installer") +
-        htP("One-click install to C:" + BS + "krypton with automatic PATH configuration. 2.5 MB. Windows 10/11 x64.") +
-        htP(htAA(htHref("https://github.com/t3m3d/krypton/releases") + htStyleAttr("display:inline-block;background:var(--primary);color:#fff;padding:10px 24px;border-radius:6px;font-weight:600"), "Download for Windows")) +
+        htP("One-click install to C:" + BS + "krypton with automatic PATH configuration. Bundles kcc, kweb, and the early-access WASM backend. 2.6 MB. Windows 10/11 x64.") +
+        htP(dlBtn(REL + "/v2.1.1/krypton-2.1.1-setup.exe", "Download for Windows")) +
+
         htH2("macOS (Apple Silicon)") +
-        htP("Standard macOS package installer for arm64 Macs.") +
+        htP("Signed-payload .pkg installer for arm64 Macs. Installs to /usr/local/krypton with kcc on your PATH.") +
+        htP(dlBtn(REL + "/2.1.1/krypton-2.1.1-macos-arm64.pkg", "Download .pkg for macOS")) +
+        htH3("Or install with Homebrew") +
+        htPre(htCode("brew install t3m3d/krypton/krypton")) +
+        htP("Prefer a tarball? " + htAA(htHref(REL + "/2.1.1/krypton-2.1.1-macos-arm64.tar.gz"), "krypton-2.1.1-macos-arm64.tar.gz") + ".") +
+
+        htH2("Krypton Web Framework (kweb)") +
+        htP("Server, router, and the htmk / kcss / ks DSLs for building sites in pure Krypton. Bundled in the Windows installer; on macOS / Linux, build from source:") +
+        htPre(htCode("git clone https://github.com/t3m3d/kweb" + NL() + "cd kweb" + NL() + "kcc kweb.htk -o kweb")) +
+
         htH2("Linux / BSD / Source") +
-        htP("Clone and build:") +
+        htP("Clone and build " + DASH() + " prebuilt seeds eliminate the need for external compilers:") +
         htPre(htCode("git clone https://github.com/t3m3d/krypton" + NL() + "cd krypton" + NL() + "./build.sh")) +
-        htH2("VS Code Extension") +
-        htP("Syntax highlighting, bracket matching, code folding for .k files.") +
+
+        htH2("VS Code &amp; Google Antigravity Extension") +
+        htP("Syntax highlighting, bracket matching, and code folding for Krypton (.k) and KryptScript (.ks) files. The same .vsix installs in VS Code and in Google Antigravity (a VS Code fork) " + DASH() + " Extensions " + fromCharCode(8594) + " Install from VSIX.") +
+        htP(dlBtn(REL + "/2.1.1/krypton-language-2.2.0.vsix", "Download .vsix")) +
+
         htH2("Verify") +
         htPre(htCode("kcc --version")) +
         "</div></section>"
