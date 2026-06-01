@@ -35,14 +35,19 @@ SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 # doesn't exist.
 case "$1" in
     --version|-v)
-        echo "kcc version 2.1.1"
+        echo "kcc version 2.2.0"
         exit 0
         ;;
     -h|--help)
         cat <<EOF
-kcc — Krypton compiler driver (2.1.1)
+kcc — Krypton compiler driver (2.2.0)
 
-Usage: kcc <source.k> [flags]
+Usage: kcc <source.k|source.ks> [flags]
+
+  Krypton 2.2 introduces .ks (KryptScript) as a sibling extension.
+  .k  = library / compiled program (module foo, no shebang)
+  .ks = script (just run + #!/usr/bin/env kr, runnable directly)
+  Same compiler, same syntax — purely a naming convention.
 
   --native     (default) emit native binary at ./<basename>
   --c          emit C source to stdout
@@ -210,10 +215,18 @@ fi
 #            self-emits load commands + ad-hoc SHA-256 signature)
 if [[ $NATIVE_MODE -eq 1 ]]; then
     if [[ -z "$OUTFILE" ]]; then
+        # 2.2: strip .ks before .k so KryptScript source `foo.ks` becomes
+        # `foo`/`foo.exe`, not `foo.ks.exe`. Order matters — bash %.k won't
+        # match a .ks tail, so the .ks branch must come first.
+        case "$SRCFILE" in
+            *.ks) _kcc_base="${SRCFILE%.ks}" ;;
+            *.k)  _kcc_base="${SRCFILE%.k}" ;;
+            *)    _kcc_base="$SRCFILE" ;;
+        esac
         if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
-            OUTFILE="${SRCFILE%.k}"
+            OUTFILE="$_kcc_base"
         else
-            OUTFILE="${SRCFILE%.k}.exe"
+            OUTFILE="$_kcc_base.exe"
         fi
     fi
     TMPIR="/tmp/_kcc_native_$$.kir"
@@ -407,10 +420,16 @@ fi
 # Default path: derive output name, then re-exec as --native. Falls through
 # to the gcc block below only when --gcc was passed explicitly.
 if [[ -z "$OUTFILE" ]]; then
+    # 2.2: strip .ks before .k (same rationale as the --native block above).
+    case "$SRCFILE" in
+        *.ks) _kcc_base="${SRCFILE%.ks}" ;;
+        *.k)  _kcc_base="${SRCFILE%.k}" ;;
+        *)    _kcc_base="$SRCFILE" ;;
+    esac
     if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "macos" ]]; then
-        OUTFILE="${SRCFILE%.k}"
+        OUTFILE="$_kcc_base"
     else
-        OUTFILE="${SRCFILE%.k}.exe"
+        OUTFILE="$_kcc_base.exe"
     fi
 fi
 
