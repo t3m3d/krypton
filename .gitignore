@@ -1,7 +1,10 @@
 compiler/linux_x86/elf_host
 compiler/linux_x86/optimize_host
 compiler/macos_arm64/macho_host
-
+releasenotes/
+web/site/
+web/*.txt
+docs/*.txt
 # Local backups of original Python/bash scripts that have been ported
 # to Krypton equivalents. Reference-only — not for distribution.
 backup/
@@ -29,12 +32,7 @@ test_features.c
 test_features.exe
 test*.c
 test*.exe
-selfhost_err.txt
-selfhost_out.txt
 *.bak
-test_simple.c
-tiny_test.c
-tiny_test.exe
 versions/
 build/
 artifacts/
@@ -47,7 +45,6 @@ releases/
 !runtime/ckrypton_fs.dll
 *.obj
 *.lib
-*.txt
 installer/
 assets/
 bootstrap/REBUILD_SEED.md
@@ -70,3 +67,5 @@ OVERNIGHT_REPORT.md
 # Marketing / demo video renders — large binaries, not source
 web/*.mp4
 compiler/wasm32/wasm_self
+NOTES.txt
+downloads-page-2.1.txt
