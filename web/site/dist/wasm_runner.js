@@ -133,7 +133,7 @@
     }
     syncCanvasSize();
 
-    fetch('/particles.wasm', { cache: 'force-cache' })
+    fetch('/particles.wasm?v=6', { cache: 'no-cache' })
       .then(function (r) { return r.ok ? r.arrayBuffer() : null; })
       .catch(function () { return null; })
       .then(function (bytes) {
@@ -172,11 +172,6 @@
             console.log.apply(console, banner);
           } catch (e) { /* noop */ }
 
-          // Diagnostic: log first-frame state once so any breakage is
-          // visible without DevTools-only investigation. Remove after the
-          // hero particles are confirmed stable site-wide.
-          var __KR_DIAG_DONE = false;
-
           // RAF loop: each frame, point the host's "active canvas" at
           // the hero canvas and invoke _start() — particles.ks is the
           // body of _start, so each call is one full frame's worth of
@@ -187,43 +182,12 @@
             syncCanvasSize();
             if (canvas.width > 0 && canvas.height > 0) {
               setActiveCanvas(canvas);
+              // Swallow per-frame traps (e.g. layout race producing
+              // canvas.width = 0 after we syncCanvasSize'd) so a one-off
+              // bad frame doesn't kill the entire animation.
               try { instance.exports._start(); }
-              catch (e) { console.error('[Krypton diag] wasm trap:', e); }
-
-              // ── DIAGNOSTIC: paint a yellow X over the canvas via JS
-              //    so we can tell whether the canvas itself is visible.
-              //    If you see the X but no particles, the wasm is drawing
-              //    invisibly (transparent / off-canvas / etc.). If you
-              //    don't see the X either, the canvas itself is hidden
-              //    (CSS z-index / display / etc.).
-              if (activeCtx) {
-                activeCtx.strokeStyle = 'rgba(255,235,59,0.85)';
-                activeCtx.lineWidth = 3;
-                activeCtx.beginPath();
-                activeCtx.moveTo(0, 0);
-                activeCtx.lineTo(canvas.width, canvas.height);
-                activeCtx.moveTo(canvas.width, 0);
-                activeCtx.lineTo(0, canvas.height);
-                activeCtx.stroke();
-              }
-
-              if (!__KR_DIAG_DONE) {
-                __KR_DIAG_DONE = true;
-                console.log('[Krypton diag] canvas buffer:', canvas.width, '×', canvas.height,
-                            'parent:', canvas.parentElement && canvas.parentElement.offsetWidth, '×',
-                            canvas.parentElement && canvas.parentElement.offsetHeight,
-                            'computed style display:',
-                            getComputedStyle(canvas).display,
-                            'visibility:', getComputedStyle(canvas).visibility,
-                            'opacity:', getComputedStyle(canvas).opacity,
-                            'z-index:', getComputedStyle(canvas).zIndex);
-              }
-
+              catch (e) { /* recover next frame */ }
               setActiveCanvas(null);
-            } else if (!__KR_DIAG_DONE) {
-              console.log('[Krypton diag] canvas still 0×0 (parent:',
-                          canvas.parentElement && canvas.parentElement.offsetWidth, '×',
-                          canvas.parentElement && canvas.parentElement.offsetHeight, ')');
             }
             requestAnimationFrame(frame);
           }
