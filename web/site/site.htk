@@ -265,7 +265,7 @@ func pageDownloads() {
         htP("Signed-payload .pkg installer for arm64 Macs. Installs to /usr/local/krypton with kcc on your PATH. kweb is Windows-only in 2.1.1 " + fromCharCode(8212) + " the macOS port arrives in 2.1.2 once stdlib/fs.k finishes its POSIX rewrite.") +
         htP(htAA(htHref(LATEST) + htClass("btn") + htStyleAttr(btnStyle), "Download .pkg for macOS")) +
         htH3("Or install with Homebrew") +
-        htPre(htCode("brew install t3m3d/krypton/krypton")) +
+        htPre(htCode("brew install krypton")) +
         htP("Prefer a tarball? Grab " + htAA(htHref(LATEST), htCode("krypton-2.1.1-macos-arm64.tar.gz")) + " from the release page.") +
 
         htH2("Krypton Web Framework (kweb)") +
