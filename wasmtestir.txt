@@ -1,0 +1,2028 @@
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 11
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC emitStartsWith 0
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL bb
+PUSH 1
+CALL b 1
+PUSH 6
+CALL leb 1
+ADD
+PUSH 127
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 0
+CALL iLG 1
+ADD
+PUSH 1
+CALL iC 1
+ADD
+PUSH 118
+CALL b 1
+ADD
+PUSH 2
+CALL iLS 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 1
+CALL iLG 1
+ADD
+PUSH 1
+CALL iC 1
+ADD
+PUSH 118
+CALL b 1
+ADD
+PUSH 3
+CALL iLS 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 2
+CALL iLG 1
+ADD
+PUSH 40
+CALL b 1
+ADD
+PUSH 2
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+PUSH 4
+CALL iLS 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 3
+CALL iLG 1
+ADD
+PUSH 40
+CALL b 1
+ADD
+PUSH 2
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+PUSH 5
+CALL iLS 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 1
+CALL iC 1
+ADD
+PUSH 7
+CALL iLS 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 5
+CALL iLG 1
+ADD
+PUSH 4
+CALL iLG 1
+ADD
+PUSH 74
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 4
+CALL b 1
+ADD
+PUSH 64
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 0
+CALL iC 1
+ADD
+PUSH 7
+CALL iLS 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 5
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 0
+CALL iC 1
+ADD
+PUSH 6
+CALL iLS 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 2
+CALL b 1
+ADD
+PUSH 64
+CALL b 1
+ADD
+PUSH 3
+CALL b 1
+ADD
+PUSH 64
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 6
+CALL iLG 1
+ADD
+PUSH 5
+CALL iLG 1
+ADD
+PUSH 79
+CALL b 1
+ADD
+PUSH 13
+CALL b 1
+ADD
+PUSH 1
+CALL leb 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 2
+CALL iLG 1
+ADD
+PUSH 4
+CALL iC 1
+ADD
+PUSH 106
+CALL b 1
+ADD
+PUSH 6
+CALL iLG 1
+ADD
+PUSH 106
+CALL b 1
+ADD
+PUSH 45
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 3
+CALL iLG 1
+ADD
+PUSH 4
+CALL iC 1
+ADD
+PUSH 106
+CALL b 1
+ADD
+PUSH 6
+CALL iLG 1
+ADD
+PUSH 106
+CALL b 1
+ADD
+PUSH 45
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 71
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 4
+CALL b 1
+ADD
+PUSH 64
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 0
+CALL iC 1
+ADD
+PUSH 7
+CALL iLS 1
+ADD
+PUSH 12
+CALL b 1
+ADD
+PUSH 2
+CALL leb 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 11
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 6
+CALL iLG 1
+ADD
+PUSH 1
+CALL iC 1
+ADD
+PUSH 106
+CALL b 1
+ADD
+PUSH 6
+CALL iLS 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 12
+CALL b 1
+ADD
+PUSH 0
+CALL leb 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 11
+CALL b 1
+ADD
+PUSH 11
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 11
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 7
+CALL iLG 1
+ADD
+PUSH 1
+CALL iC 1
+ADD
+PUSH 116
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 11
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC emitToStr 0
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL bb
+PUSH 0
+CALL b 1
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 0
+CALL iLG 1
+ADD
+PUSH 1
+CALL iC 1
+ADD
+PUSH 113
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 4
+CALL b 1
+ADD
+PUSH 127
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 0
+CALL iLG 1
+ADD
+PUSH 1
+CALL iC 1
+ADD
+PUSH 118
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 5
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 0
+CALL iLG 1
+ADD
+PUSH 1
+CALL iC 1
+ADD
+PUSH 117
+CALL b 1
+ADD
+PUSH 2
+CALL iCALL 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 11
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 11
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC emitConcat 0
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL bb
+PUSH 1
+CALL b 1
+PUSH 6
+CALL leb 1
+ADD
+PUSH 127
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 0
+CALL iLG 1
+ADD
+PUSH 3
+CALL iCALL 1
+ADD
+PUSH 2
+CALL iLS 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 1
+CALL iLG 1
+ADD
+PUSH 3
+CALL iCALL 1
+ADD
+PUSH 3
+CALL iLS 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 2
+CALL iLG 1
+ADD
+PUSH 40
+CALL b 1
+ADD
+PUSH 2
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+PUSH 4
+CALL iLS 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 3
+CALL iLG 1
+ADD
+PUSH 40
+CALL b 1
+ADD
+PUSH 2
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+PUSH 5
+CALL iLS 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 35
+CALL b 1
+ADD
+PUSH 0
+CALL leb 1
+ADD
+PUSH 6
+CALL iLS 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 6
+CALL iLG 1
+ADD
+PUSH 4
+CALL iLG 1
+ADD
+PUSH 5
+CALL iLG 1
+ADD
+PUSH 106
+CALL b 1
+ADD
+PUSH 54
+CALL b 1
+ADD
+PUSH 2
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 0
+CALL iC 1
+ADD
+PUSH 7
+CALL iLS 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 2
+CALL b 1
+ADD
+PUSH 64
+CALL b 1
+ADD
+PUSH 3
+CALL b 1
+ADD
+PUSH 64
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 7
+CALL iLG 1
+ADD
+PUSH 4
+CALL iLG 1
+ADD
+PUSH 79
+CALL b 1
+ADD
+PUSH 13
+CALL b 1
+ADD
+PUSH 1
+CALL leb 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 6
+CALL iLG 1
+ADD
+PUSH 4
+CALL iC 1
+ADD
+PUSH 106
+CALL b 1
+ADD
+PUSH 7
+CALL iLG 1
+ADD
+PUSH 106
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 2
+CALL iLG 1
+ADD
+PUSH 4
+CALL iC 1
+ADD
+PUSH 106
+CALL b 1
+ADD
+PUSH 7
+CALL iLG 1
+ADD
+PUSH 106
+CALL b 1
+ADD
+PUSH 45
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 58
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 7
+CALL iLG 1
+ADD
+PUSH 1
+CALL iC 1
+ADD
+PUSH 106
+CALL b 1
+ADD
+PUSH 7
+CALL iLS 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 12
+CALL b 1
+ADD
+PUSH 0
+CALL leb 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 11
+CALL b 1
+ADD
+PUSH 11
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 0
+CALL iC 1
+ADD
+PUSH 7
+CALL iLS 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 2
+CALL b 1
+ADD
+PUSH 64
+CALL b 1
+ADD
+PUSH 3
+CALL b 1
+ADD
+PUSH 64
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 7
+CALL iLG 1
+ADD
+PUSH 5
+CALL iLG 1
+ADD
+PUSH 79
+CALL b 1
+ADD
+PUSH 13
+CALL b 1
+ADD
+PUSH 1
+CALL leb 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 6
+CALL iLG 1
+ADD
+PUSH 4
+CALL iC 1
+ADD
+PUSH 106
+CALL b 1
+ADD
+PUSH 4
+CALL iLG 1
+ADD
+PUSH 106
+CALL b 1
+ADD
+PUSH 7
+CALL iLG 1
+ADD
+PUSH 106
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 3
+CALL iLG 1
+ADD
+PUSH 4
+CALL iC 1
+ADD
+PUSH 106
+CALL b 1
+ADD
+PUSH 7
+CALL iLG 1
+ADD
+PUSH 106
+CALL b 1
+ADD
+PUSH 45
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 58
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 7
+CALL iLG 1
+ADD
+PUSH 1
+CALL iC 1
+ADD
+PUSH 106
+CALL b 1
+ADD
+PUSH 7
+CALL iLS 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 12
+CALL b 1
+ADD
+PUSH 0
+CALL leb 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 11
+CALL b 1
+ADD
+PUSH 11
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 6
+CALL iLG 1
+ADD
+PUSH 4
+CALL iC 1
+ADD
+PUSH 106
+CALL b 1
+ADD
+PUSH 4
+CALL iLG 1
+ADD
+PUSH 106
+CALL b 1
+ADD
+PUSH 5
+CALL iLG 1
+ADD
+PUSH 106
+CALL b 1
+ADD
+PUSH 36
+CALL b 1
+ADD
+PUSH 0
+CALL leb 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 6
+CALL iLG 1
+ADD
+PUSH 1
+CALL iC 1
+ADD
+PUSH 116
+CALL b 1
+ADD
+PUSH 1
+CALL iC 1
+ADD
+PUSH 114
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+PUSH 11
+CALL b 1
+ADD
+STORE bb
+LOAD bb
+BUILTIN gcShadowPush 1
+POP
+LOAD bb
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC wasmTypes 0
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL payload
+PUSH 6
+CALL b 1
+PUSH 96
+CALL b 1
+ADD
+PUSH 2
+CALL b 1
+ADD
+PUSH 127
+CALL b 1
+ADD
+PUSH 127
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+PUSH 96
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+PUSH 96
+CALL b 1
+ADD
+PUSH 1
+CALL b 1
+ADD
+PUSH 127
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+PUSH 96
+CALL b 1
+ADD
+PUSH 1
+CALL b 1
+ADD
+PUSH 127
+CALL b 1
+ADD
+PUSH 1
+CALL b 1
+ADD
+PUSH 127
+CALL b 1
+ADD
+PUSH 96
+CALL b 1
+ADD
+PUSH 2
+CALL b 1
+ADD
+PUSH 127
+CALL b 1
+ADD
+PUSH 127
+CALL b 1
+ADD
+PUSH 1
+CALL b 1
+ADD
+PUSH 127
+CALL b 1
+ADD
+PUSH 96
+CALL b 1
+ADD
+PUSH 3
+CALL b 1
+ADD
+PUSH 127
+CALL b 1
+ADD
+PUSH 127
+CALL b 1
+ADD
+PUSH 127
+CALL b 1
+ADD
+PUSH 1
+CALL b 1
+ADD
+PUSH 127
+CALL b 1
+ADD
+STORE payload
+LOAD payload
+BUILTIN gcShadowPush 1
+POP
+PUSH 1
+LOAD payload
+CALL wasmSection 2
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC wasmImports 0
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL payload
+PUSH 2
+CALL b 1
+PUSH 3
+CALL b 1
+ADD
+PUSH "env"
+CALL bstr 1
+ADD
+PUSH 11
+CALL b 1
+ADD
+PUSH "console_log"
+CALL bstr 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+PUSH 3
+CALL b 1
+ADD
+PUSH "env"
+CALL bstr 1
+ADD
+PUSH 15
+CALL b 1
+ADD
+PUSH "console_log_int"
+CALL bstr 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+PUSH 2
+CALL b 1
+ADD
+STORE payload
+LOAD payload
+BUILTIN gcShadowPush 1
+POP
+PUSH 2
+LOAD payload
+CALL wasmSection 2
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC wasmFuncs 1
+PARAM funcCount
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOAD funcCount
+BUILTIN gcShadowPush 1
+POP
+LOCAL payload
+PUSH 6
+LOAD funcCount
+ADD
+CALL leb 1
+PUSH 3
+CALL b 1
+ADD
+PUSH 3
+CALL b 1
+ADD
+PUSH 4
+CALL b 1
+ADD
+PUSH 4
+CALL b 1
+ADD
+PUSH 5
+CALL b 1
+ADD
+PUSH 4
+CALL b 1
+ADD
+STORE payload
+LOAD payload
+BUILTIN gcShadowPush 1
+POP
+LOCAL i
+PUSH 0
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+LABEL _wloop_5602
+LOAD i
+LOAD funcCount
+LT
+BUILTIN isTruthy 1
+JUMPIFNOT _wend_5602
+LOAD payload
+PUSH 1
+CALL b 1
+ADD
+STORE payload
+LOAD payload
+BUILTIN gcShadowPush 1
+POP
+LOAD i
+PUSH 1
+ADD
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+JUMP _wloop_5602
+LABEL _wend_5602
+PUSH 3
+LOAD payload
+CALL wasmSection 2
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC wasmGlobals 1
+PARAM bumpStart
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOAD bumpStart
+BUILTIN gcShadowPush 1
+POP
+LOCAL payload
+PUSH 1
+CALL b 1
+PUSH 127
+CALL b 1
+ADD
+PUSH 1
+CALL b 1
+ADD
+PUSH 65
+CALL b 1
+ADD
+LOAD bumpStart
+CALL sleb 1
+ADD
+PUSH 11
+CALL b 1
+ADD
+STORE payload
+LOAD payload
+BUILTIN gcShadowPush 1
+POP
+PUSH 6
+LOAD payload
+CALL wasmSection 2
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC wasmMemory 0
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL payload
+PUSH 1
+CALL b 1
+PUSH 0
+CALL b 1
+ADD
+PUSH 1
+CALL b 1
+ADD
+STORE payload
+LOAD payload
+BUILTIN gcShadowPush 1
+POP
+PUSH 5
+LOAD payload
+CALL wasmSection 2
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC wasmExports 1
+PARAM mainIdx
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOAD mainIdx
+BUILTIN gcShadowPush 1
+POP
+LOCAL payload
+PUSH 2
+CALL b 1
+PUSH 6
+CALL b 1
+ADD
+PUSH "memory"
+CALL bstr 1
+ADD
+PUSH 2
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+PUSH 6
+CALL b 1
+ADD
+PUSH "_start"
+CALL bstr 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+LOAD mainIdx
+CALL leb 1
+ADD
+STORE payload
+LOAD payload
+BUILTIN gcShadowPush 1
+POP
+PUSH 7
+LOAD payload
+CALL wasmSection 2
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC wasmCode 1
+PARAM funcBodies
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOAD funcBodies
+BUILTIN gcShadowPush 1
+POP
+LOCAL cnt
+LOAD funcBodies
+BUILTIN lineCount 1
+STORE cnt
+LOAD cnt
+BUILTIN gcShadowPush 1
+POP
+LOCAL payload
+LOAD cnt
+CALL leb 1
+STORE payload
+LOAD payload
+BUILTIN gcShadowPush 1
+POP
+LOCAL i
+PUSH 0
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+LABEL _wloop_5788
+LOAD i
+LOAD cnt
+LT
+BUILTIN isTruthy 1
+JUMPIFNOT _wend_5788
+LOCAL body
+LOAD funcBodies
+LOAD i
+BUILTIN getLine 2
+STORE body
+LOAD body
+BUILTIN gcShadowPush 1
+POP
+LOAD body
+BUILTIN len 1
+PUSH 0
+GT
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_5802
+LOAD payload
+LOAD body
+CALL hexBytes 1
+CALL leb 1
+ADD
+LOAD body
+ADD
+STORE payload
+LOAD payload
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_5802
+LOAD i
+PUSH 1
+ADD
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+JUMP _wloop_5788
+LABEL _wend_5788
+PUSH 10
+LOAD payload
+CALL wasmSection 2
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC wasmData 1
+PARAM blob
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOAD blob
+BUILTIN gcShadowPush 1
+POP
+LOAD blob
+BUILTIN len 1
+PUSH 0
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_5842
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_5842
+LOCAL payload
+PUSH 1
+CALL b 1
+PUSH 0
+CALL b 1
+ADD
+PUSH 65
+CALL b 1
+ADD
+PUSH 0
+CALL b 1
+ADD
+PUSH 11
+CALL b 1
+ADD
+LOAD blob
+CALL hexBytes 1
+CALL leb 1
+ADD
+LOAD blob
+ADD
+STORE payload
+LOAD payload
+BUILTIN gcShadowPush 1
+POP
+PUSH 11
+LOAD payload
+CALL wasmSection 2
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC buildModule 1
+PARAM ir
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOAD ir
+BUILTIN gcShadowPush 1
+POP
+LOCAL n
+LOAD ir
+BUILTIN lineCount 1
+STORE n
+LOAD n
+BUILTIN gcShadowPush 1
+POP
+LOCAL strTab
+CALL strTableNew 0
+STORE strTab
+LOAD strTab
+BUILTIN gcShadowPush 1
+POP
+LOCAL funcBodies
+PUSH ""
+STORE funcBodies
+LOAD funcBodies
+BUILTIN gcShadowPush 1
+POP
+LOCAL funcCount
+PUSH 0
+STORE funcCount
+LOAD funcCount
+BUILTIN gcShadowPush 1
+POP
+LOCAL mainIdx
+PUSH 0
+STORE mainIdx
+LOAD mainIdx
+BUILTIN gcShadowPush 1
+POP
+LOCAL funcNames
+PUSH ""
+STORE funcNames
+LOAD funcNames
+BUILTIN gcShadowPush 1
+POP
+LOCAL i
+PUSH 0
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+LABEL _wloop_5937
+LOAD i
+LOAD n
+LT
+BUILTIN isTruthy 1
+JUMPIFNOT _wend_5937
+LOCAL line
+LOAD ir
+LOAD i
+BUILTIN getLine 2
+CALL ltrim 1
+STORE line
+LOAD line
+BUILTIN gcShadowPush 1
+POP
+LOAD line
+PUSH "FUNC "
+CALL lineStarts 2
+BUILTIN isTruthy 1
+JUMPIFNOT _else_5954
+LOCAL body
+PUSH ""
+STORE body
+LOAD body
+BUILTIN gcShadowPush 1
+POP
+LOAD i
+PUSH 1
+ADD
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+LABEL _wloop_5969
+LOAD i
+LOAD n
+LT
+BUILTIN isTruthy 1
+JUMPIFNOT _wend_5969
+LOCAL l2
+LOAD ir
+LOAD i
+BUILTIN getLine 2
+CALL ltrim 1
+STORE l2
+LOAD l2
+BUILTIN gcShadowPush 1
+POP
+LOAD l2
+PUSH "END"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_5986
+LOAD i
+PUSH 1
+ADD
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+JUMP _wend_5969
+LABEL _endif_5986
+LOAD body
+BUILTIN len 1
+PUSH 0
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _else_5996
+LOAD l2
+STORE body
+LOAD body
+BUILTIN gcShadowPush 1
+POP
+JUMP _endif_5996
+LABEL _else_5996
+LOAD body
+PUSH 10
+BUILTIN fromCharCode 1
+ADD
+LOAD l2
+ADD
+STORE body
+LOAD body
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_5996
+LOAD i
+PUSH 1
+ADD
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+JUMP _wloop_5969
+LABEL _wend_5969
+LOAD body
+LOAD strTab
+CALL collectStrings 2
+STORE strTab
+LOAD strTab
+BUILTIN gcShadowPush 1
+POP
+LOCAL locals
+LOAD body
+CALL collectLocals 1
+STORE locals
+LOAD locals
+BUILTIN gcShadowPush 1
+POP
+LOCAL hex
+LOAD body
+LOAD strTab
+LOAD locals
+CALL emitFuncBody 3
+STORE hex
+LOAD hex
+BUILTIN gcShadowPush 1
+POP
+LOAD funcBodies
+BUILTIN len 1
+PUSH 0
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _else_6051
+LOAD hex
+STORE funcBodies
+LOAD funcBodies
+BUILTIN gcShadowPush 1
+POP
+JUMP _endif_6051
+LABEL _else_6051
+LOAD funcBodies
+PUSH 10
+BUILTIN fromCharCode 1
+ADD
+LOAD hex
+ADD
+STORE funcBodies
+LOAD funcBodies
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_6051
+LOCAL rest
+LOAD line
+PUSH 5
+LOAD line
+BUILTIN len 1
+BUILTIN substring 3
+STORE rest
+LOAD rest
+BUILTIN gcShadowPush 1
+POP
+LOCAL spacePos
+LOAD rest
+PUSH " "
+BUILTIN indexOf 2
+STORE spacePos
+LOAD spacePos
+BUILTIN gcShadowPush 1
+POP
+LOCAL name
+LOAD rest
+STORE name
+LOAD name
+BUILTIN gcShadowPush 1
+POP
+LOAD spacePos
+PUSH 0
+GT
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_6103
+LOAD rest
+PUSH 0
+LOAD spacePos
+BUILTIN substring 3
+STORE name
+LOAD name
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_6103
+LOAD name
+PUSH "__main__"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_6119
+LOAD funcCount
+PUSH 8
+ADD
+STORE mainIdx
+LOAD mainIdx
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_6119
+LOAD funcNames
+BUILTIN len 1
+PUSH 0
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _else_6130
+LOAD name
+STORE funcNames
+LOAD funcNames
+BUILTIN gcShadowPush 1
+POP
+JUMP _endif_6130
+LABEL _else_6130
+LOAD funcNames
+PUSH 10
+BUILTIN fromCharCode 1
+ADD
+LOAD name
+ADD
+STORE funcNames
+LOAD funcNames
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_6130
+LOAD funcCount
+PUSH 1
+ADD
+STORE funcCount
+LOAD funcCount
+BUILTIN gcShadowPush 1
+POP
+JUMP _endif_5954
+LABEL _else_5954
+LOAD i
+PUSH 1
+ADD
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_5954
+JUMP _wloop_5937
+LABEL _wend_5937
+LOCAL blob
+LOAD strTab
+CALL strTableBlob 1
+STORE blob
+LOAD blob
+BUILTIN gcShadowPush 1
+POP
+LOCAL bumpStart
+CALL strBase 0
+LOAD strTab
+CALL strTableUsed 1
+ADD
+STORE bumpStart
+LOAD bumpStart
+BUILTIN gcShadowPush 1
+POP
+LOCAL helperBodies
+CALL emitInt2Str 0
+PUSH 10
+BUILTIN fromCharCode 1
+ADD
+CALL emitToStr 0
+ADD
+PUSH 10
+BUILTIN fromCharCode 1
+ADD
+CALL emitConcat 0
+ADD
+PUSH 10
+BUILTIN fromCharCode 1
+ADD
+CALL emitIndex 0
+ADD
+PUSH 10
+BUILTIN fromCharCode 1
+ADD
+CALL emitSubstr 0
+ADD
+PUSH 10
+BUILTIN fromCharCode 1
+ADD
+CALL emitStartsWith 0
+ADD
+STORE helperBodies
+LOAD helperBodies
+BUILTIN gcShadowPush 1
+POP
+LOCAL allBodies
+LOAD helperBodies
+STORE allBodies
+LOAD allBodies
+BUILTIN gcShadowPush 1
+POP
+LOAD funcBodies
+BUILTIN len 1
+PUSH 0
+GT
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_6239
+LOAD helperBodies
+PUSH 10
+BUILTIN fromCharCode 1
+ADD
+LOAD funcBodies
+ADD
+STORE allBodies
+LOAD allBodies
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_6239
+CALL wasmHeader 0
+CALL wasmTypes 0
+ADD
+CALL wasmImports 0
+ADD
+LOAD funcCount
+CALL wasmFuncs 1
+ADD
+CALL wasmMemory 0
+ADD
+LOAD bumpStart
+CALL wasmGlobals 1
+ADD
+LOAD mainIdx
+CALL wasmExports 1
+ADD
+LOAD allBodies
+CALL wasmCode 1
+ADD
+LOAD blob
+CALL wasmData 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC __main__ 0
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL irPath
+PUSH "0"
+BUILTIN arg 1
+STORE irPath
+LOAD irPath
+BUILTIN gcShadowPush 1
+POP
+LOCAL outPath
+PUSH "1"
+BUILTIN arg 1
+STORE outPath
+LOAD outPath
+BUILTIN gcShadowPush 1
+POP
+BUILTIN argCount 0
+PUSH 2
+LT
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_6317
+PUSH "wasm_self: usage: wasm_self <input.kir> <output.wasm>\n"
+BUILTIN printErr 1
+POP
+PUSH 1
+RETURN
+LABEL _endif_6317
+LOCAL ir
+LOAD irPath
+BUILTIN readFile 1
+STORE ir
+LOAD ir
+BUILTIN gcShadowPush 1
+POP
+LOAD ir
+BUILTIN len 1
+PUSH 0
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_6338
+PUSH "wasm_self: could not read "
+LOAD irPath
+ADD
+PUSH "\n"
+ADD
+BUILTIN printErr 1
+POP
+PUSH 1
+RETURN
+LABEL _endif_6338
+LOCAL mod
+LOAD ir
+CALL buildModule 1
+STORE mod
+LOAD mod
+BUILTIN gcShadowPush 1
+POP
+LOAD outPath
+LOAD mod
+CALL writeBytes 2
+POP
+PUSH "wasm_self: wrote "
+LOAD outPath
+ADD
+PUSH " ("
+ADD
+LOAD mod
+CALL hexBytes 1
+ADD
+PUSH " bytes)\n"
+ADD
+BUILTIN printErr 1
+POP
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
