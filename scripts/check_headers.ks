@@ -1,5 +1,5 @@
 #!/usr/bin/env kr
-// kr scripts/check_headers.k
+// kr scripts/check_headers.ks
 // Replaces check_headers.sh. Smoke-tests every headers/*.krh by
 // importing it into a one-liner and checking kcc accepts the IR.
 import "k:fs"
