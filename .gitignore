@@ -2,29 +2,21 @@ compiler/linux_x86/elf_host
 compiler/linux_x86/optimize_host
 compiler/macos_arm64/macho_host
 releasenotes/
+versions/
+build/
+bin/
+releases/
 web/site/
 web/*.txt
 docs/*.txt
-# Local backups of original Python/bash scripts that have been ported
-# to Krypton equivalents. Reference-only — not for distribution.
 backup/
-
 *.bak
-*.res
 *.obj
-*.iobj
-*.ipdb
-*.pch
-*.pgc
-*.pgd
-*.rsp
 *.exe
 !bootstrap/*.exe
 *.o
 *.c
 !bootstrap/kcc_seed.c
-*.kir
-*.ll
 .claude/
 docs/claude/
 archive/
@@ -33,11 +25,6 @@ test_features.exe
 test*.c
 test*.exe
 *.bak
-versions/
-build/
-artifacts/
-bin/
-releases/
 .vs/
 !runtime/krypton_rt.dll
 !runtime/ckrypton_gui.dll
@@ -51,11 +38,7 @@ bootstrap/REBUILD_SEED.md
 tests/.kcode_build/trash.c
 tests/.kcode_build/trash.exe
 desktop.ini
-lsp/build.bat
-lsp/test_extension.js
-lsp/test_rle.js
 runtime/krypton_rt_legacy.dll
-lsp/test_kls.py
 kompiler/.DS_Store
 .DS_Store
 releasenotes/RELEASE_NOTES_2.0_macos_arm64.md
