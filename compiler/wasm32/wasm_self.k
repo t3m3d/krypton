@@ -953,8 +953,13 @@ func buildModule(ir) {
             let params = collectParams(body)
             let pCount = localsCount(params)
             let combined = nameListJoin(params, collectLocals(body))
-            let rVal = bodyHasReturn(body)
-            let hex = emitFuncBody(body, strTab, combined, pCount, funcNames)
+            let isMain = 0
+            if funcLineName(line) == "__main__" { isMain = 1 }
+            // All non-main funcs return i32 (void ones leave a dummy) so every
+            // CALL leaves exactly one value for the IR's trailing POP.
+            let rVal = 0
+            if isMain == 0 { rVal = 1 }
+            let hex = emitFuncBody(body, strTab, combined, pCount, funcNames, rVal)
             if len(funcBodies) == 0 { funcBodies = hex }
             else                    { funcBodies = funcBodies + fromCharCode(10) + hex }
             let sig = pCount + "," + rVal
