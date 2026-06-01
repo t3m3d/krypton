@@ -20,14 +20,15 @@
   "activationEvents": [
     "onLanguage:krypton",
     "workspaceContains:**/*.k",
-    "workspaceContains:**/*.ks"
+    "workspaceContains:**/*.ks",
+    "workspaceContains:**/*.htk"
   ],
   "contributes": {
     "languages": [
       {
         "id": "krypton",
         "aliases": ["Krypton", "krypton", "KryptScript"],
-        "extensions": [".k", ".ks"],
+        "extensions": [".k", ".ks", ".htk"],
         "configuration": "./language-configuration.json"
       }
     ],

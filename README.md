@@ -13,32 +13,61 @@
 
 ## File extensions
 
-Krypton recognises two sibling extensions. **Same compiler, same syntax** —
-the split is purely a naming convention.
+Krypton recognises two sibling source extensions. **Same compiler, same
+syntax** — the split is purely a naming convention.
 
 - **`.k`** — library or compiled program. `module foo`, exports, no shebang.
-- **`.ks`** — KryptScript (added in 2.2). A script meant to run directly:
+- **`.ks`** — KryptScript (new in 2.2). A script meant to run directly:
   `just run { ... }` body, optional `#!/usr/bin/env kr` shebang, `chmod +x`
   to make it executable on POSIX. Use `.ks` for one-off tools and build
-  glue you'd otherwise reach for bash or Python for.
+  glue you'd otherwise reach for bash or Python for. Read more at
+  [`krypton-lang.org/kryptscript`](https://krypton-lang.org/kryptscript.html).
 
 ```bash
 kcc -r examples/hello.ks             # compile + run + clean up
 chmod +x examples/hello.ks && ./examples/hello.ks   # POSIX shebang path
 ```
 
-**Platform release status (2026-05-30):**
+The web framework adds a third extension for templates:
+
+- **`.htk`** — htmk + ks template source built by `kweb`. Same Krypton syntax;
+  the convention signals "this file is meant to render HTML."
+
+## What's new in 2.2
+
+- **KryptScript** — `.ks` everywhere the toolchain accepts `.k`. Installer +
+  VS Code extension associate both. `kcc.sh` derives output basenames
+  correctly for either extension.
+- **WASM playground** — every tutorial lesson compiles to `.wasm` via the
+  Krypton-side emitter (`compiler/wasm32/wasm_self.k`) and ships into
+  `web/site/dist/learn/`. The lesson "Run" button picks up the precompiled
+  module via `wasm_runner.js` and falls back to the JS bridge when the code
+  box is edited.
+- **Krypton in the browser** — host-side ABI hooks let `.ks` modules drive
+  the DOM canvas directly (`canvas_clear`, `canvas_circle`, `canvas_line`,
+  `canvas_set_fill`, `canvas_set_stroke`, `canvas_width`, `canvas_height`,
+  `random_int`). The site's hero particle animation is now a
+  Krypton-emitted `.wasm` module rather than inline JavaScript.
+- **kweb** — single-binary web framework CLI. Bundled in the Windows
+  installer; build from source on macOS / Linux. `krypton-lang.org` itself
+  is rendered by kweb.
+
+**Platform release status (2026-06-01):**
 
 | Platform | Shipped version | Notes |
 |----------|-----------------|-------|
-| macOS arm64 | **2.1.1** | Homebrew tap: `brew tap t3m3d/krypton && brew install krypton`. Backend self-hosts; KRYPTON_ROOT-based install; UTF-8 fromCharCode fix. |
-| Linux x86_64 | 2.1.1 (source) | Build from `compile.k` via the existing 2.0.0 elf seed. Same source as macOS — fixes carry over. |
-| Windows x86_64 | 2.0.0 | **Needs 2.1.1 rebuild.** Same compile.k applies; produce a new `kcc.exe` + installer `.iss` bump + Inno Setup pkg. See [`docs/RELEASE_2.1.1.md`](docs/RELEASE_2.1.1.md). |
+| Windows x86_64 | **2.1.1** | Inno Setup installer (kcc + kweb + WASM backend + .k/.ks file associations). |
+| macOS arm64 | **2.1.1** | Homebrew tap: `brew install krypton`. Backend self-hosts; KRYPTON_ROOT-based install; UTF-8 fromCharCode fix. |
+| Linux x86_64 | 2.1.1 (source) | Build from `compile.k` via the existing 2.0.0 elf seed. Same source as macOS. |
+| **VS Code / Antigravity ext.** | **2.2.0** | `extensions/krypton-language-2.2.0.vsix`. Adds `.ks` (KryptScript) alongside `.k`, bundles the `kls` language server for Windows + macOS, ships `KryptScript` as a language-picker alias. |
 
 **Bundled CLIs (one package, three commands):**
 
 - `kcc` / `krypton` — compiler.
-- `kweb` — web framework CLI (`kweb init <name>`, `kweb build`, `kweb serve`, `kweb deploy <host> <user>`). **Windows-only in 2.1.1**; macOS port targets 2.1.2 once `stdlib/fs.k` finishes its POSIX rewrite.
+- `kr` — shebang-friendly wrapper (`#!/usr/bin/env kr`) over `kcc -r`.
+- `kweb` — web framework CLI (`kweb init <name>`, `kweb build`, `kweb serve`,
+  `kweb deploy <host> <user>`). **Windows-only in 2.1.1**; macOS port targets
+  2.1.2 once `stdlib/fs.k` finishes its POSIX rewrite.
 
 Krypton is a dynamically typed language with clean syntax, ~150 built-in functions, and a compiler written in itself.
 

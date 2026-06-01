@@ -8,8 +8,9 @@ kr      text eol=lf
 # ── Krypton (.k libraries / .ks scripts) is the primary language ──
 # Override detection so GitHub paints both .k and .ks (KryptScript, 2.2+)
 # as Krypton instead of KCL or shell.
-*.k  linguist-language=Krypton
-*.ks linguist-language=Krypton
+*.k   linguist-language=Krypton
+*.ks  linguist-language=Krypton
+*.htk linguist-language=Krypton
 
 # C++ bootstrap compiler
 compiler/** linguist-language=C++
