@@ -100,6 +100,7 @@
       canvas_width:      function () { return activeCanvas ? activeCanvas.width  | 0 : 0; },
       canvas_height:     function () { return activeCanvas ? activeCanvas.height | 0 : 0; },
       random_int:        function (max) { max = max | 0; return max > 0 ? (Math.random() * max) | 0 : 0; },
+      time_ms:           function () { return (Date.now() & 0x3fffff) | 0; },
     }};
   }
 
