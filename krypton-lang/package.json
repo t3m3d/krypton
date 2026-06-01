@@ -2,7 +2,7 @@
   "name": "krypton-lang",
   "displayName": "Krypton",
   "description": "Syntax highlighting + language server (kls) for the Krypton programming language (.k files)",
-  "version": "1.8.4",
+  "version": "2.0.0",
   "publisher": "krypton-lang",
   "license": "MIT",
   "main": "./extension.js",
