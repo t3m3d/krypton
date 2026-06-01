@@ -125,12 +125,52 @@ func lineStarts(line, prefix) {
 // Strings are stored in linear memory as [length:u32 little-endian][bytes].
 // A "handle" is the offset of the length field. PUSH "str" emits
 // i32.const <handle>. kp dereferences: ptr = handle+4, len = mem[handle].
+//
+// The literal is stored HEX-ENCODED in each row (2 hex chars/byte) so that a
+// literal containing a tab or newline byte can't corrupt the TAB-field /
+// newline-row table structure. Row: <hexLiteral> TAB <offset> TAB <byteLen>.
 
 func strTableNew() { emit "" }
 
-func strRowLiteral(row) {
+// hex-encode a string to 2 chars/byte (uppercase, no separators).
+// NB: Krypton coerces `digitStr + digitStr` to integer addition, which
+// corrupts a growing all-hex string. Build via fromCharCode so each append
+// goes through a guaranteed-string path (concatChar), never numeric `+`.
+func hexDigitChar(v) {
+    // v in 0..15 -> '0'..'9','A'..'F' as a 1-char string.
+    if v < 10 { emit fromCharCode(48 + v) }
+    emit fromCharCode(55 + v)
+}
+
+func strHexEncode(s) {
+    // Prefix with a non-digit sentinel so `out` is never a pure number; this
+    // defeats Krypton's digitStr+digitStr -> integer-add coercion. Strip after.
+    let out = "x"
+    let i = 0
+    while i < len(s) {
+        let v = toInt(charCode(s[i]))
+        out = out + hexDigitChar(v / 16)
+        out = out + hexDigitChar(v % 16)
+        i += 1
+    }
+    emit substring(out, 1, len(out))
+}
+
+// hex value of a single char '0'-'9''A'-'F'.
+func hexVal(c) {
+    let v = toInt(charCode(c))
+    if v >= 48 && v <= 57 { emit v - 48 }      // 0-9
+    emit v - 55                                 // A-F
+}
+
+func strRowLiteralHex(row) {
     let p = indexOf(row, tab())
     emit substring(row, 0, p)
+}
+
+// decoded byte length of a row's literal = hexlen / 2.
+func strRowByteLen(row) {
+    emit len(strRowLiteralHex(row)) / 2
 }
 
 func strRowOffset(row) {
@@ -140,14 +180,7 @@ func strRowOffset(row) {
     emit toInt(substring(rest, 0, p2))
 }
 
-func strRowLen(row) {
-    let p1 = indexOf(row, tab())
-    let rest = substring(row, p1 + 1, len(row))
-    let p2 = indexOf(rest, tab())
-    emit toInt(substring(rest, p2 + 1, len(rest)))
-}
-
-// Total bytes currently used by the table (each entry = 4 header + length).
+// Total bytes currently used by the table (each entry = 4 header + byteLen).
 func strTableUsed(table) {
     let n = lineCount(table)
     let i = 0
@@ -155,7 +188,7 @@ func strTableUsed(table) {
     while i < n {
         let row = getLine(table, i)
         if len(row) > 0 {
-            total = total + 4 + strRowLen(row)
+            total = total + 4 + strRowByteLen(row)
         }
         i += 1
     }
@@ -163,32 +196,35 @@ func strTableUsed(table) {
 }
 
 func strTableAdd(table, s) {
+    let hexS = strHexEncode(s)
     let n = lineCount(table)
     let i = 0
     while i < n {
         let row = getLine(table, i)
-        if len(row) > 0 && strRowLiteral(row) == s {
+        if len(row) > 0 && strRowLiteralHex(row) == hexS {
             emit table
         }
         i += 1
     }
     let off = strTableUsed(table)
-    let newRow = s + tab() + off + tab() + len(s)
+    // row: <hexLiteral> TAB <offset> TAB <byteLen>. No raw bytes -> tab/newline
+    // safe even when the literal itself contains 0x09 / 0x0a.
+    let newRow = hexS + tab() + off + tab() + len(s)
     if len(table) == 0 { emit newRow }
     emit table + fromCharCode(10) + newRow
 }
 
 // Newline string lives at a FIXED offset 0 ([len=1][0x0a] = 5 bytes), NOT in
-// the table — storing a literal "\n" as a table value would corrupt the
-// newline-separated row parsing. Real string handles start after it.
+// the table. Real string handles start after it.
 func strBase() { emit 5 }
 
 func strTableOffset(table, s) {
+    let hexS = strHexEncode(s)
     let n = lineCount(table)
     let i = 0
     while i < n {
         let row = getLine(table, i)
-        if len(row) > 0 && strRowLiteral(row) == s {
+        if len(row) > 0 && strRowLiteralHex(row) == hexS {
             emit strRowOffset(row) + strBase()
         }
         i += 1
@@ -197,7 +233,7 @@ func strTableOffset(table, s) {
 }
 
 // Emit the fixed newline string at offset 0, then a 4-byte little-endian
-// length prefix + literal bytes for every table row. Caller wraps in Data.
+// length prefix + literal bytes (decoded from hex) for every row.
 func strTableBlob(table) {
     // newline string: len=1, byte 0x0a. kp prints it via console_log(4,1).
     let out = b(1) + b(0) + b(0) + b(0) + b(10)
@@ -206,10 +242,16 @@ func strTableBlob(table) {
     while i < n {
         let row = getLine(table, i)
         if len(row) > 0 {
-            let l = strRowLen(row)
+            let hexL = strRowLiteralHex(row)
+            let l = len(hexL) / 2
             // u32 little-endian length
             out = out + b(l) + b(l / 256) + b((l / 65536) % 256) + b((l / 16777216) % 256)
-            out = out + bstr(strRowLiteral(row))
+            // decode hex pairs -> raw bytes
+            let k = 0
+            while k < len(hexL) {
+                out = out + b(hexVal(hexL[k]) * 16 + hexVal(hexL[k + 1]))
+                k += 2
+            }
         }
         i += 1
     }
@@ -578,6 +620,17 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
             bb = bb + iCALL(9)                  // $count(str) -> tagged int (comma fields)
         } else if lineStarts(line, "BUILTIN split ") {
             bb = bb + iCALL(10)                 // $split(str, idx) -> tagged string field
+        } else if lineStarts(line, "BUILTIN sbNew ") {
+            // String builder = tagged string. New one = empty string at bump:
+            // store len 0, bump += 4, push (dst<<1)|1.
+            bb = bb + b(35) + leb(0)                       // global.get 0 (dst)
+            bb = bb + b(35) + leb(0) + iC(0) + b(54) + b(2) + b(0)  // [dst] = 0
+            bb = bb + b(35) + leb(0) + iC(4) + b(106) + b(36) + leb(0)  // bump += 4
+            bb = bb + iC(1) + b(116) + iC(1) + b(114)      // (dst<<1)|1
+        } else if lineStarts(line, "BUILTIN sbAppend ") {
+            bb = bb + iCALL(4)                  // sb + s -> $concat (sb is a tagged string)
+        } else if lineStarts(line, "BUILTIN sbToString ") {
+            // sb already IS a tagged string; identity (no opcode).
         } else if line == "NOT" {
             // tagged bool of falsiness. Same tag-dispatch as isTruthy:
             // for int, v == 0; for string, mem[v>>1] (length) == 0.
