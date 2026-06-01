@@ -132,16 +132,17 @@ func hexDigitChar(v) {
 }
 
 func strHexEncode(s) {
-    let out = ""
+    // Prefix with a non-digit sentinel so `out` is never a pure number; this
+    // defeats Krypton's digitStr+digitStr -> integer-add coercion. Strip after.
+    let out = "x"
     let i = 0
     while i < len(s) {
         let v = toInt(charCode(s[i]))
-        // concat single chars built via fromCharCode (string-typed, no coercion)
         out = out + hexDigitChar(v / 16)
         out = out + hexDigitChar(v % 16)
         i += 1
     }
-    emit out
+    emit substring(out, 1, len(out))
 }
 
 // hex value of a single char '0'-'9''A'-'F'.
