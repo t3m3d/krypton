@@ -334,12 +334,12 @@ func bodyHasReturn(body) {
     emit 0
 }
 
-// wasm func-index of a user function name (imports 0-1, helpers 2-8, users 9+).
+// wasm func-index of a user function name (imports 0-1, helpers 2-10, users 11+).
 func funcIndexOf(funcNames, name) {
     let n = lineCount(funcNames)
     let i = 0
     while i < n {
-        if getLine(funcNames, i) == name { emit 9 + i }
+        if getLine(funcNames, i) == name { emit 11 + i }
         i += 1
     }
     emit 8
@@ -556,6 +556,10 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
             bb = bb + iC(0) + b(71) + iC(1) + b(116)
         } else if lineStarts(line, "BUILTIN toInt ") {
             bb = bb + iCALL(8)                  // $toint(str) -> tagged int
+        } else if lineStarts(line, "BUILTIN count ") {
+            bb = bb + iCALL(9)                  // $count(str) -> tagged int (comma fields)
+        } else if lineStarts(line, "BUILTIN split ") {
+            bb = bb + iCALL(10)                 // $split(str, idx) -> tagged string field
         } else if line == "NOT" {
             // tagged bool of falsiness: (v == 0) << 1.
             bb = bb + b(69) + iC(1) + b(116)   // i32.eqz; shl
@@ -823,6 +827,81 @@ func emitToInt() {
     emit bb
 }
 
+// $count(str) -> tagged int = number of comma-separated fields (commas+1).
+// Empty string -> 1 field. param 0=str. locals: 1 base,2 len,3 i,4 cnt.
+func emitCount() {
+    let bb = b(1) + leb(4) + b(127)
+    bb = bb + iLG(0) + iC(1) + b(118) + iLS(1)         // base = str>>1
+    bb = bb + iLG(1) + b(40) + b(2) + b(0) + iLS(2)    // len = load[base]
+    bb = bb + iC(1) + iLS(4)                           // cnt = 1
+    bb = bb + iC(0) + iLS(3)                           // i = 0
+    bb = bb + b(2) + b(64) + b(3) + b(64)              // block; loop
+    bb = bb + iLG(3) + iLG(2) + b(78) + b(13) + leb(1) // i>=len br 1
+    bb = bb + iLG(1) + iC(4) + b(106) + iLG(3) + b(106) + b(45) + b(0) + b(0)  // load8 base+4+i
+    bb = bb + iC(44) + b(70)                           // == ',' (44)
+    bb = bb + b(4) + b(64)                             // if
+    bb = bb + iLG(4) + iC(1) + b(106) + iLS(4)         //   cnt++
+    bb = bb + b(11)                                    // end if
+    bb = bb + iLG(3) + iC(1) + b(106) + iLS(3)         // i++
+    bb = bb + b(12) + leb(0)                           // br 0
+    bb = bb + b(11) + b(11)                            // end loop; block
+    bb = bb + iLG(4) + iC(1) + b(116)                  // cnt << 1
+    bb = bb + b(11)
+    emit bb
+}
+
+// $split(str, idx) -> tagged string = the idx-th comma field. params 0=str,1=idx.
+// locals: 2 base,3 len,4 want,5 field,6 i,7 s (field start),8 dst,9 j.
+func emitSplit() {
+    let bb = b(1) + leb(8) + b(127)
+    bb = bb + iLG(0) + iC(1) + b(118) + iLS(2)         // base = str>>1
+    bb = bb + iLG(2) + b(40) + b(2) + b(0) + iLS(3)    // len = load[base]
+    bb = bb + iLG(1) + iC(1) + b(117) + iLS(4)         // want = idx>>1
+    bb = bb + iC(0) + iLS(5)                           // field = 0
+    bb = bb + iC(0) + iLS(7)                           // s = 0 (current field start)
+    bb = bb + iC(0) + iLS(6)                           // i = 0
+    // scan to the start of field `want`; s = start, then find its end.
+    bb = bb + b(2) + b(64) + b(3) + b(64)              // block; loop  (find start)
+    bb = bb + iLG(5) + iLG(4) + b(78) + b(13) + leb(1) // field>=want br 1 (found start at s)
+    bb = bb + iLG(6) + iLG(3) + b(78) + b(13) + leb(1) // i>=len br 1 (ran out)
+    bb = bb + iLG(2) + iC(4) + b(106) + iLG(6) + b(106) + b(45) + b(0) + b(0)  // load8 base+4+i
+    bb = bb + iC(44) + b(70)                           // == ','
+    bb = bb + b(4) + b(64)
+    bb = bb + iLG(5) + iC(1) + b(106) + iLS(5)         //   field++
+    bb = bb + iLG(6) + iC(1) + b(106) + iLS(7)         //   s = i+1
+    bb = bb + b(11)
+    bb = bb + iLG(6) + iC(1) + b(106) + iLS(6)         // i++
+    bb = bb + b(12) + leb(0)
+    bb = bb + b(11) + b(11)
+    // now s = start of wanted field; find end e: first ',' at/after s, or len.
+    bb = bb + iLG(7) + iLS(6)                          // i = s
+    bb = bb + b(2) + b(64) + b(3) + b(64)              // block; loop (find end)
+    bb = bb + iLG(6) + iLG(3) + b(78) + b(13) + leb(1) // i>=len br 1
+    bb = bb + iLG(2) + iC(4) + b(106) + iLG(6) + b(106) + b(45) + b(0) + b(0)
+    bb = bb + iC(44) + b(70)
+    bb = bb + b(13) + leb(1)                           // br_if 1 (hit ',')
+    bb = bb + iLG(6) + iC(1) + b(106) + iLS(6)         // i++
+    bb = bb + b(12) + leb(0)
+    bb = bb + b(11) + b(11)
+    // field length = i - s ; copy [base+4+s .. base+4+i) to dst+4
+    bb = bb + iLG(6) + iLG(7) + b(107) + iLS(5)        // field(len) = i - s
+    bb = bb + b(35) + leb(0) + iLS(8)                  // dst = bump
+    bb = bb + iLG(8) + iLG(5) + b(54) + b(2) + b(0)    // [dst] = field len
+    bb = bb + iC(0) + iLS(9)                           // j = 0
+    bb = bb + b(2) + b(64) + b(3) + b(64)
+    bb = bb + iLG(9) + iLG(5) + b(79) + b(13) + leb(1) // j>=field (ge_u) br 1
+    bb = bb + iLG(8) + iC(4) + b(106) + iLG(9) + b(106)        // dst+4+j
+    bb = bb + iLG(2) + iC(4) + b(106) + iLG(7) + b(106) + iLG(9) + b(106) + b(45) + b(0) + b(0)  // load8 base+4+s+j
+    bb = bb + b(58) + b(0) + b(0)
+    bb = bb + iLG(9) + iC(1) + b(106) + iLS(9)         // j++
+    bb = bb + b(12) + leb(0)
+    bb = bb + b(11) + b(11)
+    bb = bb + b(35) + leb(0) + iC(4) + b(106) + iLG(5) + b(106) + b(36) + leb(0)  // bump += 4+field
+    bb = bb + iLG(8) + iC(1) + b(116) + iC(1) + b(114) // (dst<<1)|1
+    bb = bb + b(11)
+    emit bb
+}
+
 // $tostr(v:i32 tagged) -> i32 base ptr. param 0 = v. No extra locals.
 func emitToStr() {
     let bb = b(0)                                      // 0 local groups
@@ -915,13 +994,14 @@ func userFuncType(p, r) {
     emit 3                       // fallback: (i32)->i32
 }
 
-// Defined funcs (7 helpers + user funcs). Helper type indices in
+// Defined funcs (9 helpers + user funcs). Helper type indices in
 // func-index order: 2 int2str:t3, 3 tostr:t3, 4 concat:t4, 5 index:t4,
-// 6 substr:t5, 7 startsWith:t4, 8 toint:t3. funcSigs = "P,R" per user func.
+// 6 substr:t5, 7 startsWith:t4, 8 toint:t3, 9 count:t3, 10 split:t4.
+// funcSigs = "P,R" per user func.
 func wasmFuncs(funcSigs) {
     let cnt = lineCount(funcSigs)
-    let payload = leb(7 + cnt) +
-                  b(3) + b(3) + b(4) + b(4) + b(5) + b(4) + b(3)
+    let payload = leb(9 + cnt) +
+                  b(3) + b(3) + b(4) + b(4) + b(5) + b(4) + b(3) + b(3) + b(4)
     let i = 0
     while i < cnt {
         let row = getLine(funcSigs, i)
@@ -1039,7 +1119,7 @@ func buildModule(ir) {
             let sig = pCount + "," + rVal
             if len(funcSigs) == 0 { funcSigs = sig }
             else                  { funcSigs = funcSigs + fromCharCode(10) + sig }
-            if isMain == 1 { mainIdx = fIdx + 9 }  // 2 imports + 7 helpers
+            if isMain == 1 { mainIdx = fIdx + 11 }  // 2 imports + 9 helpers
             fIdx += 1
         } else {
             i += 1
@@ -1056,7 +1136,9 @@ func buildModule(ir) {
                        emitIndex()      + fromCharCode(10) +
                        emitSubstr()     + fromCharCode(10) +
                        emitStartsWith() + fromCharCode(10) +
-                       emitToInt()
+                       emitToInt()      + fromCharCode(10) +
+                       emitCount()      + fromCharCode(10) +
+                       emitSplit()
     let allBodies = helperBodies
     if len(funcBodies) > 0 { allBodies = helperBodies + fromCharCode(10) + funcBodies }
 
