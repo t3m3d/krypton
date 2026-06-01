@@ -76,6 +76,26 @@ const imports = {
       aborted = true;
       throw new WebAssembly.RuntimeError('module called env.abort(' + code + ')');
     },
+
+    // ── Browser canvas surface (2.2). Lessons never call these — they
+    //    only target stdout — but every wasm_self-emitted module declares
+    //    the full import surface unconditionally, so the loader must
+    //    supply them or instantiation fails. No-op stubs are fine here
+    //    since Node has no DOM. canvas_width/height return small ints so
+    //    any accidental loop has a bounded range. random_int forwards to
+    //    Math.random so the regression is reproducible enough for
+    //    matching against `kcc -r`.
+    canvas_clear()                        {},
+    canvas_circle(_x, _y, _r)             {},
+    canvas_line(_x1, _y1, _x2, _y2)       {},
+    canvas_set_fill(_rgba)                {},
+    canvas_set_stroke(_rgba)              {},
+    canvas_width()                        { return 800; },
+    canvas_height()                       { return 400; },
+    random_int(max) {
+      max = max | 0;
+      return max > 0 ? Math.floor(Math.random() * max) : 0;
+    },
   },
 };
 
