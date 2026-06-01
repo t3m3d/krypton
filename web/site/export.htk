@@ -610,9 +610,14 @@ func pageDownloads() {
     // Each section below calls out its specific component version. Bump
     // the tag URL when a new bundled release is cut.
     let LATEST = "https://github.com/t3m3d/krypton/releases/tag/2.1.1"
-    let content = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
-        htH1("Downloads") +
+    let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
+        "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
         "<span class=" + DQ() + "tag" + DQ() + ">Latest release: 2.1.1</span>" +
+        htH1("Downloads") +
+        htP("Krypton 2.1.1 toolchain (" + htCode("kcc") + " + WASM backend) for Windows and macOS, the " + htCode("kweb") + " web framework CLI on Windows, and the KryptScript-aware 2.2.0 VS Code / Google Antigravity extension " + DASH() + " all on one GitHub release.") +
+        "</div>"
+    let content = hero +
+        "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
         htP("Released May 31, 2026. A bundled release: the Krypton 2.1.1 toolchain (" + htCode("kcc") + " + WASM backend) for Windows and macOS, the " + htCode("kweb") + " web framework CLI on Windows, and the KryptScript-aware 2.2.0 VS Code / Google Antigravity extension. All assets live on " + htAA(htHref(LATEST), "one GitHub release page") + ".") +
 
         htH3("What's in the bundle") +
@@ -631,7 +636,7 @@ func pageDownloads() {
         htP("Signed-payload .pkg installer for arm64 Macs. Installs to /usr/local/krypton with " + htCode("kcc") + " on your PATH. " + htCode("kweb") + " is Windows-only in 2.1.1 " + DASH() + " the macOS port arrives in 2.1.2 once " + htCode("stdlib/fs.k") + " finishes its POSIX rewrite.") +
         htP(dlBtn(LATEST, "Download .pkg for macOS")) +
         htH3("Or install with Homebrew") +
-        htPre(htCode("brew install t3m3d/krypton/krypton")) +
+        htPre(htCode("brew install krypton")) +
         htP("Prefer a tarball? Grab " + htAA(htHref(LATEST), htCode("krypton-2.1.1-macos-arm64.tar.gz")) + " from the release page.") +
 
         htH2("Krypton Web Framework (kweb)") +
