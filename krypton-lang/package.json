@@ -1,8 +1,8 @@
 {
   "name": "krypton-lang",
   "displayName": "Krypton",
-  "description": "Syntax highlighting + language server (kls) for the Krypton programming language (.k files)",
-  "version": "2.0.0",
+  "description": "Syntax highlighting + language server (kls) for the Krypton programming language (.k libraries / .ks scripts)",
+  "version": "2.2.0",
   "publisher": "krypton-lang",
   "license": "MIT",
   "main": "./extension.js",
@@ -19,14 +19,15 @@
   ],
   "activationEvents": [
     "onLanguage:krypton",
-    "workspaceContains:**/*.k"
+    "workspaceContains:**/*.k",
+    "workspaceContains:**/*.ks"
   ],
   "contributes": {
     "languages": [
       {
         "id": "krypton",
-        "aliases": ["Krypton", "krypton"],
-        "extensions": [".k"],
+        "aliases": ["Krypton", "krypton", "KryptScript"],
+        "extensions": [".k", ".ks"],
         "configuration": "./language-configuration.json"
       }
     ],
