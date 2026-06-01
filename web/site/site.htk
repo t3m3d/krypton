@@ -36,6 +36,10 @@ func siteCSS() {
         "pre{background:var(--code-bg);color:var(--code-text);padding:16px;border-radius:6px;overflow-x:auto;font-size:0.9rem;line-height:1.5}" +
         "code{font-family:'Cascadia Code',Consolas,monospace}" +
         "p code{background:#f0f0f0;padding:2px 6px;border-radius:3px;font-size:0.9em}" +
+        // Hide the text caret on plain content; only show it on truly editable
+        // surfaces. Otherwise clicking any text paints a stray I-beam.
+        "body{caret-color:transparent}" +
+        "[contenteditable=\"true\"],input,textarea{caret-color:var(--primary)}" +
         ".table-wrap{overflow-x:auto}" +
         "table{border-collapse:collapse;width:100%;margin:16px 0}" +
         "th,td{border:1px solid var(--card-border);padding:10px 14px;text-align:left}" +
