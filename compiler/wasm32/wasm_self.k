@@ -495,14 +495,19 @@ func cfDepth(s, label) {
 // Values are tagged i32 (see header): int N -> (N<<1), string H -> (H<<1)|1.
 // localsList = params ++ declared-locals (combined, for index lookup);
 // paramCount of those are wasm function params (not declared in the vec).
-// Scratch locals (kpTmp,t0,t1) follow all of them. funcNames resolves CALL.
+// Scratch locals (kpTmp,t0..t3) follow all of them. funcNames resolves CALL.
+// Five scratch slots: kp dispatch needs one, ADD-tag dispatch needs two
+// more, and canvas_line(x1,y1,x2,y2) needs four to untag its tagged args
+// before the host call.
 func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
     let combinedCount = localsCount(localsList)
     let kpTmpIdx = combinedCount
     let t0Idx = combinedCount + 1
     let t1Idx = combinedCount + 2
-    // Locals declared in the vec = non-param locals + 3 scratch.
-    let declLocals = (combinedCount - paramCount) + 3
+    let t2Idx = combinedCount + 3
+    let t3Idx = combinedCount + 4
+    // Locals declared in the vec = non-param locals + 5 scratch.
+    let declLocals = (combinedCount - paramCount) + 5
 
     // Locals vec: 1 entry, <declLocals> i32 (type 0x7F).
     let bb = b(1) + leb(declLocals) + b(127)
@@ -517,8 +522,40 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
         } else if lineStarts(line, "PARAM ") {
             // Function parameter; already a wasm local 0..P-1. No opcode.
         } else if lineStarts(line, "CALL ") {
-            // Args already on stack (left-to-right). call <funcidx>.
-            bb = bb + iCALL(funcIndexOf(funcNames, callName(line)))
+            // Intercept browser-side host builtins (canvas + RNG) that kcc
+            // emits as plain CALL instead of BUILTIN, because compile.k
+            // doesn't know about them. Route to the import indices declared
+            // by wasmImports above; untag tagged-i32 args, retag results.
+            let cn = callName(line)
+            if cn == "canvasClear" {
+                bb = bb + iCALL(2) + iC(0)
+            } else if cn == "canvasCircle" {
+                bb = bb + iLS(t2Idx) + iLS(t1Idx) + iLS(t0Idx)
+                bb = bb + iLG(t0Idx) + iC(1) + b(117)
+                bb = bb + iLG(t1Idx) + iC(1) + b(117)
+                bb = bb + iLG(t2Idx) + iC(1) + b(117)
+                bb = bb + iCALL(3) + iC(0)
+            } else if cn == "canvasLine" {
+                bb = bb + iLS(t3Idx) + iLS(t2Idx) + iLS(t1Idx) + iLS(t0Idx)
+                bb = bb + iLG(t0Idx) + iC(1) + b(117)
+                bb = bb + iLG(t1Idx) + iC(1) + b(117)
+                bb = bb + iLG(t2Idx) + iC(1) + b(117)
+                bb = bb + iLG(t3Idx) + iC(1) + b(117)
+                bb = bb + iCALL(4) + iC(0)
+            } else if cn == "canvasSetFill" {
+                bb = bb + iC(1) + b(117) + iCALL(5) + iC(0)
+            } else if cn == "canvasSetStroke" {
+                bb = bb + iC(1) + b(117) + iCALL(6) + iC(0)
+            } else if cn == "canvasWidth" {
+                bb = bb + iCALL(7) + iC(1) + b(116)
+            } else if cn == "canvasHeight" {
+                bb = bb + iCALL(8) + iC(1) + b(116)
+            } else if cn == "randomInt" {
+                bb = bb + iC(1) + b(117) + iCALL(9) + iC(1) + b(116)
+            } else {
+                // Plain user-function call.
+                bb = bb + iCALL(funcIndexOf(funcNames, cn))
+            }
         } else if lineStarts(line, "PUSH \"") {
             let s = strBetweenQuotes(line)
             let h = strTableOffset(table, s)
@@ -645,6 +682,52 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
             bb = bb + iCALL(12)                  // sb + s -> $concat (sb is a tagged string)
         } else if lineStarts(line, "BUILTIN sbToString ") {
             // sb already IS a tagged string; identity (no opcode).
+        } else if lineStarts(line, "BUILTIN canvasClear ") {
+            // canvas_clear() — host clears the canvas to transparent.
+            bb = bb + iCALL(2)
+            bb = bb + iC(0)
+        } else if lineStarts(line, "BUILTIN canvasCircle ") {
+            // canvas_circle(x, y, r). Args arrive tagged (N<<1); untag each
+            // via three scratch locals before the host call. Push dummy 0
+            // afterwards because every IR BUILTIN is expected to leave one
+            // value on the stack.
+            bb = bb + iLS(t2Idx) + iLS(t1Idx) + iLS(t0Idx)
+            bb = bb + iLG(t0Idx) + iC(1) + b(117)
+            bb = bb + iLG(t1Idx) + iC(1) + b(117)
+            bb = bb + iLG(t2Idx) + iC(1) + b(117)
+            bb = bb + iCALL(3)
+            bb = bb + iC(0)
+        } else if lineStarts(line, "BUILTIN canvasLine ") {
+            // canvas_line(x1, y1, x2, y2). Four scratch locals.
+            bb = bb + iLS(t3Idx) + iLS(t2Idx) + iLS(t1Idx) + iLS(t0Idx)
+            bb = bb + iLG(t0Idx) + iC(1) + b(117)
+            bb = bb + iLG(t1Idx) + iC(1) + b(117)
+            bb = bb + iLG(t2Idx) + iC(1) + b(117)
+            bb = bb + iLG(t3Idx) + iC(1) + b(117)
+            bb = bb + iCALL(4)
+            bb = bb + iC(0)
+        } else if lineStarts(line, "BUILTIN canvasSetFill ") {
+            // canvas_set_fill(rgba) — one arg, untag in place.
+            bb = bb + iC(1) + b(117)
+            bb = bb + iCALL(5)
+            bb = bb + iC(0)
+        } else if lineStarts(line, "BUILTIN canvasSetStroke ") {
+            bb = bb + iC(1) + b(117)
+            bb = bb + iCALL(6)
+            bb = bb + iC(0)
+        } else if lineStarts(line, "BUILTIN canvasWidth ") {
+            // canvas_width() -> i32. Retag the result so the rest of the
+            // tagged-i32 ABI sees it as a regular int.
+            bb = bb + iCALL(7)
+            bb = bb + iC(1) + b(116)
+        } else if lineStarts(line, "BUILTIN canvasHeight ") {
+            bb = bb + iCALL(8)
+            bb = bb + iC(1) + b(116)
+        } else if lineStarts(line, "BUILTIN randomInt ") {
+            // random_int(max) -> i32 in [0, max). Untag arg, retag result.
+            bb = bb + iC(1) + b(117)
+            bb = bb + iCALL(9)
+            bb = bb + iC(1) + b(116)
         } else if line == "NOT" {
             // tagged bool of falsiness. Same tag-dispatch as isTruthy:
             // for int, v == 0; for string, mem[v>>1] (length) == 0.

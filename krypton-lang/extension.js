@@ -254,7 +254,7 @@ function activate(context) {
     output = vscode.window.createOutputChannel("Krypton LSP");
     diagnostics = vscode.languages.createDiagnosticCollection("kls");
     context.subscriptions.push(output, diagnostics);
-    output.appendLine("Krypton extension 2.2.0 activated (KryptScript-aware: .k + .ks)");
+    output.appendLine("Krypton extension 2.2.0 activated (recognises .k, .ks, .htk)");
     output.appendLine("extensionPath: " + context.extensionPath);
     output.show(true);   // surface the channel so first-time users see it
 

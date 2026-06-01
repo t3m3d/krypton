@@ -1,70 +1,174 @@
-// web/site/dist/wasm_runner.js — Krypton browser WASM loader (Agent B, Phase B.4).
+// web/site/dist/wasm_runner.js — Krypton browser WASM loader.
 //
-// Drop-in enhancement for the lesson "Run" button. Loads AFTER runner.js and
-// wraps window.runK so that:
+// This file does TWO independent jobs:
 //
-//   • if the lesson code box is UNMODIFIED and a precompiled
-//     /learn/<slug>.wasm exists  → run the real Krypton-emitted WASM
-//     (host imports per docs/WASM_HOST_ABI.md v1.0), output → .run-out;
-//   • otherwise (edited code, no .wasm, fetch/instantiate/trap error)
-//     → fall back to runner.js's JS-bridge (the original window.runK).
+//   1. Lesson playback (Agent B's original responsibility): wraps window.runK
+//      so the lesson "Run" button serves the precompiled /learn/<slug>.wasm
+//      when the code box is unedited, falling back to runner.js's JS bridge
+//      otherwise.
 //
-// This keeps the "edit the box, hit Run" UX working (JS bridge transpiles the
-// live edit) while shipping genuine compiled WASM for the as-authored lesson.
+//   2. Hero particle animation (NEW, 2.2): when the page has a
+//      <canvas id="heroCanvas">, fetch /particles.wasm (compiled from the
+//      user-visible source at /particles.ks) and call its exported _start()
+//      every requestAnimationFrame. The .wasm module draws each frame via
+//      the host canvas/random imports declared below.
 //
-// ── Wiring (Agent B owns this hook; spec'd here, applied in export.htk later) ──
-//   1. export.htk's build loop runs the emitter per lesson:
-//        wasm_self  dist/learn/<slug>.kir  dist/learn/<slug>.wasm
-//      (only for lessons the emitter can lower; skip the rest — a missing
-//       .wasm simply falls back to the JS bridge, no page change needed).
-//   2. Each lesson page adds, AFTER the runner.js include:
-//        <script src="/wasm_runner.js?v=1"></script>
-//   No other page edits. Pages with no .wasm behave exactly as today.
+// Host import surface (mirrors wasm_self.k's wasmImports section):
 //
-// Contract: ABI changes go through the shared WASM_HOST_ABI.md PR (rule #3).
+//   env.console_log(ptr, len)            — UTF-8 bytes from linear memory
+//   env.console_log_int(v)               — decimal int
+//   env.canvas_clear()                   — clearRect on the active canvas
+//   env.canvas_circle(x, y, r)           — fill one solid disc
+//   env.canvas_line(x1, y1, x2, y2)      — stroke one segment
+//   env.canvas_set_fill(rgba)            — fillStyle = #RRGGBBAA
+//   env.canvas_set_stroke(rgba)          — strokeStyle = same
+//   env.canvas_width()  -> i32           — active canvas .width
+//   env.canvas_height() -> i32           — active canvas .height
+//   env.random_int(max) -> i32           — uniform integer in [0, max)
+//
+// "Active canvas" is set by setActiveCanvas(canvas) below. The hero loader
+// switches it to <canvas id="heroCanvas"> before each RAF. Lesson playback
+// never touches the canvas surface, so those imports are no-ops there.
 
 (function () {
   'use strict';
 
-  // Derive the lesson slug from /learn/<slug>.html
+  // ── Shared host state ───────────────────────────────────────────────
+  var activeCtx = null;        // CanvasRenderingContext2D for the active canvas
+  var activeCanvas = null;     // The <canvas> element backing activeCtx
+  var lessonOut = [];          // Lesson stdout buffer (used by console_log*)
+  var lessonInstance = null;   // Currently-running lesson WASM instance
+  var dec = new TextDecoder('utf-8');
+
+  function setActiveCanvas(c) {
+    activeCanvas = c;
+    activeCtx = c ? c.getContext('2d') : null;
+  }
+
+  function rgbaToCss(packed) {
+    // Canvas-side colour encoding: 0xRRGGBBAA (32-bit big-endian).
+    // KryptScript passes the raw int via canvas_set_{fill,stroke}; split here.
+    var u = packed >>> 0;
+    var r = (u >>> 24) & 0xff;
+    var g = (u >>> 16) & 0xff;
+    var b = (u >>> 8)  & 0xff;
+    var a = (u & 0xff) / 255;
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + a.toFixed(3) + ')';
+  }
+
+  function makeImports(memLookup) {
+    return { env: {
+      // Lesson stdout
+      console_log: function (ptr, len) {
+        try {
+          var mem = memLookup();
+          lessonOut.push(dec.decode(mem.subarray(ptr, ptr + len)));
+        } catch (e) { /* ignore — particles modules don't allocate strings */ }
+      },
+      console_log_int:   function (v) { lessonOut.push(String(v | 0)); },
+      console_log_int64: function (hi, lo) {
+        var v = (BigInt.asUintN(32, BigInt(hi)) << 32n) | BigInt.asUintN(32, BigInt(lo));
+        lessonOut.push(v.toString());
+      },
+      console_log_f64:   function (v) { lessonOut.push(String(v)); },
+      abort:             function (code) { throw new WebAssembly.RuntimeError('env.abort(' + code + ')'); },
+
+      // Canvas surface (active canvas selected via setActiveCanvas).
+      canvas_clear: function () {
+        if (!activeCtx) return;
+        activeCtx.clearRect(0, 0, activeCanvas.width, activeCanvas.height);
+      },
+      canvas_circle: function (x, y, r) {
+        if (!activeCtx) return;
+        activeCtx.beginPath();
+        activeCtx.arc(x, y, r, 0, 6.283185307179586);
+        activeCtx.fill();
+      },
+      canvas_line: function (x1, y1, x2, y2) {
+        if (!activeCtx) return;
+        activeCtx.beginPath();
+        activeCtx.moveTo(x1, y1);
+        activeCtx.lineTo(x2, y2);
+        activeCtx.stroke();
+      },
+      canvas_set_fill:   function (rgba) { if (activeCtx) activeCtx.fillStyle   = rgbaToCss(rgba); },
+      canvas_set_stroke: function (rgba) { if (activeCtx) activeCtx.strokeStyle = rgbaToCss(rgba); },
+      canvas_width:      function () { return activeCanvas ? activeCanvas.width  | 0 : 0; },
+      canvas_height:     function () { return activeCanvas ? activeCanvas.height | 0 : 0; },
+      random_int:        function (max) { max = max | 0; return max > 0 ? (Math.random() * max) | 0 : 0; },
+    }};
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // 1. Hero particle animation (Krypton .ks → .wasm, drives <canvas>)
+  // ─────────────────────────────────────────────────────────────────────
+
+  function startHeroParticles() {
+    var canvas = document.getElementById('heroCanvas');
+    if (!canvas) return;
+
+    // Size the canvas to its parent (the .hero div).
+    function resize() {
+      var parent = canvas.parentElement;
+      if (!parent) return;
+      canvas.width  = parent.offsetWidth;
+      canvas.height = parent.offsetHeight;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    fetch('/particles.wasm', { cache: 'force-cache' })
+      .then(function (r) { return r.ok ? r.arrayBuffer() : null; })
+      .catch(function () { return null; })
+      .then(function (bytes) {
+        if (!bytes) return;       // no module shipped → leave the canvas blank
+        var instance = null;
+        var imports = makeImports(function () {
+          return new Uint8Array(instance.exports.memory.buffer);
+        });
+        WebAssembly.instantiate(bytes, imports).then(function (res) {
+          instance = res.instance;
+          if (typeof instance.exports._start !== 'function') return;
+
+          // ── Krypton runtime visibility (the "JS"-equivalent inspector trail) ──
+          try {
+            var n = bytes.byteLength | 0;
+            var banner = [
+              '%c[Krypton 2.2]%c particles.wasm loaded (' + n + ' bytes) ' +
+              '— view the KryptScript source at %c/particles.ks',
+              'background:linear-gradient(135deg,#7722ff,#3a0ca3);color:#fff;padding:2px 6px;border-radius:4px;font-weight:600',
+              'color:inherit',
+              'color:#7722ff;font-weight:600',
+            ];
+            console.log.apply(console, banner);
+          } catch (e) { /* noop */ }
+
+          // RAF loop: each frame, point the host's "active canvas" at the
+          // hero canvas and invoke _start() — particles.ks is the body of
+          // _start, so each call is one full frame's worth of drawing.
+          function frame() {
+            setActiveCanvas(canvas);
+            try { instance.exports._start(); }
+            catch (e) { console.error('[Krypton] particles frame trap:', e); return; }
+            setActiveCanvas(null);
+            requestAnimationFrame(frame);
+          }
+          requestAnimationFrame(frame);
+        }).catch(function (e) {
+          console.error('[Krypton] particles.wasm instantiate failed:', e);
+        });
+      });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // 2. Lesson playback (the original wasm_runner responsibility)
+  // ─────────────────────────────────────────────────────────────────────
+
   function lessonSlug() {
     var m = (location.pathname || '').match(/\/learn\/([^\/]+?)\.html?$/i);
     return m ? m[1] : null;
   }
 
-  // Host imports — identical surface to scripts/run_wasm.js. No added newlines;
-  // kp() emits its own. Returns { run(bytes) -> Promise<string> }.
-  function makeHost() {
-    var out = [];
-    var dec = new TextDecoder('utf-8');
-    var instance = null;
-    function mem() { return new Uint8Array(instance.exports.memory.buffer); }
-    var imports = { env: {
-      console_log: function (ptr, len) { out.push(dec.decode(mem().subarray(ptr, ptr + len))); },
-      console_log_int: function (v) { out.push(String(v | 0)); },
-      console_log_int64: function (hi, lo) {
-        var v = (BigInt.asUintN(32, BigInt(hi)) << 32n) | BigInt.asUintN(32, BigInt(lo));
-        out.push(v.toString());
-      },
-      console_log_f64: function (v) { out.push(String(v)); },
-      abort: function (code) { throw new WebAssembly.RuntimeError('env.abort(' + code + ')'); },
-    }};
-    return {
-      run: function (bytes) {
-        return WebAssembly.instantiate(bytes, imports).then(function (res) {
-          instance = res.instance;
-          if (typeof instance.exports._start !== 'function')
-            throw new Error("module missing exported _start()");
-          if (!(instance.exports.memory instanceof WebAssembly.Memory))
-            throw new Error("module missing exported memory");
-          instance.exports._start();
-          return out.join('');
-        });
-      },
-    };
-  }
-
-  // Per-slug cache of "does a .wasm exist?" so we only probe the network once.
   var wasmAvail = {}; // slug -> Promise<ArrayBuffer|null>
   function fetchWasm(slug) {
     if (wasmAvail[slug]) return wasmAvail[slug];
@@ -75,51 +179,73 @@
     return p;
   }
 
-  var slug = lessonSlug();
-  var jsBridge = window.runK; // the runner.js implementation (may be undefined)
-
-  // If there's no slug or no JS bridge to fall back to, leave runK untouched.
-  if (!slug || typeof jsBridge !== 'function') return;
-
-  // Record each code box's as-shipped source so we can tell if the user edited.
-  document.addEventListener('DOMContentLoaded', function () {
-    document.querySelectorAll('pre code.k').forEach(function (code) {
-      code.dataset.korig = (code.innerText || code.textContent);
+  function makeLessonHost() {
+    var imports = makeImports(function () {
+      return new Uint8Array(lessonInstance.exports.memory.buffer);
     });
-  });
+    return {
+      run: function (bytes) {
+        lessonOut = [];
+        return WebAssembly.instantiate(bytes, imports).then(function (res) {
+          lessonInstance = res.instance;
+          if (typeof lessonInstance.exports._start !== 'function')
+            throw new Error('module missing exported _start()');
+          if (!(lessonInstance.exports.memory instanceof WebAssembly.Memory))
+            throw new Error('module missing exported memory');
+          lessonInstance.exports._start();
+          return lessonOut.join('');
+        });
+      },
+    };
+  }
 
-  window.runK = function (btn) {
-    var wrap = btn.parentElement;
-    var code = wrap.querySelector('pre code.k');
-    var out = wrap.querySelector('.run-out');
-    if (!code || !out) return (jsBridge ? jsBridge(btn) : undefined);
+  var slug = lessonSlug();
+  var jsBridge = window.runK;
 
-    var cur = (code.innerText || code.textContent);
-    var orig = code.dataset.korig;
-    var edited = (orig != null && cur !== orig);
-
-    // Edited code → only the JS bridge reflects the live source.
-    if (edited) return jsBridge(btn);
-
-    var label = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = 'Running…';
-
-    fetchWasm(slug).then(function (bytes) {
-      if (!bytes) {                 // no precompiled wasm → JS bridge
-        btn.disabled = false; btn.textContent = label;
-        return jsBridge(btn);
-      }
-      out.className = 'run-out';
-      out.textContent = '';
-      makeHost().run(bytes).then(function (text) {
-        out.textContent = text.length ? text : '(no output)';
-        out.className = 'run-out ok';
-        btn.disabled = false; btn.textContent = label;
-      }, function () {              // trap / bad module → JS bridge
-        btn.disabled = false; btn.textContent = label;
-        jsBridge(btn);
+  if (slug && typeof jsBridge === 'function') {
+    document.addEventListener('DOMContentLoaded', function () {
+      document.querySelectorAll('pre code.k').forEach(function (code) {
+        code.dataset.korig = (code.innerText || code.textContent);
       });
     });
-  };
+
+    window.runK = function (btn) {
+      var wrap = btn.parentElement;
+      var code = wrap.querySelector('pre code.k');
+      var out = wrap.querySelector('.run-out');
+      if (!code || !out) return jsBridge(btn);
+
+      var cur = (code.innerText || code.textContent);
+      var orig = code.dataset.korig;
+      if (orig != null && cur !== orig) return jsBridge(btn);
+
+      var label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Running…';
+
+      fetchWasm(slug).then(function (bytes) {
+        if (!bytes) {
+          btn.disabled = false; btn.textContent = label;
+          return jsBridge(btn);
+        }
+        out.className = 'run-out';
+        out.textContent = '';
+        makeLessonHost().run(bytes).then(function (text) {
+          out.textContent = text.length ? text : '(no output)';
+          out.className = 'run-out ok';
+          btn.disabled = false; btn.textContent = label;
+        }, function () {
+          btn.disabled = false; btn.textContent = label;
+          jsBridge(btn);
+        });
+      });
+    };
+  }
+
+  // Fire hero particles on every page that has a #heroCanvas.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startHeroParticles);
+  } else {
+    startHeroParticles();
+  }
 })();
