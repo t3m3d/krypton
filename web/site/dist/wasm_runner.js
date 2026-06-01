@@ -40,9 +40,24 @@
   var lessonInstance = null;   // Currently-running lesson WASM instance
   var dec = new TextDecoder('utf-8');
 
+  // Hero multi-pass state. The hero renderer invokes _start() up to four
+  // times per RAF, each time with a different (flipX, flipY, timeBias)
+  // — so a single 44-particle module renders as a 176-particle tumbling
+  // field with four opposing drift directions. The wasm only computes
+  // positive +x/+y drifts, so JS-side mirroring is what produces the
+  // visual sense of particles flowing in different directions.
+  var passFlipX = 0;
+  var passFlipY = 0;
+  var passTimeBias = 0;
+  var passSuppressClear = false;
+
   function setActiveCanvas(c) {
     activeCanvas = c;
     activeCtx = c ? c.getContext('2d') : null;
+    // Hairlines: the hero links between particles should be almost
+    // gossamer-thin. Default 1.0 reads as "too solid"; 0.5 lands as a
+    // sub-pixel antialiased line that matches the original JS impl.
+    if (activeCtx) activeCtx.lineWidth = 0.5;
   }
 
   function rgbaToCss(packed) {
@@ -54,6 +69,15 @@
     // opacity and `0x05FFFFFF` at ~8%.
     var u = packed >>> 0;
     var a = (((u >>> 24) & 0x3f) * 4) / 255;
+    var r = (u >>> 16) & 0xff;
+    var g = (u >>> 8)  & 0xff;
+    var b = u & 0xff;
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + a.toFixed(3) + ')';
+  }
+
+  function rgbaToCssDim(packed, scale) {
+    var u = packed >>> 0;
+    var a = ((((u >>> 24) & 0x3f) * 4) / 255) * scale;
     var r = (u >>> 16) & 0xff;
     var g = (u >>> 8)  & 0xff;
     var b = u & 0xff;
@@ -80,32 +104,54 @@
       // Canvas surface (active canvas selected via setActiveCanvas).
       canvas_clear: function () {
         if (!activeCtx) return;
+        // Skipped on every pass after the first so each pass layers onto
+        // the previous, building up the multi-direction field instead of
+        // erasing it on every _start invocation.
+        if (passSuppressClear) return;
         activeCtx.clearRect(0, 0, activeCanvas.width, activeCanvas.height);
       },
       // Coordinates and radii arrive in fixed-point: KryptScript-side
       // working units are 1/64 of a CSS pixel, so the integer-only tagged
       // i32 ABI still produces sub-pixel-smooth motion when ctx.arc /
       // ctx.lineTo receive the divided floats below. The Canvas2D antialiaser
-      // does the rest.
+      // does the rest. The mirror flags fold a single +x/+y-drifting field
+      // into 4 quadrants of opposing drift to fake a tumbling structure.
       canvas_circle: function (x, y, r) {
         if (!activeCtx) return;
+        var wf = (activeCanvas.width | 0) * 64;
+        var hf = (activeCanvas.height | 0) * 64;
+        if (passFlipX) x = wf - x;
+        if (passFlipY) y = hf - y;
+        // r/40 doubles the on-screen radius of every particle from the
+        // host-side-tuned r/80. The wasm always passes r=160, so this
+        // lands at ~4 CSS px radius (~8 px diameter) on the canvas.
         activeCtx.beginPath();
-        activeCtx.arc(x / 64, y / 64, r / 64, 0, 6.283185307179586);
+        activeCtx.arc(x / 64, y / 64, r / 40, 0, 6.283185307179586);
         activeCtx.fill();
       },
       canvas_line: function (x1, y1, x2, y2) {
         if (!activeCtx) return;
+        var wf = (activeCanvas.width | 0) * 64;
+        var hf = (activeCanvas.height | 0) * 64;
+        if (passFlipX) { x1 = wf - x1; x2 = wf - x2; }
+        if (passFlipY) { y1 = hf - y1; y2 = hf - y2; }
         activeCtx.beginPath();
         activeCtx.moveTo(x1 / 64, y1 / 64);
         activeCtx.lineTo(x2 / 64, y2 / 64);
         activeCtx.stroke();
       },
       canvas_set_fill:   function (rgba) { if (activeCtx) activeCtx.fillStyle   = rgbaToCss(rgba); },
-      canvas_set_stroke: function (rgba) { if (activeCtx) activeCtx.strokeStyle = rgbaToCss(rgba); },
+      // Strokes get an additional alpha scale-down. The fill (dots) wants
+      // ~100% so each particle reads as a solid pip; the stroke (links)
+      // wants ~15% so the web feels like web, not wire. Doing it host-side
+      // means we don't have to recompile particles.wasm to retune.
+      canvas_set_stroke: function (rgba) { if (activeCtx) activeCtx.strokeStyle = rgbaToCssDim(rgba, 0.40); },
       canvas_width:      function () { return activeCanvas ? activeCanvas.width  | 0 : 0; },
       canvas_height:     function () { return activeCanvas ? activeCanvas.height | 0 : 0; },
       random_int:        function (max) { max = max | 0; return max > 0 ? (Math.random() * max) | 0 : 0; },
-      time_ms:           function () { return (Date.now() & 0x3fffff) | 0; },
+      // passTimeBias shifts each pass into a different phase so the four
+      // mirrored fields don't sit on top of each other as perfect reflections.
+      time_ms:           function () { return ((Date.now() + passTimeBias) & 0x3fffff) | 0; },
     }};
   }
 
@@ -133,7 +179,7 @@
     }
     syncCanvasSize();
 
-    fetch('/particles.wasm?v=6', { cache: 'no-cache' })
+    fetch('/particles.wasm?v=10', { cache: 'no-cache' })
       .then(function (r) { return r.ok ? r.arrayBuffer() : null; })
       .catch(function () { return null; })
       .then(function (bytes) {
@@ -178,15 +224,35 @@
           // drawing. We always reschedule the next frame even if this
           // one trapped (e.g. layout-not-ready → canvas.width = 0 →
           // wasm `% 0`); the next frame can recover once layout settles.
+          // Four passes per frame. Each pass invokes the same wasm _start()
+          // but with different (flipX, flipY, timeBias) host state, so a
+          // 44-particle module yields a 176-particle tumbling field with
+          // four opposing drift directions. Time biases are chosen far
+          // enough apart that the four phases visually look like distinct
+          // particles rather than mirrored ghosts of each other.
+          var PASSES = [
+            { fx: 0, fy: 0, bias: 0         },
+            { fx: 1, fy: 0, bias: 5_000_000 },
+            { fx: 0, fy: 1, bias: 9_000_000 },
+            { fx: 1, fy: 1, bias: 13_000_000 },
+          ];
           function frame() {
             syncCanvasSize();
             if (canvas.width > 0 && canvas.height > 0) {
               setActiveCanvas(canvas);
-              // Swallow per-frame traps (e.g. layout race producing
-              // canvas.width = 0 after we syncCanvasSize'd) so a one-off
-              // bad frame doesn't kill the entire animation.
-              try { instance.exports._start(); }
-              catch (e) { /* recover next frame */ }
+              for (var p = 0; p < PASSES.length; p++) {
+                passFlipX     = PASSES[p].fx;
+                passFlipY     = PASSES[p].fy;
+                passTimeBias  = PASSES[p].bias;
+                // Only the first pass clears; later passes layer onto it.
+                passSuppressClear = p > 0;
+                // Swallow per-frame traps (e.g. layout race producing
+                // canvas.width = 0 after we syncCanvasSize'd) so a one-off
+                // bad frame doesn't kill the entire animation.
+                try { instance.exports._start(); }
+                catch (e) { /* recover next pass */ }
+              }
+              passSuppressClear = false;
               setActiveCanvas(null);
             }
             requestAnimationFrame(frame);
