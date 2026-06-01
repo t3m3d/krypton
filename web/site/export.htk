@@ -5,7 +5,6 @@
 
 import "k:htmk"
 import "k:kcss"
-import "k:fs"
 
 // ── Theme colors + CSS ───────────────────────────────────────────────
 // CSS authored via kcss (the Krypton CSS DSL).
@@ -1303,9 +1302,13 @@ just run {
     }
 
     // Learn section: index + one page per tutorial lesson.
-    // cmd.exe mkdir (backslash path; creates intermediates, errors harmlessly
-    // if it already exists).
-    shellRun("mkdir dist" + fromCharCode(92) + "learn")
+    // mkdir -p style: cmd.exe on Windows (backslash path), POSIX mkdir -p
+    // elsewhere. Both no-op harmlessly if the dir already exists.
+    if environ("OS") == "Windows_NT" {
+        shellRun("mkdir dist" + fromCharCode(92) + "learn")
+    } else {
+        shellRun("mkdir -p dist/learn")
+    }
     writePage(dist + "/learn.html", pageLearnIndex())
     let files = lessonFiles()
     let cnt = lineCount(files)
@@ -1325,13 +1328,18 @@ just run {
             // Krypton-emitted module when the code box is unedited. Failures
             // are silent: a missing .wasm just falls back to runner.js's
             // JS bridge (matches the contract in WASM_PHASE_1_SPLIT.md §B.4).
-            let srcK = "..\\..\\tutorial\\" + file + ".k"
-            let kir  = "dist\\learn\\" + file + ".kir"
-            let wsm  = "dist\\learn\\" + file + ".wasm"
-            shellRun("kcc.exe --ir " + srcK + " > " + kir + " 2>nul")
-            shellRun("..\\..\\compiler\\wasm32\\wasm_self.exe " + kir + " " + wsm + " >nul 2>nul")
-            shellRun("del " + kir + " >nul 2>nul")
-            if fsFileExists("dist/learn/" + file + ".wasm") == "1" {
+            //
+            // WINDOWS-ONLY: this shells out to kcc.exe / wasm_self.exe with
+            // backslash paths + cmd builtins (del, 2>nul). On macOS / Linux
+            // (environ("OS") != "Windows_NT") we skip it and reuse the .wasm
+            // files already committed under dist/learn/ from the Windows build.
+            if environ("OS") == "Windows_NT" {
+                let srcK = "..\\..\\tutorial\\" + file + ".k"
+                let kir  = "dist\\learn\\" + file + ".kir"
+                let wsm  = "dist\\learn\\" + file + ".wasm"
+                shellRun("kcc.exe --ir " + srcK + " > " + kir + " 2>nul")
+                shellRun("..\\..\\compiler\\wasm32\\wasm_self.exe " + kir + " " + wsm + " >nul 2>nul")
+                shellRun("del " + kir + " >nul 2>nul")
                 wasmOk += 1
             } else {
                 wasmSkip += 1
