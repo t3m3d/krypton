@@ -102,6 +102,12 @@ func siteCSS() {
         "code{font-family:'Cascadia Code','Fira Code',Consolas,monospace}" +
         "code[contenteditable]:focus{outline:2px solid var(--primary);outline-offset:4px}" +
         "p code{background:#f0edff;padding:2px 8px;border-radius:4px;font-size:0.88em;color:var(--primary-dark)}" +
+        // Hide the text caret on plain content; only show it where it's
+        // actually useful (the playground / lesson code boxes that opt in
+        // via contenteditable, plus real form fields). Without this, clicking
+        // any text on a page paints a blinking white I-beam that looks broken.
+        "body{caret-color:transparent}" +
+        "[contenteditable=" + DQ() + "true" + DQ() + "],input,textarea{caret-color:var(--primary)}" +
         ".kw{color:#cba6f7}.fn{color:#89b4fa}.str{color:#a6e3a1}.cm{color:#6c7086;font-style:italic}.num{color:#fab387}" +
         ".table-wrap{overflow-x:auto}" +
         "table{border-collapse:collapse;width:100%;margin:16px 0;border-radius:8px;overflow:hidden}" +
@@ -409,9 +415,13 @@ func pageHome() {
 }
 
 func pageAbout() {
-    let content = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
+    let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
+        "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
         htH1("About Krypton") +
         htP("A small, opinionated programming language built around one idea: compile straight to native code, in itself, with no toolchain underneath.") +
+        "</div>"
+    let content = hero +
+        "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
         htH2("Why Krypton Exists") +
         htP("Most languages depend on LLVM backends, C compilers, system linkers, and runtimes in other languages. Krypton takes a different approach " + DASH() + " the compiler is written in Krypton itself and directly emits ELF, PE, and Mach-O binaries.") +
         htH2("Design Principles") +
@@ -430,9 +440,13 @@ func pageAbout() {
 }
 
 func pageFeatures() {
-    let content = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
+    let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
+        "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
         htH1("Features") +
         htP("Everything Krypton ships, organized so you can skim or dive in.") +
+        "</div>"
+    let content = hero +
+        "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
         htH2("Native Compilation Pipeline") +
         "<div class=" + DQ() + "table-wrap" + DQ() + "><table><tr>" + htTh("Platform") + htTh("Backend") + htTh("Output") + "</tr>" +
         "<tr>" + htTd("Linux x86_64") + htTd("elf.k") + htTd("Static ELF, direct syscalls, no libc") + "</tr>" +
@@ -460,9 +474,13 @@ func pageFeatures() {
 }
 
 func pagePrograms() {
-    let content = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
+    let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
+        "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
         htH1("Programs") +
         htP("Real software written in Krypton.") +
+        "</div>"
+    let content = hero +
+        "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
         "<div class=" + DQ() + "card" + DQ() + " style=" + DQ() + "margin:24px 0" + DQ() + ">" +
         "<span class=" + DQ() + "tag" + DQ() + ">Featured</span>" +
         htH2("kryofetch") +
@@ -677,8 +695,13 @@ func pageDownloads() {
 }
 
 func pageContact() {
-    let content = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
+    let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
+        "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
         htH1("Contact") +
+        htP("Bug reports, feature requests, partnerships, sponsorship " + DASH() + " here is where to reach the project.") +
+        "</div>"
+    let content = hero +
+        "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
         "<div class=" + DQ() + "grid" + DQ() + ">" +
         "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Email") + htP("General questions, partnerships:") + htP(htA("mailto:brian@krypton-lang.org", "brian@krypton-lang.org")) + "</div>" +
         "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Bug Reports") + htP(htA("https://github.com/t3m3d/krypton/issues", "Open an issue on GitHub")) + htP("Include a minimal reproducer.") + "</div>" +
