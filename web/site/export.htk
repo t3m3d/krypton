@@ -271,7 +271,7 @@ func siteJS() {
     // /particles.ks). Also wraps window.runK for lesson playback. Sourcing
     // unconditionally is fine — the script no-ops when neither condition
     // applies. v=2 busts the browser cache after the 2.2 ABI change.
-    "<script src=" + DQ() + "/wasm_runner.js?v=2" + DQ() + "></script>"
+    "<script src=" + DQ() + "/wasm_runner.js?v=4" + DQ() + "></script>"
 }
 
 func NL() { emit fromCharCode(10) }
