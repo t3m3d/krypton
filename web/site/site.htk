@@ -44,6 +44,11 @@ func siteCSS() {
         "footer a{color:var(--primary)}" +
         ".tag{display:inline-block;background:var(--primary);color:#fff;padding:2px 10px;border-radius:12px;font-size:0.8rem;margin-bottom:8px}" +
         "ul{margin:8px 0 8px 24px}li{margin:4px 0}" +
+        ".nav-ks{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(135deg,#7722ff,#3a0ca3);color:#fff!important;padding:6px 14px;border-radius:999px;font-weight:600;font-size:0.85rem;margin-left:18px;transition:transform 0.15s,box-shadow 0.15s,filter 0.2s;box-shadow:0 2px 8px rgba(119,34,255,0.4);position:relative;overflow:hidden}" +
+        ".nav-ks span{letter-spacing:0.3px}" +
+        ".nav-ks:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(119,34,255,0.55);text-decoration:none;filter:brightness(1.08)}" +
+        ".nav-ks::before{content:'';position:absolute;inset:0;background:linear-gradient(120deg,transparent 35%,rgba(255,255,255,0.4) 50%,transparent 65%);transform:translateX(-100%);transition:transform 0.6s ease;pointer-events:none}" +
+        ".nav-ks:hover::before{transform:translateX(100%)}" +
         "@media(max-width:700px){.hero h1{font-size:1.8rem}nav .links a{margin-left:12px;font-size:0.85rem}.grid{grid-template-columns:1fr}}"
     )
 }
@@ -63,6 +68,7 @@ func siteNav(active) {
          htA("/programs", "Programs") +
          htA("/downloads", "Downloads") +
          htA("/contact", "Contact") +
+         "<a href=\"/kryptscript\" class=\"nav-ks\" title=\"KryptScript (.ks) - runnable Krypton scripts\">&#10024; <span>KryptScript</span></a>" +
          "</div></div></nav>"
 }
 
@@ -235,30 +241,132 @@ func pagePrograms() {
 // ── Downloads Page ───────────────────────────────────────────────────
 
 func pageDownloads() {
+    let LATEST = "https://github.com/t3m3d/krypton/releases/tag/2.1.1"
+    let btnStyle = "display:inline-block;background:var(--primary);color:#fff;padding:10px 24px;border-radius:6px"
+
     let content = "<section><div class=\"wrap\">" +
         htH1("Downloads") +
-        "<span class=\"tag\">Latest: 2.1.0</span>" +
-        htP("Released May 25, 2026.") +
+        "<span class=\"tag\">Latest release: 2.1.1</span>" +
+        htP("Released May 31, 2026. A bundled release: the Krypton 2.1.1 toolchain (kcc + WASM backend) for Windows and macOS, the kweb web framework CLI on Windows, and the KryptScript-aware 2.2.0 VS Code / Google Antigravity extension. All assets live on " + htAA(htHref(LATEST), "one GitHub release page") + ".") +
 
-        htH2("Windows Installer") +
-        htP("One-click install to C:" + fromCharCode(92) + "krypton with automatic PATH configuration. 2.5 MB. Requires Windows 10/11 x64.") +
-        htP(htAA(htHref("https://github.com/t3m3d/krypton/releases") + htClass("btn") + htStyleAttr("display:inline-block;background:var(--primary);color:#fff;padding:10px 24px;border-radius:6px"), "Download for Windows")) +
+        htH3("What is in the bundle") +
+        htUl(
+            htLi(htCode("krypton-2.1.1-setup.exe") + " " + fromCharCode(8212) + " Windows installer (kcc + kweb + WASM backend + .k / .ks file associations)") +
+            htLi(htCode("krypton-2.1.1-macos-arm64.pkg") + " " + fromCharCode(8212) + " macOS Apple Silicon signed installer") +
+            htLi(htCode("krypton-2.1.1-macos-arm64.tar.gz") + " " + fromCharCode(8212) + " macOS Apple Silicon tarball") +
+            htLi(htCode("krypton-language-2.2.0.vsix") + " " + fromCharCode(8212) + " VS Code / Antigravity extension (KryptScript-aware, bundles kls)")
+        ) +
 
-        htH2("macOS (Apple Silicon)") +
-        htP("Standard macOS package installer for arm64 Macs.") +
+        htH2("Windows Installer (toolchain 2.1.1 + kweb)") +
+        htP("One-click install to C:" + fromCharCode(92) + "krypton with automatic PATH configuration. Bundles kcc, kweb, the WASM backend, and .k + .ks file associations. 2.6 MB. Windows 10/11 x64.") +
+        htP(htAA(htHref(LATEST) + htClass("btn") + htStyleAttr(btnStyle), "Download for Windows")) +
+
+        htH2("macOS Apple Silicon (toolchain 2.1.1)") +
+        htP("Signed-payload .pkg installer for arm64 Macs. Installs to /usr/local/krypton with kcc on your PATH. kweb is Windows-only in 2.1.1 " + fromCharCode(8212) + " the macOS port arrives in 2.1.2 once stdlib/fs.k finishes its POSIX rewrite.") +
+        htP(htAA(htHref(LATEST) + htClass("btn") + htStyleAttr(btnStyle), "Download .pkg for macOS")) +
+        htH3("Or install with Homebrew") +
+        htPre(htCode("brew install t3m3d/krypton/krypton")) +
+        htP("Prefer a tarball? Grab " + htAA(htHref(LATEST), htCode("krypton-2.1.1-macos-arm64.tar.gz")) + " from the release page.") +
+
+        htH2("Krypton Web Framework (kweb)") +
+        htP("kweb is a single-binary CLI that scaffolds, builds, serves, and deploys Krypton sites. Bundled inside the Windows installer at C:" + fromCharCode(92) + "krypton" + fromCharCode(92) + "kweb.exe.") +
+        htPre(htCode("kweb init <name>      # scaffold a new site" + fromCharCode(10) +
+                     "kweb build            # render to dist/" + fromCharCode(10) +
+                     "kweb serve [port]     # local dev server" + fromCharCode(10) +
+                     "kweb deploy <host> <user>   # SFTP dist/")) +
+        htP("This very site (krypton-lang.org) is built with kweb, written in Krypton.") +
 
         htH2("Linux / BSD / Source") +
         htP("Clone the repo and run the build script. Prebuilt seeds eliminate the need for external compilers.") +
         htPre(htCode("git clone https://github.com/t3m3d/krypton" + fromCharCode(10) + "cd krypton" + fromCharCode(10) + "./build.sh")) +
 
-        htH2("VS Code Extension") +
-        htP("Syntax highlighting, bracket matching, code folding for .k files. Ships as prebuilt .vsix in the repository.") +
+        htH2("VS Code &amp; Google Antigravity Extension (2.2.0)") +
+        htP("Syntax highlighting, bracket matching, code folding, and kls-powered diagnostics for Krypton (.k libraries) and KryptScript (.ks scripts). New in 2.2.0: full .ks language contribution, KryptScript language-picker alias, refreshed kls bundled binaries. One .vsix installs in both VS Code and Google Antigravity (a VS Code fork).") +
+        htP(htAA(htHref(LATEST) + htClass("btn") + htStyleAttr(btnStyle), "Download .vsix")) +
+
+        htH2("New in 2.2: KryptScript (.ks scripts)") +
+        htP("Krypton 2.2 introduces .ks as a sibling extension for run-as-script files. Same compiler, same syntax, different use case. " + htA("/kryptscript", "Learn about KryptScript") + ".") +
 
         htH2("Verify Installation") +
-        htPre(htCode("kcc --version")) +
+        htPre(htCode("kcc --version    # kcc version 2.1.1")) +
         "</div></section>"
 
     emit sitePage("Downloads", content)
+}
+
+// ── KryptScript Page (added 2.2) ─────────────────────────────────────
+
+func pageKryptScript() {
+    let sampleHello =
+        "#!/usr/bin/env kr" + fromCharCode(10) +
+        "just run {" + fromCharCode(10) +
+        "    kp(\"hello from a kryptscript\")" + fromCharCode(10) +
+        "}"
+
+    let hero = "<div class=\"hero\">" +
+        "<span class=\"tag\">New in 2.2</span>" +
+        htH1("KryptScript") +
+        htP("Krypton, but as a script. Same compiler, same syntax " + fromCharCode(8212) +
+            " just a .ks file you can chmod +x and run like bash or Python.") +
+        "</div>"
+
+    let body = "<section><div class=\"wrap\">" +
+
+        htH2("Why .ks?") +
+        htP("Krypton has always been a great language for libraries and compiled programs. KryptScript is the same Krypton, packaged for the moment you reach for a script instead of a binary " + fromCharCode(8212) + " a one-off tool, a build step, a glue script between systems.") +
+        htP("The convention is purely about naming. " + htStrong("Same compiler, same syntax, same stdlib.") + " The compiler treats .k and .ks identically. The split exists so a glance at a file (or a directory listing, or GitHub search) tells you the author's intent.") +
+
+        htH2("The split") +
+        "<div class=\"grid\">" +
+        "<div class=\"card\">" +
+            htH3(".k " + fromCharCode(8212) + " library or program") +
+            htP("Declares module foo (or compiles into a program). Exports functions. No shebang. Built into a binary, then run.") +
+            htPre(htCode("// math.k" + fromCharCode(10) + "module math" + fromCharCode(10) + fromCharCode(10) +
+                "func square(x) { emit x * x }" + fromCharCode(10) +
+                "func cube(x)   { emit x * x * x }")) +
+            htP("Build: " + htCode("kcc -o math.lib math.k") + ".") +
+        "</div>" +
+        "<div class=\"card\" style=\"border:2px solid var(--primary)\">" +
+            htH3(".ks " + fromCharCode(8212) + " runnable script") +
+            htP("Has just run { ... } and an optional " + htCode("#!/usr/bin/env kr") + " shebang. Run directly with " + htCode("kcc -r") + " or " + htCode("chmod +x") + " " + fromCharCode(8212) + " no separate build step.") +
+            htPre(htCode(sampleHello)) +
+            htP("Run: " + htCode("kcc -r hello.ks") + ", or " + htCode("chmod +x hello.ks &amp;&amp; ./hello.ks") + " on POSIX.") +
+        "</div>" +
+        "</div>" +
+
+        htH2("When to use it") +
+        htP("Reach for KryptScript whenever you would otherwise reach for bash, PowerShell, or Python:") +
+        htUl(
+            htLi(htStrong("Build glue") + " " + fromCharCode(8212) + " orchestrating compiler flags, packaging steps, deployment.") +
+            htLi(htStrong("One-off CLIs") + " " + fromCharCode(8212) + " a script that takes a few args, does its job, exits.") +
+            htLi(htStrong("Repo tooling") + " " + fromCharCode(8212) + " linters, sweeps, smoke tests, test harnesses.") +
+            htLi(htStrong("Codegen") + " " + fromCharCode(8212) + " emitting other files (HTML, SQL, config) from Krypton-defined templates.")
+        ) +
+        htP("All the wins: same syntax as your production Krypton code, import anything from your project, real types and structs, compile-time errors, and the full stdlib at your fingertips.") +
+
+        htH2("Tooling support") +
+        htUl(
+            htLi(htStrong("kcc") + " " + fromCharCode(8212) + " accepts .ks as a source file in every mode (-r, -o, --ir, --c, -e). Output basenames strip .ks before .k.") +
+            htLi(htStrong("Windows installer") + " " + fromCharCode(8212) + " registers both .k and .ks under the same Krypton.Source ProgID.") +
+            htLi(htStrong("VS Code &amp; Antigravity extension") + " " + fromCharCode(8212) + " syntax highlighting, kls-powered diagnostics, KryptScript alias in the language picker.") +
+            htLi(htStrong("GitHub") + " " + fromCharCode(8212) + " .gitattributes paints .ks as Krypton via linguist.") +
+            htLi(htStrong("Shebang") + " " + fromCharCode(8212) + " the kr wrapper resolves through kcc -r so " + htCode("#!/usr/bin/env kr") + " works on macOS and Linux.")
+        ) +
+
+        htH2("Adoption is opt-in") +
+        htP("Nothing about .ks forces existing code to change. Every .k file in your project keeps building and running exactly as it did. Adopt .ks when it's a clear win " + fromCharCode(8212) + " typically the script files that already had just run + a shebang.") +
+        htP("In the Krypton repo itself, the 2.2 rename pass converted nine script files (lsp/build, the lsp/test_* framing smoke-tests, and scripts/sweep / check_headers / diag_failures / sweep_tools / test_kbackend). Libraries like lsp/kls.k stayed .k because they are compiled to a long-running binary, not run as scripts.") +
+
+        htH2("Get started") +
+        htP("KryptScript ships with Krypton 2.2 " + fromCharCode(8212) + " no separate install. If you already have Krypton, you already have it. Try:") +
+        htPre(htCode("echo '#!/usr/bin/env kr" + fromCharCode(10) +
+            "just run { kp(\"hi from a kryptscript\") }' > hello.ks" + fromCharCode(10) +
+            "kcc -r hello.ks")) +
+        htP("Or check the " + htA("/downloads", "Downloads page") + " for installers.") +
+
+        "</div></section>"
+
+    emit sitePage("KryptScript", hero + body)
 }
 
 // ── Contact Page ─────────────────────────────────────────────────────
@@ -308,6 +416,8 @@ just run {
                 serverRespond(pagePrograms())
             } else if path == "/downloads" {
                 serverRespond(pageDownloads())
+            } else if path == "/kryptscript" {
+                serverRespond(pageKryptScript())
             } else if path == "/contact" {
                 serverRespond(pageContact())
             } else {
