@@ -2,14 +2,30 @@
 
 **A self-hosting programming language that emits native machine code without a C compiler in the loop.**
 
-> **Current version: 2.1.1** — macOS arm64 self-hosting + bug-fix series.
+> **Current version: 2.2.0** — KryptScript (`.ks`) extension convention.
 > See [`CHANGELOG.md`](CHANGELOG.md) for the full history.
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-2.1.1-brightgreen)
-![macOS](https://img.shields.io/badge/macOS-arm64%202.1.1-success)
-![Linux](https://img.shields.io/badge/Linux-x86__64%202.1.1-yellow)
-![Windows](https://img.shields.io/badge/Windows-x86__64%202.0.0-orange)
+![Version](https://img.shields.io/badge/version-2.2.0-brightgreen)
+![macOS](https://img.shields.io/badge/macOS-arm64%202.2.0-success)
+![Linux](https://img.shields.io/badge/Linux-x86__64%202.2.0-yellow)
+![Windows](https://img.shields.io/badge/Windows-x86__64%202.2.0-orange)
+
+## File extensions
+
+Krypton recognises two sibling extensions. **Same compiler, same syntax** —
+the split is purely a naming convention.
+
+- **`.k`** — library or compiled program. `module foo`, exports, no shebang.
+- **`.ks`** — KryptScript (added in 2.2). A script meant to run directly:
+  `just run { ... }` body, optional `#!/usr/bin/env kr` shebang, `chmod +x`
+  to make it executable on POSIX. Use `.ks` for one-off tools and build
+  glue you'd otherwise reach for bash or Python for.
+
+```bash
+kcc -r examples/hello.ks             # compile + run + clean up
+chmod +x examples/hello.ks && ./examples/hello.ks   # POSIX shebang path
+```
 
 **Platform release status (2026-05-30):**
 

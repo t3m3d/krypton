@@ -2,6 +2,51 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [2.2.0] - 2026-06-01 — KryptScript (`.ks`) extension convention
+
+`.ks` is a sibling source extension for run-as-script Krypton files —
+**same compiler, same syntax**, purely a naming convention so scripts
+are visually distinct from libraries and compiled programs.
+
+- **`.k`** — library or compiled program (`module foo`, exports, no shebang).
+- **`.ks`** — script. `just run { ... }` body, optional
+  `#!/usr/bin/env kr` shebang, runnable directly after `chmod +x`.
+
+**Tooling plumbing — works for both extensions:**
+
+- `kcc.sh` strips `.ks` (then falls back to `.k`) when deriving the
+  output basename, so `kcc foo.ks` produces `foo` / `foo.exe`, not
+  `foo.ks` / `foo.ks.exe`.
+- Inno Setup installer registers `.ks` against the same `Krypton.Source`
+  ProgID — both extensions get the same icon + open command.
+- VS Code extension `krypton-lang` 2.2.0 adds `.ks` to its language
+  contribution and `workspaceContains:**/*.ks` activation. New display
+  alias **KryptScript** appears in the language picker alongside Krypton.
+- `.gitattributes` paints `*.ks linguist-language=Krypton` so GitHub
+  highlights scripts as Krypton rather than shell.
+
+**No source rename in this release.** Existing files stay `.k`; future
+scripts can adopt `.ks` opportunistically. The compiler accepts either
+extension on input from day one — no migration is forced.
+
+**WASM playground (rolled in from 2.1.x work):**
+
+- All 34 tutorial lessons now ship as precompiled `.wasm` in
+  `web/site/dist/learn/`. The lesson "Run" button picks up the
+  Krypton-emitted module via `wasm_runner.js` and falls back to the
+  JS bridge when the code box is edited.
+- 15 lessons (01–15) match `kcc -r` output byte-for-byte through the
+  Node loader. Lessons 16–34 fall back transparently as needed.
+- `wasm_self.k` fixes: empty-string falsiness in `isTruthy`/`NOT`,
+  CRLF tolerance in `ltrim` (Windows IR is CRLF), `xHH` literal
+  unescape (Krypton source `\\n` means newline, not literal `\n`),
+  `argCount`/`arg` stubbed to 0 / empty so lessons 14 and 15 hit
+  their "no args" branches and pass.
+- `x64.k`: real `kr_writebytes` machine-code impl (255 bytes,
+  appended at end of helper block, `bsHelperBlockSize` 9121 → 9376)
+  replacing the JMP-to-`emp_pos` stub that silently no-op'd every
+  native-PE writeBytes() call.
+
 ## [2.1.1] - 2026-05-30 — macOS arm64 self-hosting + portability bug-fix series
 
 **Bug fix series (2026-05-30):**
