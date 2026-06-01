@@ -117,15 +117,21 @@
     var canvas = document.getElementById('heroCanvas');
     if (!canvas) return;
 
-    // Size the canvas to its parent (the .hero div).
-    function resize() {
+    // Keep the canvas's backing-buffer dimensions in sync with the
+    // .hero parent. Called from inside the RAF loop too — at first paint
+    // the parent's offsetWidth may still be 0 (no layout yet), which
+    // would make the .ks code do `% 0` and trap. By re-checking each
+    // frame we recover automatically once layout completes, and also
+    // pick up window resizes without an event listener.
+    function syncCanvasSize() {
       var parent = canvas.parentElement;
       if (!parent) return;
-      canvas.width  = parent.offsetWidth;
-      canvas.height = parent.offsetHeight;
+      var pw = parent.offsetWidth | 0;
+      var ph = parent.offsetHeight | 0;
+      if (canvas.width !== pw)  canvas.width  = pw;
+      if (canvas.height !== ph) canvas.height = ph;
     }
-    resize();
-    window.addEventListener('resize', resize);
+    syncCanvasSize();
 
     fetch('/particles.wasm', { cache: 'force-cache' })
       .then(function (r) { return r.ok ? r.arrayBuffer() : null; })
@@ -166,14 +172,59 @@
             console.log.apply(console, banner);
           } catch (e) { /* noop */ }
 
-          // RAF loop: each frame, point the host's "active canvas" at the
-          // hero canvas and invoke _start() — particles.ks is the body of
-          // _start, so each call is one full frame's worth of drawing.
+          // Diagnostic: log first-frame state once so any breakage is
+          // visible without DevTools-only investigation. Remove after the
+          // hero particles are confirmed stable site-wide.
+          var __KR_DIAG_DONE = false;
+
+          // RAF loop: each frame, point the host's "active canvas" at
+          // the hero canvas and invoke _start() — particles.ks is the
+          // body of _start, so each call is one full frame's worth of
+          // drawing. We always reschedule the next frame even if this
+          // one trapped (e.g. layout-not-ready → canvas.width = 0 →
+          // wasm `% 0`); the next frame can recover once layout settles.
           function frame() {
-            setActiveCanvas(canvas);
-            try { instance.exports._start(); }
-            catch (e) { console.error('[Krypton] particles frame trap:', e); return; }
-            setActiveCanvas(null);
+            syncCanvasSize();
+            if (canvas.width > 0 && canvas.height > 0) {
+              setActiveCanvas(canvas);
+              try { instance.exports._start(); }
+              catch (e) { console.error('[Krypton diag] wasm trap:', e); }
+
+              // ── DIAGNOSTIC: paint a yellow X over the canvas via JS
+              //    so we can tell whether the canvas itself is visible.
+              //    If you see the X but no particles, the wasm is drawing
+              //    invisibly (transparent / off-canvas / etc.). If you
+              //    don't see the X either, the canvas itself is hidden
+              //    (CSS z-index / display / etc.).
+              if (activeCtx) {
+                activeCtx.strokeStyle = 'rgba(255,235,59,0.85)';
+                activeCtx.lineWidth = 3;
+                activeCtx.beginPath();
+                activeCtx.moveTo(0, 0);
+                activeCtx.lineTo(canvas.width, canvas.height);
+                activeCtx.moveTo(canvas.width, 0);
+                activeCtx.lineTo(0, canvas.height);
+                activeCtx.stroke();
+              }
+
+              if (!__KR_DIAG_DONE) {
+                __KR_DIAG_DONE = true;
+                console.log('[Krypton diag] canvas buffer:', canvas.width, '×', canvas.height,
+                            'parent:', canvas.parentElement && canvas.parentElement.offsetWidth, '×',
+                            canvas.parentElement && canvas.parentElement.offsetHeight,
+                            'computed style display:',
+                            getComputedStyle(canvas).display,
+                            'visibility:', getComputedStyle(canvas).visibility,
+                            'opacity:', getComputedStyle(canvas).opacity,
+                            'z-index:', getComputedStyle(canvas).zIndex);
+              }
+
+              setActiveCanvas(null);
+            } else if (!__KR_DIAG_DONE) {
+              console.log('[Krypton diag] canvas still 0×0 (parent:',
+                          canvas.parentElement && canvas.parentElement.offsetWidth, '×',
+                          canvas.parentElement && canvas.parentElement.offsetHeight, ')');
+            }
             requestAnimationFrame(frame);
           }
           requestAnimationFrame(frame);
