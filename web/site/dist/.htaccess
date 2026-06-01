@@ -12,7 +12,16 @@ RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^([^.]+)$ $1.html [NC,L]
 
 # Security headers
-Header set X-Powered-By "Krypton 2.1.0"
+Header set X-Powered-By "Krypton 2.2.0"
+
+# MIME types for the Krypton browser runtime. Without these Hostinger
+# serves .wasm as text/plain, which WebAssembly.instantiate refuses to
+# load when nosniff is set below. .ks is served as text/plain so View
+# Source shows the KryptScript code (anyone inspecting can see the
+# source compiled to particles.wasm).
+AddType application/wasm .wasm
+AddType text/plain .ks
+AddType text/plain .htk
 Header set X-Content-Type-Options "nosniff"
 Header set X-Frame-Options "DENY"
 Header set X-XSS-Protection "1; mode=block"
