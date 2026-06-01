@@ -82,17 +82,22 @@
         if (!activeCtx) return;
         activeCtx.clearRect(0, 0, activeCanvas.width, activeCanvas.height);
       },
+      // Coordinates and radii arrive in fixed-point: KryptScript-side
+      // working units are 1/64 of a CSS pixel, so the integer-only tagged
+      // i32 ABI still produces sub-pixel-smooth motion when ctx.arc /
+      // ctx.lineTo receive the divided floats below. The Canvas2D antialiaser
+      // does the rest.
       canvas_circle: function (x, y, r) {
         if (!activeCtx) return;
         activeCtx.beginPath();
-        activeCtx.arc(x, y, r, 0, 6.283185307179586);
+        activeCtx.arc(x / 64, y / 64, r / 64, 0, 6.283185307179586);
         activeCtx.fill();
       },
       canvas_line: function (x1, y1, x2, y2) {
         if (!activeCtx) return;
         activeCtx.beginPath();
-        activeCtx.moveTo(x1, y1);
-        activeCtx.lineTo(x2, y2);
+        activeCtx.moveTo(x1 / 64, y1 / 64);
+        activeCtx.lineTo(x2 / 64, y2 / 64);
         activeCtx.stroke();
       },
       canvas_set_fill:   function (rgba) { if (activeCtx) activeCtx.fillStyle   = rgbaToCss(rgba); },
