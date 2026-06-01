@@ -97,7 +97,18 @@ func ltrim(s) {
     let n = len(s)
     while i < n {
         let c = s[i]
-        if c != " " && c != "\t" { emit substring(s, i, n) }
+        if c != " " && c != "\t" {
+            // also strip trailing whitespace incl. \r (CRLF line endings
+            // from Windows-emitted IR otherwise leave "POP\r" which
+            // breaks `line == "POP"` equality checks downstream).
+            let j = n - 1
+            while j > i {
+                let cj = s[j]
+                if cj != " " && cj != "\t" && cj != "\r" && cj != "\n" { emit substring(s, i, j + 1) }
+                j -= 1
+            }
+            emit substring(s, i, n)
+        }
         i += 1
     }
     emit ""
