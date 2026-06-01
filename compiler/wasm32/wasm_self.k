@@ -280,11 +280,15 @@ func strBetweenQuotes(line) {
     }
     if close < 0 { emit "" }
     let raw = substring(line, first + 1, close)    // slice (guaranteed string)
-    // unescape: replace is string-safe (no numeric coercion)
-    raw = replace(raw, "\\\"", "\"")
-    raw = replace(raw, "\\n", fromCharCode(10))
-    raw = replace(raw, "\\t", fromCharCode(9))
-    raw = replace(raw, "\\\\", "\\")
+    // unescape. NB: Krypton source escapes are NOT C-style: "\\n" in source
+    // is already a single newline char, so `replace(raw, "\\n", ...)` would
+    // hunt for newlines, not the literal 2-byte backslash-n that IR files
+    // actually carry. Build the patterns via fromCharCode(92) instead.
+    let bs = fromCharCode(92)
+    raw = replace(raw, bs + "\"", "\"")
+    raw = replace(raw, bs + "n",  fromCharCode(10))
+    raw = replace(raw, bs + "t",  fromCharCode(9))
+    raw = replace(raw, bs + bs,   bs)
     emit raw
 }
 
