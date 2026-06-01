@@ -387,12 +387,12 @@ func bodyHasReturn(body) {
     emit 0
 }
 
-// wasm func-index of a user function name (imports 0-1, helpers 2-10, users 11+).
+// wasm func-index of a user function name (imports 0-1, helpers 2-12, users 13+).
 func funcIndexOf(funcNames, name) {
     let n = lineCount(funcNames)
     let i = 0
     while i < n {
-        if getLine(funcNames, i) == name { emit 11 + i }
+        if getLine(funcNames, i) == name { emit 13 + i }
         i += 1
     }
     emit 8
@@ -543,6 +543,8 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
             bb = bb + b(5)                                  // else
             bb = bb + iLG(t0Idx) + iLG(t1Idx) + b(106)      //   i32.add
             bb = bb + b(11)                                 // end
+        } else if line == "CAT" {
+            bb = bb + iCALL(4)                  // explicit string concat -> $concat
         } else if line == "SUB" {
             bb = bb + b(107)                    // i32.sub  ((2N)-(2M)=2(N-M))
         } else if line == "MUL" {
@@ -554,9 +556,10 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
         } else if line == "MOD" {
             bb = bb + b(111)                    // i32.rem_s ((2N)%(2M)=2(N%M))
         } else if line == "EQ" {
-            bb = bb + b(70) + iC(1) + b(116)   // i32.eq;   retag <<1 (tagged bool)
+            // $streq handles both string-content and int compares -> raw 0/1.
+            bb = bb + iCALL(12) + iC(1) + b(116)   // $streq; retag <<1
         } else if line == "NEQ" {
-            bb = bb + b(71) + iC(1) + b(116)   // i32.ne
+            bb = bb + iCALL(12) + b(69) + iC(1) + b(116)  // $streq; eqz (invert); <<1
         } else if line == "LT" {
             bb = bb + b(72) + iC(1) + b(116)   // i32.lt_s
         } else if line == "GT" {
@@ -603,14 +606,13 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
         } else if lineStarts(line, "BUILTIN startsWith ") {
             bb = bb + iCALL(7)                  // $startsWith(str,prefix) -> tagged bool
         } else if lineStarts(line, "BUILTIN isTruthy ") {
-            // tagged v -> tagged bool: (v != 0) << 1. (false=0, true=2).
-            // All strings (incl "") are truthy here: tag bit keeps handle != 0,
-            // matching kcc -r semantics (only int 0 is falsy).
-            bb = bb + iC(0) + b(71) + iC(1) + b(116)
+            bb = bb + iCALL(11)                 // $truthy: int nonzero; str not ""/"0"/"false"
         } else if lineStarts(line, "BUILTIN toInt ") {
             bb = bb + iCALL(8)                  // $toint(str) -> tagged int
         } else if lineStarts(line, "BUILTIN count ") {
             bb = bb + iCALL(9)                  // $count(str) -> tagged int (comma fields)
+        } else if lineStarts(line, "BUILTIN length ") {
+            bb = bb + iCALL(9)                  // length(list) == comma-field count
         } else if lineStarts(line, "BUILTIN split ") {
             bb = bb + iCALL(10)                 // $split(str, idx) -> tagged string field
         } else if lineStarts(line, "BUILTIN sbNew ") {
@@ -625,16 +627,26 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
         } else if lineStarts(line, "BUILTIN sbToString ") {
             // sb already IS a tagged string; identity (no opcode).
         } else if line == "NOT" {
-            // tagged bool of falsiness: (v == 0) << 1.
-            bb = bb + b(69) + iC(1) + b(116)   // i32.eqz; shl
+            // Matches kcc -r quirk: ! on a STRING -> 0 (falsy), regardless of
+            // the string's truthiness; ! on an INT -> (int == 0). So:
+            // if (v & 1) { 0 } else { (v==0) } , then tag.
+            bb = bb + iLS(t0Idx)                            // t0 = v
+            bb = bb + iLG(t0Idx) + iC(1) + b(113)           // v & 1 (string?)
+            bb = bb + b(4) + b(127)                         // if (result i32)
+            bb = bb + iC(0)                                 //   string -> 0
+            bb = bb + b(5)                                  // else
+            bb = bb + iLG(t0Idx) + b(69)                    //   int: v == 0
+            bb = bb + b(11)                                 // end
+            bb = bb + iC(1) + b(116)                        // << 1 (tagged)
         } else if lineStarts(line, "JUMPIFNOT ") {
             let lbl = substring(line, 10, len(line))
-            if lineStarts(lbl, "_wend") {
+            if lineStarts(lbl, "_wend") || lineStarts(lbl, "_fend") {
                 // Loop exit test: branch out of the enclosing block if !cond.
                 bb = bb + b(69)                            // i32.eqz (true=2->0, false=0->1)
                 bb = bb + b(13) + leb(cfDepth(labelStack, lbl))  // br_if <block>
-            } else if lineStarts(lbl, "_else") {
-                // if-else: open `if`; else label recorded, close set later by JUMP.
+            } else if lineStarts(lbl, "_else") || lineStarts(lbl, "_mnext") {
+                // if-else / match-case: open `if`; else label = the skip target,
+                // close set later by the JUMP to _endif / _mend.
                 bb = bb + b(4) + b(64)                     // if (void)
                 labelStack = cfPush(labelStack, "if" + tab() + "-" + tab() + lbl)
             } else if lineStarts(lbl, "_and") {
@@ -654,9 +666,9 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
             labelStack = cfPush(labelStack, "if" + tab() + "-" + tab() + lbl)
         } else if lineStarts(line, "JUMP ") {
             let lbl = substring(line, 5, len(line))
-            if lineStarts(lbl, "_wloop") {
+            if lineStarts(lbl, "_wloop") || lineStarts(lbl, "_floop") {
                 bb = bb + b(12) + leb(cfDepth(labelStack, lbl))  // br <loop> (continue)
-            } else if lineStarts(lbl, "_wend") {
+            } else if lineStarts(lbl, "_wend") || lineStarts(lbl, "_fend") {
                 bb = bb + b(12) + leb(cfDepth(labelStack, lbl))  // br <block> (break)
             } else {
                 // then-branch end of an if-else: emit `else`, record endif as close.
@@ -672,18 +684,51 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
                 bb = bb + b(3) + b(64)                     // loop (void)
                 labelStack = cfPush(labelStack, "blk" + tab() + wend + tab() + "-")
                 labelStack = cfPush(labelStack, "lp" + tab() + lbl + tab() + "-")
-            } else if lineStarts(lbl, "_wend") {
+            } else if lineStarts(lbl, "_floop") {
+                // for-in loop start: same block+loop shape as while.
+                let fend = "_fend_" + substring(lbl, 7, len(lbl))
+                bb = bb + b(2) + b(64)                     // block
+                bb = bb + b(3) + b(64)                     // loop
+                labelStack = cfPush(labelStack, "blk" + tab() + fend + tab() + "-")
+                labelStack = cfPush(labelStack, "lp" + tab() + lbl + tab() + "-")
+            } else if lineStarts(lbl, "_wend") || lineStarts(lbl, "_fend") {
                 bb = bb + b(11) + b(11)                    // end loop; end block
                 labelStack = cfDrop(labelStack)
                 labelStack = cfDrop(labelStack)
+            } else if lineStarts(lbl, "_fcont") {
+                // for-in continue target (just before i++). No wasm construct;
+                // the JUMP _floop after the increment branches to the loop top.
             } else {
                 let top = cfTop(labelStack)
                 if len(top) > 0 {
                     if lbl == cfField(top, 2) {
-                        // if-else else label; `else` already emitted by JUMP -> consume.
+                        // if-else / match-case else label; `else` already emitted
+                        // by the JUMP -> consume (no opcode).
                     } else if lbl == cfField(top, 1) {
-                        bb = bb + b(11)                    // end (close if/if-else)
+                        // close label. A match `_mend` closes EVERY case frame
+                        // that targets it, INCLUDING a trailing default case that
+                        // fell through with no JUMP (close still "-"); a plain
+                        // `_endif` closes just the one frame.
+                        bb = bb + b(11)                    // end
                         labelStack = cfDrop(labelStack)
+                        if lineStarts(lbl, "_mend") {
+                            let more = cfTop(labelStack)
+                            while len(more) > 0 && cfField(more, 0) == "if" && (cfField(more, 1) == lbl || cfField(more, 1) == "-") {
+                                bb = bb + b(11)            // end (case / default frame)
+                                labelStack = cfDrop(labelStack)
+                                more = cfTop(labelStack)
+                            }
+                        }
+                    } else if lineStarts(lbl, "_mend") && cfField(top, 1) == "-" {
+                        // dangling default-case frame reached its match end.
+                        bb = bb + b(11)                    // end
+                        labelStack = cfDrop(labelStack)
+                        let more = cfTop(labelStack)
+                        while len(more) > 0 && cfField(more, 0) == "if" && (cfField(more, 1) == lbl || cfField(more, 1) == "-") {
+                            bb = bb + b(11)
+                            labelStack = cfDrop(labelStack)
+                            more = cfTop(labelStack)
+                        }
                     }
                 }
             }
@@ -893,6 +938,89 @@ func emitToInt() {
 
 // $count(str) -> tagged int = number of comma-separated fields (commas+1).
 // Empty string -> 1 field. param 0=str. locals: 1 base,2 len,3 i,4 cnt.
+// $streq(a, b tagged) -> raw i32 0/1 (UNtagged; caller tags). Compares
+// content if both are strings; else compares tagged values directly.
+// params 0=a,1=b. locals: 2 pa,3 pb,4 la,5 lb,6 i.
+func emitStreq() {
+    let bb = b(1) + leb(5) + b(127)
+    // if either is not a string (LSB 0) -> compare tagged ints directly.
+    bb = bb + iLG(0) + iC(1) + b(113)                  // a & 1
+    bb = bb + iLG(1) + iC(1) + b(113)                  // b & 1
+    bb = bb + b(113)                                   // both strings?
+    bb = bb + b(4) + b(127)                            // if (result i32)
+    // both strings: compare bytes
+    bb = bb + iLG(0) + iC(1) + b(118) + iLS(2)         //   pa = a>>1
+    bb = bb + iLG(1) + iC(1) + b(118) + iLS(3)         //   pb = b>>1
+    bb = bb + iLG(2) + b(40) + b(2) + b(0) + iLS(4)    //   la = load[pa]
+    bb = bb + iLG(3) + b(40) + b(2) + b(0) + iLS(5)    //   lb = load[pb]
+    bb = bb + iLG(4) + iLG(5) + b(71)                  //   la != lb
+    bb = bb + b(4) + b(127)                            //   if
+    bb = bb + iC(0)                                    //     -> 0 (diff length)
+    bb = bb + b(5)                                     //   else
+    bb = bb + iC(0) + iLS(6)                           //     i = 0
+    bb = bb + b(2) + b(127)                            //     block (result i32)
+    bb = bb + b(3) + b(64)                             //       loop
+    bb = bb + iLG(6) + iLG(4) + b(78)                  //       i >= la
+    bb = bb + b(4) + b(64)                             //       if
+    bb = bb + iC(1) + b(12) + leb(2)                   //         push 1; br 2 (all matched)
+    bb = bb + b(11)
+    bb = bb + iLG(2) + iC(4) + b(106) + iLG(6) + b(106) + b(45) + b(0) + b(0)  // a[i]
+    bb = bb + iLG(3) + iC(4) + b(106) + iLG(6) + b(106) + b(45) + b(0) + b(0)  // b[i]
+    bb = bb + b(71)                                    //       a[i] != b[i]
+    bb = bb + b(4) + b(64)                             //       if
+    bb = bb + iC(0) + b(12) + leb(2)                   //         push 0; br 2
+    bb = bb + b(11)
+    bb = bb + iLG(6) + iC(1) + b(106) + iLS(6)         //       i++
+    bb = bb + b(12) + leb(0)                           //       br 0
+    bb = bb + b(11) + b(11)                            //     end loop; end block
+    bb = bb + b(11)                                    //   end if (la!=lb)
+    bb = bb + b(5)                                     // else (not both strings)
+    bb = bb + iLG(0) + iLG(1) + b(70)                  //   a == b (tagged)
+    bb = bb + b(11)                                    // end
+    bb = bb + b(11)                                    // end func
+    emit bb
+}
+
+// $truthy(v tagged) -> tagged bool. int: nonzero. string: not ""/"0"/"false"
+// (matches kcc -r). param 0=v. locals: 1 base,2 len,3 c0.
+func emitTruthy() {
+    let bb = b(1) + leb(3) + b(127)
+    bb = bb + iLG(0) + iC(1) + b(113)                  // v & 1 (is string?)
+    bb = bb + b(4) + b(127)                            // if (result i32)
+    // string branch
+    bb = bb + iLG(0) + iC(1) + b(118) + iLS(1)         //   base = v>>1
+    bb = bb + iLG(1) + b(40) + b(2) + b(0) + iLS(2)    //   len = load[base]
+    bb = bb + iLG(2) + b(69)                           //   len == 0 (empty)
+    bb = bb + b(4) + b(127)
+    bb = bb + iC(0)                                    //     -> falsy
+    bb = bb + b(5)
+    // len 1 and byte=='0' -> falsy
+    bb = bb + iLG(2) + iC(1) + b(70)                   //   len == 1
+    bb = bb + iLG(1) + iC(4) + b(106) + b(45) + b(0) + b(0) + iC(48) + b(70)  // byte0 == '0'
+    bb = bb + b(113)                                   //   and
+    bb = bb + b(4) + b(127)
+    bb = bb + iC(0)                                    //     -> falsy
+    bb = bb + b(5)
+    // len 5 and == "false" -> falsy (check 'f' at [0] and 'e' at [4])
+    bb = bb + iLG(2) + iC(5) + b(70)                   //   len == 5
+    bb = bb + iLG(1) + iC(4) + b(106) + b(45) + b(0) + b(0) + iC(102) + b(70)  // [0]=='f'
+    bb = bb + b(113)
+    bb = bb + iLG(1) + iC(8) + b(106) + b(45) + b(0) + b(0) + iC(101) + b(70)  // [4]=='e'
+    bb = bb + b(113)
+    bb = bb + b(4) + b(127)
+    bb = bb + iC(0)                                    //     -> falsy
+    bb = bb + b(5)
+    bb = bb + iC(1)                                    //   else -> truthy
+    bb = bb + b(11) + b(11) + b(11)                    //   end x3
+    bb = bb + b(5)
+    // int branch: v != 0
+    bb = bb + iLG(0) + iC(0) + b(71)                   //   v != 0
+    bb = bb + b(11)                                    // end if (string?)
+    bb = bb + iC(1) + b(116)                           // result << 1 (tagged bool)
+    bb = bb + b(11)
+    emit bb
+}
+
 func emitCount() {
     let bb = b(1) + leb(4) + b(127)
     bb = bb + iLG(0) + iC(1) + b(118) + iLS(1)         // base = str>>1
@@ -1064,8 +1192,12 @@ func userFuncType(p, r) {
 // funcSigs = "P,R" per user func.
 func wasmFuncs(funcSigs) {
     let cnt = lineCount(funcSigs)
-    let payload = leb(9 + cnt) +
-                  b(3) + b(3) + b(4) + b(4) + b(5) + b(4) + b(3) + b(3) + b(4)
+    // helper types in fn order: 2 int2str t3, 3 tostr t3, 4 concat t4,
+    // 5 index t4, 6 substr t5, 7 startsWith t4, 8 toint t3, 9 count t3,
+    // 10 split t4, 11 truthy t3.
+    // ...+ 11 truthy t3, 12 streq t4.
+    let payload = leb(11 + cnt) +
+                  b(3) + b(3) + b(4) + b(4) + b(5) + b(4) + b(3) + b(3) + b(4) + b(3) + b(4)
     let i = 0
     while i < cnt {
         let row = getLine(funcSigs, i)
@@ -1183,7 +1315,7 @@ func buildModule(ir) {
             let sig = pCount + "," + rVal
             if len(funcSigs) == 0 { funcSigs = sig }
             else                  { funcSigs = funcSigs + fromCharCode(10) + sig }
-            if isMain == 1 { mainIdx = fIdx + 11 }  // 2 imports + 9 helpers
+            if isMain == 1 { mainIdx = fIdx + 13 }  // 2 imports + 11 helpers
             fIdx += 1
         } else {
             i += 1
@@ -1202,7 +1334,9 @@ func buildModule(ir) {
                        emitStartsWith() + fromCharCode(10) +
                        emitToInt()      + fromCharCode(10) +
                        emitCount()      + fromCharCode(10) +
-                       emitSplit()
+                       emitSplit()      + fromCharCode(10) +
+                       emitTruthy()     + fromCharCode(10) +
+                       emitStreq()
     let allBodies = helperBodies
     if len(funcBodies) > 0 { allBodies = helperBodies + fromCharCode(10) + funcBodies }
 
