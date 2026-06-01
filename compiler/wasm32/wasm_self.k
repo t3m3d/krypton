@@ -624,6 +624,16 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
             bb = bb + iCALL(9)                  // $count(str) -> tagged int (comma fields)
         } else if lineStarts(line, "BUILTIN split ") {
             bb = bb + iCALL(10)                 // $split(str, idx) -> tagged string field
+        } else if lineStarts(line, "BUILTIN argCount ") {
+            // Browser has no CLI args. Always 0 — lessons that gate on
+            // `argCount() >= 1` take the else branch (their no-arg help text).
+            bb = bb + iC(0)                     // tagged 0
+        } else if lineStarts(line, "BUILTIN arg ") {
+            // Drop the index, return empty string handle. Only ever reached
+            // if argCount() > 0, which we hard-wire to 0; treat the result
+            // type as a string so downstream concat/print doesn't mistype.
+            bb = bb + b(26)                     // drop index
+            bb = bb + iC(strBase() * 2 + 1)     // tagged ptr to fixed "" at offset 0 of strBase
         } else if lineStarts(line, "BUILTIN sbNew ") {
             // String builder = tagged string. New one = empty string at bump:
             // store len 0, bump += 4, push (dst<<1)|1.
