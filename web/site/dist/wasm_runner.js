@@ -50,6 +50,11 @@
   var passFlipY = 0;
   var passTimeBias = 0;
   var passSuppressClear = false;
+  // Per-pass particle list: each canvas_circle call appends its DISPLAY
+  // (post-flip, post-divide-by-64) coordinates so the frame loop can
+  // walk all pairs after _start returns and stitch additional proximity
+  // links beyond the by-index-neighbour ones the wasm draws on its own.
+  var passParticles = null;
 
   function setActiveCanvas(c) {
     activeCanvas = c;
@@ -122,12 +127,14 @@
         var hf = (activeCanvas.height | 0) * 64;
         if (passFlipX) x = wf - x;
         if (passFlipY) y = hf - y;
-        // r/40 doubles the on-screen radius of every particle from the
-        // host-side-tuned r/80. The wasm always passes r=160, so this
-        // lands at ~4 CSS px radius (~8 px diameter) on the canvas.
+        var px = x / 64, py = y / 64;
+        // r/64 puts each dot at ~2.5 CSS px radius — the .ks-authored
+        // default, which sits between the earlier r/80 (too small) and
+        // r/40 (too big) revisions.
         activeCtx.beginPath();
-        activeCtx.arc(x / 64, y / 64, r / 40, 0, 6.283185307179586);
+        activeCtx.arc(px, py, r / 64, 0, 6.283185307179586);
         activeCtx.fill();
+        if (passParticles) passParticles.push(px, py);
       },
       canvas_line: function (x1, y1, x2, y2) {
         if (!activeCtx) return;
@@ -179,7 +186,7 @@
     }
     syncCanvasSize();
 
-    fetch('/particles.wasm?v=10', { cache: 'no-cache' })
+    fetch('/particles.wasm?v=12', { cache: 'no-cache' })
       .then(function (r) { return r.ok ? r.arrayBuffer() : null; })
       .catch(function () { return null; })
       .then(function (bytes) {
@@ -236,23 +243,54 @@
             { fx: 0, fy: 1, bias: 9_000_000 },
             { fx: 1, fy: 1, bias: 13_000_000 },
           ];
+          // Proximity-link threshold in CSS px. The wasm already draws
+          // by-index neighbour links inside each pass; this stitches
+          // extra links between any nearby pairs the wasm wouldn't have
+          // connected, including cross-pass connections after all four
+          // passes finish so the four mirrored fields read as one mesh.
+          var LINK_DIST_PX = 95;
+          var LINK_DIST_SQ = LINK_DIST_PX * LINK_DIST_PX;
+          function drawExtraLinks(ps) {
+            if (!activeCtx || !ps || ps.length < 4) return;
+            for (var i = 0; i < ps.length; i += 2) {
+              for (var j = i + 2; j < ps.length; j += 2) {
+                var dx = ps[i] - ps[j], dy = ps[i+1] - ps[j+1];
+                var d2 = dx*dx + dy*dy;
+                if (d2 < LINK_DIST_SQ) {
+                  activeCtx.beginPath();
+                  activeCtx.moveTo(ps[i],   ps[i+1]);
+                  activeCtx.lineTo(ps[j],   ps[j+1]);
+                  activeCtx.stroke();
+                }
+              }
+            }
+          }
+
           function frame() {
             syncCanvasSize();
             if (canvas.width > 0 && canvas.height > 0) {
               setActiveCanvas(canvas);
+              var allParticles = [];
               for (var p = 0; p < PASSES.length; p++) {
                 passFlipX     = PASSES[p].fx;
                 passFlipY     = PASSES[p].fy;
                 passTimeBias  = PASSES[p].bias;
-                // Only the first pass clears; later passes layer onto it.
                 passSuppressClear = p > 0;
+                passParticles = [];
                 // Swallow per-frame traps (e.g. layout race producing
                 // canvas.width = 0 after we syncCanvasSize'd) so a one-off
                 // bad frame doesn't kill the entire animation.
                 try { instance.exports._start(); }
                 catch (e) { /* recover next pass */ }
+                // Accumulate this pass's particles into the global list.
+                for (var k = 0; k < passParticles.length; k++) allParticles.push(passParticles[k]);
               }
+              passParticles = null;
               passSuppressClear = false;
+              // One global proximity-link sweep across ALL particles from
+              // ALL passes. The current stroke style was set by the last
+              // canvas_set_stroke (already dimmed via rgbaToCssDim).
+              drawExtraLinks(allParticles);
               setActiveCanvas(null);
             }
             requestAnimationFrame(frame);
