@@ -561,10 +561,17 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
         } else if lineStarts(line, "BUILTIN startsWith ") {
             bb = bb + iCALL(7)                  // $startsWith(str,prefix) -> tagged bool
         } else if lineStarts(line, "BUILTIN isTruthy ") {
-            // tagged v -> tagged bool: (v != 0) << 1. (false=0, true=2).
-            // All strings (incl "") are truthy here: tag bit keeps handle != 0,
-            // matching kcc -r semantics (only int 0 is falsy).
-            bb = bb + iC(0) + b(71) + iC(1) + b(116)
+            // tagged v -> tagged bool. kcc -r kr_truthy treats empty string
+            // AND int 0 as falsy. Tag dispatch: LSB 0 = int (v != 0),
+            // LSB 1 = string (mem[v>>1] (length) != 0).
+            bb = bb + iLT(t1Idx) + iC(1) + b(113) + b(69)   // tee t1; & 1; i32.eqz (int path?)
+            bb = bb + b(4) + b(127)                          // if (result i32)
+            bb = bb + iLG(t1Idx) + iC(0) + b(71)             //   int: v != 0
+            bb = bb + b(5)                                   // else
+            bb = bb + iLG(t1Idx) + iC(1) + b(118)            //   str: ptr = v>>1
+            bb = bb + b(40) + b(2) + b(0) + iC(0) + b(71)    //         len; != 0
+            bb = bb + b(11)                                  // end
+            bb = bb + iC(1) + b(116)                         // tagged bool: << 1
         } else if lineStarts(line, "BUILTIN toInt ") {
             bb = bb + iCALL(8)                  // $toint(str) -> tagged int
         } else if lineStarts(line, "BUILTIN count ") {
@@ -572,8 +579,17 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
         } else if lineStarts(line, "BUILTIN split ") {
             bb = bb + iCALL(10)                 // $split(str, idx) -> tagged string field
         } else if line == "NOT" {
-            // tagged bool of falsiness: (v == 0) << 1.
-            bb = bb + b(69) + iC(1) + b(116)   // i32.eqz; shl
+            // tagged bool of falsiness. Same tag-dispatch as isTruthy:
+            // for int, v == 0; for string, mem[v>>1] (length) == 0.
+            // kcc -r treats "" as falsy so !"" must yield tagged true.
+            bb = bb + iLT(t1Idx) + iC(1) + b(113) + b(69)   // tee t1; & 1; i32.eqz (int path?)
+            bb = bb + b(4) + b(127)                          // if (result i32)
+            bb = bb + iLG(t1Idx) + b(69)                     //   int: v == 0
+            bb = bb + b(5)                                   // else
+            bb = bb + iLG(t1Idx) + iC(1) + b(118)            //   str: ptr = v>>1
+            bb = bb + b(40) + b(2) + b(0) + b(69)            //         len; i32.eqz
+            bb = bb + b(11)                                  // end
+            bb = bb + iC(1) + b(116)                         // tagged bool: << 1
         } else if lineStarts(line, "JUMPIFNOT ") {
             let lbl = substring(line, 10, len(line))
             if lineStarts(lbl, "_wend") {
