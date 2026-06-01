@@ -420,7 +420,7 @@ func cfDepth(s, label) {
 // localsList = params ++ declared-locals (combined, for index lookup);
 // paramCount of those are wasm function params (not declared in the vec).
 // Scratch locals (kpTmp,t0,t1) follow all of them. funcNames resolves CALL.
-func emitFuncBody(body, table, localsList, paramCount, funcNames) {
+func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
     let combinedCount = localsCount(localsList)
     let kpTmpIdx = combinedCount
     let t0Idx = combinedCount + 1
@@ -591,6 +591,11 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames) {
         // Unhandled IR ops are skipped silently. Track them in 1.4.
         i += 1
     }
+    // Non-main user funcs are typed ->i32 so callers can always POP/drop the
+    // result. Void funcs (no RETURN) fall through here with empty stack, so
+    // leave a dummy i32. Value funcs reach here only after RETURN (unreachable),
+    // so the extra const is harmless and keeps the fallthru well-typed.
+    if dummyRet > 0 { bb = bb + iC(0) }
     bb = bb + b(11)                             // end
     emit bb
 }
@@ -800,13 +805,14 @@ func emitConcat() {
 
 func wasmTypes() {
     let payload =
-        b(6) +
+        b(7) +
         b(96) + b(2) + b(127) + b(127) + b(0) +            // 0 (i32,i32)->void
         b(96) + b(0) + b(0) +                              // 1 ()->void
         b(96) + b(1) + b(127) + b(0) +                     // 2 (i32)->void
         b(96) + b(1) + b(127) + b(1) + b(127) +            // 3 (i32)->i32
         b(96) + b(2) + b(127) + b(127) + b(1) + b(127) +   // 4 (i32,i32)->i32
-        b(96) + b(3) + b(127) + b(127) + b(127) + b(1) + b(127)  // 5 (i32,i32,i32)->i32
+        b(96) + b(3) + b(127) + b(127) + b(127) + b(1) + b(127) +  // 5 (i32,i32,i32)->i32
+        b(96) + b(0) + b(1) + b(127)                       // 6 ()->i32
     emit wasmSection(1, payload)
 }
 
@@ -828,6 +834,7 @@ func userFuncType(p, r) {
         if p == 2 { emit 0 }
         emit 1
     }
+    if p == 0 { emit 6 }         // ()->i32
     if p == 1 { emit 3 }
     if p == 2 { emit 4 }
     if p == 3 { emit 5 }
@@ -953,7 +960,7 @@ func buildModule(ir) {
             let sig = pCount + "," + rVal
             if len(funcSigs) == 0 { funcSigs = sig }
             else                  { funcSigs = funcSigs + fromCharCode(10) + sig }
-            if funcLineName(line) == "__main__" { mainIdx = fIdx + 8 }  // 2 imports + 6 helpers
+            if isMain == 1 { mainIdx = fIdx + 8 }  // 2 imports + 6 helpers
             fIdx += 1
         } else {
             i += 1
