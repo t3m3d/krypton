@@ -5325,7 +5325,12 @@ just run {
     // which is where Homebrew + tarball installs place stdlib/ + headers/.
     let installRoot = environ("KRYPTON_ROOT")
     if installRoot == "" {
-        if environ("HOME") != "" {
+        // Windows sets OS=Windows_NT regardless of shell (cmd, PowerShell,
+        // Git Bash, MSYS). Check it FIRST — otherwise Git Bash's HOME var
+        // misroutes Windows users to /usr/local/krypton.
+        if environ("OS") == "Windows_NT" {
+            installRoot = "C:\\krypton"
+        } else if environ("HOME") != "" {
             installRoot = "/usr/local/krypton"
         } else {
             installRoot = "C:\\krypton"
