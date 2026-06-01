@@ -1,5 +1,5 @@
 #!/usr/bin/env kr
-// kr lsp/test_kls.k
+// kr lsp/test_kls.ks
 // Replaces lsp/test_kls.py. LSP smoke test for kls.exe.
 import "k:proc"
 import "k:fs"

@@ -1,5 +1,5 @@
 #!/usr/bin/env kr
-// kr scripts/test_kbackend.k
+// kr scripts/test_kbackend.ks
 // Replaces kcode-win/backend/test_kbackend.py. JSON-RPC smoke for kbackend.exe.
 import "k:proc"
 import "k:fs"
