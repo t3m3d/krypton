@@ -6,7 +6,8 @@
 #   #!/usr/bin/env kr
 #   just run { kp("hi") }
 #
-# in a .k file, `chmod +x` it, and run it like any other script.
+# in a .k or .ks file, `chmod +x` it, and run it like any other script.
+# (Convention: prefer .ks for run-as-script files; same compiler either way.)
 #
 # All args after the script are passed through to it (visible via
 # `arg(0)`, `arg(1)`, ... and `argCount()`).
