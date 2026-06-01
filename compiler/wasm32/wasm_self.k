@@ -281,6 +281,59 @@ func collectLocals(body) {
     emit lst
 }
 
+// Collect PARAM names (wasm local indices 0..P-1, before declared locals).
+func collectParams(body) {
+    let n = lineCount(body)
+    let i = 0
+    let lst = localsNew()
+    while i < n {
+        let line = ltrim(getLine(body, i))
+        if lineStarts(line, "PARAM ") {
+            let name = substring(line, 6, len(line))
+            lst = localsAdd(lst, name)
+        }
+        i += 1
+    }
+    emit lst
+}
+
+// Concatenate two newline name-lists (params first, then locals).
+func nameListJoin(a, c) {
+    if len(a) == 0 { emit c }
+    if len(c) == 0 { emit a }
+    emit a + fromCharCode(10) + c
+}
+
+// True (1) if the body has any RETURN -> the func returns an i32 value.
+func bodyHasReturn(body) {
+    let n = lineCount(body)
+    let i = 0
+    while i < n {
+        if ltrim(getLine(body, i)) == "RETURN" { emit 1 }
+        i += 1
+    }
+    emit 0
+}
+
+// wasm func-index of a user function name (imports 0-1, helpers 2-7, users 8+).
+func funcIndexOf(funcNames, name) {
+    let n = lineCount(funcNames)
+    let i = 0
+    while i < n {
+        if getLine(funcNames, i) == name { emit 8 + i }
+        i += 1
+    }
+    emit 8
+}
+
+// Second token of "CALL name N".
+func callName(line) {
+    let rest = substring(line, 5, len(line))
+    let p = indexOf(rest, " ")
+    if p < 0 { emit rest }
+    emit substring(rest, 0, p)
+}
+
 // Scan for string literals.
 func collectStrings(body, table) {
     let n = lineCount(body)
@@ -296,26 +349,100 @@ func collectStrings(body, table) {
     emit t
 }
 
+// ── Control-flow construct stack (structured if/else + while loops) ───
+// IR is goto-style (JUMPIFNOT/JUMP/LABEL); wasm needs structured
+// if/else/end + block/loop/br. One stack row per OPEN wasm construct
+// (top = innermost), so `br` depths compute directly. Row format:
+//   kind TAB labelA TAB labelB
+//   "if"  CLOSE  ELSE   (if/if-else; CLOSE "-" until JUMP sets it)
+//   "blk" WEND   -      (loop's outer block; br target = loop exit)
+//   "lp"  WLOOP  -      (loop's inner loop;  br target = continue)
+// labelA is the br target for that construct.
+func cfPush(s, row) {
+    if len(s) == 0 { emit row }
+    emit s + fromCharCode(10) + row
+}
+func cfTop(s) {
+    let n = lineCount(s)
+    if n == 0 { emit "" }
+    emit getLine(s, n - 1)
+}
+func cfDrop(s) {
+    let n = lineCount(s)
+    if n <= 1 { emit "" }
+    let out = getLine(s, 0)
+    let k = 1
+    while k < n - 1 { out = out + fromCharCode(10) + getLine(s, k)  k += 1 }
+    emit out
+}
+// field idx (0=kind,1=labelA,2=labelB) of a TAB-split row.
+func cfField(row, idx) {
+    let r = row
+    let i = 0
+    while i < idx {
+        let p = indexOf(r, tab())
+        r = substring(r, p + 1, len(r))
+        i += 1
+    }
+    let p = indexOf(r, tab())
+    if p < 0 { emit r }
+    emit substring(r, 0, p)
+}
+// Set labelA (the close label) of the top frame — used when JUMP reveals
+// an if-else's endif target.
+func cfSetClose(s, closeL) {
+    let n = lineCount(s)
+    let top = getLine(s, n - 1)
+    let kind = cfField(top, 0)
+    let elseL = cfField(top, 2)
+    let row = kind + tab() + closeL + tab() + elseL
+    if n <= 1 { emit row }
+    let out = getLine(s, 0)
+    let k = 1
+    while k < n - 1 { out = out + fromCharCode(10) + getLine(s, k)  k += 1 }
+    emit out + fromCharCode(10) + row
+}
+// br depth to the construct whose labelA == label (0 = innermost / top).
+func cfDepth(s, label) {
+    let n = lineCount(s)
+    let d = 0
+    let k = n - 1
+    while k >= 0 {
+        if cfField(getLine(s, k), 1) == label { emit d }
+        d += 1
+        k -= 1
+    }
+    emit 0
+}
+
 // Emit one function body. Returns the body hex (locals vec + opcodes + end).
 // Values are tagged i32 (see header): int N -> (N<<1), string H -> (H<<1)|1.
-// Scratch locals appended after user locals: kpTmp, t0, t1.
-func emitFuncBody(body, table, localsList) {
-    let userCount = localsCount(localsList)
-    let kpTmpIdx = userCount
-    let t0Idx = userCount + 1
-    let t1Idx = userCount + 2
-    let totalLocals = userCount + 3            // kpTmp, t0, t1
+// localsList = params ++ declared-locals (combined, for index lookup);
+// paramCount of those are wasm function params (not declared in the vec).
+// Scratch locals (kpTmp,t0,t1) follow all of them. funcNames resolves CALL.
+func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
+    let combinedCount = localsCount(localsList)
+    let kpTmpIdx = combinedCount
+    let t0Idx = combinedCount + 1
+    let t1Idx = combinedCount + 2
+    // Locals declared in the vec = non-param locals + 3 scratch.
+    let declLocals = (combinedCount - paramCount) + 3
 
-    // Locals vec: 1 entry, <total> i32 (type 0x7F).
-    let bb = b(1) + leb(totalLocals) + b(127)
+    // Locals vec: 1 entry, <declLocals> i32 (type 0x7F).
+    let bb = b(1) + leb(declLocals) + b(127)
 
     let n = lineCount(body)
     let i = 0
-    let labelStack = ""        // newline-list of pending if-end labels (forward jumps)
+    let labelStack = ""        // control-flow frame stack (see cfPush): one row per open if
     while i < n {
         let line = ltrim(getLine(body, i))
         if lineStarts(line, "LOCAL ") {
             // Already accounted for in the locals header. No opcode.
+        } else if lineStarts(line, "PARAM ") {
+            // Function parameter; already a wasm local 0..P-1. No opcode.
+        } else if lineStarts(line, "CALL ") {
+            // Args already on stack (left-to-right). call <funcidx>.
+            bb = bb + iCALL(funcIndexOf(funcNames, callName(line)))
         } else if lineStarts(line, "PUSH \"") {
             let s = strBetweenQuotes(line)
             let h = strTableOffset(table, s)
@@ -354,6 +481,18 @@ func emitFuncBody(body, table, localsList) {
             bb = bb + b(109) + iC(1) + b(116)  // i32.div_s; i32.const 1; shl
         } else if line == "MOD" {
             bb = bb + b(111)                    // i32.rem_s ((2N)%(2M)=2(N%M))
+        } else if line == "EQ" {
+            bb = bb + b(70) + iC(1) + b(116)   // i32.eq;   retag <<1 (tagged bool)
+        } else if line == "NEQ" {
+            bb = bb + b(71) + iC(1) + b(116)   // i32.ne
+        } else if line == "LT" {
+            bb = bb + b(72) + iC(1) + b(116)   // i32.lt_s
+        } else if line == "GT" {
+            bb = bb + b(74) + iC(1) + b(116)   // i32.gt_s
+        } else if line == "LTE" {
+            bb = bb + b(76) + iC(1) + b(116)   // i32.le_s
+        } else if line == "GTE" {
+            bb = bb + b(78) + iC(1) + b(116)   // i32.ge_s
         } else if lineStarts(line, "BUILTIN kp ") {
             // Tag dispatch on stack top: LSB 1 -> string (console_log),
             // LSB 0 -> int (console_log_int). Push dummy 0 after (IR's
@@ -395,30 +534,55 @@ func emitFuncBody(body, table, localsList) {
             // tagged v -> tagged bool: (v != 0) << 1. (false=0, true=2)
             bb = bb + iC(0) + b(71) + iC(1) + b(116)
         } else if lineStarts(line, "JUMPIFNOT ") {
-            // Forward structured if: tagged cond on stack (false=0 skips,
-            // true=2 enters). Open an `if`; the matching LABEL closes it.
             let lbl = substring(line, 10, len(line))
-            bb = bb + b(4) + b(64)             // if (void)
-            if len(labelStack) == 0 { labelStack = lbl }
-            else { labelStack = labelStack + fromCharCode(10) + lbl }
+            if lineStarts(lbl, "_wend") {
+                // Loop exit test: branch out of the enclosing block if !cond.
+                bb = bb + b(69)                            // i32.eqz (true=2->0, false=0->1)
+                bb = bb + b(13) + leb(cfDepth(labelStack, lbl))  // br_if <block>
+            } else if lineStarts(lbl, "_else") {
+                // if-else: open `if`; else label recorded, close set later by JUMP.
+                bb = bb + b(4) + b(64)                     // if (void)
+                labelStack = cfPush(labelStack, "if" + tab() + "-" + tab() + lbl)
+            } else {
+                // plain if: skip target is the endif (close) label.
+                bb = bb + b(4) + b(64)                     // if (void)
+                labelStack = cfPush(labelStack, "if" + tab() + lbl + tab() + "-")
+            }
+        } else if lineStarts(line, "JUMP ") {
+            let lbl = substring(line, 5, len(line))
+            if lineStarts(lbl, "_wloop") {
+                bb = bb + b(12) + leb(cfDepth(labelStack, lbl))  // br <loop> (continue)
+            } else if lineStarts(lbl, "_wend") {
+                bb = bb + b(12) + leb(cfDepth(labelStack, lbl))  // br <block> (break)
+            } else {
+                // then-branch end of an if-else: emit `else`, record endif as close.
+                bb = bb + b(5)                             // else
+                labelStack = cfSetClose(labelStack, lbl)
+            }
         } else if lineStarts(line, "LABEL ") {
-            // Close the matching forward `if` opened by JUMPIFNOT.
             let lbl = substring(line, 6, len(line))
-            let top = ""
-            let lc = lineCount(labelStack)
-            if lc > 0 { top = getLine(labelStack, lc - 1) }
-            if top == lbl {
-                bb = bb + b(11)                // end (close the if)
-                if lc <= 1 { labelStack = "" }
-                else {
-                    // drop last line
-                    let nw = getLine(labelStack, 0)
-                    let k = 1
-                    while k < lc - 1 { nw = nw + fromCharCode(10) + getLine(labelStack, k)  k += 1 }
-                    labelStack = nw
+            if lineStarts(lbl, "_wloop") {
+                // Loop start: outer block (exit target) + inner loop (continue).
+                let wend = "_wend_" + substring(lbl, 7, len(lbl))
+                bb = bb + b(2) + b(64)                     // block (void)
+                bb = bb + b(3) + b(64)                     // loop (void)
+                labelStack = cfPush(labelStack, "blk" + tab() + wend + tab() + "-")
+                labelStack = cfPush(labelStack, "lp" + tab() + lbl + tab() + "-")
+            } else if lineStarts(lbl, "_wend") {
+                bb = bb + b(11) + b(11)                    // end loop; end block
+                labelStack = cfDrop(labelStack)
+                labelStack = cfDrop(labelStack)
+            } else {
+                let top = cfTop(labelStack)
+                if len(top) > 0 {
+                    if lbl == cfField(top, 2) {
+                        // if-else else label; `else` already emitted by JUMP -> consume.
+                    } else if lbl == cfField(top, 1) {
+                        bb = bb + b(11)                    // end (close if/if-else)
+                        labelStack = cfDrop(labelStack)
+                    }
                 }
             }
-            // Non-if labels (loop/backward targets) are 1.4-CFG work; skipped.
         } else if line == "POP" {
             bb = bb + b(26)                     // drop
         } else if line == "RETURN" {
@@ -427,6 +591,11 @@ func emitFuncBody(body, table, localsList) {
         // Unhandled IR ops are skipped silently. Track them in 1.4.
         i += 1
     }
+    // Non-main user funcs are typed ->i32 so callers can always POP/drop the
+    // result. Void funcs (no RETURN) fall through here with empty stack, so
+    // leave a dummy i32. Value funcs reach here only after RETURN (unreachable),
+    // so the extra const is harmless and keeps the fallthru well-typed.
+    if dummyRet > 0 { bb = bb + iC(0) }
     bb = bb + b(11)                             // end
     emit bb
 }
@@ -636,13 +805,14 @@ func emitConcat() {
 
 func wasmTypes() {
     let payload =
-        b(6) +
+        b(7) +
         b(96) + b(2) + b(127) + b(127) + b(0) +            // 0 (i32,i32)->void
         b(96) + b(0) + b(0) +                              // 1 ()->void
         b(96) + b(1) + b(127) + b(0) +                     // 2 (i32)->void
         b(96) + b(1) + b(127) + b(1) + b(127) +            // 3 (i32)->i32
         b(96) + b(2) + b(127) + b(127) + b(1) + b(127) +   // 4 (i32,i32)->i32
-        b(96) + b(3) + b(127) + b(127) + b(127) + b(1) + b(127)  // 5 (i32,i32,i32)->i32
+        b(96) + b(3) + b(127) + b(127) + b(127) + b(1) + b(127) +  // 5 (i32,i32,i32)->i32
+        b(96) + b(0) + b(1) + b(127)                       // 6 ()->i32
     emit wasmSection(1, payload)
 }
 
@@ -654,15 +824,37 @@ func wasmImports() {
     emit wasmSection(2, payload)
 }
 
-// Defined funcs (6 helpers + user funcs). Type indices in func-index order:
-//   2 int2str:t3, 3 tostr:t3, 4 concat:t4, 5 index:t4, 6 substr:t5,
-//   7 startsWith:t4, then user funcs:t1.
-func wasmFuncs(funcCount) {
-    let payload = leb(6 + funcCount) +
+// Map (paramCount, returnsVal) -> a type index from wasmTypes().
+// types: 0 (i32,i32)->void, 1 ()->void, 2 (i32)->void, 3 (i32)->i32,
+//        4 (i32,i32)->i32, 5 (i32,i32,i32)->i32.
+func userFuncType(p, r) {
+    if r == 0 {
+        if p == 0 { emit 1 }
+        if p == 1 { emit 2 }
+        if p == 2 { emit 0 }
+        emit 1
+    }
+    if p == 0 { emit 6 }         // ()->i32
+    if p == 1 { emit 3 }
+    if p == 2 { emit 4 }
+    if p == 3 { emit 5 }
+    emit 3                       // fallback: (i32)->i32
+}
+
+// Defined funcs (6 helpers + user funcs). Helper type indices in
+// func-index order: 2 int2str:t3, 3 tostr:t3, 4 concat:t4, 5 index:t4,
+// 6 substr:t5, 7 startsWith:t4. funcSigs = newline list of "P,R" per user func.
+func wasmFuncs(funcSigs) {
+    let cnt = lineCount(funcSigs)
+    let payload = leb(6 + cnt) +
                   b(3) + b(3) + b(4) + b(4) + b(5) + b(4)
     let i = 0
-    while i < funcCount {
-        payload = payload + b(1)
+    while i < cnt {
+        let row = getLine(funcSigs, i)
+        let cpos = indexOf(row, ",")
+        let p = toInt(substring(row, 0, cpos))
+        let r = toInt(substring(row, cpos + 1, len(row)))
+        payload = payload + b(userFuncType(p, r))
         i += 1
     }
     emit wasmSection(3, payload)
@@ -716,14 +908,35 @@ func wasmData(blob) {
 
 // ── Driver ───────────────────────────────────────────────────────────
 
+// Parse "FUNC name P" -> name (token after FUNC, before next space).
+func funcLineName(line) {
+    let rest = substring(line, 5, len(line))
+    let sp = indexOf(rest, " ")
+    if sp > 0 { emit substring(rest, 0, sp) }
+    emit rest
+}
+
 func buildModule(ir) {
     let n = lineCount(ir)
-    let strTab = strTableNew()
-    let funcBodies = ""
-    let funcCount = 0
-    let mainIdx = 0
+
+    // Pass 1: collect all user func names (in order) for CALL resolution.
     let funcNames = ""
     let i = 0
+    while i < n {
+        let line = ltrim(getLine(ir, i))
+        if lineStarts(line, "FUNC ") {
+            funcNames = nameListJoin(funcNames, funcLineName(line))
+        }
+        i += 1
+    }
+
+    // Pass 2: emit each func body; collect string table, signatures, mainIdx.
+    let strTab = strTableNew()
+    let funcBodies = ""
+    let funcSigs = ""           // newline list of "P,R" per user func
+    let mainIdx = 0
+    let fIdx = 0
+    i = 0
     while i < n {
         let line = ltrim(getLine(ir, i))
         if lineStarts(line, "FUNC ") {
@@ -737,18 +950,23 @@ func buildModule(ir) {
                 i += 1
             }
             strTab = collectStrings(body, strTab)
-            let locals = collectLocals(body)
-            let hex = emitFuncBody(body, strTab, locals)
+            let params = collectParams(body)
+            let pCount = localsCount(params)
+            let combined = nameListJoin(params, collectLocals(body))
+            let isMain = 0
+            if funcLineName(line) == "__main__" { isMain = 1 }
+            // All non-main funcs return i32 (void ones leave a dummy) so every
+            // CALL leaves exactly one value for the IR's trailing POP.
+            let rVal = 0
+            if isMain == 0 { rVal = 1 }
+            let hex = emitFuncBody(body, strTab, combined, pCount, funcNames, rVal)
             if len(funcBodies) == 0 { funcBodies = hex }
             else                    { funcBodies = funcBodies + fromCharCode(10) + hex }
-            let rest = substring(line, 5, len(line))
-            let spacePos = indexOf(rest, " ")
-            let name = rest
-            if spacePos > 0 { name = substring(rest, 0, spacePos) }
-            if name == "__main__" { mainIdx = funcCount + 8 }    // 2 imports + 6 helpers
-            if len(funcNames) == 0 { funcNames = name }
-            else                   { funcNames = funcNames + fromCharCode(10) + name }
-            funcCount += 1
+            let sig = pCount + "," + rVal
+            if len(funcSigs) == 0 { funcSigs = sig }
+            else                  { funcSigs = funcSigs + fromCharCode(10) + sig }
+            if isMain == 1 { mainIdx = fIdx + 8 }  // 2 imports + 6 helpers
+            fIdx += 1
         } else {
             i += 1
         }
@@ -770,7 +988,7 @@ func buildModule(ir) {
     emit wasmHeader() +
          wasmTypes() +
          wasmImports() +
-         wasmFuncs(funcCount) +
+         wasmFuncs(funcSigs) +
          wasmMemory() +
          wasmGlobals(bumpStart) +
          wasmExports(mainIdx) +
