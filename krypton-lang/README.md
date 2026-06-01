@@ -5,7 +5,7 @@ Syntax highlighting **plus a bundled language server** (`kls.exe`) for the
 
 ## Features
 
-- Syntax highlighting for `.k` (Krypton libraries / programs) and `.ks` (KryptScript run-as-script files)
+- Syntax highlighting for `.k` (Krypton libraries / programs), `.ks` (KryptScript run-as-script files), and `.htk` (kweb HTML templates)
 - Bracket matching and auto-closing (incl. `` ` `` for backtick interpolation strings)
 - Comment toggling (`//` and `/* */`)
 - Folding by indentation
