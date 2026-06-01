@@ -46,13 +46,17 @@
   }
 
   function rgbaToCss(packed) {
-    // Canvas-side colour encoding: 0xRRGGBBAA (32-bit big-endian).
-    // KryptScript passes the raw int via canvas_set_{fill,stroke}; split here.
+    // Colour encoding: 0xAARRGGBB, but Krypton's tagged-int model halves
+    // the usable range (every i32 literal is silently `(N<<1)` so it has
+    // to fit in 31 bits BEFORE the tag bit). That leaves us with 6 bits
+    // for alpha — values 0x00..0x3F. We extrapolate to 0..252 in JS by
+    // multiplying the masked byte by 4, so `0x3FFFFFFF` lands at ~99%
+    // opacity and `0x05FFFFFF` at ~8%.
     var u = packed >>> 0;
-    var r = (u >>> 24) & 0xff;
-    var g = (u >>> 16) & 0xff;
-    var b = (u >>> 8)  & 0xff;
-    var a = (u & 0xff) / 255;
+    var a = (((u >>> 24) & 0x3f) * 4) / 255;
+    var r = (u >>> 16) & 0xff;
+    var g = (u >>> 8)  & 0xff;
+    var b = u & 0xff;
     return 'rgba(' + r + ',' + g + ',' + b + ',' + a.toFixed(3) + ')';
   }
 
@@ -131,6 +135,19 @@
           if (typeof instance.exports._start !== 'function') return;
 
           // ── Krypton runtime visibility (the "JS"-equivalent inspector trail) ──
+          // 1. Tag the canvas with data-* attributes so anyone using DevTools'
+          //    Elements pane sees the .ks source path, .wasm path, runtime
+          //    version, and current opcode count. JavaScript devs are used to
+          //    "this widget is powered by X" being visible there — give the
+          //    same affordance for Krypton-powered ones.
+          try {
+            canvas.setAttribute('data-krypton-runtime', '2.2.0');
+            canvas.setAttribute('data-krypton-source', '/particles.ks');
+            canvas.setAttribute('data-krypton-wasm',   '/particles.wasm');
+            canvas.setAttribute('data-krypton-size',   String(bytes.byteLength | 0));
+          } catch (e) { /* noop */ }
+
+          // 2. Console banner — same pattern as a framework's startup log.
           try {
             var n = bytes.byteLength | 0;
             var banner = [
