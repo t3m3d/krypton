@@ -7,6 +7,8 @@ build/
 bin/
 releases/
 web/site/
+.claude/
+docs/claude/
 web/*.txt
 docs/*.txt
 backup/
@@ -17,12 +19,8 @@ backup/
 *.o
 *.c
 !bootstrap/kcc_seed.c
-.claude/
-docs/claude/
+
 archive/
-test_features.c
-test_features.exe
-test*.c
 test*.exe
 *.bak
 .vs/
