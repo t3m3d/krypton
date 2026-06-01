@@ -1,5 +1,5 @@
 #!/usr/bin/env kr
-// kr lsp/test_rle.k
+// kr lsp/test_rle.ks
 // Replaces lsp/test_rle.js. Sends documentSymbol against
 // algorithms/run_length_encoding.k and prints the result.
 import "k:proc"

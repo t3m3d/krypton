@@ -1,5 +1,5 @@
 #!/usr/bin/env kr
-// kr lsp/build.k — build kls.exe from lsp/kls.k.
+// kr lsp/build.ks — build kls.exe from lsp/kls.k.
 //
 // CURRENTLY USES C+gcc — this is the deprecated path. Migrate to
 // `kcc.exe -o kls.exe lsp/kls.k` (native pipeline) as soon as kls.k

@@ -1,5 +1,5 @@
 #!/usr/bin/env kr
-// kr scripts/sweep.k <dir> [run|ir]
+// kr scripts/sweep.ks <dir> [run|ir]
 // Replaces sweep_examples.sh, sweep_algorithms.sh, sweep_stdlib.sh.
 import "k:fs"
 

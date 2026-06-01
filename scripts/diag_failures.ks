@@ -1,5 +1,5 @@
 #!/usr/bin/env kr
-// kr scripts/diag_failures.k
+// kr scripts/diag_failures.ks
 // Replaces diag_failures.sh. Classify each known-failing example:
 // IR-fail / build-fail / runtime-fail.
 import "k:fs"

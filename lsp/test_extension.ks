@@ -1,5 +1,5 @@
 #!/usr/bin/env kr
-// kr lsp/test_extension.k
+// kr lsp/test_extension.ks
 // Replaces lsp/test_extension.js. Smoke-tests the kls.exe framing
 // without VS Code in the loop: initialize, didOpen good, document
 // symbols, completion, didOpen bad (diagnostics), shutdown.
