@@ -396,7 +396,7 @@ func funcIndexOf(funcNames, name) {
     let n = lineCount(funcNames)
     let i = 0
     while i < n {
-        if getLine(funcNames, i) == name { emit 19 + i }
+        if getLine(funcNames, i) == name { emit 20 + i }
         i += 1
     }
     emit 8
@@ -552,6 +552,11 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
                 bb = bb + iCALL(8) + iC(1) + b(116)
             } else if cn == "randomInt" {
                 bb = bb + iC(1) + b(117) + iCALL(9) + iC(1) + b(116)
+            } else if cn == "timeMs" {
+                // time_ms() -> i32 monotonic counter from the host. JS masks
+                // to 22 bits so the value stays well below the tagged-int
+                // ceiling (wraps every ~70 min, plenty for animation cycles).
+                bb = bb + iCALL(10) + iC(1) + b(116)
             } else {
                 // Plain user-function call.
                 bb = bb + iCALL(funcIndexOf(funcNames, cn))
@@ -580,7 +585,7 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
             bb = bb + iLG(t0Idx) + iLG(t1Idx) + b(114)      // a | b
             bb = bb + iC(1) + b(113)                        // & 1
             bb = bb + b(4) + b(127)                         // if (result i32)
-            bb = bb + iLG(t0Idx) + iLG(t1Idx) + iCALL(12)    //   $concat
+            bb = bb + iLG(t0Idx) + iLG(t1Idx) + iCALL(13)    //   $concat
             bb = bb + b(5)                                  // else
             bb = bb + iLG(t0Idx) + iLG(t1Idx) + b(106)      //   i32.add
             bb = bb + b(11)                                 // end
@@ -635,14 +640,14 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
             bb = bb + b(26)                     // drop
             bb = bb + b(65) + b(0)              // i32.const 0
         } else if line == "INDEX" {
-            bb = bb + iCALL(13)                  // $index(str, idx) -> tagged 1-char str
+            bb = bb + iCALL(14)                  // $index(str, idx) -> tagged 1-char str
         } else if lineStarts(line, "BUILTIN len ") {
             // tagged str -> tagged int length. base=v>>1u; load[base]; <<1.
             bb = bb + iC(1) + b(118) + b(40) + b(2) + b(0) + iC(1) + b(116)
         } else if lineStarts(line, "BUILTIN substring ") {
-            bb = bb + iCALL(14)                  // $substring(str,start,end)
+            bb = bb + iCALL(15)                  // $substring(str,start,end)
         } else if lineStarts(line, "BUILTIN startsWith ") {
-            bb = bb + iCALL(15)                  // $startsWith(str,prefix) -> tagged bool
+            bb = bb + iCALL(16)                  // $startsWith(str,prefix) -> tagged bool
         } else if lineStarts(line, "BUILTIN isTruthy ") {
             // tagged v -> tagged bool. kcc -r kr_truthy treats empty string
             // AND int 0 as falsy. Tag dispatch: LSB 0 = int (v != 0),
@@ -656,11 +661,11 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
             bb = bb + b(11)                                  // end
             bb = bb + iC(1) + b(116)                         // tagged bool: << 1
         } else if lineStarts(line, "BUILTIN toInt ") {
-            bb = bb + iCALL(16)                  // $toint(str) -> tagged int
+            bb = bb + iCALL(17)                  // $toint(str) -> tagged int
         } else if lineStarts(line, "BUILTIN count ") {
-            bb = bb + iCALL(17)                  // $count(str) -> tagged int (comma fields)
+            bb = bb + iCALL(18)                  // $count(str) -> tagged int (comma fields)
         } else if lineStarts(line, "BUILTIN split ") {
-            bb = bb + iCALL(18)                 // $split(str, idx) -> tagged string field
+            bb = bb + iCALL(19)                 // $split(str, idx) -> tagged string field
         } else if lineStarts(line, "BUILTIN argCount ") {
             // Browser has no CLI args. Always 0 — lessons that gate on
             // `argCount() >= 1` take the else branch (their no-arg help text).
@@ -679,7 +684,7 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
             bb = bb + b(35) + leb(0) + iC(4) + b(106) + b(36) + leb(0)  // bump += 4
             bb = bb + iC(1) + b(116) + iC(1) + b(114)      // (dst<<1)|1
         } else if lineStarts(line, "BUILTIN sbAppend ") {
-            bb = bb + iCALL(12)                  // sb + s -> $concat (sb is a tagged string)
+            bb = bb + iCALL(13)                  // sb + s -> $concat (sb is a tagged string)
         } else if lineStarts(line, "BUILTIN sbToString ") {
             // sb already IS a tagged string; identity (no opcode).
         } else if lineStarts(line, "BUILTIN canvasClear ") {
@@ -1086,7 +1091,7 @@ func emitToStr() {
     bb = bb + b(4) + b(127)                            // if (result i32)
     bb = bb + iLG(0) + iC(1) + b(118)                 //   v >> 1 (unsigned) = ptr
     bb = bb + b(5)                                     // else
-    bb = bb + iLG(0) + iC(1) + b(117) + iCALL(10)      //   $int2str(v>>1 signed)
+    bb = bb + iLG(0) + iC(1) + b(117) + iCALL(11)      //   $int2str(v>>1 signed)
     bb = bb + b(11)                                    // end if
     bb = bb + b(11)                                    // end func
     emit bb
@@ -1096,8 +1101,8 @@ func emitToStr() {
 // Locals: 2 pa, 3 pb, 4 la, 5 lb, 6 dst, 7 i.
 func emitConcat() {
     let bb = b(1) + leb(6) + b(127)                    // 6 i32 locals
-    bb = bb + iLG(0) + iCALL(11) + iLS(2)              // pa = $tostr(a)
-    bb = bb + iLG(1) + iCALL(11) + iLS(3)              // pb = $tostr(b)
+    bb = bb + iLG(0) + iCALL(12) + iLS(2)              // pa = $tostr(a)
+    bb = bb + iLG(1) + iCALL(12) + iLS(3)              // pb = $tostr(b)
     bb = bb + iLG(2) + b(40) + b(2) + b(0) + iLS(4)   // la = load[pa]
     bb = bb + iLG(3) + b(40) + b(2) + b(0) + iLS(5)   // lb = load[pb]
     bb = bb + b(35) + leb(0) + iLS(6)                 // dst = bump
@@ -1149,24 +1154,25 @@ func wasmTypes() {
 }
 
 func wasmImports() {
-    // 10 imports total. Slots 0,1 stay as console_log / console_log_int
-    // (the lesson kp() pipeline depends on those exact indices). Slots 2-9
-    // are the new browser-side surface KryptScript .ks files use to drive
-    // the DOM canvas (see docs/claude/WASM_HOST_ABI.md). All 10 declared
+    // 11 imports total. Slots 0,1 stay as console_log / console_log_int
+    // (the lesson kp() pipeline depends on those exact indices). Slots 2-10
+    // are the browser-side surface KryptScript .ks files use to drive the
+    // DOM canvas (see docs/claude/WASM_HOST_ABI.md). All declared
     // unconditionally — unused imports are zero-cost overhead, but having
     // them in every module means a single host shim works site-wide.
     let payload =
-        b(10) +
-        b(3) + bstr("env") + b(11) + bstr("console_log")     + b(0) + b(0) +  // 0 type 0
-        b(3) + bstr("env") + b(15) + bstr("console_log_int") + b(0) + b(2) +  // 1 type 2
-        b(3) + bstr("env") + b(12) + bstr("canvas_clear")    + b(0) + b(1) +  // 2 ()->()
-        b(3) + bstr("env") + b(13) + bstr("canvas_circle")   + b(0) + b(7) +  // 3 (i32,i32,i32)->()
-        b(3) + bstr("env") + b(11) + bstr("canvas_line")     + b(0) + b(8) +  // 4 (i32,i32,i32,i32)->()
-        b(3) + bstr("env") + b(15) + bstr("canvas_set_fill") + b(0) + b(2) +  // 5 (i32)->()
-        b(3) + bstr("env") + b(17) + bstr("canvas_set_stroke") + b(0) + b(2) +// 6 (i32)->()
-        b(3) + bstr("env") + b(12) + bstr("canvas_width")    + b(0) + b(6) +  // 7 ()->i32
-        b(3) + bstr("env") + b(13) + bstr("canvas_height")   + b(0) + b(6) +  // 8 ()->i32
-        b(3) + bstr("env") + b(10) + bstr("random_int")      + b(0) + b(3)    // 9 (i32)->i32
+        b(11) +
+        b(3) + bstr("env") + b(11) + bstr("console_log")     + b(0) + b(0) +  //  0 type 0
+        b(3) + bstr("env") + b(15) + bstr("console_log_int") + b(0) + b(2) +  //  1 type 2
+        b(3) + bstr("env") + b(12) + bstr("canvas_clear")    + b(0) + b(1) +  //  2 ()->()
+        b(3) + bstr("env") + b(13) + bstr("canvas_circle")   + b(0) + b(7) +  //  3 (i32,i32,i32)->()
+        b(3) + bstr("env") + b(11) + bstr("canvas_line")     + b(0) + b(8) +  //  4 (i32,i32,i32,i32)->()
+        b(3) + bstr("env") + b(15) + bstr("canvas_set_fill") + b(0) + b(2) +  //  5 (i32)->()
+        b(3) + bstr("env") + b(17) + bstr("canvas_set_stroke") + b(0) + b(2) +//  6 (i32)->()
+        b(3) + bstr("env") + b(12) + bstr("canvas_width")    + b(0) + b(6) +  //  7 ()->i32
+        b(3) + bstr("env") + b(13) + bstr("canvas_height")   + b(0) + b(6) +  //  8 ()->i32
+        b(3) + bstr("env") + b(10) + bstr("random_int")      + b(0) + b(3) +  //  9 (i32)->i32
+        b(3) + bstr("env") + b(7)  + bstr("time_ms")         + b(0) + b(6)    // 10 ()->i32
     emit wasmSection(2, payload)
 }
 
@@ -1312,7 +1318,7 @@ func buildModule(ir) {
             let sig = pCount + "," + rVal
             if len(funcSigs) == 0 { funcSigs = sig }
             else                  { funcSigs = funcSigs + fromCharCode(10) + sig }
-            if isMain == 1 { mainIdx = fIdx + 19 }  // 2 imports + 9 helpers
+            if isMain == 1 { mainIdx = fIdx + 20 }  // 2 imports + 9 helpers
             fIdx += 1
         } else {
             i += 1
