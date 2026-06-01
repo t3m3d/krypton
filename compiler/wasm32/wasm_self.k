@@ -186,7 +186,6 @@ func strTableUsed(table) {
 
 func strTableAdd(table, s) {
     let hexS = strHexEncode(s)
-    printErr("DBG_ADD s=[" + s + "] slen=" + len(s) + " hex=[" + hexS + "]\n")
     let n = lineCount(table)
     let i = 0
     while i < n {
@@ -1180,7 +1179,6 @@ func buildModule(ir) {
         }
     }
 
-    printErr("DBG_TAB[" + strTab + "]\n")
     let blob = strTableBlob(strTab)
     let bumpStart = strBase() + strTableUsed(strTab)   // +5 for fixed newline string
 
