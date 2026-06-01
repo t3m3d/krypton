@@ -96,6 +96,11 @@ const imports = {
       max = max | 0;
       return max > 0 ? Math.floor(Math.random() * max) : 0;
     },
+    // time_ms(): 22-bit monotonic counter (Date.now() & 0x3FFFFF), wraps
+    // every ~70 min. Browser-side hero animation uses this to drive smooth
+    // particle motion; lessons never call it but the import is declared
+    // unconditionally so the loader must supply it.
+    time_ms() { return (Date.now() & 0x3fffff) | 0; },
   },
 };
 
