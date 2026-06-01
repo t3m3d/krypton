@@ -5,6 +5,7 @@
 
 import "k:htmk"
 import "k:kcss"
+import "k:fs"
 
 // ── Theme colors + CSS ───────────────────────────────────────────────
 // CSS authored via kcss (the Krypton CSS DSL).
@@ -1226,7 +1227,8 @@ func pageLesson(file, prevFile, nextFile) {
         htP("Run it locally: " + htCode("kcc -r tutorial/" + file + ".k")) +
         htP(navStr) +
         "</div></section>" +
-        "<script src=" + DQ() + "/runner.js?v=5" + DQ() + "></script>"
+        "<script src=" + DQ() + "/runner.js?v=5" + DQ() + "></script>" +
+        "<script src=" + DQ() + "/wasm_runner.js?v=1" + DQ() + "></script>"
 
     emit sitePage(title, body)
 }
@@ -1287,6 +1289,8 @@ just run {
     let files = lessonFiles()
     let cnt = lineCount(files)
     let i = 0
+    let wasmOk = 0
+    let wasmSkip = 0
     while i < cnt {
         let file = getLine(files, i)
         if len(file) > 0 {
@@ -1295,9 +1299,25 @@ just run {
             if i > 0 { prevFile = getLine(files, i - 1) }
             if i + 1 < cnt { nextFile = getLine(files, i + 1) }
             writePage(dist + "/learn/" + file + ".html", pageLesson(file, prevFile, nextFile))
+
+            // Precompile lesson to .wasm so wasm_runner.js can serve a real
+            // Krypton-emitted module when the code box is unedited. Failures
+            // are silent: a missing .wasm just falls back to runner.js's
+            // JS bridge (matches the contract in WASM_PHASE_1_SPLIT.md §B.4).
+            let srcK = "..\\..\\tutorial\\" + file + ".k"
+            let kir  = "dist\\learn\\" + file + ".kir"
+            let wsm  = "dist\\learn\\" + file + ".wasm"
+            shellRun("kcc.exe --ir " + srcK + " > " + kir + " 2>nul")
+            shellRun("..\\..\\compiler\\wasm32\\wasm_self.exe " + kir + " " + wsm + " >nul 2>nul")
+            shellRun("del " + kir + " >nul 2>nul")
+            if fsFileExists("dist/learn/" + file + ".wasm") == "1" {
+                wasmOk += 1
+            } else {
+                wasmSkip += 1
+            }
         }
         i += 1
     }
 
-    printErr("done: 6 pages + learn index + " + cnt + " lessons in " + dist + "/")
+    printErr("done: 6 pages + learn index + " + cnt + " lessons in " + dist + "/  (.wasm: " + wasmOk + " emitted, " + wasmSkip + " skipped)")
 }
