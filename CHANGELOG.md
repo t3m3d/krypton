@@ -2,6 +2,35 @@
 
 All notable changes to the Krypton language and compiler.
 
+## [Unreleased]
+
+**`kr.exe` — Windows-native KryptScript runner (the `.bat` equivalent):**
+
+- New `tools/kr/run.k` → `kr.exe` (~16 KB native PE). Compiles a `.k`/`.ks`
+  script to `%TEMP%\_kr_<tick>.exe`, runs it with the user's args
+  forwarded, propagates the child's exit code, then deletes the temp.
+  Same role as the POSIX `kr` bash shim, but with no Git Bash / WSL in
+  the loop — cmd.exe, PowerShell, and Explorer double-click all reach it.
+- Built via the native pipeline (`kcc -o tools/kr/kr.exe tools/kr/run.k`);
+  no gcc / clang involved.
+- Installer ships `kr.exe` to `C:\krypton\kr.exe`. New file-association
+  task registers `.ks` under ProgID `KryptonScript.Run` with open-command
+  `"C:\krypton\kr.exe" "%1" %*`. `.k` remains associated with `kcc.exe`
+  (compiler) so opening a library file in the editor stays the default.
+
+**Net effect:** `myscript.ks foo bar` from any Windows shell — or
+double-click in Explorer — now Just Works, the same way `.bat` files do.
+
+**`run.k` entry-point convention — warning (errors in next major):**
+
+- Multi-file projects (any file declaring `module <name>`) should put
+  their `just run { ... }` body in `run.k`. `compile.k` now emits a
+  warning when the entry file's basename is anything else. Single-file
+  scripts (no `module` decl) are exempt — `kr myscript.ks` keeps working
+  even when the script is anywhere on disk.
+- The warning text states the deprecation timeline: warning now, error
+  in the next major release. Rename now to stay forward-compatible.
+
 ## [2.2.0] - 2026-06-01 — KryptScript (`.ks`) extension convention
 
 `.ks` is a sibling source extension for run-as-script Krypton files —
