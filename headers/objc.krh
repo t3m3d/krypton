@@ -1,0 +1,61 @@
+// objc.krh — Krypton header for the Objective-C runtime (libobjc.dylib).
+// Usage: import "head:objc"
+// macOS arm64.
+//
+// These are the BEDROCK primitives every Cocoa API on macOS is built on.
+// Nothing in AppKit, Foundation, or UIKit can be called without first
+// resolving a class (objc_getClass), looking up the message selector
+// (sel_registerName), and dispatching via objc_msgSend.
+//
+// Wrappers in stdlib/objc.k make this ergonomic — most user code never
+// touches these names directly.
+//
+// SCAFFOLD — agent m owns the actual macho_arm64_self.k codegen
+// (objc_msgSend calling convention on arm64 puts self in x0 and SEL in x1
+// with extra args in x2..x7, matching the standard ABI). See
+// docs/cocoa_design.md for the dispatch plan.
+
+jxt {
+    c "objc/objc.h"
+    c "objc/runtime.h"
+    c "objc/message.h"
+
+    // ── Class + selector lookup ────────────────────────────────────────
+    // Both return opaque pointers that callers treat as handles.
+    func objc_getClass(name)               // Class for an NSObject subclass
+    func objc_lookUpClass(name)            // same, but returns null on miss instead of failing
+    func sel_registerName(name)            // SEL handle for a selector string
+
+    // ── Object lifecycle ───────────────────────────────────────────────
+    // Reference counting in Cocoa: every retain must be balanced with a
+    // release, OR the object is added to the active autorelease pool.
+    // Helpers in stdlib/objc.k provide withPool { } blocks.
+    func objc_retain(obj)
+    func objc_release(obj)
+    func objc_autorelease(obj)
+
+    // ── Message dispatch ───────────────────────────────────────────────
+    // objc_msgSend is variadic in C; Krypton's foreign-call ABI pins arg
+    // counts, so we declare a small family covering 0..6 extra args (the
+    // 99% case for Cocoa). All map to the same `objc_msgSend` symbol;
+    // the linker collapses them. See docs/cocoa_design.md for ABI notes.
+    func objc_msgSend(self, sel)
+    func objc_msgSend_1(self, sel, a)
+    func objc_msgSend_2(self, sel, a, b)
+    func objc_msgSend_3(self, sel, a, b, c)
+    func objc_msgSend_4(self, sel, a, b, c, d)
+    func objc_msgSend_5(self, sel, a, b, c, d, e)
+    func objc_msgSend_6(self, sel, a, b, c, d, e, f)
+
+    // Float/double-returning variant. Some Cocoa APIs return CGFloat;
+    // arm64 puts that in d0 not x0, so a distinct symbol is needed.
+    // (objc_msgSend_fpret is the macOS name on x86; on arm64 the runtime
+    // collapses it to objc_msgSend — declared separately so the codegen
+    // can route the return register correctly.)
+    func objc_msgSend_fpret(self, sel)
+
+    // ── Class introspection (rarely needed at runtime) ─────────────────
+    func class_getName(cls)
+    func class_getSuperclass(cls)
+    func object_getClassName(obj)
+}

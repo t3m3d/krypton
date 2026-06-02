@@ -65,6 +65,13 @@ The web framework adds a third extension for templates:
 - **kweb** — single-binary web framework CLI. Bundled in the Windows
   installer; build from source on macOS / Linux. `krypton-lang.org` itself
   is rendered by kweb.
+- **macOS Cocoa scaffold** *(in progress, agent m)* — `headers/objc.krh`,
+  `headers/cocoa.krh`, `stdlib/objc.k`, `stdlib/cocoa.k` land the
+  foundation for native macOS apps written in pure Krypton. Same
+  surface shape as `stdlib/gui.k` on Windows — `cocoaWindow`,
+  `cocoaButton`, `cocoaOnClick` — so a single `.ks` source can target
+  both. Sees `docs/cocoa_design.md` for the binding strategy + the
+  `objc_msgSend` arm64 ABI handoff to the macho backend.
 
 **Platform release status (2026-06-01):**
 
