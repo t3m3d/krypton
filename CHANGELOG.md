@@ -35,17 +35,47 @@ extension on input from day one — no migration is forced.
   `web/site/dist/learn/`. The lesson "Run" button picks up the
   Krypton-emitted module via `wasm_runner.js` and falls back to the
   JS bridge when the code box is edited.
-- 15 lessons (01–15) match `kcc -r` output byte-for-byte through the
-  Node loader. Lessons 16–34 fall back transparently as needed.
+- **16 lessons** (01–15, 18, 19) match `kcc -r` output byte-for-byte
+  through the Node loader, up from 15 once the new `$lineCount` /
+  `$getLine` wasm helpers landed. Lessons 16, 20–34 fall back
+  transparently to the JS bridge as needed.
 - `wasm_self.k` fixes: empty-string falsiness in `isTruthy`/`NOT`,
   CRLF tolerance in `ltrim` (Windows IR is CRLF), `xHH` literal
   unescape (Krypton source `\\n` means newline, not literal `\n`),
   `argCount`/`arg` stubbed to 0 / empty so lessons 14 and 15 hit
   their "no args" branches and pass.
+- **New wasm helpers** `$lineCount(str)` and `$getLine(str, idx)` —
+  hand-emitted at fixed function indices 20 and 21 alongside the
+  existing `$count` / `$split` (which work on commas). lineCount
+  matches the native semantics: count `\n` bytes, then +1 iff the
+  string is non-empty AND doesn't end in `\n` (so `"a\nb\n"` → 2,
+  not 3). User-defined function indices shift from `+20` to `+22`
+  to make room. Unlocks lessons 18 and 19 with no regressions in
+  the 01–34 scorecard.
 - `x64.k`: real `kr_writebytes` machine-code impl (255 bytes,
   appended at end of helper block, `bsHelperBlockSize` 9121 → 9376)
   replacing the JMP-to-`emp_pos` stub that silently no-op'd every
   native-PE writeBytes() call.
+
+**Hero particle field (krypton-lang.org):**
+
+- The hero of every page now runs `particles.wasm` (compiled from a
+  user-visible `/particles.ks` so devtools can inspect the
+  KryptScript source). 44 deterministic centroids per `_start()`,
+  positions a pure function of `time_ms()` for sub-pixel-smooth motion.
+- `wasm_runner.js` calls `_start()` four times per RAF with mirrored
+  `(flipX, flipY)` and a per-pass `timeBias` so a 44-particle module
+  renders as ~176 particles drifting in four opposing diagonals
+  ("the mirror trick").
+- After all four passes complete, the host stitches additional
+  proximity links across the full 176-particle set: pairs within
+  80 CSS px sorted shortest-first and drawn greedily while both
+  endpoints still have degree < 3. Result: free-floating particles
+  with a bounded, organic-looking web.
+- Inspectable from devtools: the `#heroCanvas` element carries
+  `data-krypton-runtime`, `data-krypton-source`, `data-krypton-wasm`,
+  and `data-krypton-size`; a `console.log` banner prints the wasm
+  byte count and a link to the `.ks` source on load.
 
 ## [2.1.1] - 2026-05-30 — macOS arm64 self-hosting + portability bug-fix series
 
