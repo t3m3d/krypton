@@ -28,13 +28,13 @@ link() {
         sudo ln -sf "$src" "$dst"
     fi
 }
-link "$SCRIPT_DIR/kcc"    "$BIN_DIR/kcc"       # dispatcher → platform binary
+link "$SCRIPT_DIR/kcc"    "$BIN_DIR/kcc"       # kcc → kcc.sh symlink; the driver
 link "$SCRIPT_DIR/kcc.sh" "$BIN_DIR/kcc.sh"    # full driver with --native, etc.
 [[ -f "$SCRIPT_DIR/kls" ]] && link "$SCRIPT_DIR/kls" "$BIN_DIR/kls"  # LSP server (if built)
 
 echo ""
 echo "installed:"
-echo "  $BIN_DIR/kcc     -> $SCRIPT_DIR/kcc       (compiler dispatcher)"
+echo "  $BIN_DIR/kcc     -> $SCRIPT_DIR/kcc       (driver, symlink to kcc.sh)"
 echo "  $BIN_DIR/kcc.sh  -> $SCRIPT_DIR/kcc.sh    (driver: kcc.sh hello.k -o hello)"
 [[ -f "$SCRIPT_DIR/kls" ]] && echo "  $BIN_DIR/kls     -> $SCRIPT_DIR/kls       (LSP server)"
 echo ""
