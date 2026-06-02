@@ -118,40 +118,44 @@ at compile time). Never commit an elf.k change you haven't run.
 
 ---
 
-## 6. Your task
+## 6. Backend status (updated 2026-06-02)
 
-Socket builtins in `elf.k`, so `stdlib/server_native.k` serves HTTP C-free on
-Linux (macOS is done, you mirror it). Full plan, syscall numbers, and the
-3-edit discipline are in:
+**DONE** in `compiler/linux_x86/elf.k`, all C-free inline syscalls (nr in RAX,
+args RDI/RSI/RDX/R10/R8/R9, `syscall`=`0F 05`; sockaddr_in has NO sin_len byte,
+family at offset 0). 3-edit discipline per builtin (skip one → SIGILL):
+(1) `compiler/compile.k` builtins list ~line 4199 + rebuild frontend seed,
+(2) `elf.k` `opByteSize` count table ~line 3126 (MUST equal emit exactly),
+(3) `elf.k` emit block in `emitFuncCode` ~line 4096.
 
-```
-SOCKETS_CROSS_BACKEND_PLAN.md      (repo root — read the "Linux — TODO" section)
-```
+- **sockets**: sockMake/Bind/Listen/Accept/Recv/Send/Close/RecvStr/**Connect** —
+  `k:server_native` + `examples/ks/miniserver.ks` serve HTTP; `k:httpc` connects.
+- **readProc(path)**: reads `/proc` & `/sys` virtual files (`readFile` returns
+  empty on them — st_size==0). Reads regular files too.
+- **environ(name)**: env vars (envp saved at `[R14+16]` in `_start`).
 
-Linux is **Path A** there: inline `syscall` (`0F 05`), nr in RAX, args
-RDI/RSI/RDX/R10/R8/R9; sockaddr_in has **no sin_len byte** (family at offset 0).
-8 builtins: sockMake/Bind/Listen/Accept/Recv/Send/Close/RecvStr.
-
-3 edits per builtin (skip one → SIGILL): (1) `compiler/compile.k` builtins list
-~line 4199 + rebuild seed, (2) elf.k instruction-count table, (3) elf.k emit
-block. Count MUST equal emitted instructions exactly.
+**REMAINING:** `exec` / `shellRun` are still unimplemented no-ops — they block
+`kcc.ks` and the exec-based `k:sh`/`k:env`/`k:fsx` batteries on Linux (so
+`kcc.sh` stays the operational driver here). Full plan + risk notes:
+**`handoff_linux_exec.md`** (repo root). Sockets ref: `SOCKETS_CROSS_BACKEND_PLAN.md`.
 
 ---
 
-## 7. Heads-up — broken native builtins (avoid in any Krypton you write)
+## 7. Heads-up — native-backend builtin quirks (Linux, verified 2026-06-02)
 
-Verified on the native backend; the macOS side hit all of these (likely same on
-Linux native — confirm as you go):
-- `toLower` / `toUpper` — **no-ops**. Inline ASCII case.
 - `splitBy` / `split` (string) / `lines()` — **list values broken**. Use
   `indexOf`/`substring` scans + `getLine`/`lineCount`.
 - `hex()` returns decimal — use `stdlib/hexenc.k`.
 - `timestamp()` crashes `toStr`. Nested module imports don't link transitively
-  (make modules self-contained).
+  (make self-contained programs / relative imports inline fine).
+- `exec` / `shellRun` — **unimplemented no-ops** (return their argument). See §6.
+- FIXED on Linux: `toLower`/`toUpper` work; `trim` now strips all whitespace
+  (≤0x20, tabs/newlines too — but it strips ASCII whitespace only). `environ`
+  and `readProc` now work (use `readProc` for `/proc`, not `readFile`).
 
 Safe subset: `substring indexOf charCode fromCharCode(≤127) len toInt toStr
-trim startsWith endsWith contains replace repeat sbNew/sbAppend/sbToString
-arg/argCount getLine/lineCount kp`. Int adds wrap at 2^32.
+trim toLower toUpper startsWith endsWith contains replace repeat
+sbNew/sbAppend/sbToString arg/argCount getLine/lineCount environ readProc
+sock* kp`. Int adds wrap at 2^32.
 
 ---
 
