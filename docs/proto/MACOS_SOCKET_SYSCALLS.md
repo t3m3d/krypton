@@ -79,3 +79,52 @@ server.k's cfunc is the ONE real C dependency left on macOS (the native
 kcc-arm64 compiler is already C-free; fs/proc/winio/jsonrpc/gui are pure-
 Krypton Win32 and Windows-only). Killing it = kweb/KSML serve on macOS with
 no clang in the loop, and `--gcc` becomes truly optional on Mac.
+
+---
+
+## CORRECTION (learned by attempting it): it's a THREE-compiler change
+
+A first attempt added only the macho backend builtin and SIGILL'd. Root
+cause: the **frontend** (`kcc-arm64`, built from `compiler/compile.k`)
+doesn't know `sockClose` is a builtin, so it emits `CALL sockClose 1`
+(an unknown user-function call) instead of `BUILTIN sockClose 1`. The
+backend's BUILTIN_SOCKCLOSE handler never fires; the `bl` to a
+nonexistent label jumps into garbage → illegal instruction.
+
+Adding ONE socket builtin touches THREE places:
+
+1. **`compiler/compile.k` (frontend → kcc-arm64).** Register the name so
+   the `--ir` output is `BUILTIN sockClose N`, not `CALL`. There are two
+   sub-spots:
+   - the IR emitter that recognizes builtin names (near the `kp`/`len`/
+     `split` chain ~line 1310+), so it emits `BUILTIN sockClose N`.
+   - the C-path emitter (~line 1380+, the `kr_*` mappings) so `--gcc`
+     parity still works (e.g. `sockClose` -> a `kr_sockclose(...)` or an
+     inline syscall). Needed only to keep the C path at parity; the goal
+     is the native path not needing C.
+
+2. **Rebuild `kcc-arm64`** from the edited compile.k:
+       kcc-arm64 compile.k > /tmp/c.c && clang /tmp/c.c -o kcc-arm64-new
+   (Uses C once, for the bootstrap — that's allowed; the *output* compiler
+   then needs no C.) Verify the new kcc-arm64 emits `BUILTIN sockClose`.
+
+3. **`compiler/macos_arm64/macho_arm64_self.k` (native backend).** Three
+   edits per builtin — name->token map (~1675), opInstrCount entry
+   (~1951), and the emit block (~4531). The emit for sockClose is exactly:
+       arm64_pop(0); arm64_movz_x_imm(16, 6); arm64_svc(0x80); arm64_push_x0()
+   = 4 instructions (count MUST equal opInstrCount or jump offsets break).
+   This part was verified correct in isolation; it just never triggered
+   because of #1.
+
+4. **`stdlib/server.k`.** Replace the cfunc with pure-Krypton wrappers over
+   the new builtins. Windows keeps its Winsock cfunc via `#ifdef _WIN32`.
+
+### Recommendation
+
+This is a self-hosting-compiler bootstrap change (compile.k + kcc-arm64
+rebuild), not a single-file edit — and compile.k + macho_arm64_self.k are
+both actively edited by Agent W (WASM work). Do it as ONE focused session
+with the backend quiet, rebuilding + testing kcc-arm64 carefully, OR have
+whoever owns the compiler bootstrap do it. Don't land it piecemeal: the
+frontend and backend halves are useless apart and a half-done state
+SIGILLs.
