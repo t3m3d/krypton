@@ -35,7 +35,22 @@ func _NL() { emit fromCharCode(13) + fromCharCode(10) }
 
 // resolve(host) -> dotted-quad IP string, or "" on failure. Uses dig, falls
 // back to `host`. Both are clang-free external tools.
+func _isDottedQuad(s) {
+    let i = 0
+    let dots = 0
+    while i < len(s) {
+        let c = toInt(charCode(s[i]))
+        if c == 46 { dots += 1 }
+        else if c < 48 || c > 57 { emit 0 }
+        i += 1
+    }
+    if dots == 3 { emit 1 }
+    emit 0
+}
+
 func resolve(host) {
+    // already an IP literal (e.g. 127.0.0.1) -> use as-is, dig won't resolve it.
+    if _isDottedQuad(host) == 1 { emit host }
     let ip = _chomp(exec("dig +short " + _q(host) + " A 2>/dev/null | grep -E '^[0-9.]+$' | head -1"))
     if ip != "" { emit ip }
     // fallback: `host` command
@@ -96,13 +111,17 @@ func httpGetPort(host, path, port) {
 // httpGet(host, path) -> full response over port 80.
 func httpGet(host, path) { emit httpGetPort(host, path, 80) }
 
-// httpGetBody(host, path) -> just the body (after the blank CRLFCRLF).
-func httpGetBody(host, path) {
-    let r = httpGet(host, path)
+func _bodyOf(r) {
     let sep = indexOf(r, _NL() + _NL())
     if sep >= 0 { emit substring(r, sep + 4, len(r)) }
     emit r
 }
+
+// httpGetBody(host, path) -> just the body (after the blank CRLFCRLF).
+func httpGetBody(host, path) { emit _bodyOf(httpGet(host, path)) }
+
+// httpGetBodyPort(host, path, port) -> body only, on a custom port.
+func httpGetBodyPort(host, path, port) { emit _bodyOf(httpGetPort(host, path, port)) }
 
 // httpStatus(resp) -> numeric status code from a response ("HTTP/1.0 200 OK").
 func httpStatus(resp) {
