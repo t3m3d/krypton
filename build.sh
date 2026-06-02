@@ -24,7 +24,8 @@ cd "$SCRIPT_DIR"
 SEED_C="bootstrap/kcc_seed.c"
 COMPILE_K="compiler/compile.k"
 # KCC is the platform-specific binary (compiler/<arch>/kcc-<arch>, kcc.exe on Windows).
-# ./kcc itself is a thin dispatcher script that picks the right one at runtime.
+# ./kcc itself is a symlink to ./kcc.sh, the driver that detects OS/arch and
+# invokes the right platform binary at runtime.
 # Set after platform detection below.
 # Default C compiler: $CC env var, then gcc, then clang (macOS default).
 if [[ -n "${CC:-}" ]]; then

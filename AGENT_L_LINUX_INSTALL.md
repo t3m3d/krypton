@@ -14,7 +14,7 @@ from this repo. The pieces:
 | thing | what it is |
 |-------|-----------|
 | `./kcc.sh` | **the driver — use this** (`kcc.sh file.k -o out`, `-r` run, `--ir`, `--c`, `--version`). v2.2.0. It detects OS/arch via `uname` and calls the right frontend binary. |
-| `./kcc` | older stale duplicate of the driver (drifted behind kcc.sh). `install.sh` symlinks both for back-compat; prefer `kcc.sh`. NOT a separate dispatcher, NOT macOS-only. |
+| `./kcc` | symlink → `kcc.sh` (same driver, shorter name). `kcc` and `kcc.sh` are interchangeable. NOT a separate dispatcher, NOT macOS-only. |
 | `compiler/linux_x86/kcc-x64` | the actual Linux x86_64 frontend **binary** (what kcc.sh calls; built/seeded by `build.sh`) |
 | `compiler/linux_x86/elf.k` | Linux native backend (emits ELF, no libc) — **this is what you'll edit** |
 | `bootstrap/kcc_seed_linux_x86_64` | prebuilt seed binary → install needs **no gcc** |
