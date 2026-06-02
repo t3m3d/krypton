@@ -43,6 +43,62 @@ The header layer is the only place a "C symbol" appears.
 - On Windows / Linux it doesn't link (Cocoa symbols don't exist on
   those platforms) — that's expected. The intent is macOS arm64 only.
 
+## State model — caller threads, no module globals
+
+`stdlib/objc.k` and `stdlib/cocoa.k` are **fully stateless**. No
+`let` outside function bodies. Same constraint agent m hit while
+shipping `stdlib/server_native.k`:
+
+> *Imported Krypton modules export functions only; their top-level
+> `let` state does NOT initialize or persist across the import
+> boundary.*
+
+Every public function takes its handles as parameters and returns new
+ones. The caller is responsible for keeping the app, window, control,
+and callback-state handles alive. Concretely:
+
+```krypton
+let app = cocoaInit()
+let win = cocoaWindow(app, "Hi", 400, 200)
+let btn = cocoaButton(win, "OK", 100, 50, 80, 30)
+cocoaShow(win, app)
+cocoaRun(app)
+```
+
+The matching antipattern (DON'T do this):
+
+```krypton
+// Inside a stdlib module:
+let _app = ""           // ← reads as garbage when called from imported context
+func init() { _app = msg(...) }
+```
+
+### Closure-capture via associated objects
+
+The single hard case is `cocoaOnClick(button, fnPtr)`. The user wants
+the click handler to "see" some local state. Closures via `funcptr` do
+NOT capture upvalues at the funcptr-handle level (the funcptr is a
+plain code address). The Cocoa-idiomatic fix is
+`objc_setAssociatedObject` — attach a Krypton `env` to the button:
+
+```krypton
+let state = envNew()
+envSet(state, "label", lbl)
+envSet(state, "count", "0")
+cocoaSetAssoc(btn, state)
+cocoaOnClick(btn, funcptr(onClick))
+
+func onClick(sender) {
+    let env = cocoaGetAssoc(sender)
+    let lbl = envGet(env, "label")
+    cocoaSetText(lbl, "clicked")
+}
+```
+
+The trampoline (`KrCallbackTarget.krDispatch:`) doesn't need to know
+anything about the user's state — it just hands the sender to the
+Krypton handler and lets the handler walk the associated env.
+
 ## What's missing (agent m's work)
 
 1. **`objc_msgSend` arm64 calling convention.** Cocoa's dispatch ABI:
