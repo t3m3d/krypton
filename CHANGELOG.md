@@ -4,6 +4,32 @@ All notable changes to the Krypton language and compiler.
 
 ## [Unreleased]
 
+**Zero-C HTTP server on macOS — `k:server_native` (agent m):**
+
+- New BSD-socket builtins emitted as direct `svc` syscalls by
+  `compiler/macos_arm64/macho_arm64_self.k`: `sockMake`, `sockBind`,
+  `sockListen`, `sockAccept`, `sockRecv`, `sockRecvStr`, `sockSend`,
+  `sockClose`. No libc, no clang in the chain — the macho backend
+  writes the raw arm64 syscalls itself.
+- `stdlib/server_native.k` — full HTTP server in **pure Krypton, zero
+  `cfunc`**. `serverListen / Accept / Read / Send`, request parsers
+  (`reqMethod`, `reqPath`, `reqQuery`, `reqHeader`, `queryValue`,
+  `formValue` with URL-decoding), response builders (`htmlResponse`,
+  `jsonResponse`, `textResponse`, `notFound`, `redirect`), and
+  one-call shortcuts (`serveHtml`, `serveJson`, `serveText`, `serve404`).
+  State threaded explicitly through caller-held handles (imported
+  modules' top-level `let` doesn't survive the boundary today).
+- Verified end-to-end on macOS Tahoe arm64 (no clang): `GET /hello` →
+  HTML page, `GET /json` → JSON body, `GET /q?name=ada` → URL-decoded
+  param.
+- The legacy `stdlib/server.k` (with its `cfunc` Winsock/POSIX block)
+  stays in place for the Windows / `--gcc` path. New macOS code should
+  `import "k:server_native"`.
+
+**Net effect:** the entire "serve a web request from Krypton" pipeline
+now has a path that contains **no C at any layer** on macOS — language,
+backend codegen, stdlib, and example app are all Krypton.
+
 **macOS Cocoa scaffold (skeleton for native macOS apps in pure Krypton):**
 
 - `headers/objc.krh` — raw libobjc.dylib bindings: `objc_getClass`,

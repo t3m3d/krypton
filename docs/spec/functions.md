@@ -541,6 +541,53 @@ Raw-byte buffer primitives used by the typed-pointer codegen. You can
 call them directly, but most code goes through the typed-pointer sugar
 (`let p: *u32 = buf; p[i]` lowers to `bufGetDwordAt(buf, i*4)`).
 
+### BSD sockets — (native, macOS arm64; 2.2-unreleased)
+
+Direct BSD-socket syscalls, **no libc / no clang**. Emitted by
+`compiler/macos_arm64/macho_arm64_self.k` as inline `svc` instructions.
+Used by `stdlib/server_native.k` to ship a complete HTTP server with
+zero `cfunc` blocks on macOS.
+
+| Builtin | Purpose |
+|---|---|
+| `sockMake()` | Creates an AF_INET / SOCK_STREAM socket. Returns fd ≥ 0 on success, –1 on failure. |
+| `sockBind(fd, hi, lo)` | Binds `fd` to a port. Port is split into two 16-bit halves (`hi` × 65536 + `lo`) for the smart-int range. |
+| `sockListen(fd, backlog)` | Marks `fd` passive with the given listen backlog. |
+| `sockAccept(fd)` | Blocks until a client connects. Returns the new client fd (≥ 0) or –1. |
+| `sockRecv(fd, buf, len)` | Reads up to `len` bytes into a `*u8` buffer. Returns byte count. |
+| `sockRecvStr(fd)` | Reads until the kernel returns 0 (EOF or short read) and returns the whole payload as a Krypton string. Convenience for HTTP-style request reads. |
+| `sockSend(fd, buf, len)` | Writes `len` bytes from `buf`. Returns the byte count actually written. |
+| `sockClose(fd)` | Closes a socket. Returns the underlying `close(2)` return value. |
+
+A higher-level pure-Krypton HTTP server wrapping all of these lives in
+`stdlib/server_native.k` — see the [HTTP server](#http-server) section
+below.
+
+### HTTP server — `k:server_native` — (native, macOS arm64; 2.2-unreleased)
+
+`import "k:server_native"` gives you a complete server in pure Krypton
+on top of the BSD-socket builtins. State is **threaded explicitly**
+(the caller holds the listening fd + per-request string) because Krypton
+imports today export functions only — module-level `let` state does NOT
+survive the import boundary.
+
+| Function | Returns | Purpose |
+|---|---|---|
+| `serverListen(port)` | fd ≥ 0 or –1 | Bind + listen on the given port (string). |
+| `serverAccept(sock)` | client fd or –1 | Block until a client connects. |
+| `serverRead(client)` | request string | Read the raw HTTP request via `sockRecvStr`. |
+| `serverSend(client, response)` | bytes written | Write a fully-formatted response back. |
+| `serverClose(fd)` | `""` | Close listener or client socket. |
+| `reqMethod(req)` / `reqPath(req)` / `reqQuery(req)` / `reqBody(req)` / `reqHeaders(req)` / `reqHeader(req, name)` | string | Parse the request, no state. |
+| `queryValue(req, key)` / `formValue(req, key)` | string | URL-decoded query / form param lookup. |
+| `htmlResponse(html)` / `jsonResponse(json)` / `textResponse(text)` | response string | Build a 200 OK response with the right Content-Type. |
+| `notFound(message)` / `redirect(url)` | response string | 404 + 302 builders. |
+| `serveHtml(client, html)` / `serveJson(client, json)` / `serveText(client, text)` / `serve404(client, msg)` | nothing | Shortcut: build + send in one call. |
+
+`stdlib/server.k` (legacy `cfunc`-backed) still exists for the Windows /
+`--gcc` C path — `import "k:server"` there. New macOS code should use
+`k:server_native`.
+
 ## Notes
 
 - Numeric `+` semantics: when both operands are numeric strings, `+` performs
