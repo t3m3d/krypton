@@ -26,19 +26,44 @@ import "k:sh"
 
 func VERSION() { emit "kcc-native 0.1 (krypton-driver prototype)" }
 
-// Locate the install root: $KRYPTON_ROOT, else common install dirs. Must
-// contain compiler/<arch>/. Returns "" if nothing usable found.
+// Locate the install root: $KRYPTON_ROOT, else the dev repo, else the pkg
+// install. The dev repo is preferred over /usr/local/krypton because the pkg
+// install is often stale (missing newly-added stdlib). Returns "" if none.
 func findRoot() {
     let r = env("KRYPTON_ROOT")
     if r != "" {
-        if exists(r + "/compiler") == "1" { emit r }
+        if exists(r + "/compiler/macos_arm64/kcc-arm64") == "1" { emit r }
     }
-    if exists("/usr/local/krypton/compiler") == "1" { emit "/usr/local/krypton" }
-    // dev fallback
-    let home = home()
-    let dev = home + "/Documents/GitHub/krypton"
-    if exists(dev + "/compiler") == "1" { emit dev }
+    let dev = home() + "/Documents/GitHub/krypton"
+    if exists(dev + "/compiler/macos_arm64/kcc-arm64") == "1" { emit dev }
+    if exists("/usr/local/krypton/compiler/macos_arm64/kcc-arm64") == "1" { emit "/usr/local/krypton" }
     emit ""
+}
+
+// Ensure macho_host exists and is newer than its source; rebuild via the
+// one-time clang bootstrap if not. (clang here = toolchain bootstrap only,
+// never for user programs.) Returns "1" ok / "0" fail.
+func ensureHost(root) {
+    let host = root + "/compiler/macos_arm64/macho_host"
+    let src  = root + "/compiler/macos_arm64/macho_arm64_self.k"
+    let fe   = root + "/compiler/macos_arm64/kcc-arm64"
+    let need = "0"
+    if exists(host) == "0" { need = "1" }
+    else {
+        if sh("test " + q(src) + " -nt " + q(host) + " && echo 1 || echo 0") == "1" { need = "1" }
+    }
+    if need == "0" { emit "1" }
+    if has("clang") == "0" {
+        kp("kcc: macho_host needs a one-time clang build, but clang not found")
+        emit "0"
+    }
+    kp("kcc: building macho_host (one-time)...")
+    let tmpc = sh("mktemp /tmp/_kcchost_XXXXXX.c")
+    exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " " + q(src) + " > " + q(tmpc))
+    exec("clang -O2 -w " + q(tmpc) + " -o " + q(host) + " -lm")
+    rm(tmpc)
+    if exists(host) == "0" { kp("kcc: macho_host build failed")  emit "0" }
+    emit "1"
 }
 
 // strip a .ks or .k extension to derive the default output name.
@@ -52,10 +77,7 @@ func baseName(src) {
 func compileMacos(root, src, out) {
     let fe = root + "/compiler/macos_arm64/kcc-arm64"
     let host = root + "/compiler/macos_arm64/macho_host"
-    if exists(host) == "0" {
-        kp("kcc: macho_host missing (" + host + ") — build it once with kcc.sh")
-        emit "0"
-    }
+    if ensureHost(root) == "0" { emit "0" }
     let tmpir = sh("mktemp /tmp/_kcck_XXXXXX.kir")
     // frontend: .k -> IR  (KRYPTON_ROOT must reach it for k: imports)
     exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src) + " > " + q(tmpir))
@@ -112,10 +134,10 @@ just run {
         let src = arg(1)
         let tmpbin = sh("mktemp /tmp/_kcckrun_XXXXXX")
         if compileMacos(root, src, tmpbin) == "0" { exit("1") }
-        // pass through any args after the source
+        // pass through any args after the source. sh() chomps the trailing
+        // newline so kp re-adds exactly one (shRaw would double it).
         let passed = restFrom(2)
-        let out = shRaw(q(tmpbin) + " " + passed)
-        kp(out)
+        kp(sh(q(tmpbin) + " " + passed))
         rm(tmpbin)
         exit("0")
     }
@@ -124,9 +146,6 @@ just run {
     let src = positional(0)
     if src == "" { kp("kcc: no source file")  exit("1") }
     let out = optValue("-o", baseName(src))
-    if compileMacos(root, src, out) == "1" {
-        kp("wrote " + out)
-    } else {
-        exit("1")
-    }
+    // macho_host prints "wrote <out> (...signed)" itself; don't double-report.
+    if compileMacos(root, src, out) == "0" { exit("1") }
 }
