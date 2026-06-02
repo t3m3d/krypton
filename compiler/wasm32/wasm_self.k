@@ -396,7 +396,7 @@ func funcIndexOf(funcNames, name) {
     let n = lineCount(funcNames)
     let i = 0
     while i < n {
-        if getLine(funcNames, i) == name { emit 20 + i }
+        if getLine(funcNames, i) == name { emit 22 + i }
         i += 1
     }
     emit 8
@@ -666,6 +666,10 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
             bb = bb + iCALL(18)                  // $count(str) -> tagged int (comma fields)
         } else if lineStarts(line, "BUILTIN split ") {
             bb = bb + iCALL(19)                 // $split(str, idx) -> tagged string field
+        } else if lineStarts(line, "BUILTIN lineCount ") {
+            bb = bb + iCALL(20)                 // $lineCount(str) -> tagged int
+        } else if lineStarts(line, "BUILTIN getLine ") {
+            bb = bb + iCALL(21)                 // $getLine(str, idx) -> tagged string line
         } else if lineStarts(line, "BUILTIN argCount ") {
             // Browser has no CLI args. Always 0 — lessons that gate on
             // `argCount() >= 1` take the else branch (their no-arg help text).
@@ -1009,6 +1013,91 @@ func emitToInt() {
     emit bb
 }
 
+// $lineCount(str) -> tagged int. Matches the native semantics used by
+// kcc -r: count '\n' bytes, then +1 iff the string is non-empty AND
+// doesn't end in '\n' (so "a\nb\n" -> 2, "a\nb" -> 2, "" -> 0).
+// param 0=str. locals: 1 base, 2 len, 3 i, 4 cnt.
+func emitLineCount() {
+    let bb = b(1) + leb(4) + b(127)
+    bb = bb + iLG(0) + iC(1) + b(118) + iLS(1)         // base = str>>1
+    bb = bb + iLG(1) + b(40) + b(2) + b(0) + iLS(2)    // len = load[base]
+    bb = bb + iC(0) + iLS(4)                           // cnt = 0
+    bb = bb + iC(0) + iLS(3)                           // i = 0
+    bb = bb + b(2) + b(64) + b(3) + b(64)              // block; loop
+    bb = bb + iLG(3) + iLG(2) + b(78) + b(13) + leb(1) // i>=len br 1
+    bb = bb + iLG(1) + iC(4) + b(106) + iLG(3) + b(106) + b(45) + b(0) + b(0)  // load8 base+4+i
+    bb = bb + iC(10) + b(70)                           // == '\n' (10)
+    bb = bb + b(4) + b(64)                             // if
+    bb = bb + iLG(4) + iC(1) + b(106) + iLS(4)         //   cnt++
+    bb = bb + b(11)                                    // end if
+    bb = bb + iLG(3) + iC(1) + b(106) + iLS(3)         // i++
+    bb = bb + b(12) + leb(0)                           // br 0
+    bb = bb + b(11) + b(11)                            // end loop; end block
+    // Trailing-line adjustment: cnt += (len > 0 && last byte != '\n').
+    bb = bb + iLG(2) + iC(0) + b(75)                   // len > 0 (gt_u)
+    bb = bb + b(4) + b(64)                             // if
+    bb = bb + iLG(1) + iC(4) + b(106) + iLG(2) + b(106) + iC(1) + b(107) + b(45) + b(0) + b(0)
+                                                       //   load8 base+4+len-1
+    bb = bb + iC(10) + b(71)                           //   != '\n' (i32.ne)
+    bb = bb + b(4) + b(64)                             //   if
+    bb = bb + iLG(4) + iC(1) + b(106) + iLS(4)         //     cnt++
+    bb = bb + b(11)                                    //   end inner if
+    bb = bb + b(11)                                    // end outer if
+    bb = bb + iLG(4) + iC(1) + b(116)                  // cnt << 1 (tag)
+    bb = bb + b(11)
+    emit bb
+}
+
+// $getLine(str, idx) -> tagged string = the idx-th newline-separated line.
+// Direct port of $split with separator '\n' (10) instead of ',' (44).
+// params 0=str, 1=idx. locals: 2 base,3 len,4 want,5 field,6 i,7 s,8 dst,9 j.
+func emitGetLine() {
+    let bb = b(1) + leb(8) + b(127)
+    bb = bb + iLG(0) + iC(1) + b(118) + iLS(2)
+    bb = bb + iLG(2) + b(40) + b(2) + b(0) + iLS(3)
+    bb = bb + iLG(1) + iC(1) + b(117) + iLS(4)
+    bb = bb + iC(0) + iLS(5)
+    bb = bb + iC(0) + iLS(7)
+    bb = bb + iC(0) + iLS(6)
+    bb = bb + b(2) + b(64) + b(3) + b(64)
+    bb = bb + iLG(5) + iLG(4) + b(78) + b(13) + leb(1)
+    bb = bb + iLG(6) + iLG(3) + b(78) + b(13) + leb(1)
+    bb = bb + iLG(2) + iC(4) + b(106) + iLG(6) + b(106) + b(45) + b(0) + b(0)
+    bb = bb + iC(10) + b(70)                           // == '\n'
+    bb = bb + b(4) + b(64)
+    bb = bb + iLG(5) + iC(1) + b(106) + iLS(5)
+    bb = bb + iLG(6) + iC(1) + b(106) + iLS(7)
+    bb = bb + b(11)
+    bb = bb + iLG(6) + iC(1) + b(106) + iLS(6)
+    bb = bb + b(12) + leb(0)
+    bb = bb + b(11) + b(11)
+    bb = bb + iLG(7) + iLS(6)
+    bb = bb + b(2) + b(64) + b(3) + b(64)
+    bb = bb + iLG(6) + iLG(3) + b(78) + b(13) + leb(1)
+    bb = bb + iLG(2) + iC(4) + b(106) + iLG(6) + b(106) + b(45) + b(0) + b(0)
+    bb = bb + iC(10) + b(70)                           // == '\n'
+    bb = bb + b(13) + leb(1)
+    bb = bb + iLG(6) + iC(1) + b(106) + iLS(6)
+    bb = bb + b(12) + leb(0)
+    bb = bb + b(11) + b(11)
+    bb = bb + iLG(6) + iLG(7) + b(107) + iLS(5)
+    bb = bb + b(35) + leb(0) + iLS(8)
+    bb = bb + iLG(8) + iLG(5) + b(54) + b(2) + b(0)
+    bb = bb + iC(0) + iLS(9)
+    bb = bb + b(2) + b(64) + b(3) + b(64)
+    bb = bb + iLG(9) + iLG(5) + b(79) + b(13) + leb(1)
+    bb = bb + iLG(8) + iC(4) + b(106) + iLG(9) + b(106)
+    bb = bb + iLG(2) + iC(4) + b(106) + iLG(7) + b(106) + iLG(9) + b(106) + b(45) + b(0) + b(0)
+    bb = bb + b(58) + b(0) + b(0)
+    bb = bb + iLG(9) + iC(1) + b(106) + iLS(9)
+    bb = bb + b(12) + leb(0)
+    bb = bb + b(11) + b(11)
+    bb = bb + b(35) + leb(0) + iC(4) + b(106) + iLG(5) + b(106) + b(36) + leb(0)
+    bb = bb + iLG(8) + iC(1) + b(116) + iC(1) + b(114)
+    bb = bb + b(11)
+    emit bb
+}
+
 // $count(str) -> tagged int = number of comma-separated fields (commas+1).
 // Empty string -> 1 field. param 0=str. locals: 1 base,2 len,3 i,4 cnt.
 func emitCount() {
@@ -1193,14 +1282,16 @@ func userFuncType(p, r) {
     emit 3                       // fallback: (i32)->i32
 }
 
-// Defined funcs (9 helpers + user funcs). Helper type indices in
-// func-index order: 2 int2str:t3, 3 tostr:t3, 4 concat:t4, 5 index:t4,
-// 6 substr:t5, 7 startsWith:t4, 8 toint:t3, 9 count:t3, 10 split:t4.
+// Defined funcs (11 helpers + user funcs). Helper type indices in
+// func-index order: int2str:t3, tostr:t3, concat:t4, index:t4,
+// substr:t5, startsWith:t4, toint:t3, count:t3, split:t4,
+// lineCount:t3, getLine:t4.
 // funcSigs = "P,R" per user func.
 func wasmFuncs(funcSigs) {
     let cnt = lineCount(funcSigs)
-    let payload = leb(9 + cnt) +
-                  b(3) + b(3) + b(4) + b(4) + b(5) + b(4) + b(3) + b(3) + b(4)
+    let payload = leb(11 + cnt) +
+                  b(3) + b(3) + b(4) + b(4) + b(5) + b(4) + b(3) + b(3) + b(4) +
+                  b(3) + b(4)
     let i = 0
     while i < cnt {
         let row = getLine(funcSigs, i)
@@ -1318,7 +1409,7 @@ func buildModule(ir) {
             let sig = pCount + "," + rVal
             if len(funcSigs) == 0 { funcSigs = sig }
             else                  { funcSigs = funcSigs + fromCharCode(10) + sig }
-            if isMain == 1 { mainIdx = fIdx + 20 }  // 2 imports + 9 helpers
+            if isMain == 1 { mainIdx = fIdx + 22 }  // 11 imports + 11 helpers
             fIdx += 1
         } else {
             i += 1
@@ -1328,7 +1419,9 @@ func buildModule(ir) {
     let blob = strTableBlob(strTab)
     let bumpStart = strBase() + strTableUsed(strTab)   // +5 for fixed newline string
 
-    // Prepend the 3 runtime helper bodies (indices 2,3,4) to the user funcs.
+    // Prepend the 11 runtime helper bodies (function indices 11..21) to
+    // the user funcs. Index order MUST match wasmFuncs's helper type
+    // bytes; do not reorder without updating that.
     let helperBodies = emitInt2Str()    + fromCharCode(10) +
                        emitToStr()      + fromCharCode(10) +
                        emitConcat()     + fromCharCode(10) +
@@ -1337,7 +1430,9 @@ func buildModule(ir) {
                        emitStartsWith() + fromCharCode(10) +
                        emitToInt()      + fromCharCode(10) +
                        emitCount()      + fromCharCode(10) +
-                       emitSplit()
+                       emitSplit()      + fromCharCode(10) +
+                       emitLineCount()  + fromCharCode(10) +
+                       emitGetLine()
     let allBodies = helperBodies
     if len(funcBodies) > 0 { allBodies = helperBodies + fromCharCode(10) + funcBodies }
 
