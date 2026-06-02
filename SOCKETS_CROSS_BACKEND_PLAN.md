@@ -5,7 +5,7 @@ Windows, and Linux, so **no platform needs C to serve**. C stays available
 (`--gcc` / `k:server` cfunc) for parity/status, but is never required.
 
 The server needs 8 socket builtins. Each native backend must emit them.
-macOS is done; Windows + Linux are the remaining work.
+macOS and Linux are done; Windows is the remaining work.
 
 | builtin              | args                | returns        |
 |----------------------|---------------------|----------------|
@@ -43,9 +43,24 @@ b4251e41, 4a8b33c3). server_native.k verified serving HTML/JSON/query.
 
 ---
 
-## Linux — TODO (Agent L) — compiler/linux_x86/elf.k (x86-64)
+## Linux — DONE (Agent L) — compiler/linux_x86/elf.k (x86-64)
 
-**KEY DIFFERENCE:** elf.k's existing builtins do NOT inline syscalls — they
+**Path A shipped (2026-06-02).** All 8 socket builtins emit inline x86-64
+`syscall`s (nr in RAX; args RDI,RSI,RDX,R10,R8,R9). `stdlib/server_native.k`
+serves HTTP with ZERO C at runtime — verified with curl (GET /hello?name=…,
+path + query parsed, full HTML response). Native test suite 55/0, no regression.
+Byte-exact emit sizes (must match `opByteSize`): SOCKMAKE=20, SOCKBIND=50,
+SOCKLISTEN=10, SOCKACCEPT=13, SOCKRECV=20, SOCKSEND=11, SOCKCLOSE=9,
+SOCKRECVSTR=57. sockaddr_in built on the machine stack (no sin_len; family@0).
+sockRecvStr uses the existing `kr_alloc` bump allocator (RDI=size→RAX=ptr) for
+the 64KB buffer — only the socket *syscalls* are inline; memory still via kr_*,
+which is the intended Path-A partial win. `bootstrap/elf_host_linux_x86_64` seed
+refreshed so fresh gcc-free clones get socket support. Edits: the BUILTIN
+name→op-token map, `opByteSize` count table, and the emit block in emitFuncCode
+(compile.k's builtins list already had the 8 names).
+
+Historical context (the KEY DIFFERENCE that made Path A necessary):
+elf.k's existing builtins do NOT inline syscalls — they
 `CALL kr_*` C-runtime helpers (e.g. `BUILTIN_READFILE` = `POP RDI; CALL
 kr_readfile; PUSH RAX`). Those kr_* functions are C, compiled by gcc/clang.
 So elf.k is NOT syscall-inline today; its readFile/print/etc still route
@@ -98,7 +113,7 @@ stable syscall ABI). Steps:
 
 ## What "C optional everywhere" depends on (the real checklist)
 
-1. Socket builtins in all 3 backends — macOS ✅, Linux ⏳ (L), Windows ⏳ (W).
+1. Socket builtins in all 3 backends — macOS ✅, Linux ✅ (L), Windows ⏳ (W).
 2. `server_native.k` already platform-agnostic at the Krypton level — once the
    builtins exist per backend, it serves everywhere unchanged.
 3. Consumers (kweb, web/site/site.htk, examples) migrate `k:server` →
