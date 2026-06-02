@@ -72,6 +72,14 @@ The web framework adds a third extension for templates:
   `cocoaButton`, `cocoaOnClick` — so a single `.ks` source can target
   both. Sees `docs/cocoa_design.md` for the binding strategy + the
   `objc_msgSend` arm64 ABI handoff to the macho backend.
+- **Zero-C HTTP server on macOS** *(agent m)* — `stdlib/server_native.k`
+  is a complete HTTP server in pure Krypton on top of new BSD-socket
+  builtins (`sockMake/Bind/Listen/Accept/Recv/RecvStr/Send/Close`) that
+  the macho backend emits as direct `svc` syscalls. No libc, no clang,
+  no `cfunc`. Verified end-to-end on macOS Tahoe arm64 with URL-decoded
+  query params and HTML/JSON responses. The legacy `k:server` (with
+  Winsock + POSIX `cfunc`) is still around for the Windows / `--gcc`
+  path; new macOS code should `import "k:server_native"`.
 
 **Platform release status (2026-06-01):**
 
