@@ -1,9 +1,15 @@
-// process.krh — Krypton header for Windows process management
-// Usage: import "headers/process.krh"
+// process.krh — Krypton header for Windows process / thread management.
+// Usage: import "head:process"
+//
+// DLLs: kernel32.dll (process, thread, sync) + shell32.dll (ShellExecuteA)
+// Pipeline: native PE only — `kcc.sh -o win.exe app.k`.
+//
+// Declaration-only file. No `cfunc`, no C-header includes — the IATs
+// for kernel32.dll and shell32.dll are wired by
+// `compiler/windows_x86/x64.k` and the functions below are dispatched
+// via direct IAT calls.
 
 jxt {
-    c "windows.h"
-
     func CreateProcessA(app, cmd, pa, ta, inherit, flags, env, dir, si, pi)
     func WaitForSingleObject(handle, ms)
     func GetExitCodeProcess(handle, code)
