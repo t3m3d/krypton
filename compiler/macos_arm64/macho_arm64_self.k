@@ -1601,6 +1601,12 @@ func parseFullIR(ir) {
                     } else if bname == "trim" {
                         curOps = sbAppend(curOps, "BUILTIN_TRIM\n")
                         nOps += 1
+                    } else if bname == "toLower" {
+                        curOps = sbAppend(curOps, "BUILTIN_TOLOWER\n")
+                        nOps += 1
+                    } else if bname == "toUpper" {
+                        curOps = sbAppend(curOps, "BUILTIN_TOUPPER\n")
+                        nOps += 1
                     } else if bname == "gcAllocated" {
                         curOps = sbAppend(curOps, "BUILTIN_GCALLOCATED\n")
                         nOps += 1
@@ -1700,6 +1706,10 @@ func parseFullIR(ir) {
                         // recv into a fresh heap buffer, NUL-terminate, return
                         // as a Krypton string (like readFile, minus open/close).
                         curOps = sbAppend(curOps, "BUILTIN_SOCKRECVSTR\n")
+                        nOps += 1
+                    } else if bname == "sockConnect" {
+                        // connect(fd, &sockaddr_in, 16) #98 — client side.
+                        curOps = sbAppend(curOps, "BUILTIN_SOCKCONNECT\n")
                         nOps += 1
                     }
                 } else if op == "POP" {
@@ -1907,7 +1917,7 @@ func opInstrCount(opTok) {
     if opTok == "NOT"              { emit 4 }   // pop, cmp, cset, push
     if opTok == "INDEX"            { emit 27 }  // pop i, pop s, alloc(21), ldrb, strb char, strb NUL, push
     if opTok == "BUILTIN_KP"       { emit 69 }  // string or int dispatch; inline itoa for ints
-    if opTok == "BUILTIN_EXIT"     { emit 5 }
+    if opTok == "BUILTIN_EXIT"     { emit 13 }  // atoi(str arg) then exit(code)
     if opTok == "BUILTIN_LEN"      { emit 7 }   // pop, mov, ldrb-post, cbnz, sub-reg, sub-imm, push
     if opTok == "BUILTIN_CHARCODE" { emit 3 }   // pop, ldrb, push
     if opTok == "BUILTIN_SUBSTRING"{ emit 37 }  // alloc(21) bumped from 15 → +6
@@ -1935,6 +1945,8 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_WRITEFILE"    { emit 22 }
     if opTok == "BUILTIN_WRITEBYTES"   { emit 54 }
     if opTok == "BUILTIN_TRIM"         { emit 56 }   // alloc(21) +6 from 50
+    if opTok == "BUILTIN_TOLOWER"      { emit 42 }   // strlen(7)+alloc(21)+xform copy(14)
+    if opTok == "BUILTIN_TOUPPER"      { emit 42 }   // strlen(7)+alloc(21)+xform copy(14)
     if opTok == "BUILTIN_LENGTH"       { emit 13 }   // empty-check + comma-counter loop
     if opTok == "BUILTIN_SPLIT"        { emit 50 }   // scan + alloc(21) + copy + NUL + push
     if opTok == "BUILTIN_RANGE"        { emit 75 }   // alloc(21) + inline itoa loop with stack scratch
@@ -1980,6 +1992,7 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_SOCKSEND"     { emit 6 }   // pop len,buf,fd; x16=4(write); svc; push
     if opTok == "BUILTIN_SOCKCLOSE"    { emit 4 }   // pop fd; x16=6; svc; push
     if opTok == "BUILTIN_SOCKRECVSTR"  { emit 36 }  // pop fd; alloc(21) 64K; recvfrom; NUL-term; return buf
+    if opTok == "BUILTIN_SOCKCONNECT"  { emit 53 }  // pop lo,hi,d,c,b,a,fd(7); alloc(21) sockaddr; fill 16B w/IP; connect(98)
     if opTok == "POP"              { emit 1 }
     emit 0
 }
@@ -2402,12 +2415,27 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_push(0))
             instrIdx = instrIdx + 5
         } else if opTok == "BUILTIN_EXIT" {
-            s = sbAppend(s, arm64_pop_x0())
+            // exit(code): the arg is a STRING ("1"), so atoi it before the
+            // exit syscall. Popping the pointer straight into x0 (old behavior)
+            // passed a heap pointer as the code -> bogus 71. 13 instr.
+            //   0:pop x6=str  1:x0=0(acc)  2:x8=10
+            //   3(LOOP):ldrb post w7,[x6]  4:cbz w7 DONE(+5)
+            //   5:sub w7,#48  6:x0*=10  7:x0+=w7  8:b LOOP(-5)
+            //   9(DONE):x16=1  10:svc  11:dead movz  12:dead push
+            s = sbAppend(s, arm64_pop(6))
+            s = sbAppend(s, arm64_movz_x_imm(0, 0))
+            s = sbAppend(s, arm64_movz_x_imm(8, 10))
+            s = sbAppend(s, arm64_ldrb_post(7, 6, 1))
+            s = sbAppend(s, arm64_cbz(7, 5))
+            s = sbAppend(s, arm64_sub_imm(7, 7, 48))
+            s = sbAppend(s, arm64_mul_xxx(0, 0, 8))
+            s = sbAppend(s, arm64_add_xxx(0, 0, 7))
+            s = sbAppend(s, arm64_b(0 - 5))
             s = sbAppend(s, arm64_movz_x_imm(16, 1))
             s = sbAppend(s, arm64_svc(0x80))
             s = sbAppend(s, arm64_movz_w_imm(0, 0))
             s = sbAppend(s, arm64_push_x0())
-            instrIdx = instrIdx + 5
+            instrIdx = instrIdx + 13
         } else if opTok == "LT" || opTok == "GT" || opTok == "LE" || opTok == "GE" {
             // Ordering comparisons — int-only. (Compile.k doesn't emit these
             // for string operands; strings compare with EQ/NE only.)
@@ -2996,7 +3024,8 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_push_x0())
             instrIdx = instrIdx + 13
         } else if opTok == "BUILTIN_TRIM" {
-            // trim(s): strip leading/trailing spaces (just ' ' for now). 42 instr.
+            // trim(s): strip leading/trailing whitespace — any byte <=32
+            // (space, tab \t=9, nl \n=10, cr \r=13, other controls). 42 instr.
             // Layout (0-indexed within this op):
             //   0:pop x6=s  1:movz x12=0
             //   2:ldrb w7 (LOOP1)  3:cbz→ALL_WS(+19)  4:cmp w7,#32  5:b.ne LOOP1_DONE(+3)
@@ -3020,7 +3049,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_ldrb_reg(7, 6, 12))
             s = sbAppend(s, arm64_cbz(7, 19))
             s = sbAppend(s, arm64_cmp_imm(7, 32))
-            s = sbAppend(s, arm64_b_cond(0x1, 3))  // b.ne
+            s = sbAppend(s, arm64_b_cond(0xc, 3))  // b.gt: stop when char>32, so we trim all c<=32 (space/tab/nl/cr)
             s = sbAppend(s, arm64_add_imm(12, 12, 1))
             s = sbAppend(s, arm64_b(0 - 5))
             s = sbAppend(s, arm64_mov_xx(8, 6))
@@ -3031,7 +3060,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_sub_imm(9, 5, 1))  // LOOP2
             s = sbAppend(s, arm64_ldrb_reg(7, 6, 9))
             s = sbAppend(s, arm64_cmp_imm(7, 32))
-            s = sbAppend(s, arm64_b_cond(0x1, 4))  // b.ne LOOP2_DONE (+4)
+            s = sbAppend(s, arm64_b_cond(0xc, 4))  // b.gt: trim trailing c<=32 (space/tab/nl/cr)
             s = sbAppend(s, arm64_sub_imm(5, 5, 1))
             s = sbAppend(s, arm64_cmp_xx(5, 12))
             s = sbAppend(s, arm64_b_cond(0xc, 0 - 6))  // b.gt LOOP2
@@ -3054,6 +3083,70 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_strb_reg(31, 0, 10))
             s = sbAppend(s, arm64_push_x0())
             instrIdx = instrIdx + 10
+        } else if opTok == "BUILTIN_TOLOWER" {
+            // toLower(s): ASCII A-Z -> a-z (+32), copy into a fresh buffer. 42 instr.
+            // len kept in x10 (survives alloc; emitAllocVar clobbers x0/1/2/5/9/11).
+            //   0:pop x6=s  1:mov x8=x6
+            //   2(LOOP0):ldrb post w7,[x8]  3:cbnz -1
+            //   4:sub x10=x8-x6  5:sub x10,#1  6:add x4=x10+1
+            //   7..27: emitAllocVar -> x0=buf
+            //   28:movz x11=0  29(LOOP):cmp x11,x10  30:b.ge DONE(+10)
+            //   31:ldrb w13=[x6,x11]  32:cmp w13,#65  33:b.lt NOADD(+4)
+            //   34:cmp w13,#90  35:b.gt NOADD(+2)  36:add w13,#32
+            //   37(NOADD):strb w13=[x0,x11]  38:add x11++  39:b LOOP(-10)
+            //   40(DONE):strb wzr=[x0,x10]  41:push
+            s = sbAppend(s, arm64_pop(6))
+            s = sbAppend(s, arm64_mov_xx(8, 6))
+            s = sbAppend(s, arm64_ldrb_post(7, 8, 1))
+            s = sbAppend(s, arm64_cbnz(7, 0 - 1))
+            s = sbAppend(s, arm64_sub_xxx(10, 8, 6))
+            s = sbAppend(s, arm64_sub_imm(10, 10, 1))
+            s = sbAppend(s, arm64_add_imm(4, 10, 1))
+            instrIdx = instrIdx + 7
+            s = sbAppend(s, emitAllocVar(instrIdx, textVaddr, textOff))
+            instrIdx = instrIdx + 21
+            s = sbAppend(s, arm64_movz_x_imm(11, 0))
+            s = sbAppend(s, arm64_cmp_xx(11, 10))
+            s = sbAppend(s, arm64_b_cond(0xa, 10))   // b.ge DONE
+            s = sbAppend(s, arm64_ldrb_reg(13, 6, 11))
+            s = sbAppend(s, arm64_cmp_imm(13, 65))
+            s = sbAppend(s, arm64_b_cond(0xb, 4))    // b.lt NOADD
+            s = sbAppend(s, arm64_cmp_imm(13, 90))
+            s = sbAppend(s, arm64_b_cond(0xc, 2))    // b.gt NOADD
+            s = sbAppend(s, arm64_add_imm(13, 13, 32))
+            s = sbAppend(s, arm64_strb_reg(13, 0, 11))
+            s = sbAppend(s, arm64_add_imm(11, 11, 1))
+            s = sbAppend(s, arm64_b(0 - 10))
+            s = sbAppend(s, arm64_strb_reg(31, 0, 10))
+            s = sbAppend(s, arm64_push_x0())
+            instrIdx = instrIdx + 14
+        } else if opTok == "BUILTIN_TOUPPER" {
+            // toUpper(s): ASCII a-z -> A-Z (-32). Same shape as TOLOWER. 42 instr.
+            s = sbAppend(s, arm64_pop(6))
+            s = sbAppend(s, arm64_mov_xx(8, 6))
+            s = sbAppend(s, arm64_ldrb_post(7, 8, 1))
+            s = sbAppend(s, arm64_cbnz(7, 0 - 1))
+            s = sbAppend(s, arm64_sub_xxx(10, 8, 6))
+            s = sbAppend(s, arm64_sub_imm(10, 10, 1))
+            s = sbAppend(s, arm64_add_imm(4, 10, 1))
+            instrIdx = instrIdx + 7
+            s = sbAppend(s, emitAllocVar(instrIdx, textVaddr, textOff))
+            instrIdx = instrIdx + 21
+            s = sbAppend(s, arm64_movz_x_imm(11, 0))
+            s = sbAppend(s, arm64_cmp_xx(11, 10))
+            s = sbAppend(s, arm64_b_cond(0xa, 10))   // b.ge DONE
+            s = sbAppend(s, arm64_ldrb_reg(13, 6, 11))
+            s = sbAppend(s, arm64_cmp_imm(13, 97))
+            s = sbAppend(s, arm64_b_cond(0xb, 4))    // b.lt NOSUB
+            s = sbAppend(s, arm64_cmp_imm(13, 122))
+            s = sbAppend(s, arm64_b_cond(0xc, 2))    // b.gt NOSUB
+            s = sbAppend(s, arm64_sub_imm(13, 13, 32))
+            s = sbAppend(s, arm64_strb_reg(13, 0, 11))
+            s = sbAppend(s, arm64_add_imm(11, 11, 1))
+            s = sbAppend(s, arm64_b(0 - 10))
+            s = sbAppend(s, arm64_strb_reg(31, 0, 10))
+            s = sbAppend(s, arm64_push_x0())
+            instrIdx = instrIdx + 14
         } else if opTok == "BUILTIN_LENGTH" {
             // length(list): count comma-separated elements.
             //  ""           → 0
@@ -4645,6 +4738,54 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_svc(0x80))
             s = sbAppend(s, arm64_push_x0())          // push result
             instrIdx = instrIdx + 24
+        } else if opTok == "BUILTIN_SOCKCONNECT" {
+            // sockConnect(fd, a, b, c, d, portHi, portLo)
+            //   -> connect(fd, &sockaddr_in, 16) #98. Client side.
+            // IP as 4 octets (a.b.c.d) + port pre-split big-endian, computed in
+            // Krypton (no hand-asm shifts). 53 instr (alloc 21).
+            // ALLOC FIRST, then pop args — so we touch ONLY caller-saved scratch
+            // (x0-x16) and never callee-saved x19+. (An earlier version popped
+            // into x19-x23 and corrupted the caller's locals → crash.)
+            // emitAllocVar clobbers x0,x1,x2,x5,x9,x11 but data stack is untouched,
+            // and buf stays in x0 since pops target x6,x7,x9-x13.
+            s = sbAppend(s, arm64_movz_x_imm(4, 16))  // 0: alloc size = 16
+            instrIdx = instrIdx + 1
+            s = sbAppend(s, emitAllocVar(instrIdx, textVaddr, textOff))  // x0 = sockaddr (21)
+            instrIdx = instrIdx + 21
+            // pop args (data stack intact across alloc). LIFO: TOS=portLo..fd.
+            s = sbAppend(s, arm64_pop(7))             // x7  = portLo
+            s = sbAppend(s, arm64_pop(6))             // x6  = portHi
+            s = sbAppend(s, arm64_pop(13))            // x13 = ip d
+            s = sbAppend(s, arm64_pop(12))            // x12 = ip c
+            s = sbAppend(s, arm64_pop(11))            // x11 = ip b
+            s = sbAppend(s, arm64_pop(10))            // x10 = ip a
+            s = sbAppend(s, arm64_pop(9))             // x9  = fd
+            // fill sockaddr_in at [x0]
+            s = sbAppend(s, arm64_movz_x_imm(5, 16))  // sin_len = 16
+            s = sbAppend(s, arm64_strb_imm(5, 0, 0))
+            s = sbAppend(s, arm64_movz_x_imm(5, 2))   // AF_INET
+            s = sbAppend(s, arm64_strb_imm(5, 0, 1))
+            s = sbAppend(s, arm64_strb_imm(6, 0, 2))  // port hi (BE)
+            s = sbAppend(s, arm64_strb_imm(7, 0, 3))  // port lo
+            s = sbAppend(s, arm64_strb_imm(10, 0, 4)) // ip a
+            s = sbAppend(s, arm64_strb_imm(11, 0, 5)) // ip b
+            s = sbAppend(s, arm64_strb_imm(12, 0, 6)) // ip c
+            s = sbAppend(s, arm64_strb_imm(13, 0, 7)) // ip d
+            s = sbAppend(s, arm64_strb_imm(31, 0, 8)) // zero [8..15]
+            s = sbAppend(s, arm64_strb_imm(31, 0, 9))
+            s = sbAppend(s, arm64_strb_imm(31, 0, 10))
+            s = sbAppend(s, arm64_strb_imm(31, 0, 11))
+            s = sbAppend(s, arm64_strb_imm(31, 0, 12))
+            s = sbAppend(s, arm64_strb_imm(31, 0, 13))
+            s = sbAppend(s, arm64_strb_imm(31, 0, 14))
+            s = sbAppend(s, arm64_strb_imm(31, 0, 15))
+            s = sbAppend(s, arm64_mov_xx(1, 0))       // x1 = sockaddr
+            s = sbAppend(s, arm64_mov_xx(0, 9))       // x0 = fd
+            s = sbAppend(s, arm64_movz_x_imm(2, 16))  // addrlen = 16
+            s = sbAppend(s, arm64_movz_x_imm(16, 98)) // SYS_connect
+            s = sbAppend(s, arm64_svc(0x80))
+            s = sbAppend(s, arm64_push_x0())          // push result
+            instrIdx = instrIdx + 31
         } else if opTok == "BUILTIN_SOCKCLOSE" {
             // sockClose(fd) -> close(fd) #6. TOS=fd. 4 instr.
             s = sbAppend(s, arm64_pop(0))             // 0: x0 = fd
