@@ -58,4 +58,20 @@ jxt {
     func class_getName(cls)
     func class_getSuperclass(cls)
     func object_getClassName(obj)
+
+    // ── Associated objects ─────────────────────────────────────────────
+    // Used by stdlib/cocoa.k's callback bridge — attach per-instance
+    // state to a Cocoa control without subclassing. `key` is any
+    // unique pointer (we use a fixed sentinel `_kr_assoc_key`); the
+    // associated value is retained for the lifetime of the host.
+    func objc_setAssociatedObject(obj, key, value, policy)
+    func objc_getAssociatedObject(obj, key)
+
+    // ── Class runtime synthesis ────────────────────────────────────────
+    // Used once at startup by the macho backend to install
+    // `KrCallbackTarget`, the Obj-C class whose `krDispatch:` method
+    // is the trampoline that re-enters Krypton for control actions.
+    func objc_allocateClassPair(superclass, name, extraBytes)
+    func objc_registerClassPair(cls)
+    func class_addMethod(cls, sel, impFnPtr, typeSig)
 }
