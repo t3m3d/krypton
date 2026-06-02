@@ -235,19 +235,33 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
         MACHO_DIR="$SCRIPT_DIR/compiler/macos_arm64"
         MACHO_BIN="$MACHO_DIR/macho_host"
         MACHO_SRC="$MACHO_DIR/macho_arm64_self.k"
+        MACHO_SEED="$SCRIPT_DIR/bootstrap/macho_host_macos_aarch64"
 
-        # One-time gcc/clang bootstrap of macho host. Goal: replace this with
-        # a self-rebuild once macho_arm64_self.k is fully self-host.
+        # Prefer the prebuilt seed — NO clang at user-invocation time (mirrors
+        # the Linux elf_host seed path). Native self-rebuild is the goal but the
+        # macho_arm64_self.k self-host has a GC runaway on large input (hangs
+        # past ~3k IR lines), so end users get the seed and never touch clang.
+        # clang is the last resort, only when the seed is missing/stale (i.e. a
+        # backend editor changed macho_arm64_self.k); the seed `! -nt` test (not
+        # the strict `-nt`) survives git clone, where mtimes are equal.
         if [[ ! -f "$MACHO_BIN" || "$MACHO_SRC" -nt "$MACHO_BIN" ]]; then
-            CC_HOST="${CC:-clang}"
-            command -v "$CC_HOST" >/dev/null || {
-                echo "kcc --native: $CC_HOST not found (need a C compiler once to build the macho host)" >&2
-                exit 1
-            }
-            echo "kcc: building macho host..." >&2
-            "$KCC_EXE" "$MACHO_SRC" > /tmp/_kcc_macho_build.c && \
-            "$CC_HOST" /tmp/_kcc_macho_build.c -o "$MACHO_BIN" $LIBS && rm -f /tmp/_kcc_macho_build.c
-            if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build macho host" >&2; exit 1; fi
+            if [[ -f "$MACHO_SEED" && ! "$MACHO_SRC" -nt "$MACHO_SEED" ]]; then
+                cp "$MACHO_SEED" "$MACHO_BIN"
+                chmod +x "$MACHO_BIN"
+            else
+                CC_HOST="${CC:-clang}"
+                command -v "$CC_HOST" >/dev/null || {
+                    echo "kcc --native: no current macho_host seed for macos_aarch64 and $CC_HOST not found" >&2
+                    echo "kcc --native: macho_arm64_self.k changed — regenerate the seed once (see bootstrap/), then kcc is clang-free" >&2
+                    exit 1
+                }
+                echo "kcc: rebuilding macho host (one-time clang bootstrap; goal is to drop this once self-host bug is fixed)..." >&2
+                "$KCC_EXE" "$MACHO_SRC" > /tmp/_kcc_macho_build.c && \
+                "$CC_HOST" /tmp/_kcc_macho_build.c -o "$MACHO_BIN" $LIBS && rm -f /tmp/_kcc_macho_build.c
+                if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build macho host" >&2; exit 1; fi
+                # refresh the seed so subsequent builds (and a commit) are clang-free
+                cp "$MACHO_BIN" "$MACHO_SEED" && chmod +x "$MACHO_SEED"
+            fi
         fi
 
         "$KCC_EXE" --ir $HEADERS_FLAG "$SRCFILE" > "$TMPIR"
