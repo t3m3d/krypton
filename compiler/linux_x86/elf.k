@@ -3168,6 +3168,17 @@ func opByteSize(op) {
     if op == "GETFIELD_STR"      { emit 70 } // envGet with name from immediate (strTab vaddr)
     if op == "BUILTIN_HASFIELD"  { emit 54 } // envGet-like: returns 1 if found, 0 if not
     if op == "BUILTIN_STRUCTFIELDS" { emit 88 } // walk env, build comma-sep string of names
+    // Native BSD-socket builtins — inline x86-64 syscalls, NO C runtime (Path A).
+    // Linux ABI: nr in RAX, args RDI,RSI,RDX,R10,R8,R9; `syscall` = 0F 05.
+    // Counts MUST equal the emit block in emitFuncCode exactly (or offsets desync).
+    if op == "BUILTIN_SOCKMAKE"    { emit 20 } // socket(2,1,0)=41
+    if op == "BUILTIN_SOCKBIND"    { emit 50 } // bind(fd,&sa,16)=49; builds 16B sockaddr_in on stack
+    if op == "BUILTIN_SOCKLISTEN"  { emit 10 } // listen(fd,backlog)=50
+    if op == "BUILTIN_SOCKACCEPT"  { emit 13 } // accept(fd,0,0)=43
+    if op == "BUILTIN_SOCKRECV"    { emit 20 } // recvfrom(fd,buf,len,0,0,0)=45
+    if op == "BUILTIN_SOCKSEND"    { emit 11 } // write(fd,buf,len)=1
+    if op == "BUILTIN_SOCKCLOSE"   { emit 9 }  // close(fd)=3
+    if op == "BUILTIN_SOCKRECVSTR" { emit 57 } // kr_alloc 64K, recvfrom, NUL-term, return buf
     if op == "POP"        { emit 1 }
     if op == "LABEL"      { emit 0 }
     if op == "JUMP"       { emit 5 }    // E9 + d32
@@ -3495,6 +3506,22 @@ func parseIR(ir) {
                     // the surrounding LOAD…POP stays balanced.
                     opSb = sbAppend(opSb, "POP\nPUSH_INT 0")
                     opCount += 1
+                } else if bname == "sockMake" {
+                    opSb = sbAppend(opSb, "BUILTIN_SOCKMAKE")
+                } else if bname == "sockBind" {
+                    opSb = sbAppend(opSb, "BUILTIN_SOCKBIND")
+                } else if bname == "sockListen" {
+                    opSb = sbAppend(opSb, "BUILTIN_SOCKLISTEN")
+                } else if bname == "sockAccept" {
+                    opSb = sbAppend(opSb, "BUILTIN_SOCKACCEPT")
+                } else if bname == "sockRecv" {
+                    opSb = sbAppend(opSb, "BUILTIN_SOCKRECV")
+                } else if bname == "sockSend" {
+                    opSb = sbAppend(opSb, "BUILTIN_SOCKSEND")
+                } else if bname == "sockClose" {
+                    opSb = sbAppend(opSb, "BUILTIN_SOCKCLOSE")
+                } else if bname == "sockRecvStr" {
+                    opSb = sbAppend(opSb, "BUILTIN_SOCKRECVSTR")
                 } else {
                     // Unknown builtin: emit a marker and leave the stack
                     // alone. Programs that hit this are already incorrect;
@@ -4099,6 +4126,101 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             let rfDisp = krReadfileVAddr - (funcStartVAddr + off + 6)
             c = sbAppend(c, hexByte(0xE8) + hexDword(rfDisp))
             c = sbAppend(c, hexByte(0x50))
+        } else if op == "BUILTIN_SOCKMAKE" {
+            // sockMake() -> socket(AF_INET=2, SOCK_STREAM=1, 0) = syscall 41. (20 bytes)
+            c = sbAppend(c, hexByte(0xBF) + hexDword(2))    // mov edi, 2      (domain)
+            c = sbAppend(c, hexByte(0xBE) + hexDword(1))    // mov esi, 1      (type)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xD2))  // xor edx, edx    (proto = 0)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(41))   // mov eax, 41     (SYS_socket)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))  // syscall
+            c = sbAppend(c, hexByte(0x50))                  // push rax        (fd)
+        } else if op == "BUILTIN_SOCKBIND" {
+            // sockBind(fd, portHi, portLo) -> bind(fd, &sockaddr_in, 16) = 49. (50 bytes)
+            // TOS=portLo, next=portHi, next=fd. Build the 16-byte sockaddr_in on the
+            // machine stack (transient — the kernel copies it during bind). Linux has
+            // NO sin_len byte: [fam=02 00][port hi][port lo][addr=0 x4][8 zero].
+            c = sbAppend(c, hexByte(0x58))                  // pop rax (portLo)
+            c = sbAppend(c, hexByte(0x59))                  // pop rcx (portHi)
+            c = sbAppend(c, hexByte(0x5F))                  // pop rdi (fd -> bind arg1)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xEC) + hexByte(0x10)) // sub rsp,16
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xD2))  // xor edx,edx (scratch zero)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x14) + hexByte(0x24)) // mov [rsp],rdx
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x54) + hexByte(0x24) + hexByte(0x08)) // mov [rsp+8],rdx
+            c = sbAppend(c, hexByte(0xC6) + hexByte(0x04) + hexByte(0x24) + hexByte(0x02)) // mov byte [rsp],2 (AF_INET)
+            c = sbAppend(c, hexByte(0x88) + hexByte(0x4C) + hexByte(0x24) + hexByte(0x02)) // mov [rsp+2],cl (port hi BE)
+            c = sbAppend(c, hexByte(0x88) + hexByte(0x44) + hexByte(0x24) + hexByte(0x03)) // mov [rsp+3],al (port lo)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xE6)) // mov rsi,rsp (&sockaddr)
+            c = sbAppend(c, hexByte(0xBA) + hexDword(16))   // mov edx,16  (addrlen)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(49))   // mov eax,49  (SYS_bind)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))  // syscall
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xC4) + hexByte(0x10)) // add rsp,16
+            c = sbAppend(c, hexByte(0x50))                  // push rax (result)
+        } else if op == "BUILTIN_SOCKLISTEN" {
+            // sockListen(fd, backlog) -> listen(fd, backlog) = 50. TOS=backlog. (10 bytes)
+            c = sbAppend(c, hexByte(0x5E))                  // pop rsi (backlog)
+            c = sbAppend(c, hexByte(0x5F))                  // pop rdi (fd)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(50))   // mov eax,50 (SYS_listen)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))  // syscall
+            c = sbAppend(c, hexByte(0x50))                  // push rax
+        } else if op == "BUILTIN_SOCKACCEPT" {
+            // sockAccept(fd) -> accept(fd, NULL, NULL) = 43. TOS=fd. (13 bytes)
+            c = sbAppend(c, hexByte(0x5F))                  // pop rdi (fd)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xF6))  // xor esi,esi (addr=NULL)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xD2))  // xor edx,edx (addrlen=NULL)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(43))   // mov eax,43 (SYS_accept)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))  // syscall
+            c = sbAppend(c, hexByte(0x50))                  // push rax (client fd)
+        } else if op == "BUILTIN_SOCKRECV" {
+            // sockRecv(fd, buf, len) -> recvfrom(fd,buf,len,0,0,0) = 45. (20 bytes)
+            // TOS=len, next=buf, next=fd.
+            c = sbAppend(c, hexByte(0x5A))                  // pop rdx (len)
+            c = sbAppend(c, hexByte(0x5E))                  // pop rsi (buf)
+            c = sbAppend(c, hexByte(0x5F))                  // pop rdi (fd)
+            c = sbAppend(c, hexByte(0x45) + hexByte(0x31) + hexByte(0xD2)) // xor r10d,r10d (flags)
+            c = sbAppend(c, hexByte(0x45) + hexByte(0x31) + hexByte(0xC0)) // xor r8d,r8d  (from=NULL)
+            c = sbAppend(c, hexByte(0x45) + hexByte(0x31) + hexByte(0xC9)) // xor r9d,r9d  (fromlen=NULL)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(45))   // mov eax,45 (SYS_recvfrom)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))  // syscall
+            c = sbAppend(c, hexByte(0x50))                  // push rax (nbytes)
+        } else if op == "BUILTIN_SOCKSEND" {
+            // sockSend(fd, buf, len) -> write(fd, buf, len) = 1 (blocking TCP). (11 bytes)
+            // TOS=len, next=buf, next=fd.
+            c = sbAppend(c, hexByte(0x5A))                  // pop rdx (len)
+            c = sbAppend(c, hexByte(0x5E))                  // pop rsi (buf)
+            c = sbAppend(c, hexByte(0x5F))                  // pop rdi (fd)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(1))    // mov eax,1 (SYS_write)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))  // syscall
+            c = sbAppend(c, hexByte(0x50))                  // push rax (nbytes)
+        } else if op == "BUILTIN_SOCKCLOSE" {
+            // sockClose(fd) -> close(fd) = 3. TOS=fd. (9 bytes)
+            c = sbAppend(c, hexByte(0x5F))                  // pop rdi (fd)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(3))    // mov eax,3 (SYS_close)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))  // syscall
+            c = sbAppend(c, hexByte(0x50))                  // push rax
+        } else if op == "BUILTIN_SOCKRECVSTR" {
+            // sockRecvStr(fd): kr_alloc a 64KB+1 buffer, recvfrom into it, NUL-terminate
+            // at nbytes, return the buffer as a string. TOS=fd. (57 bytes)
+            // RBX=fd and R12=buf survive the kr_alloc CALL (kr_alloc touches only
+            // RAX/R15/RDI). Mirrors macOS BUILTIN_SOCKRECVSTR.
+            c = sbAppend(c, hexByte(0x5B))                  // pop rbx (fd)
+            c = sbAppend(c, hexByte(0xBF) + hexDword(65537)) // mov edi, 0x10001 (size = 64K+1)
+            let raDisp = krAllocVAddr - (funcStartVAddr + off + 11)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(raDisp)) // call kr_alloc -> rax=buf
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x89) + hexByte(0xC4)) // mov r12, rax (buf)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xDF)) // mov rdi, rbx (fd)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xC6)) // mov rsi, rax (buf)
+            c = sbAppend(c, hexByte(0xBA) + hexDword(65536)) // mov edx, 0x10000 (len = 64K)
+            c = sbAppend(c, hexByte(0x45) + hexByte(0x31) + hexByte(0xD2)) // xor r10d,r10d (flags)
+            c = sbAppend(c, hexByte(0x45) + hexByte(0x31) + hexByte(0xC0)) // xor r8d,r8d  (from=NULL)
+            c = sbAppend(c, hexByte(0x45) + hexByte(0x31) + hexByte(0xC9)) // xor r9d,r9d  (fromlen=NULL)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(45))   // mov eax, 45 (SYS_recvfrom)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))  // syscall -> rax = nbytes
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)) // test rax,rax
+            c = sbAppend(c, hexByte(0x79) + hexByte(0x02))  // jns +2 (skip clamp if >=0)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xC0))  // xor eax,eax (clamp negative -> 0)
+            c = sbAppend(c, hexByte(0x41) + hexByte(0xC6) + hexByte(0x04) + hexByte(0x04) + hexByte(0x00)) // mov byte [r12+rax],0
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xE0)) // mov rax, r12 (return buf)
+            c = sbAppend(c, hexByte(0x50))                  // push rax
         } else if op == "BUILTIN_WRITEFILE" {
             // POP RSI (content, top) ; POP RDI (path) ; CALL kr_writefile ; PUSH RAX
             c = sbAppend(c, hexByte(0x5E))
