@@ -4726,31 +4726,36 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
         } else if opTok == "BUILTIN_SOCKCONNECT" {
             // sockConnect(fd, a, b, c, d, portHi, portLo)
             //   -> connect(fd, &sockaddr_in, 16) #98. Client side.
-            // IP passed as 4 octets (a.b.c.d) + port pre-split big-endian, all
-            // computed in Krypton to avoid shifts in hand-asm. 53 instr (alloc 21).
-            // Pop order is LIFO: TOS=portLo .. bottom=fd. Use survivor regs only
-            // (emitAllocVar clobbers x0,x1,x2,x5,x9,x11; data stack untouched).
-            s = sbAppend(s, arm64_pop(7))             // 0: x7 = portLo
-            s = sbAppend(s, arm64_pop(6))             // 1: x6 = portHi
-            s = sbAppend(s, arm64_pop(23))            // 2: x23 = ip d
-            s = sbAppend(s, arm64_pop(22))            // 3: x22 = ip c
-            s = sbAppend(s, arm64_pop(21))            // 4: x21 = ip b
-            s = sbAppend(s, arm64_pop(20))            // 5: x20 = ip a
-            s = sbAppend(s, arm64_pop(19))            // 6: x19 = fd
-            s = sbAppend(s, arm64_movz_x_imm(4, 16))  // 7: alloc size = 16
-            instrIdx = instrIdx + 8
+            // IP as 4 octets (a.b.c.d) + port pre-split big-endian, computed in
+            // Krypton (no hand-asm shifts). 53 instr (alloc 21).
+            // ALLOC FIRST, then pop args — so we touch ONLY caller-saved scratch
+            // (x0-x16) and never callee-saved x19+. (An earlier version popped
+            // into x19-x23 and corrupted the caller's locals → crash.)
+            // emitAllocVar clobbers x0,x1,x2,x5,x9,x11 but data stack is untouched,
+            // and buf stays in x0 since pops target x6,x7,x9-x13.
+            s = sbAppend(s, arm64_movz_x_imm(4, 16))  // 0: alloc size = 16
+            instrIdx = instrIdx + 1
             s = sbAppend(s, emitAllocVar(instrIdx, textVaddr, textOff))  // x0 = sockaddr (21)
             instrIdx = instrIdx + 21
-            s = sbAppend(s, arm64_movz_x_imm(9, 16))  // sin_len = 16
-            s = sbAppend(s, arm64_strb_imm(9, 0, 0))
-            s = sbAppend(s, arm64_movz_x_imm(9, 2))   // AF_INET
-            s = sbAppend(s, arm64_strb_imm(9, 0, 1))
+            // pop args (data stack intact across alloc). LIFO: TOS=portLo..fd.
+            s = sbAppend(s, arm64_pop(7))             // x7  = portLo
+            s = sbAppend(s, arm64_pop(6))             // x6  = portHi
+            s = sbAppend(s, arm64_pop(13))            // x13 = ip d
+            s = sbAppend(s, arm64_pop(12))            // x12 = ip c
+            s = sbAppend(s, arm64_pop(11))            // x11 = ip b
+            s = sbAppend(s, arm64_pop(10))            // x10 = ip a
+            s = sbAppend(s, arm64_pop(9))             // x9  = fd
+            // fill sockaddr_in at [x0]
+            s = sbAppend(s, arm64_movz_x_imm(5, 16))  // sin_len = 16
+            s = sbAppend(s, arm64_strb_imm(5, 0, 0))
+            s = sbAppend(s, arm64_movz_x_imm(5, 2))   // AF_INET
+            s = sbAppend(s, arm64_strb_imm(5, 0, 1))
             s = sbAppend(s, arm64_strb_imm(6, 0, 2))  // port hi (BE)
             s = sbAppend(s, arm64_strb_imm(7, 0, 3))  // port lo
-            s = sbAppend(s, arm64_strb_imm(20, 0, 4)) // ip a
-            s = sbAppend(s, arm64_strb_imm(21, 0, 5)) // ip b
-            s = sbAppend(s, arm64_strb_imm(22, 0, 6)) // ip c
-            s = sbAppend(s, arm64_strb_imm(23, 0, 7)) // ip d
+            s = sbAppend(s, arm64_strb_imm(10, 0, 4)) // ip a
+            s = sbAppend(s, arm64_strb_imm(11, 0, 5)) // ip b
+            s = sbAppend(s, arm64_strb_imm(12, 0, 6)) // ip c
+            s = sbAppend(s, arm64_strb_imm(13, 0, 7)) // ip d
             s = sbAppend(s, arm64_strb_imm(31, 0, 8)) // zero [8..15]
             s = sbAppend(s, arm64_strb_imm(31, 0, 9))
             s = sbAppend(s, arm64_strb_imm(31, 0, 10))
@@ -4760,12 +4765,12 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_strb_imm(31, 0, 14))
             s = sbAppend(s, arm64_strb_imm(31, 0, 15))
             s = sbAppend(s, arm64_mov_xx(1, 0))       // x1 = sockaddr
-            s = sbAppend(s, arm64_mov_xx(0, 19))      // x0 = fd
+            s = sbAppend(s, arm64_mov_xx(0, 9))       // x0 = fd
             s = sbAppend(s, arm64_movz_x_imm(2, 16))  // addrlen = 16
             s = sbAppend(s, arm64_movz_x_imm(16, 98)) // SYS_connect
             s = sbAppend(s, arm64_svc(0x80))
             s = sbAppend(s, arm64_push_x0())          // push result
-            instrIdx = instrIdx + 24
+            instrIdx = instrIdx + 31
         } else if opTok == "BUILTIN_SOCKCLOSE" {
             // sockClose(fd) -> close(fd) #6. TOS=fd. 4 instr.
             s = sbAppend(s, arm64_pop(0))             // 0: x0 = fd
