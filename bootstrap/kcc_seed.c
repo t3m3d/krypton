@@ -772,7 +772,22 @@ static char* kr_charcode(const char* s) {
 }
 
 static char* kr_fromcharcode(const char* ns) {
-    char buf[2] = {(char)atoi(ns), 0};
+    unsigned int v = (unsigned int)atoi(ns);
+    char buf[5] = {0};
+    if (v < 0x80) { buf[0] = (char)v; }
+    else if (v < 0x800) {
+        buf[0] = (char)(0xC0 | (v >> 6));
+        buf[1] = (char)(0x80 | (v & 0x3F));
+    } else if (v < 0x10000) {
+        buf[0] = (char)(0xE0 | (v >> 12));
+        buf[1] = (char)(0x80 | ((v >> 6) & 0x3F));
+        buf[2] = (char)(0x80 | (v & 0x3F));
+    } else {
+        buf[0] = (char)(0xF0 | (v >> 18));
+        buf[1] = (char)(0x80 | ((v >> 12) & 0x3F));
+        buf[2] = (char)(0x80 | ((v >> 6) & 0x3F));
+        buf[3] = (char)(0x80 | (v & 0x3F));
+    }
     return kr_str(buf);
 }
 
@@ -1820,6 +1835,14 @@ char* readBacktickString(char* text, char* i) {
 char* tokenize(char* text) {
     char* out = kr_sbnew();
     char* i = ((char*)"0");
+    if (kr_truthy((kr_truthy((kr_truthy(kr_gte(kr_len(text), ((char*)"2"))) && kr_truthy(kr_eq(kr_idx(text, kr_atoi(((char*)"0"))), ((char*)"#"))) ? kr_str("1") : kr_str("0"))) && kr_truthy(kr_eq(kr_idx(text, kr_atoi(((char*)"1"))), ((char*)"!"))) ? kr_str("1") : kr_str("0")))) {
+        while (kr_truthy((kr_truthy(kr_lt(i, kr_len(text))) && kr_truthy(kr_neq(kr_idx(text, kr_atoi(i)), ((char*)"\n"))) ? kr_str("1") : kr_str("0")))) {
+            i = kr_plus(i, ((char*)"1"));
+        }
+        if (kr_truthy(kr_lt(i, kr_len(text)))) {
+            i = kr_plus(i, ((char*)"1"));
+        }
+    }
     while (kr_truthy(kr_lt(i, kr_len(text)))) {
         i = ((char*(*)(char*,char*))skipWS)(text, i);
         if (kr_truthy(kr_gte(i, kr_len(text)))) {
@@ -2730,6 +2753,15 @@ char* compileWin32IntArgs(char* name) {
     if (kr_truthy(kr_eq(name, ((char*)"CopyFileA")))) {
         return ((char*)"2");
     }
+    if (kr_truthy(kr_eq(name, ((char*)"GetCurrentDirectoryA")))) {
+        return ((char*)"0");
+    }
+    if (kr_truthy(kr_eq(name, ((char*)"SetCurrentDirectoryA")))) {
+        return ((char*)"");
+    }
+    if (kr_truthy(kr_eq(name, ((char*)"GetTempPathA")))) {
+        return ((char*)"0");
+    }
     if (kr_truthy(kr_eq(name, ((char*)"CreatePipe")))) {
         return ((char*)"3");
     }
@@ -2937,6 +2969,15 @@ char* compileWin32IntReturn(char* name) {
         return ((char*)"1");
     }
     if (kr_truthy(kr_eq(name, ((char*)"CopyFileA")))) {
+        return ((char*)"1");
+    }
+    if (kr_truthy(kr_eq(name, ((char*)"GetCurrentDirectoryA")))) {
+        return ((char*)"1");
+    }
+    if (kr_truthy(kr_eq(name, ((char*)"SetCurrentDirectoryA")))) {
+        return ((char*)"1");
+    }
+    if (kr_truthy(kr_eq(name, ((char*)"GetTempPathA")))) {
         return ((char*)"1");
     }
     if (kr_truthy(kr_eq(name, ((char*)"CreateFileA")))) {
@@ -4880,7 +4921,7 @@ char* cRuntime() {
     r = kr_sbappend(r, ((char*)"static char* kr_padright(const char* s, const char* ws, const char* pad) {\n    int w = atoi(ws), slen = (int)strlen(s), plen = (int)strlen(pad);\n    if (slen >= w || plen == 0) return kr_str(s);\n    int need = w - slen;\n    char* out = _alloc(w + 1);\n    memcpy(out, s, slen);\n    for (int i = 0; i < need; i++) out[slen + i] = pad[i % plen];\n    out[w] = 0;\n"));
     r = kr_sbappend(r, ((char*)"    return out;\n}\n\n"));
     r = kr_sbappend(r, ((char*)"static char* kr_charcode(const char* s) {\n    if (!*s) return _K_ZERO;\n    return kr_itoa((unsigned char)s[0]);\n}\n\n"));
-    r = kr_sbappend(r, ((char*)"static char* kr_fromcharcode(const char* ns) {\n    char buf[2] = {(char)atoi(ns), 0};\n    return kr_str(buf);\n}\n\n"));
+    r = kr_sbappend(r, ((char*)"static char* kr_fromcharcode(const char* ns) {\n    unsigned int v = (unsigned int)atoi(ns);\n    char buf[5] = {0};\n    if (v < 0x80) { buf[0] = (char)v; }\n    else if (v < 0x800) {\n        buf[0] = (char)(0xC0 | (v >> 6));\n        buf[1] = (char)(0x80 | (v & 0x3F));\n    } else if (v < 0x10000) {\n        buf[0] = (char)(0xE0 | (v >> 12));\n        buf[1] = (char)(0x80 | ((v >> 6) & 0x3F));\n        buf[2] = (char)(0x80 | (v & 0x3F));\n    } else {\n        buf[0] = (char)(0xF0 | (v >> 18));\n        buf[1] = (char)(0x80 | ((v >> 12) & 0x3F));\n        buf[2] = (char)(0x80 | ((v >> 6) & 0x3F));\n        buf[3] = (char)(0x80 | (v & 0x3F));\n    }\n    return kr_str(buf);\n}\n\n"));
     r = kr_sbappend(r, ((char*)"static char* kr_slice(const char* lst, const char* starts, const char* ends) {\n    int cnt = kr_listlen(lst);\n    int s = atoi(starts), e = atoi(ends);\n    if (s < 0) s = cnt + s;\n    if (e < 0) e = cnt + e;\n    if (s < 0) s = 0;\n    if (e > cnt) e = cnt;\n    if (s >= e) return _K_EMPTY;\n"));
     r = kr_sbappend(r, ((char*)"    char* out = kr_split(lst, kr_itoa(s));\n    for (int i = s + 1; i < e; i++)\n        out = kr_cat(kr_cat(out, \",\"), kr_split(lst, kr_itoa(i)));\n    return out;\n}\n\n"));
     r = kr_sbappend(r, ((char*)"static char* kr_length(const char* lst) {\n    return kr_itoa(kr_listlen(lst));\n}\n\n"));
@@ -5619,7 +5660,7 @@ char* irCall(char* tokens, char* pos, char* ntoks, char* lc, char* types) {
         char* envPush = kr_plus(kr_plus(((char*)"LOAD "), fname), ((char*)"\n"));
         return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(fpExtract, envPush), code), ((char*)"BUILTIN callPtr ")), kr_plus(argc, ((char*)"2"))), ((char*)"\n,")), kr_plus(p, ((char*)"1")));
     }
-    char* builtins = ((char*)"print,kp,printErr,readLine,input,readFile,writeFile,arg,argCount,len,count,substring,charAt,indexOf,contains,startsWith,endsWith,replace,trim,lstrip,rstrip,center,toLower,toUpper,repeat,padLeft,padRight,charCode,fromCharCode,splitBy,format,strReverse,isAlpha,isDigit,isSpace,toInt,parseInt,abs,min,max,pow,sqrt,sign,clamp,hex,bin,floor,ceil,round,split,length,first,last,head,tail,append,join,reverse,sort,unique,fill,zip,slice,listIndexOf,every,some,countOf,sumList,maxList,minList,range,words,lines,keys,values,hasKey,structNew,getField,setField,hasField,structFields,random,timestamp,environ,exit,assert,type,isTruthy,toStr,throw,mapGet,mapSet,mapDel,fadd,fsub,fmul,fdiv,fsqrt,ffloor,fceil,fround,fformat,flt,fgt,feq,sbNew,sbAppend,sbToString,bufNew,bufStr,bufGetDword,bufSetDword,bufGetWord,bufGetQword,bufGetDwordAt,bufGetQwordAt,bufSetByte,bufGetByte,bufSetDwordAt,bufSetQwordAt,bufGetWordAt,bufSetWordAt,bufGetWordAtBE,bufGetDwordAtBE,bufGetQwordAtBE,handleOut,handleGet,handleInt,toHandle,ptrDeref,ptrIndex,callPtr,getLine,lineCount,envNew,envSet,envGet,makeResult,getResultTag,getResultVal,getResultEnv,getResultPos,gcAllocated,gcAllocCount,gcShadowCount,gcShadowPop,gcShadowPush,gcWalkAllocs,gcMark,gcSweep,gcFreelistCount,rdtsc,pause,mfence,lfence,sfence,gcLimit,gcSetLimit,gcCollect,gcReset,gcCheckpoint,gcRestore,gcSlabCount,gcSlabBytes");
+    char* builtins = ((char*)"print,kp,printErr,readLine,input,readFile,writeFile,arg,argCount,len,count,substring,charAt,indexOf,contains,startsWith,endsWith,replace,trim,lstrip,rstrip,center,toLower,toUpper,repeat,padLeft,padRight,charCode,fromCharCode,splitBy,format,strReverse,isAlpha,isDigit,isSpace,toInt,parseInt,abs,min,max,pow,sqrt,sign,clamp,hex,bin,floor,ceil,round,split,length,first,last,head,tail,append,join,reverse,sort,unique,fill,zip,slice,listIndexOf,every,some,countOf,sumList,maxList,minList,range,words,lines,keys,values,hasKey,structNew,getField,setField,hasField,structFields,random,timestamp,environ,exit,assert,type,isTruthy,toStr,throw,mapHas,mapGet,mapSet,mapDel,exec,shellRun,fadd,fsub,fmul,fdiv,fsqrt,ffloor,fceil,fround,fformat,flt,fgt,feq,sbNew,sbAppend,sbToString,bufNew,bufStr,bufGetDword,bufSetDword,bufGetWord,bufGetQword,bufGetDwordAt,bufGetQwordAt,bufSetByte,bufGetByte,bufSetDwordAt,bufSetQwordAt,bufGetWordAt,bufSetWordAt,bufGetWordAtBE,bufGetDwordAtBE,bufGetQwordAtBE,handleOut,handleGet,handleInt,toHandle,ptrDeref,ptrIndex,callPtr,getLine,lineCount,envNew,envSet,envGet,makeResult,getResultTag,getResultVal,getResultEnv,getResultPos,gcAllocated,gcAllocCount,gcShadowCount,gcShadowPop,gcShadowPush,gcWalkAllocs,gcMark,gcSweep,gcFreelistCount,rdtsc,pause,mfence,lfence,sfence,gcLimit,gcSetLimit,gcCollect,gcReset,gcCheckpoint,gcRestore,gcSlabCount,gcSlabBytes,sockMake,sockBind,sockListen,sockAccept,sockRecv,sockSend,sockClose,sockRecvStr");
     if (kr_truthy(kr_contains(kr_plus(kr_plus(((char*)","), builtins), ((char*)",")), kr_plus(kr_plus(((char*)","), fname), ((char*)","))))) {
         return kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(kr_plus(code, ((char*)"BUILTIN ")), fname), ((char*)" ")), argc), ((char*)"\n,")), kr_plus(p, ((char*)"1")));
     }
@@ -6650,16 +6691,25 @@ int main(int argc, char** argv) {
     char _stack_anchor; _stack_bottom = &_stack_anchor;
     _argc = argc; _argv = argv;
     srand((unsigned)time(NULL));
-    char* kccVer = ((char*)"2.0");
+    char* kccVer = ((char*)"2.2.0");
     char* irMode = ((char*)"0");
     char* portMode = ((char*)"0");
-    char* installRoot = ((char*)"C:\\krypton");
-    char* headersDir = kr_plus(installRoot, ((char*)"\\headers"));
+    char* installRoot = kr_environ(((char*)"KRYPTON_ROOT"));
+    if (kr_truthy(kr_eq(installRoot, ((char*)"")))) {
+        if (kr_truthy(kr_eq(kr_environ(((char*)"OS")), ((char*)"Windows_NT")))) {
+            installRoot = ((char*)"C:\\krypton");
+        } else if (kr_truthy(kr_neq(kr_environ(((char*)"HOME")), ((char*)"")))) {
+            installRoot = ((char*)"/usr/local/krypton");
+        } else {
+            installRoot = ((char*)"C:\\krypton");
+        }
+    }
+    char* headersDir = kr_plus(installRoot, ((char*)"/headers"));
     char* outFile = ((char*)"");
     char* file = kr_arg(((char*)"0"));
     char* argIdx = ((char*)"0");
     if (kr_truthy((kr_truthy(kr_eq(file, ((char*)"--version"))) || kr_truthy(kr_eq(file, ((char*)"-v"))) ? kr_str("1") : kr_str("0")))) {
-        kr_printerr(kr_plus(((char*)"kcc version "), kccVer));
+        kr_printerr(kr_plus(kr_plus(((char*)"kcc version "), kccVer), ((char*)"\n")));
         return atoi(((char*)"0"));
     }
     if (kr_truthy(kr_eq(kr_argcount(), ((char*)"0")))) {
@@ -7563,6 +7613,26 @@ int main(int argc, char** argv) {
         }
     }
     char* entry = ((char*(*)(char*,char*))findEntry)(tokens, ntoks);
+    if (kr_truthy(kr_gte(entry, ((char*)"0")))) {
+        char* runkBase = kr_substr(file, kr_plus(lastSlash, ((char*)"1")), kr_len(file));
+        if (kr_truthy((kr_truthy(kr_neq(runkBase, ((char*)"run.k"))) && kr_truthy(kr_neq(runkBase, ((char*)"run.ks"))) ? kr_str("1") : kr_str("0")))) {
+            char* hasModule = ((char*)"0");
+            char* modI = ((char*)"0");
+            while (kr_truthy((kr_truthy(kr_lt(modI, ntoks)) && kr_truthy(kr_eq(hasModule, ((char*)"0"))) ? kr_str("1") : kr_str("0")))) {
+                if (kr_truthy(kr_eq(((char*(*)(char*,char*))tokAt)(tokens, modI), ((char*)"KW:module")))) {
+                    hasModule = ((char*)"1");
+                }
+                modI = kr_plus(modI, ((char*)"1"));
+            }
+            if (kr_truthy(kr_eq(hasModule, ((char*)"1")))) {
+                kr_printerr(((char*)"kcc: warning: entry-point file should be named `run.k` (got `"));
+                kr_printerr(kr_plus(runkBase, ((char*)"`)\n")));
+                kr_printerr(((char*)"  Multi-file projects (those with `module <name>`) must place\n"));
+                kr_printerr(((char*)"  their `just run { ... }` body in `run.k`. This is a warning in\n"));
+                kr_printerr(((char*)"  2.3 and becomes an error in 2.4 — rename now to stay forward-compatible.\n"));
+            }
+        }
+    }
     if (kr_truthy(kr_lt(entry, ((char*)"0")))) {
         if (kr_truthy(irMode)) {
             char* sbIRlib = kr_sbnew();
@@ -7593,8 +7663,15 @@ int main(int argc, char** argv) {
             char* irLibText = kr_sbtostring(sbIRlib);
             if (kr_truthy(kr_gt(kr_len(outFile), ((char*)"0")))) {
                 char* compilerDir = kr_replace(headersDir, ((char*)"headers"), ((char*)"bin"));
-                char* tmpIR = ((char*)"C:\\krypton\\tmp_kcc_build.ir");
-                char* tmpOpt = ((char*)"C:\\krypton\\tmp_kcc_build_opt.ir");
+                char* tmpDir = ((char*)"C:\\krypton");
+                if (kr_truthy(kr_neq(kr_environ(((char*)"HOME")), ((char*)"")))) {
+                    tmpDir = kr_environ(((char*)"TMPDIR"));
+                    if (kr_truthy(kr_eq(tmpDir, ((char*)"")))) {
+                        tmpDir = ((char*)"/tmp");
+                    }
+                }
+                char* tmpIR = kr_plus(tmpDir, ((char*)"/tmp_kcc_build.ir"));
+                char* tmpOpt = kr_plus(tmpDir, ((char*)"/tmp_kcc_build_opt.ir"));
                 kr_writefile(tmpIR, irLibText);
                 char* optCmd2 = kr_plus(kr_plus(kr_plus(kr_plus(compilerDir, ((char*)"\\optimize_host.exe ")), tmpIR), ((char*)" > ")), tmpOpt);
                 char* codeCmd2 = kr_plus(kr_plus(kr_plus(kr_plus(compilerDir, ((char*)"\\x64_host_new.exe ")), tmpOpt), ((char*)" ")), outFile);
@@ -7723,8 +7800,15 @@ int main(int argc, char** argv) {
         char* irText = kr_sbtostring(sbIR);
         if (kr_truthy(kr_gt(kr_len(outFile), ((char*)"0")))) {
             char* compilerDir = kr_replace(headersDir, ((char*)"headers"), ((char*)"bin"));
-            char* tmpIR = ((char*)"C:\\krypton\\tmp_kcc_build.ir");
-            char* tmpOpt = ((char*)"C:\\krypton\\tmp_kcc_build_opt.ir");
+            char* tmpDir = ((char*)"C:\\krypton");
+            if (kr_truthy(kr_neq(kr_environ(((char*)"HOME")), ((char*)"")))) {
+                tmpDir = kr_environ(((char*)"TMPDIR"));
+                if (kr_truthy(kr_eq(tmpDir, ((char*)"")))) {
+                    tmpDir = ((char*)"/tmp");
+                }
+            }
+            char* tmpIR = kr_plus(tmpDir, ((char*)"/tmp_kcc_build.ir"));
+            char* tmpOpt = kr_plus(tmpDir, ((char*)"/tmp_kcc_build_opt.ir"));
             kr_writefile(tmpIR, irText);
             char* optCmd = kr_plus(kr_plus(kr_plus(kr_plus(compilerDir, ((char*)"\\optimize_host.exe ")), tmpIR), ((char*)" > ")), tmpOpt);
             char* codeCmd = kr_plus(kr_plus(kr_plus(kr_plus(compilerDir, ((char*)"\\x64_host_new.exe ")), tmpOpt), ((char*)" ")), outFile);
