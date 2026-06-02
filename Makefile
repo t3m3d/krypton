@@ -45,7 +45,7 @@ seed:
 	    exit 1; \
 	fi
 	@if [ -x ./kcc ]; then KCC=./kcc; else KCC=./kcc.exe; fi; \
-	    $$KCC compiler/compile.k > bootstrap/kcc_seed.c && \
+	    $$KCC --c compiler/compile.k > bootstrap/kcc_seed.c && \
 	    echo "regenerated bootstrap/kcc_seed.c ($$(wc -l < bootstrap/kcc_seed.c) lines)"
 
 .PHONY: clean
