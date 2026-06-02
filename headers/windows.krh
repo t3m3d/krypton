@@ -1,12 +1,24 @@
-// windows.krh — Krypton header for Windows API
-// Usage: import "headers/windows.krh"
+// windows.krh — Krypton header for the Windows core API surface.
+// Usage: import "head:windows"
+//
+// DLLs: kernel32.dll (memory + handles + filesystem + console + threads),
+//       advapi32.dll (registry + user info),
+//       pdh.dll (performance counters),
+//       psapi.dll (process info — folded into kernel32.dll on Win7+),
+//       shell32.dll (ShellExecuteA and friends — see also head:process).
+// Pipeline: native PE only — `kcc.sh -o win.exe app.k`.
+//
+// Multi-DLL grab-bag header. Use it whenever a Krypton program needs
+// Win32 types (RECT, MSG, FILETIME, PROCESSENTRY32, ...) or top-level
+// kernel32 entry points. The dedicated single-DLL headers
+// (`head:user32`, `head:gdi32`, `head:dwmapi`, etc.) re-use the struct
+// definitions declared here.
+//
+// Declaration-only file. No `cfunc`, no C-header includes. Every DLL
+// listed above has an IAT slot wired by `compiler/windows_x86/x64.k`;
+// the function calls below dispatch as direct indirect IAT CALLs.
 
 jxt {
-    c "windows.h"
-    t "tlhelp32.h"
-    t "pdh.h"
-    t "psapi.h"
-    t "shellapi.h"
 
     // ── Extern structs ─────────────────────────────────────────
     struct MEMORYSTATUSEX {

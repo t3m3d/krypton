@@ -1,12 +1,15 @@
-// gdi32.krh — Krypton bindings for the Win32 graphics device interface
-// Usage: import "gdi32.krh"
-// Link line:  -lgdi32 (gcc) — ships in every MinGW install
+// gdi32.krh — Krypton bindings for the Win32 graphics device interface.
+// Usage: import "head:gdi32"
 //
-// Pairs with user32.krh for windowed apps. C-emit pipeline only — see
-// project_v16_plan.md Tier 3 for the native-pipeline callback work.
+// DLL: gdi32.dll
+// Pipeline: native PE only — `kcc.sh -o win.exe app.k`.
+//
+// Pairs with `head:user32` for windowed apps. Declaration-only file —
+// no `cfunc`, no C-header includes. gdi32.dll is wired into the IAT
+// by `compiler/windows_x86/x64.k` and the functions below are
+// dispatched via direct IAT calls (no `--gcc` C path involved).
 
 jxt {
-    c "windows.h"
 
     // ── Text drawing ──────────────────────────────────────────────
     func TextOutA(hdc, x, y, text, len)
