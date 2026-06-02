@@ -291,6 +291,7 @@ func siteNav(active) {
          htA("/", "Home") +
          htA("/about.html", "About") +
          htA("/features.html", "Features") +
+         htA("/compare.html", "Compare") +
          htA("/learn.html", "Learn") +
          htA("/playground.html", "Playground") +
          htA("/blog.html", "Blog") +
@@ -698,6 +699,127 @@ func pageDownloads() {
         htPre(htCode("Extensions panel " + fromCharCode(8594) + " Krypton " + fromCharCode(8594) + " v2.2.0")) +
         "</div></section>"
     emit sitePage("Downloads", content)
+}
+
+// ── Language comparison page ─────────────────────────────────────────
+// Honest, dimension-by-dimension comparison vs the other native /
+// systems languages Krypton wants to compete with. Shipped flags +
+// known gaps both visible — link target from the Features page.
+
+func _yes()  { emit htElA("span", htAttr("class", "cmp-yes"),  "&#10003;") }
+func _no()   { emit htElA("span", htAttr("class", "cmp-no"),   "&minus;") }
+func _part() { emit htElA("span", htAttr("class", "cmp-part"), "&#9678;") }
+func _todo() { emit htElA("span", htAttr("class", "cmp-todo"), "&hellip;") }
+
+func _cmpRow(dim, c, cpp, odin, js, swift, objc, kr) {
+    let cellC  = htAttr("class", "c")
+    let cellKr = htAttr("class", "c kr")
+    emit "<tr>" +
+        htTd(dim) +
+        htTdA(cellC,  c) +
+        htTdA(cellC,  cpp) +
+        htTdA(cellC,  odin) +
+        htTdA(cellC,  js) +
+        htTdA(cellC,  swift) +
+        htTdA(cellC,  objc) +
+        htTdA(cellKr, kr) +
+        "</tr>"
+}
+
+func pageCompare() {
+    let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
+        "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
+        htH1("Language Comparison") +
+        htP("Where Krypton stands today vs the other native and systems-targeting languages, dimension by dimension. " +
+            "We're transparent about both shipped capabilities and known gaps.") +
+        "</div>"
+    let head = "<thead><tr>" +
+        htTh("Dimension") + htTh("C") + htTh("C++") + htTh("Odin") +
+        htTh("JS") + htTh("Swift") + htTh("Obj-C") +
+        htThA(htAttr("class", "kr"), "Krypton") +
+        "</tr></thead>"
+    let rows = "<tbody>" +
+        _cmpRow("Direct native code",       _yes(), _yes(), _yes(), _no(),  _yes(), _yes(), _yes()) +
+        _cmpRow("No LLVM dependency",       _yes(), _no(),  _no(),  _yes(), _no(),  _no(),  _yes()) +
+        _cmpRow("Manual memory",            _yes(), _yes(), _yes(), _no(),  _part(), _part(), _part()) +
+        _cmpRow("Garbage collection",       _no(),  _no(),  _no(),  _yes(), _yes(),  _yes(),  _yes()) +
+        _cmpRow("Generics / templates",     _no(),  _yes(), _yes(), _part(), _yes(), _no(),  _todo()) +
+        _cmpRow("Async / concurrency",      _part(),_part(),_part(),_yes(), _yes(), _part(), _todo()) +
+        _cmpRow("Native threads",           _part(),_yes(), _yes(), _part(),_yes(), _yes(),  _todo()) +
+        _cmpRow("Closures",                 _no(),  _yes(), _yes(), _yes(), _yes(), _part(), _yes()) +
+        _cmpRow("Standard collections",     _no(),  _yes(), _yes(), _yes(), _yes(), _yes(),  _part()) +
+        _cmpRow("Package manager",          _no(),  _part(),_no(),  _yes(), _yes(), _no(),   _todo()) +
+        _cmpRow("Native macOS UI",          _part(),_part(),_part(),_no(),  _yes(), _yes(),  _part()) +
+        _cmpRow("Native Windows UI",        _part(),_part(),_part(),_no(),  _no(),  _no(),   _yes()) +
+        _cmpRow("Browser target (WASM)",    _no(),  _yes(), _yes(), _yes(), _part(),_no(),   _yes()) +
+        _cmpRow("HTTP server (in stdlib)",  _no(),  _no(),  _no(),  _yes(), _yes(), _no(),   _yes()) +
+        _cmpRow("Language server (LSP)",    _yes(), _yes(), _yes(), _yes(), _yes(), _yes(),  _yes()) +
+        _cmpRow("Compiler written in itself", _no(), _no(), _yes(), _no(),  _no(),  _no(),   _yes()) +
+        _cmpRow("Ecosystem maturity",       _yes(), _yes(), _part(),_yes(), _yes(), _yes(),  _no()) +
+        "</tbody>"
+    let legendCss =
+        ".cmp-yes{color:#86efac;font-weight:700}" +
+        ".cmp-no{color:#94a3b8}" +
+        ".cmp-part{color:#fbbf24;font-weight:700}" +
+        ".cmp-todo{color:#a78bfa;font-weight:700}" +
+        ".cmp-table th.kr,.cmp-table td.kr{background:rgba(119,34,255,0.10)}" +
+        ".cmp-table td.c{text-align:center;font-size:1.05em}" +
+        ".cmp-table th{position:sticky;top:0;background:#0f172a}"
+    let legend =
+        "<div class=" + DQ() + "card" + DQ() + ">" +
+        htH3("Legend") +
+        "<p>" + _yes()  + " supported &nbsp;&nbsp; " +
+                _part() + " partial &nbsp;&nbsp; " +
+                _no()   + " not in this language &nbsp;&nbsp; " +
+                _todo() + " on the Krypton roadmap" +
+        "</p></div>"
+    let table =
+        "<div class=" + DQ() + "table-wrap" + DQ() + ">" +
+        htTableA(htAttr("class", "cmp-table"), head + rows) +
+        "</div>"
+    let notes =
+        htH2("How to read this") +
+        htP("Krypton's design goal is " + htCode("native machine code, no LLVM, no clang") +
+            " on every platform " + DASH() +
+            " same target as C and Odin, with the safety net of mark-sweep GC and closures.") +
+        htP("The four " + _todo() + " cells are the gaps we're actively working through: " +
+            "generics, threads, async, and a package manager. The roadmap entries below sketch " +
+            "the order they land in.") +
+        htH3("What's already done (2026-06-01)") +
+        htUl(
+            htLi("Mark-sweep GC with shadow-stack rooting + freelist reuse (long-running programs stay flat).") +
+            htLi("Closures with snapshot capture, " + htCode("stdlib/fp.k") + " functional core.") +
+            htLi("Typed pointers (" + htCode("*u8") + ", " + htCode("*Vec3") + ") for raw-byte / struct-field fast paths.") +
+            htLi("Three native backends: ELF (Linux), PE/COFF (Windows), Mach-O arm64 (macOS).") +
+            htLi("WASM backend for the browser " + DASH() + " 16 tutorial lessons run byte-identical to native.") +
+            htLi("Self-hosted compiler: " + htCode("kcc") + " is written in Krypton.") +
+            htLi("Pure-Krypton HTTP server on macOS (" + htCode("k:server_native") + ") with zero C / zero clang.") +
+            htLi("Cocoa scaffold for native macOS apps (" + htCode("k:cocoa") + ", in flight).") +
+            htLi("Win32 GUI library (" + htCode("k:gui") + ", 98 widgets shipped).")
+        ) +
+        htH3("Roadmap to closing the gaps") +
+        htUl(
+            htLi(htCode("krSpawn") + " / " + htCode("krJoin") + " + atomic ops " + DASH() + " native threads on Windows " +
+                "(" + htCode("CreateThread") + "), POSIX (" + htCode("pthread_create") + "). Q3 2026.") +
+            htLi("Generics (Phase D of the typed-pointer work) " + DASH() +
+                " " + htCode("func map[T](xs: [*T], f: (T) -> T)") + ". Q4 2026.") +
+            htLi(htCode("krpm") + " package manager + central registry. Q4 2026.") +
+            htLi("async/await via stackless coroutines on top of the thread substrate. 2027.") +
+            htLi("DOM bindings analogous to " + htCode("k:cocoa") + " so a single " + htCode(".ks") +
+                " source can target a desktop app, a CLI, and a browser page. 2027.")
+        ) +
+        htP(htEm("Honest take: Krypton's already credible for embedded/systems work and CLI tools. The " +
+                 "competition story for app development on every platform is 12-18 months out. The " +
+                 "fundamentals (small core, native everywhere, no LLVM) are sound; the gaps are " +
+                 "concurrency, generics, and ecosystem."))
+    let content = hero +
+        "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
+        "<style>" + legendCss + "</style>" +
+        legend +
+        table +
+        notes +
+        "</div></section>"
+    emit sitePage("Comparison", content)
 }
 
 func pageContact() {
@@ -1450,6 +1572,7 @@ just run {
     writePage(dist + "/index.html", pageHome())
     writePage(dist + "/about.html", pageAbout())
     writePage(dist + "/features.html", pageFeatures())
+    writePage(dist + "/compare.html", pageCompare())
     writePage(dist + "/programs.html", pagePrograms())
     writePage(dist + "/downloads.html", pageDownloads())
     writePage(dist + "/kryptscript.html", pageKryptScript())
