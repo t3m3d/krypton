@@ -6256,6 +6256,39 @@ just run {
 
     // Find and compile the entry block
     let entry = findEntry(tokens, ntoks)
+
+    // 2.3 deprecation warning: when a file with `just run { ... }` is part
+    // of a multi-file project (signalled by an explicit `module` decl),
+    // the entry-point file should be named `run.k`. Single-file scripts
+    // are exempt. This is a WARNING in 2.3 and becomes an ERROR in 2.4
+    // — give users one full release to rename.
+    //
+    // Detection:
+    //   - entry >= 0 (this file owns the `just run` body)
+    //   - the file basename is NOT "run.k" / "run.ks"
+    //   - the token stream contains `module <ident>` (multi-file project)
+    //
+    // We don't gate on import presence because a project entry might
+    // import nothing today but still be part of a multi-file layout.
+    if entry >= 0 {
+        let runkBase = substring(file, lastSlash + 1, len(file))
+        if runkBase != "run.k" && runkBase != "run.ks" {
+            let hasModule = 0
+            let modI = 0
+            while modI < ntoks && hasModule == 0 {
+                if tokAt(tokens, modI) == "KW:module" { hasModule = 1 }
+                modI += 1
+            }
+            if hasModule == 1 {
+                printErr("kcc: warning: entry-point file should be named `run.k` (got `")
+                printErr(runkBase + "`)\n")
+                printErr("  Multi-file projects (those with `module <name>`) must place\n")
+                printErr("  their `just run { ... }` body in `run.k`. This is a warning in\n")
+                printErr("  2.3 and becomes an error in 2.4 — rename now to stay forward-compatible.\n")
+            }
+        }
+    }
+
     if entry < 0 {
         if irMode {
             // DLL/library IR mode: emit IR for export funcs, no entry point
