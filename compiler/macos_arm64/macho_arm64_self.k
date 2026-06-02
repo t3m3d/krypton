@@ -1673,6 +1673,29 @@ func parseFullIR(ir) {
                     } else if bname == "mapSet" {
                         curOps = sbAppend(curOps, "BUILTIN_MAPSET\n")
                         nOps += 1
+                    } else if bname == "sockMake" {
+                        // C-free BSD sockets via direct syscalls.
+                        // See docs/proto/MACOS_SOCKET_SYSCALLS.md.
+                        curOps = sbAppend(curOps, "BUILTIN_SOCKMAKE\n")
+                        nOps += 1
+                    } else if bname == "sockBind" {
+                        curOps = sbAppend(curOps, "BUILTIN_SOCKBIND\n")
+                        nOps += 1
+                    } else if bname == "sockListen" {
+                        curOps = sbAppend(curOps, "BUILTIN_SOCKLISTEN\n")
+                        nOps += 1
+                    } else if bname == "sockAccept" {
+                        curOps = sbAppend(curOps, "BUILTIN_SOCKACCEPT\n")
+                        nOps += 1
+                    } else if bname == "sockRecv" {
+                        curOps = sbAppend(curOps, "BUILTIN_SOCKRECV\n")
+                        nOps += 1
+                    } else if bname == "sockSend" {
+                        curOps = sbAppend(curOps, "BUILTIN_SOCKSEND\n")
+                        nOps += 1
+                    } else if bname == "sockClose" {
+                        curOps = sbAppend(curOps, "BUILTIN_SOCKCLOSE\n")
+                        nOps += 1
                     }
                 } else if op == "POP" {
                     curOps = sbAppend(curOps, "POP\n")
@@ -1944,6 +1967,13 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_MAPHAS"       { emit 32 }
     if opTok == "BUILTIN_MAPGET"       { emit 93 }
     if opTok == "BUILTIN_MAPSET"       { emit 150 }
+    if opTok == "BUILTIN_SOCKMAKE"     { emit 6 }   // movz x0,x1,x2,x16=97; svc; push
+    if opTok == "BUILTIN_SOCKBIND"     { emit 18 }  // build sockaddr on stack + bind(104)
+    if opTok == "BUILTIN_SOCKLISTEN"   { emit 5 }   // pop backlog,fd; x16=106; svc; push
+    if opTok == "BUILTIN_SOCKACCEPT"   { emit 6 }   // pop fd; x1=0;x2=0;x16=30; svc; push
+    if opTok == "BUILTIN_SOCKRECV"     { emit 9 }   // pop len,buf,fd; x3=x4=x5=0;x16=29; svc; push
+    if opTok == "BUILTIN_SOCKSEND"     { emit 6 }   // pop len,buf,fd; x16=4(write); svc; push
+    if opTok == "BUILTIN_SOCKCLOSE"    { emit 4 }   // pop fd; x16=6; svc; push
     if opTok == "POP"              { emit 1 }
     emit 0
 }
