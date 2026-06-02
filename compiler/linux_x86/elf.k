@@ -3018,7 +3018,7 @@ func krStrIntSize() { emit 91 }
 //   [71-73] 48 89 C7               MOV RDI, RAX                          (3)
 //   [74-78] B8 3C 00 00 00         MOV EAX, 60                           (5)
 //   [79-80] 0F 05                  SYSCALL                               (2)
-func startSize() { emit 81 }
+func startSize() { emit 90 }
 func emitStartCode(callDisp, atoiDisp) {
     let c = ""
     c = c + hexByte(0x4C) + hexByte(0x8B) + hexByte(0x24) + hexByte(0x24)
@@ -3037,8 +3037,11 @@ func emitStartCode(callDisp, atoiDisp) {
     c = c + hexByte(0x0F) + hexByte(0x05)
     c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0x20)
     c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0x68) + hexByte(0x08)
+    // envp = argv + (argc+1)*8 = R13 + R12*8 + 8; stash at heap[16] for environ().
+    c = c + hexByte(0x4B) + hexByte(0x8D) + hexByte(0x4C) + hexByte(0xE5) + hexByte(0x08)  // LEA RCX,[R13+R12*8+8]
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0x48) + hexByte(0x10)                  // MOV [RAX+16],RCX
     c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xC6)
-    c = c + hexByte(0x4C) + hexByte(0x8D) + hexByte(0x78) + hexByte(0x10)
+    c = c + hexByte(0x4C) + hexByte(0x8D) + hexByte(0x78) + hexByte(0x18)  // LEA R15,[RAX+24] (heap_next past 3 globals)
     c = c + hexByte(0xE8) + hexDword(callDisp)
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)
     c = c + hexByte(0xE8) + hexDword(atoiDisp)
@@ -3188,6 +3191,9 @@ func opByteSize(op) {
     // readProc(path): inline open + read-loop + close (works on /proc & /sys
     // virtual files whose st_size is 0, where kr_readfile's fstat path reads 0).
     if op == "BUILTIN_READPROC"    { emit 95 }
+    // environ(name): walk envp (saved at [R14+16] by _start) for "name=", return
+    // the value ptr (into the env block, NUL-terminated) or "" if absent.
+    if op == "BUILTIN_ENVIRON"     { emit 69 }
     if op == "POP"        { emit 1 }
     if op == "LABEL"      { emit 0 }
     if op == "JUMP"       { emit 5 }    // E9 + d32
@@ -3535,6 +3541,8 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_SOCKRECVSTR")
                 } else if bname == "readProc" {
                     opSb = sbAppend(opSb, "BUILTIN_READPROC")
+                } else if bname == "environ" {
+                    opSb = sbAppend(opSb, "BUILTIN_ENVIRON")
                 } else {
                     // Unknown builtin: emit a marker and leave the stack
                     // alone. Programs that hit this are already incorrect;
@@ -4303,6 +4311,37 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xF8)) // [88] .err: mov rax,r15 (zeroed heap byte = "")
             c = sbAppend(c, hexByte(0x49) + hexByte(0xFF) + hexByte(0xC7)) // [91] inc r15 (consume the NUL byte so the next kr_alloc can't alias/overwrite this empty string)
             c = sbAppend(c, hexByte(0x50))                                 // [94] .end: push rax
+        } else if op == "BUILTIN_ENVIRON" {
+            // environ(name) -> ptr to the value of env var `name`, or "" if unset.
+            // envp (char**) was stashed at [R14+16] by _start. Walks entries, matches
+            // the "NAME=" prefix, returns &value (into the env block, NUL-terminated).
+            // Position-independent (no CALL); internal rel8 jumps only. (69 bytes)
+            c = sbAppend(c, hexByte(0x5F))                                  // [0]  pop rdi (name)
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x8B) + hexByte(0x76) + hexByte(0x10)) // [1]  mov rsi,[r14+16] (envp)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x8B) + hexByte(0x06)) // [5]  .loop: mov r8,[rsi] (entry)
+            c = sbAppend(c, hexByte(0x4D) + hexByte(0x85) + hexByte(0xC0)) // [8]  test r8,r8
+            c = sbAppend(c, hexByte(0x74) + hexByte(0x31))                 // [11] jz +0x31 -> .notfound(62)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xF9)) // [13] mov rcx,rdi (name cursor)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xC2)) // [16] mov rdx,r8 (entry cursor)
+            c = sbAppend(c, hexByte(0x8A) + hexByte(0x01))                 // [19] .cmp: mov al,[rcx]
+            c = sbAppend(c, hexByte(0x84) + hexByte(0xC0))                 // [21] test al,al (name end?)
+            c = sbAppend(c, hexByte(0x74) + hexByte(0x10))                 // [23] jz +0x10 -> .nameend(41)
+            c = sbAppend(c, hexByte(0x44) + hexByte(0x8A) + hexByte(0x0A)) // [25] mov r9b,[rdx]
+            c = sbAppend(c, hexByte(0x44) + hexByte(0x38) + hexByte(0xC8)) // [28] cmp al,r9b
+            c = sbAppend(c, hexByte(0x75) + hexByte(0x17))                 // [31] jne +0x17 -> .next(56)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0xFF) + hexByte(0xC1)) // [33] inc rcx
+            c = sbAppend(c, hexByte(0x48) + hexByte(0xFF) + hexByte(0xC2)) // [36] inc rdx
+            c = sbAppend(c, hexByte(0xEB) + hexByte(0xEA))                 // [39] jmp -22 -> .cmp(19)
+            c = sbAppend(c, hexByte(0x44) + hexByte(0x8A) + hexByte(0x0A)) // [41] .nameend: mov r9b,[rdx]
+            c = sbAppend(c, hexByte(0x41) + hexByte(0x80) + hexByte(0xF9) + hexByte(0x3D)) // [44] cmp r9b,0x3D ('=')
+            c = sbAppend(c, hexByte(0x75) + hexByte(0x06))                 // [48] jne +6 -> .next(56)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x8D) + hexByte(0x42) + hexByte(0x01)) // [50] lea rax,[rdx+1] (value ptr)
+            c = sbAppend(c, hexByte(0xEB) + hexByte(0x0C))                 // [54] jmp +0x0C -> .done(68)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xC6) + hexByte(0x08)) // [56] .next: add rsi,8
+            c = sbAppend(c, hexByte(0xEB) + hexByte(0xC7))                 // [60] jmp -57 -> .loop(5)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xF8)) // [62] .notfound: mov rax,r15 (zeroed heap = "")
+            c = sbAppend(c, hexByte(0x49) + hexByte(0xFF) + hexByte(0xC7)) // [65] inc r15 (consume NUL so kr_concat can't alias)
+            c = sbAppend(c, hexByte(0x50))                                 // [68] .done: push rax
         } else if op == "BUILTIN_WRITEFILE" {
             // POP RSI (content, top) ; POP RDI (path) ; CALL kr_writefile ; PUSH RAX
             c = sbAppend(c, hexByte(0x5E))
@@ -5215,10 +5254,10 @@ just run {
     // _start: CALL __main__ (mmap'd heap initialization is in emitStartCode)
     let startVAddr = SEG_BASE_VADDR
     let mainVAddr = toInt(funcVAddr(funcVAddrs, "__main__"))
-    // CALL __main__ is at offset 38 in start code (after mmap setup). After CALL = 43.
-    let startCallDisp = mainVAddr - (startVAddr + 63)
-    // CALL kr_atoi is at offset 46. After CALL = 51.
-    let startAtoiDisp = krAtoiVAddr - (startVAddr + 71)
+    // CALL __main__ ends at start-code offset 72 (was 63; +9 for the envp save).
+    let startCallDisp = mainVAddr - (startVAddr + 72)
+    // CALL kr_atoi ends at start-code offset 80 (was 71).
+    let startAtoiDisp = krAtoiVAddr - (startVAddr + 80)
     let startCode = emitStartCode(startCallDisp, startAtoiDisp)
 
     let krPrintCode  = emitKrPrintCode()
