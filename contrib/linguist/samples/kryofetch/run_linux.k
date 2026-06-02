@@ -319,6 +319,23 @@ func kfshell() {
     emit "unknown"
 }
 
+// Terminal + desktop environment via environ() (native builtin).
+func kfterm() {
+    let t = environ("TERM_PROGRAM")
+    if t != "" { emit t }
+    let t2 = environ("TERM")
+    if t2 != "" { emit t2 }
+    emit ""
+}
+
+func kfde() {
+    let d = environ("XDG_CURRENT_DESKTOP")
+    if d != "" { emit d }
+    let d2 = environ("DESKTOP_SESSION")
+    if d2 != "" { emit d2 }
+    emit ""
+}
+
 func kfcls() {
     let E = fromCharCode(27)
     kp(E + "[2J" + E + "[H")
@@ -376,6 +393,8 @@ func run() {
 
     let up   = uptimestr()
     let sh   = kfshell()
+    let term = kfterm()
+    let de   = kfde()
 
     // Build the packed info column — only non-empty fields are added.
     let IL = ""
@@ -388,7 +407,9 @@ func run() {
     IL = IL + GRN + "CPU:   " + RST + cpu + " (" + tn + "t)\n"
     IL = IL + GRN + "RAM:   " + RST + rb + "  " + ugb + " GB / " + tgb + " GB  " + rpct + "%\n"
     if swp != "Unused" { IL = IL + GRN + "Swap:  " + RST + swp + "\n" }
+    if de != "" { IL = IL + GRN + "DE:    " + RST + de + "\n" }
     IL = IL + GRN + "Shell: " + RST + sh + "\n"
+    if term != "" { IL = IL + GRN + "Term:  " + RST + term + "\n" }
     IL = IL + GRN + "Uptime:" + RST + up + "\n"
 
     let idx = "0"
