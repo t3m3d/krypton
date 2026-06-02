@@ -1,0 +1,108 @@
+// cocoa.krh — Foundation + AppKit class names and selector strings.
+// Usage: import "head:cocoa"
+// macOS arm64.
+//
+// Unlike objc.krh, this header declares NO foreign functions. Cocoa APIs
+// aren't called as C functions — they're called via `objc_msgSend(class,
+// selector, ...)`. So this file just defines the **canonical strings**
+// you pass to `objc_getClass()` and `sel_registerName()`. Strings are
+// declared as global `const` so the compiler emits them once into the
+// data section.
+//
+// Why a header file for string constants? Two reasons:
+//   1. Single source of truth — a typo in `"NSWindwo"` fails noisily at
+//      runtime; centralising it here means the typo is caught by callers.
+//   2. selectorCache() in stdlib/objc.k can pre-warm every selector in
+//      this list at app startup with one walk, so user code never pays
+//      the sel_registerName() cost on the hot path.
+//
+// SCAFFOLD — agent m's macho_arm64_self.k codegen + a real test app will
+// grow this list as needed. Start with the minimum surface for "window
+// with a button" and expand from there.
+
+module cocoa_constants
+
+// ── Foundation classes ─────────────────────────────────────────────────
+const NSObject_cls      = "NSObject"
+const NSString_cls      = "NSString"
+const NSArray_cls       = "NSArray"
+const NSMutableArray_cls= "NSMutableArray"
+const NSDictionary_cls  = "NSDictionary"
+const NSNumber_cls      = "NSNumber"
+const NSAutoreleasePool_cls = "NSAutoreleasePool"
+
+// ── AppKit classes (the "Swift-equivalent" surface) ────────────────────
+const NSApplication_cls = "NSApplication"
+const NSWindow_cls      = "NSWindow"
+const NSView_cls        = "NSView"
+const NSButton_cls      = "NSButton"
+const NSTextField_cls   = "NSTextField"
+const NSTextView_cls    = "NSTextView"
+const NSMenu_cls        = "NSMenu"
+const NSMenuItem_cls    = "NSMenuItem"
+const NSAlert_cls       = "NSAlert"
+const NSEvent_cls       = "NSEvent"
+const NSColor_cls       = "NSColor"
+const NSFont_cls        = "NSFont"
+
+// ── Selectors used everywhere ──────────────────────────────────────────
+// Object lifecycle
+const sel_alloc         = "alloc"
+const sel_init          = "init"
+const sel_release       = "release"
+const sel_retain        = "retain"
+const sel_autorelease   = "autorelease"
+const sel_dealloc       = "dealloc"
+
+// Strings (NSString)
+const sel_stringWithUTF8String = "stringWithUTF8String:"
+const sel_UTF8String           = "UTF8String"
+
+// NSApplication
+const sel_sharedApplication           = "sharedApplication"
+const sel_setActivationPolicy         = "setActivationPolicy:"
+const sel_activateIgnoringOtherApps   = "activateIgnoringOtherApps:"
+const sel_run                         = "run"
+const sel_terminate                   = "terminate:"
+
+// NSWindow
+const sel_initWithContentRect_styleMask_backing_defer =
+    "initWithContentRect:styleMask:backing:defer:"
+const sel_setTitle                = "setTitle:"
+const sel_makeKeyAndOrderFront    = "makeKeyAndOrderFront:"
+const sel_contentView             = "contentView"
+const sel_setContentView          = "setContentView:"
+const sel_setDelegate             = "setDelegate:"
+
+// NSView / NSButton / NSTextField
+const sel_initWithFrame           = "initWithFrame:"
+const sel_addSubview              = "addSubview:"
+const sel_setTarget               = "setTarget:"
+const sel_setAction               = "setAction:"
+const sel_setStringValue          = "setStringValue:"
+const sel_stringValue             = "stringValue"
+const sel_setBezelStyle           = "setBezelStyle:"
+const sel_setButtonType           = "setButtonType:"
+const sel_setEditable             = "setEditable:"
+
+// NSAlert
+const sel_setMessageText          = "setMessageText:"
+const sel_setInformativeText      = "setInformativeText:"
+const sel_runModal                = "runModal"
+
+// ── Style mask + activation-policy constants (Foundation enums) ────────
+// These are integers, NOT selector strings. Pass as the styleMask arg
+// to initWithContentRect:styleMask:backing:defer:.
+const NSWindowStyleMaskTitled         = 1
+const NSWindowStyleMaskClosable       = 2
+const NSWindowStyleMaskMiniaturizable = 4
+const NSWindowStyleMaskResizable      = 8
+const NSWindowStyleMaskBorderless     = 0
+
+// Activation policies for NSApplication
+const NSApplicationActivationPolicyRegular    = 0
+const NSApplicationActivationPolicyAccessory  = 1
+const NSApplicationActivationPolicyProhibited = 2
+
+// Backing store types for windows
+const NSBackingStoreBuffered  = 2
