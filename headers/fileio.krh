@@ -1,8 +1,16 @@
-// fileio.krh — Krypton header for Windows file I/O
-// Usage: import "headers/fileio.krh"
+// fileio.krh — Krypton header for Win32 file I/O.
+// Usage: import "head:fileio"
+//
+// DLL: kernel32.dll
+// Pipeline: native PE only — `kcc.sh -o win.exe app.k`.
+//
+// Declaration-only file. No `cfunc`, no C-header includes. kernel32.dll
+// is wired into the IAT by `compiler/windows_x86/x64.k` and the
+// functions below are dispatched via direct IAT calls.
+//
+// (POSIX file I/O lives in `head:fcntl` + `head:sys_stat`.)
 
 jxt {
-    c "windows.h"
 
     struct WIN32_FIND_DATAA {
         field dwFileAttributes DWORD

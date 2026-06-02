@@ -50,3 +50,4 @@ web/*.mp4
 compiler/wasm32/wasm_self
 NOTES.txt
 downloads-page-2.1.txt
+kcc-native

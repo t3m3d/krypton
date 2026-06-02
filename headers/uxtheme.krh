@@ -1,14 +1,16 @@
 // uxtheme.krh — Krypton bindings for Win32 visual-style / theme APIs.
 // Usage: import "head:uxtheme"
-// Link line:  -luxtheme (gcc) — ships in every MinGW install
 //
-// Native PE pipeline: uxtheme.dll IAT slot added in x64.k Phase A
-// (2026-05-11). Pure Krypton can now call these directly via `kcc -o`.
+// DLL: uxtheme.dll
+// Pipeline: native PE only — `kcc.sh -o win.exe app.k`.
+//
+// uxtheme.dll IAT slot was added to `compiler/windows_x86/x64.k`
+// in Phase A (2026-05-11). Pure-Krypton callers can invoke these
+// directly via direct IAT calls — no `--gcc` C path involved.
+//
+// Declaration-only file. No `cfunc`, no `c "header.h"` includes.
 
 jxt {
-    c "windows.h"
-    c "uxtheme.h"
-
     // Opt a child control into a named visual style. The classic
     // dark-mode opt-in for native widgets in Win10 1809+ is
     // SetWindowTheme(hwnd, L"DarkMode_Explorer", NULL). On older

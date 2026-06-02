@@ -1705,38 +1705,43 @@ func krIstruthySize() { emit 79 }
 //   [63]    5B            POP RBX                                   (1)
 //   [64]    C3            RET                                       (1)
 func emitKrTrimCode(thisVAddr, strlenVAddr, allocVAddr) {
-    let dStrlen = strlenVAddr - (thisVAddr + 22)
-    let dAlloc  = allocVAddr  - (thisVAddr + 52)
+    // Strips ALL whitespace (bytes 1..0x20: tab, LF, VT, FF, CR, space) from both
+    // ends — not just 0x20. Leading scan is NUL-safe via the unsigned (c-1)<=0x1F
+    // test (NUL -> 0xFF, so it stops). Matches macOS kr_trim (commit bb86dc47).
+    let dStrlen = strlenVAddr - (thisVAddr + 25)
+    let dAlloc  = allocVAddr  - (thisVAddr + 55)
     let c = ""
-    c = c + hexByte(0x53)
-    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xFB)
-    c = c + hexByte(0x80) + hexByte(0x3B) + hexByte(0x20)
-    c = c + hexByte(0x75) + hexByte(0x05)
-    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC3)
-    c = c + hexByte(0xEB) + hexByte(256 - 10)
-    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDF)
-    c = c + hexByte(0xE8) + hexDword(dStrlen)
-    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC1)
-    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC9)
-    c = c + hexByte(0x74) + hexByte(0x0C)
-    c = c + hexByte(0x80) + hexByte(0x7C) + hexByte(0x0B) + hexByte(0xFF) + hexByte(0x20)
-    c = c + hexByte(0x75) + hexByte(0x05)
-    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC9)
-    c = c + hexByte(0xEB) + hexByte(256 - 17)
-    c = c + hexByte(0x51)
-    c = c + hexByte(0x48) + hexByte(0x8D) + hexByte(0x79) + hexByte(0x01)
-    c = c + hexByte(0xE8) + hexDword(dAlloc)
-    c = c + hexByte(0x59)
-    c = c + hexByte(0x50)
-    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)
-    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDE)
-    c = c + hexByte(0xF3) + hexByte(0xA4)
-    c = c + hexByte(0x58)
-    c = c + hexByte(0x5B)
-    c = c + hexByte(0xC3)
+    c = c + hexByte(0x53)                                            // [0]  push rbx
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xFB)            // [1]  mov rbx, rdi
+    c = c + hexByte(0x8A) + hexByte(0x03)                            // [4]  mov al, [rbx]
+    c = c + hexByte(0x2C) + hexByte(0x01)                            // [6]  sub al, 1
+    c = c + hexByte(0x3C) + hexByte(0x1F)                            // [8]  cmp al, 0x1F
+    c = c + hexByte(0x77) + hexByte(0x05)                            // [10] ja +5 -> [17] (not whitespace/NUL)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC3)            // [12] inc rbx
+    c = c + hexByte(0xEB) + hexByte(256 - 13)                        // [15] jmp -13 -> [4]
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDF)            // [17] mov rdi, rbx
+    c = c + hexByte(0xE8) + hexDword(dStrlen)                        // [20] call kr_strlen
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC1)            // [25] mov rcx, rax
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC9)            // [28] test rcx, rcx
+    c = c + hexByte(0x74) + hexByte(0x0C)                            // [31] jz +12 -> [45]
+    c = c + hexByte(0x80) + hexByte(0x7C) + hexByte(0x0B) + hexByte(0xFF) + hexByte(0x21) // [33] cmp byte [rbx+rcx-1], 0x21
+    c = c + hexByte(0x73) + hexByte(0x05)                            // [38] jae +5 -> [45] (not whitespace)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xC9)            // [40] dec rcx
+    c = c + hexByte(0xEB) + hexByte(256 - 17)                        // [43] jmp -17 -> [28]
+    c = c + hexByte(0x51)                                            // [45] push rcx
+    c = c + hexByte(0x48) + hexByte(0x8D) + hexByte(0x79) + hexByte(0x01) // [46] lea rdi, [rcx+1]
+    c = c + hexByte(0xE8) + hexDword(dAlloc)                         // [50] call kr_alloc
+    c = c + hexByte(0x59)                                            // [55] pop rcx
+    c = c + hexByte(0x50)                                            // [56] push rax
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)            // [57] mov rdi, rax
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xDE)            // [60] mov rsi, rbx
+    c = c + hexByte(0xF3) + hexByte(0xA4)                            // [63] rep movsb
+    c = c + hexByte(0x58)                                            // [65] pop rax
+    c = c + hexByte(0x5B)                                            // [66] pop rbx
+    c = c + hexByte(0xC3)                                            // [67] ret
     emit c
 }
-func krTrimSize() { emit 65 }
+func krTrimSize() { emit 68 }
 
 // kr_toupper: ASCII uppercase. Allocates a fresh string with each lowercase
 // letter (a-z, 0x61..0x7A) shifted by -32. Other bytes copied verbatim.
@@ -3178,6 +3183,7 @@ func opByteSize(op) {
     if op == "BUILTIN_SOCKRECV"    { emit 20 } // recvfrom(fd,buf,len,0,0,0)=45
     if op == "BUILTIN_SOCKSEND"    { emit 11 } // write(fd,buf,len)=1
     if op == "BUILTIN_SOCKCLOSE"   { emit 9 }  // close(fd)=3
+    if op == "BUILTIN_SOCKCONNECT" { emit 77 } // connect(fd,&sa,16)=42; sockaddr_in with IP a.b.c.d on stack
     if op == "BUILTIN_SOCKRECVSTR" { emit 57 } // kr_alloc 64K, recvfrom, NUL-term, return buf
     // readProc(path): inline open + read-loop + close (works on /proc & /sys
     // virtual files whose st_size is 0, where kr_readfile's fstat path reads 0).
@@ -3523,6 +3529,8 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_SOCKSEND")
                 } else if bname == "sockClose" {
                     opSb = sbAppend(opSb, "BUILTIN_SOCKCLOSE")
+                } else if bname == "sockConnect" {
+                    opSb = sbAppend(opSb, "BUILTIN_SOCKCONNECT")
                 } else if bname == "sockRecvStr" {
                     opSb = sbAppend(opSb, "BUILTIN_SOCKRECVSTR")
                 } else if bname == "readProc" {
@@ -4202,6 +4210,36 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             c = sbAppend(c, hexByte(0xB8) + hexDword(3))    // mov eax,3 (SYS_close)
             c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))  // syscall
             c = sbAppend(c, hexByte(0x50))                  // push rax
+        } else if op == "BUILTIN_SOCKCONNECT" {
+            // sockConnect(fd, a, b, c, d, portHi, portLo) -> connect(fd,&sa,16) = 42.
+            // Client side; IP a.b.c.d + big-endian port (pre-split in Krypton).
+            // TOS=portLo, then portHi, d, c, b, a, fd. Builds the 16-byte
+            // sockaddr_in on the stack (Linux: no sin_len; family @ offset 0). (77 bytes)
+            c = sbAppend(c, hexByte(0x58))                  // pop rax (portLo -> al)
+            c = sbAppend(c, hexByte(0x59))                  // pop rcx (portHi -> cl)
+            c = sbAppend(c, hexByte(0x5A))                  // pop rdx (ip d -> dl)
+            c = sbAppend(c, hexByte(0x5B))                  // pop rbx (ip c -> bl)
+            c = sbAppend(c, hexByte(0x5E))                  // pop rsi (ip b -> sil)
+            c = sbAppend(c, hexByte(0x5F))                  // pop rdi (ip a -> dil)
+            c = sbAppend(c, hexByte(0x41) + hexByte(0x58))  // pop r8  (fd)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xEC) + hexByte(0x10)) // sub rsp,16
+            c = sbAppend(c, hexByte(0x45) + hexByte(0x31) + hexByte(0xC9)) // xor r9d,r9d (zero)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0x0C) + hexByte(0x24)) // mov [rsp],r9   (zero [0..7])
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0x4C) + hexByte(0x24) + hexByte(0x08)) // mov [rsp+8],r9 (zero [8..15])
+            c = sbAppend(c, hexByte(0xC6) + hexByte(0x04) + hexByte(0x24) + hexByte(0x02)) // mov byte [rsp],2 (AF_INET; [1]=0)
+            c = sbAppend(c, hexByte(0x88) + hexByte(0x4C) + hexByte(0x24) + hexByte(0x02)) // mov [rsp+2],cl (port hi BE)
+            c = sbAppend(c, hexByte(0x88) + hexByte(0x44) + hexByte(0x24) + hexByte(0x03)) // mov [rsp+3],al (port lo)
+            c = sbAppend(c, hexByte(0x40) + hexByte(0x88) + hexByte(0x7C) + hexByte(0x24) + hexByte(0x04)) // mov [rsp+4],dil (ip a)
+            c = sbAppend(c, hexByte(0x40) + hexByte(0x88) + hexByte(0x74) + hexByte(0x24) + hexByte(0x05)) // mov [rsp+5],sil (ip b)
+            c = sbAppend(c, hexByte(0x88) + hexByte(0x5C) + hexByte(0x24) + hexByte(0x06)) // mov [rsp+6],bl (ip c)
+            c = sbAppend(c, hexByte(0x88) + hexByte(0x54) + hexByte(0x24) + hexByte(0x07)) // mov [rsp+7],dl (ip d)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xC7)) // mov rdi,r8 (fd)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xE6)) // mov rsi,rsp (&sockaddr)
+            c = sbAppend(c, hexByte(0xBA) + hexDword(16))   // mov edx,16 (addrlen)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(42))   // mov eax,42 (SYS_connect)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))  // syscall
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xC4) + hexByte(0x10)) // add rsp,16
+            c = sbAppend(c, hexByte(0x50))                  // push rax (result)
         } else if op == "BUILTIN_SOCKRECVSTR" {
             // sockRecvStr(fd): kr_alloc a 64KB+1 buffer, recvfrom into it, NUL-terminate
             // at nbytes, return the buffer as a string. TOS=fd. (57 bytes)
