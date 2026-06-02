@@ -42,12 +42,18 @@ The web framework adds a third extension for templates:
   Krypton-side emitter (`compiler/wasm32/wasm_self.k`) and ships into
   `web/site/dist/learn/`. The lesson "Run" button picks up the precompiled
   module via `wasm_runner.js` and falls back to the JS bridge when the code
-  box is edited.
+  box is edited. **16 lessons (01–15, 18, 19)** match `kcc -r` output
+  byte-for-byte through the Node loader; the others fall back transparently.
+- **New WASM helpers `$lineCount` / `$getLine`** — newline-separator
+  counterparts to `$count` / `$split`. Hand-emitted at function indices
+  20 and 21; `lineCount("a\nb\n")` returns `2` (matches native
+  trailing-`\n` discount). Unlocked lessons 18 + 19 with zero regressions.
 - **Krypton in the browser** — host-side ABI hooks let `.ks` modules drive
   the DOM canvas directly (`canvas_clear`, `canvas_circle`, `canvas_line`,
   `canvas_set_fill`, `canvas_set_stroke`, `canvas_width`, `canvas_height`,
-  `random_int`). The site's hero particle animation is now a
-  Krypton-emitted `.wasm` module rather than inline JavaScript.
+  `random_int`, `time_ms`). The site's hero particle animation is now a
+  Krypton-emitted `.wasm` module rather than inline JavaScript — view its
+  source at [`krypton-lang.org/particles.ks`](https://krypton-lang.org/particles.ks).
 - **kweb** — single-binary web framework CLI. Bundled in the Windows
   installer; build from source on macOS / Linux. `krypton-lang.org` itself
   is rendered by kweb.

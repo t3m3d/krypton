@@ -1,10 +1,19 @@
 # Krypton Type System
 
-**Version 2.0**
+**Version 2.2**
 
-Krypton uses a **dynamic, string-based value model**. All values are strings at
-runtime. There are no separate integer, boolean, or float types — numeric and
-boolean operations work by inspecting and converting string content.
+Krypton uses a **dynamic, string-based value model** by default. All values
+are strings at runtime; numeric and boolean operations work by inspecting
+and converting string content. Two opt-in escape hatches override this for
+performance-critical code:
+
+- **Typed pointers** (2.0 Phase C+) — `*u8`, `*u32`, `*Vec3`, … give you
+  raw byte/word/struct-field access against a backing buffer, with reads
+  and writes lowered to direct loads/stores instead of per-call string
+  allocations. See the [Typed Pointers](#typed-pointers) section below.
+- **Typed function receivers** (2.0 alpha-1+) — `cb: closure` and
+  `cb: fp` let function-pointer / closure params skip the dynamic
+  dispatch path. See the [Closures](#closures) section below.
 
 ---
 
@@ -221,10 +230,118 @@ type(true)     // "number"  (true is "1")
 
 ---
 
+## Typed Pointers
+
+**2.0 Phase C/D — shipped.** A typed pointer annotation on a `let` binding
+tells the codegen "this name addresses raw bytes of TYPE", and rewrites
+indexing / field access to direct buffer reads:
+
+```krypton
+let p: *u8 = buf            // raw bytes
+kp(p[i])                    // → bufGetByte(buf, i)   — no per-call alloc
+p[i] = 65                   // → bufSetByte(buf, i, 65)
+
+let words: *u32 = packet    // 32-bit words
+let w = words[3]            // → bufGetDwordAt(packet, 3*4)
+
+let v: *Vec3 = bufNew(sizeofStruct("Vec3"))
+v.x = 5                     // → bufSetDwordAt(v, Vec3.x_offset, 5)
+let r = v.x                 // → bufGetDwordAt(v, Vec3.x_offset)
+```
+
+Currently supported widths: `*u8`, `*i8`, `*u16`, `*i16`, `*u32`, `*i32`,
+`*u64`, `*i64`, plus `*StructName` for any `struct`/`type`/`class`
+declared in the file. Field access (`p.field` / `p.field = v`) lowers
+to the underlying typed-buffer helper at the field's natural-aligned
+offset; nested chains (`a.b.c.d`) accumulate offsets at compile time
+into a single read/write.
+
+### `let local TYPE name`
+
+Syntactic sugar for `let name: *TYPE = bufNew(sizeofStruct(TYPE))` —
+allocates a fresh buffer of the right size and treats it as a typed
+pointer:
+
+```krypton
+let local Vec3 v
+v.x = 1   v.y = 2   v.z = 3
+```
+
+Heap-backed today; real stack allocation is a future codegen
+optimisation, but the user-facing syntax is forward-compatible.
+
+---
+
+## Closures
+
+**2.0 alpha-1+ — shipped.** Anonymous `func(...) { ... }` literals in
+expression position are closures: free variables in the body (those not
+declared inside it or in its params) are snapshot-captured by value at
+construction time.
+
+```krypton
+let n = 5
+let f = func(x) { emit x + n }
+kp(f(7))     // 12  — n was captured
+
+n = 99
+kp(f(7))     // 12  — closure holds the snapshot, not a reference
+```
+
+A capture-free `func(...) { ... }` lambda (no free variables) is
+emitted as a plain function pointer — the pre-scan in `compile.k`
+(`irScanFuncTypes`) detects the difference and tags it `fp` or
+`closure` accordingly. Both forms can be passed as values, stored in
+locals, and called via `f(args)`.
+
+Named nested functions hoist to file scope and behave like sibling
+top-level functions; they are not closures.
+
+### Typed closure receivers
+
+Function parameters can be annotated `cb: closure` (or the
+shorter-but-deprecated `cb: fp`) to skip dynamic dispatch:
+
+```krypton
+func apply(cb: closure, x) {
+    emit cb(x)
+}
+
+let mul = 3
+apply(func(v) { emit v * mul }, 7)   // 21
+```
+
+`stdlib/fp.k` exposes `map`, `filter`, `reduce`, `each`, `find`,
+`any`, `all`, `zip`, `enumerate`, `take`, `drop`, `count`, `range`,
+and `join` over comma-separated lists, all built on typed `closure`
+receivers.
+
+---
+
+## Line-oriented strings
+
+`lineCount(s)` and `getLine(s, i)` (added 2.2) are the newline-separator
+counterparts to `count` / `split`:
+
+```krypton
+let text = "first\nsecond\nthird"
+kp(lineCount(text))      // 3
+kp(getLine(text, 1))     // "second"
+```
+
+`lineCount` matches the native semantics: it counts `'\n'` bytes, then
+adds 1 iff the string is non-empty AND doesn't end in `'\n'`, so
+`"a\nb\n"` returns 2 (not 3). Both work in the C path, the native
+pipeline, AND the WASM backend (function indices 20 / 21 in
+emitted modules).
+
+---
+
 ## Future
 
 Static type annotations are accepted by the parser today (`let x: int = 42`,
-`func add(a: int, b: int) -> int`) and emitted as typed C declarations on the
-C path. They have no effect on the native pipeline yet and aren't enforced at
-runtime. Genuine static checking is a 2.0 candidate; the runtime model will
-remain string-based for compatibility.
+`func add(a: int, b: int) -> int`) and emitted as typed C declarations on
+the C path. The 2.0 typed-pointer work covers raw-byte and struct-field
+fast paths; broader integer-vs-string static checking on the native
+pipeline is still a candidate for a future release. The runtime model
+remains string-based by default for compatibility.
