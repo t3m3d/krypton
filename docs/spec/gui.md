@@ -6,18 +6,27 @@ end-to-end; the library converts to UTF-16 internally and uses the
 W-suffixed Win32 APIs everywhere.
 
 ```krypton
-import "stdlib/gui.k"
+import "k:gui"
 ```
 
-Build any program using this library with:
+Build any program using this library with the native pipeline — no C
+compiler in the loop:
 
 ```bat
-kcc.exe my_program.k > tmp.c
-gcc tmp.c -o my_program.exe -luser32 -lgdi32 -lcomctl32 -lcomdlg32 ^
-    -lole32 -lshell32 -ldwmapi -luxtheme -ladvapi32 -lm -w
+kcc my_program.k -o my_program.exe
 ```
 
-The IDE (`kcode-win`) and `kbackend.exe` already pass these flags.
+The user32, gdi32, comctl32, comdlg32, ole32, shell32, dwmapi,
+uxtheme, and advapi32 imports are wired by the Win32 IAT in
+`compiler/windows_x86/x64.k` and the companion
+`runtime/ckrypton_gui.dll` (98 `krGui*` exports compiled from the
+`cfunc` body of `gui.k`). No external linker invocation. The IDE
+(`kcode-win`) and `kbackend.exe` build using the same pipeline; F5
+in `kcode-win` is native-only as of 2.0.
+
+The legacy `kcc.exe my_program.k > tmp.c && gcc tmp.c ... -luser32 ...`
+escape hatch still works for the C-emit path but is no longer the
+default and is not exercised by F5.
 
 ---
 

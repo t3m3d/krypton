@@ -156,6 +156,36 @@ populating the table** — which is the one place in v1 where we
 can't skip Section 4/9. Without funcptrs, however, lots of stdlib breaks
 (router dispatch, htEach closures), so plan to include it from day 1.
 
+#### Function-index layout (as of 2.2)
+
+`wasm_self.k` emits a fixed function-index map. Imports come first
+(WASM spec), then the hand-emitted runtime helpers, then user funcs:
+
+| Index | Kind   | Name |
+|-------|--------|------|
+|  0..10 | import | `console_log`, `console_log_int`, `canvas_clear`, `canvas_circle`, `canvas_line`, `canvas_set_fill`, `canvas_set_stroke`, `canvas_width`, `canvas_height`, `random_int`, `time_ms` |
+| 11    | helper | `$int2str` |
+| 12    | helper | `$tostr` |
+| 13    | helper | `$concat` |
+| 14    | helper | `$index` |
+| 15    | helper | `$substring` |
+| 16    | helper | `$startsWith` |
+| 17    | helper | `$toint` |
+| 18    | helper | `$count`     — commas+1 |
+| 19    | helper | `$split`     — comma-field by index |
+| 20    | helper | **`$lineCount`** — newlines, trailing-`\n` discounted (2.2) |
+| 21    | helper | **`$getLine`**   — newline-field by index (2.2) |
+| 22+   | user   | `__main__` + every user `func` |
+
+When you add helpers, you must also:
+
+- Bump the `+22` constant in `funcIndexOf` and `mainIdx` (`compile.k:1321`).
+- Update the helper count in `wasmFuncs()` (`11 + cnt`) and append the
+  new helper's type-index byte after `b(3) + b(4)`.
+- Add a `BUILTIN <name> ` dispatch arm in `emitFuncBody` that emits
+  `iCALL(<index>)`.
+- Append the helper body to `helperBodies` in `buildModule()`.
+
 ### Strings
 
 Krypton strings on native are length-prefixed `char*` allocations. On

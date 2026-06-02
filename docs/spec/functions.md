@@ -1,27 +1,38 @@
 # Krypton Built-in Functions Reference
 
-**Version 2.0** — Reference for built-in functions.
+**Version 2.2** — Reference for built-in functions.
 
-All values in Krypton are strings. Functions that operate on numbers parse their
-arguments and return numeric strings. Lists are comma-separated strings (`"a,b,c"`).
-Maps are interleaved key-value lists (`"name,Alice,age,30"`).
+All values in Krypton are strings by default. Functions that operate on numbers
+parse their arguments and return numeric strings. Lists are comma-separated
+strings (`"a,b,c"`). Maps are interleaved key-value lists
+(`"name,Alice,age,30"`). For raw-byte / struct-field fast paths see
+[**Typed Pointers**](types.md#typed-pointers).
 
 ## Pipeline support legend
 
-Some functions exist in every pipeline; others are only available via the C-emitter
-path (`kcc.sh --c` or default on macOS). Each entry below carries a tag:
+Some functions exist in every pipeline; others are only available via the
+C-emitter path (`kcc.sh --c`) or are still being rolled into the browser/Node
+WASM backend. Each entry carries a tag:
 
-- **(native)** — works in `kcc.sh --native` on Linux ELF (the leading native target)
-  *and* in the C path. The Windows PE backend (`x64.k`) and macOS arm64 Mach-O
-  backend (`macho_arm64_self.k`) carry most of these too; if a function works on
-  Linux native it generally works everywhere unless noted otherwise.
-- **(C path)** — only resolves through the C-emitter pipeline; calling it from
-  `--native` will produce an `UNSUPPORTED` marker and crash at runtime. To use
-  these today, compile with `kcc.sh --c` (emit C) and run the resulting binary
-  through `gcc` / `clang`. Most of them will migrate to the native pipeline over
-  the 1.5–2.0 line.
+- **(native)** — works in `kcc.sh --native` on Linux ELF *and* in the C path.
+  The Windows PE backend (`x64.k`) and macOS arm64 Mach-O backend
+  (`macho_arm64_self.k`) carry most of these too; if a function works on
+  Linux native it generally works everywhere unless noted.
+- **(C path)** — only resolves through the C-emitter pipeline; calling it
+  from `--native` will produce an `UNSUPPORTED` marker and crash at runtime.
+- **(wasm)** — also supported by the `compiler/wasm32/wasm_self.k` emitter
+  used for the browser playground and `tests/wasm` regression. As of 2.2 the
+  WASM target covers I/O via `kp`, the canvas surface
+  (`canvas_clear` / `canvas_circle` / `canvas_line` / `canvas_set_fill` /
+  `canvas_set_stroke` / `canvas_width` / `canvas_height`), `random_int`,
+  `time_ms`, the string core (`len`, `substring`, `s[i]`, `startsWith`,
+  `toInt`, `count`, `split`, `lineCount`, `getLine`, `isTruthy`),
+  StringBuilder (`sbNew` / `sbAppend` / `sbToString`), `arg` / `argCount`
+  (stubbed to "no args"), and the GC shadow-stack ops emitted by every
+  function entry.
 
-When in doubt, run `kcc.sh --native --ir foo.k` and look for `UNSUPPORTED` lines.
+When in doubt, run `kcc.sh --native --ir foo.k` and look for `UNSUPPORTED`
+lines, or `bash tests/wasm/RUN.sh` for the WASM scorecard.
 
 ---
 
@@ -287,11 +298,18 @@ Comma-separated list of field names.
 
 ## Line Operations
 
-### getLine(s, i) — (native)
-Returns the `i`-th newline-separated line.
+### getLine(s, i) — (native, wasm)
+Returns the `i`-th newline-separated line. Index is 0-based.
 
-### lineCount(s) — (native)
-Number of newline-separated lines.
+### lineCount(s) — (native, wasm)
+Number of newline-separated lines. Counts `'\n'` bytes, then adds 1 iff
+the string is non-empty AND doesn't end in `'\n'`, so `lineCount("a\nb\n")`
+returns `2`, not `3`. `lineCount("")` returns `0`.
+
+The WASM backend implements both at function indices 20 (`$lineCount`)
+and 21 (`$getLine`) in every emitted module — they are
+newline-separator counterparts to the existing `$count` / `$split`
+helpers.
 
 ---
 
@@ -503,6 +521,25 @@ Win32 `CreateFileMappingA` + `MapViewOfFile` wrappers. `mmapFile`
 returns a Krypton env with `ptr`, `h`, `hMap` keys. `mmapPtr` extracts
 the raw `*u8` mmap pointer (use `bufGetByte(p, i)` to read individual
 bytes with no copy into the GC heap). Always pair with `mmapClose`.
+
+### Lambdas + closures — (native; 2.0)
+
+`func(...) { ... }` (or `fn(...) { ... }`) in expression position is a
+first-class value: it can be stored in a local, passed as an argument,
+returned from a function, and called via `f(args)`. A capture-free
+lambda emits as a plain function pointer; one that references free
+variables emits as a snapshot-capturing closure (see
+[Types → Closures](types.md#closures)).
+
+The `stdlib/fp.k` module provides `map`, `filter`, `reduce`, `each`,
+`find`, `any`, `all`, `zip`, `enumerate`, `take`, `drop`, `count`,
+`range`, and `join` over comma-separated lists.
+
+### `bufNew(n)` / `bufGetByte(b,i)` / `bufSetByte(b,i,v)` / `bufGetWordAt(b,off)` / `bufGetDwordAt(b,off)` / `bufGetQwordAt(b,off)` (+ Set/BE variants) — (native; 2.0)
+
+Raw-byte buffer primitives used by the typed-pointer codegen. You can
+call them directly, but most code goes through the typed-pointer sugar
+(`let p: *u32 = buf; p[i]` lowers to `bufGetDwordAt(buf, i*4)`).
 
 ## Notes
 
