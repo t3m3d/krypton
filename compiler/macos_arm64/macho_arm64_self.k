@@ -236,7 +236,7 @@ func computeLayout() {
     g_DATA_FILE_OFF = textVmsize + 0x4000
     g_LINKEDIT_FILE_OFF = textVmsize + 0x8000
     g_DATA_VADDR = 0x100000000 + textVmsize + 0x4000
-    g_LINKEDIT_VADDR = g_DATA_VADDR + 0x40000000     // + DATA_VMSIZE
+    g_LINKEDIT_VADDR = g_DATA_VADDR + DATA_VMSIZE()  // must match DATA vmsize, else LINKEDIT overlaps the heap (was hardcoded 0x40000000=1GB while DATA vmsize=0x70000000 → heap SEGV'd at 1GB; blocked native self-host)
     g_CODESIG_OFF = g_LINKEDIT_FILE_OFF + 192
     let nCodeSlots = (g_CODESIG_OFF + pageSize - 1) / pageSize
     // SuperBlob: hdr(12) + 3 indices(24) + CD + requirements(12) + CMS(8).
