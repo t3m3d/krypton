@@ -3179,6 +3179,9 @@ func opByteSize(op) {
     if op == "BUILTIN_SOCKSEND"    { emit 11 } // write(fd,buf,len)=1
     if op == "BUILTIN_SOCKCLOSE"   { emit 9 }  // close(fd)=3
     if op == "BUILTIN_SOCKRECVSTR" { emit 57 } // kr_alloc 64K, recvfrom, NUL-term, return buf
+    // readProc(path): inline open + read-loop + close (works on /proc & /sys
+    // virtual files whose st_size is 0, where kr_readfile's fstat path reads 0).
+    if op == "BUILTIN_READPROC"    { emit 95 }
     if op == "POP"        { emit 1 }
     if op == "LABEL"      { emit 0 }
     if op == "JUMP"       { emit 5 }    // E9 + d32
@@ -3522,6 +3525,8 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_SOCKCLOSE")
                 } else if bname == "sockRecvStr" {
                     opSb = sbAppend(opSb, "BUILTIN_SOCKRECVSTR")
+                } else if bname == "readProc" {
+                    opSb = sbAppend(opSb, "BUILTIN_READPROC")
                 } else {
                     // Unknown builtin: emit a marker and leave the stack
                     // alone. Programs that hit this are already incorrect;
@@ -4221,6 +4226,45 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             c = sbAppend(c, hexByte(0x41) + hexByte(0xC6) + hexByte(0x04) + hexByte(0x04) + hexByte(0x00)) // mov byte [r12+rax],0
             c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xE0)) // mov rax, r12 (return buf)
             c = sbAppend(c, hexByte(0x50))                  // push rax
+        } else if op == "BUILTIN_READPROC" {
+            // readProc(path): open(path, O_RDONLY); kr_alloc 256KB; read-loop into
+            // the buffer until EOF; close; NUL-terminate; return buffer. Reads /proc
+            // and /sys virtual files (st_size==0) that kr_readfile's fstat path can't.
+            // RBX=fd, R12=buf, R13=cursor, R8=remaining — all survive kr_alloc (touches
+            // only RAX/R15/RDI) and `syscall` (clobbers only RCX/R11). (91 bytes)
+            c = sbAppend(c, hexByte(0x5F))                                  // [0]  pop rdi (path)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xF6))                  // [1]  xor esi,esi (O_RDONLY)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xD2))                  // [3]  xor edx,edx (mode 0)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(2))                    // [5]  mov eax,2 (SYS_open)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                  // [10] syscall -> rax=fd
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)) // [12] test rax,rax
+            c = sbAppend(c, hexByte(0x78) + hexByte(0x47))                  // [15] js +0x47 -> .err(88)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xC3)) // [17] mov rbx,rax (fd)
+            c = sbAppend(c, hexByte(0xBF) + hexDword(0x40000))             // [20] mov edi,0x40000 (alloc 256KB)
+            let rpDisp = krAllocVAddr - (funcStartVAddr + off + 30)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(rpDisp))              // [25] call kr_alloc -> rax=buf
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x89) + hexByte(0xC4)) // [30] mov r12,rax (buf base)
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x89) + hexByte(0xC5)) // [33] mov r13,rax (cursor)
+            c = sbAppend(c, hexByte(0x41) + hexByte(0xB8) + hexDword(0x3FFFF)) // [36] mov r8d,0x3FFFF (remaining; 1 byte spare for NUL)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xC0))                 // [42] .loop: xor eax,eax (SYS_read)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xDF)) // [44] mov rdi,rbx (fd)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xEE)) // [47] mov rsi,r13 (cursor)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xC2)) // [50] mov rdx,r8 (remaining)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                 // [53] syscall -> rax=nread
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)) // [55] test rax,rax
+            c = sbAppend(c, hexByte(0x7E) + hexByte(0x08))                 // [58] jle +8 -> .done(68)
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x01) + hexByte(0xC5)) // [60] add r13,rax (cursor += nread)
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x29) + hexByte(0xC0)) // [63] sub r8,rax (remaining -= nread)
+            c = sbAppend(c, hexByte(0x7F) + hexByte(0xE6))                 // [66] jg -26 -> .loop(42)
+            c = sbAppend(c, hexByte(0x41) + hexByte(0xC6) + hexByte(0x45) + hexByte(0x00) + hexByte(0x00)) // [68] .done: mov byte [r13],0 (disp8=0, imm8=0; 5 bytes)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(3))                   // [72] mov eax,3 (SYS_close)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xDF)) // [77] mov rdi,rbx (fd)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                 // [80] syscall
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xE0)) // [82] mov rax,r12 (return buf)
+            c = sbAppend(c, hexByte(0xEB) + hexByte(0x06))                 // [86] jmp +6 -> .end(94)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xF8)) // [88] .err: mov rax,r15 (zeroed heap byte = "")
+            c = sbAppend(c, hexByte(0x49) + hexByte(0xFF) + hexByte(0xC7)) // [91] inc r15 (consume the NUL byte so the next kr_alloc can't alias/overwrite this empty string)
+            c = sbAppend(c, hexByte(0x50))                                 // [94] .end: push rax
         } else if op == "BUILTIN_WRITEFILE" {
             // POP RSI (content, top) ; POP RDI (path) ; CALL kr_writefile ; PUSH RAX
             c = sbAppend(c, hexByte(0x5E))
