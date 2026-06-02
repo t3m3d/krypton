@@ -213,7 +213,18 @@ backend; using any as an identifier is a tokenization error today.
   parser. `.k` is the default; `.ks` (KryptScript, 2.2+) signals "script"
   and is what installer associations / VS Code activation patterns key on.
   Either may begin with a `#!/usr/bin/env kr` shebang — the tokenizer
-  drops the first line when it starts with `#!`.
+  drops the first line when it starts with `#!`. On Windows the installer
+  associates `.ks` with `kr.exe` (a tiny native PE wrapper that runs
+  `kcc -r` internally), so cmd.exe `myscript.ks args` and Explorer
+  double-click both invoke the script directly — the Windows equivalent
+  of a `.bat`.
+- **`run.k` convention.** For projects that span more than one file
+  (signalled by an explicit `module <name>` decl on any file), the
+  `just run { ... }` entry block must live in a file literally named
+  `run.k` (or `run.ks`). The compiler emits a warning today when it
+  doesn't; the warning becomes a hard error in the next major release.
+  Single-file scripts (no `module` decl) are exempt — they can keep
+  the `just run { ... }` body in any filename.
 - **Nested function declarations.** A `func name(...) { ... }` inside a
   block is hoisted to file-scope by the IR walk and dispatches as a
   plain function pointer. Anonymous `func(...) { ... }` lambdas in
