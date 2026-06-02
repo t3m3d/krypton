@@ -1,18 +1,17 @@
-// comdlg32.krh — Krypton bindings for the Win32 common dialog API
-// Usage: import "comdlg32.krh"
-// Link line:  -lcomdlg32 (gcc) — ships in every MinGW install
+// comdlg32.krh — Krypton bindings for the Win32 common dialog API.
+// Usage: import "head:comdlg32"
 //
-// These dialogs all take big multi-field structs (OPENFILENAMEA,
-// CHOOSECOLORA, CHOOSEFONTA, FINDREPLACEA, PRINTDLGA). For now those
-// structs aren't declared as Krypton-typed structs — call sites
-// typically wrap the whole flow in a `cfunc { }` helper that builds
-// the struct in C and returns a clean string-typed result. See
-// examples/win_filedialog.k for the canonical pattern.
+// DLL: comdlg32.dll
+// Pipeline: native PE only — `kcc.sh -o win.exe app.k`.
+//
+// Pure-Krypton — no `cfunc`, no C-header includes. The dialogs take
+// multi-field structs (OPENFILENAMEA, CHOOSECOLORA, CHOOSEFONTA,
+// FINDREPLACEA, PRINTDLGA) that callers build via `bufNew` +
+// `bufSetDwordAt` / `bufSetQwordAt` then pass the buffer in. The
+// canonical wrappers live in `stdlib/gui.k` (guiOpenFile, guiSaveFile,
+// guiColorPicker) — most user code never touches these names directly.
 
 jxt {
-    c "windows.h"
-    c "commdlg.h"
-
     // ── File open / save ──────────────────────────────────────────
     func GetOpenFileNameA(ofn) -> BOOL
     func GetSaveFileNameA(ofn) -> BOOL
