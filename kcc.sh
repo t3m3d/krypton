@@ -435,7 +435,11 @@ fi
 
 if [[ "$GCC_MODE" -ne 1 ]]; then
     NATIVE_MODE=1
-    exec "$0" --native -o "$OUTFILE" "$SRCFILE"
+    # Re-exec by absolute path, NOT "$0": when invoked as a bare `bash kcc.sh`,
+    # `$0` is "kcc.sh" and exec would do a PATH lookup, re-dispatching to a
+    # DIFFERENT installed copy (e.g. /usr/local/krypton/kcc.sh) with the wrong
+    # SCRIPT_DIR/KRYPTON_ROOT — so imports resolve against the wrong stdlib.
+    exec "$SCRIPT_DIR/kcc.sh" --native -o "$OUTFILE" "$SRCFILE"
 fi
 
 # ─── C+gcc/clang path — DEPRECATED ─────────────────────────────────────────
