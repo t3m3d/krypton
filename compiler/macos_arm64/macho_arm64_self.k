@@ -1696,6 +1696,11 @@ func parseFullIR(ir) {
                     } else if bname == "sockClose" {
                         curOps = sbAppend(curOps, "BUILTIN_SOCKCLOSE\n")
                         nOps += 1
+                    } else if bname == "sockRecvStr" {
+                        // recv into a fresh heap buffer, NUL-terminate, return
+                        // as a Krypton string (like readFile, minus open/close).
+                        curOps = sbAppend(curOps, "BUILTIN_SOCKRECVSTR\n")
+                        nOps += 1
                     }
                 } else if op == "POP" {
                     curOps = sbAppend(curOps, "POP\n")
@@ -1974,6 +1979,7 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_SOCKRECV"     { emit 9 }   // pop len,buf,fd; x3=x4=x5=0;x16=29; svc; push
     if opTok == "BUILTIN_SOCKSEND"     { emit 6 }   // pop len,buf,fd; x16=4(write); svc; push
     if opTok == "BUILTIN_SOCKCLOSE"    { emit 4 }   // pop fd; x16=6; svc; push
+    if opTok == "BUILTIN_SOCKRECVSTR"  { emit 36 }  // pop fd; alloc(21) 64K; recvfrom; NUL-term; return buf
     if opTok == "POP"              { emit 1 }
     emit 0
 }
@@ -4646,6 +4652,30 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_svc(0x80))          // 2
             s = sbAppend(s, arm64_push_x0())          // 3
             instrIdx = instrIdx + 4
+        } else if opTok == "BUILTIN_SOCKRECVSTR" {
+            // sockRecvStr(fd): recvfrom(fd, buf, 64K, 0,0,0) into a fresh heap
+            // buffer, NUL-terminate at bytes_read, return as a string. Mirrors
+            // BUILTIN_READFILE minus open/close. TOS=fd. 36 instr (incl alloc 21).
+            // x19=fd, x20=buf, x21=bytes_read (saved across alloc).
+            s = sbAppend(s, arm64_pop(19))            // 0: x19 = fd
+            s = sbAppend(s, arm64_movz_x_imm_lsl16(4, 0x1)) // 1: x4 = 0x10000 = 64 KB
+            instrIdx = instrIdx + 2
+            s = sbAppend(s, emitAllocVar(instrIdx, textVaddr, textOff))  // x0 = buf (21)
+            instrIdx = instrIdx + 21
+            s = sbAppend(s, arm64_mov_xx(20, 0))      // buf
+            s = sbAppend(s, arm64_mov_xx(0, 19))      // x0 = fd
+            s = sbAppend(s, arm64_mov_xx(1, 20))      // x1 = buf
+            s = sbAppend(s, arm64_mov_xx(2, 4))       // x2 = size
+            s = sbAppend(s, arm64_movz_x_imm(3, 0))   // flags = 0
+            s = sbAppend(s, arm64_movz_x_imm(4, 0))   // from = NULL
+            s = sbAppend(s, arm64_movz_x_imm(5, 0))   // fromlen = NULL
+            s = sbAppend(s, arm64_movz_x_imm(16, 29)) // SYS_recvfrom
+            s = sbAppend(s, arm64_svc(0x80))
+            s = sbAppend(s, arm64_mov_xx(21, 0))      // bytes_read
+            s = sbAppend(s, arm64_strb_reg(31, 20, 21)) // NUL at buf[bytes_read]
+            s = sbAppend(s, arm64_mov_xx(0, 20))      // return buf
+            s = sbAppend(s, arm64_push_x0())
+            instrIdx = instrIdx + 13
         } else if opTok == "POP" {
             s = sbAppend(s, arm64_pop_x0())
             instrIdx = instrIdx + 1
