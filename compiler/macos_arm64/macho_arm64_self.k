@@ -3001,7 +3001,8 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_push_x0())
             instrIdx = instrIdx + 13
         } else if opTok == "BUILTIN_TRIM" {
-            // trim(s): strip leading/trailing spaces (just ' ' for now). 42 instr.
+            // trim(s): strip leading/trailing whitespace — any byte <=32
+            // (space, tab \t=9, nl \n=10, cr \r=13, other controls). 42 instr.
             // Layout (0-indexed within this op):
             //   0:pop x6=s  1:movz x12=0
             //   2:ldrb w7 (LOOP1)  3:cbz→ALL_WS(+19)  4:cmp w7,#32  5:b.ne LOOP1_DONE(+3)
@@ -3025,7 +3026,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_ldrb_reg(7, 6, 12))
             s = sbAppend(s, arm64_cbz(7, 19))
             s = sbAppend(s, arm64_cmp_imm(7, 32))
-            s = sbAppend(s, arm64_b_cond(0x1, 3))  // b.ne
+            s = sbAppend(s, arm64_b_cond(0xc, 3))  // b.gt: stop when char>32, so we trim all c<=32 (space/tab/nl/cr)
             s = sbAppend(s, arm64_add_imm(12, 12, 1))
             s = sbAppend(s, arm64_b(0 - 5))
             s = sbAppend(s, arm64_mov_xx(8, 6))
@@ -3036,7 +3037,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_sub_imm(9, 5, 1))  // LOOP2
             s = sbAppend(s, arm64_ldrb_reg(7, 6, 9))
             s = sbAppend(s, arm64_cmp_imm(7, 32))
-            s = sbAppend(s, arm64_b_cond(0x1, 4))  // b.ne LOOP2_DONE (+4)
+            s = sbAppend(s, arm64_b_cond(0xc, 4))  // b.gt: trim trailing c<=32 (space/tab/nl/cr)
             s = sbAppend(s, arm64_sub_imm(5, 5, 1))
             s = sbAppend(s, arm64_cmp_xx(5, 12))
             s = sbAppend(s, arm64_b_cond(0xc, 0 - 6))  // b.gt LOOP2
