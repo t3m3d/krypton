@@ -1701,6 +1701,10 @@ func parseFullIR(ir) {
                         // as a Krypton string (like readFile, minus open/close).
                         curOps = sbAppend(curOps, "BUILTIN_SOCKRECVSTR\n")
                         nOps += 1
+                    } else if bname == "sockConnect" {
+                        // connect(fd, &sockaddr_in, 16) #98 — client side.
+                        curOps = sbAppend(curOps, "BUILTIN_SOCKCONNECT\n")
+                        nOps += 1
                     }
                 } else if op == "POP" {
                     curOps = sbAppend(curOps, "POP\n")
@@ -1980,6 +1984,7 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_SOCKSEND"     { emit 6 }   // pop len,buf,fd; x16=4(write); svc; push
     if opTok == "BUILTIN_SOCKCLOSE"    { emit 4 }   // pop fd; x16=6; svc; push
     if opTok == "BUILTIN_SOCKRECVSTR"  { emit 36 }  // pop fd; alloc(21) 64K; recvfrom; NUL-term; return buf
+    if opTok == "BUILTIN_SOCKCONNECT"  { emit 53 }  // pop lo,hi,d,c,b,a,fd(7); alloc(21) sockaddr; fill 16B w/IP; connect(98)
     if opTok == "POP"              { emit 1 }
     emit 0
 }
@@ -4642,6 +4647,49 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_mov_xx(0, 19))      // x0 = fd
             s = sbAppend(s, arm64_movz_x_imm(2, 16))  // addrlen = 16
             s = sbAppend(s, arm64_movz_x_imm(16, 104))// SYS_bind
+            s = sbAppend(s, arm64_svc(0x80))
+            s = sbAppend(s, arm64_push_x0())          // push result
+            instrIdx = instrIdx + 24
+        } else if opTok == "BUILTIN_SOCKCONNECT" {
+            // sockConnect(fd, a, b, c, d, portHi, portLo)
+            //   -> connect(fd, &sockaddr_in, 16) #98. Client side.
+            // IP passed as 4 octets (a.b.c.d) + port pre-split big-endian, all
+            // computed in Krypton to avoid shifts in hand-asm. 53 instr (alloc 21).
+            // Pop order is LIFO: TOS=portLo .. bottom=fd. Use survivor regs only
+            // (emitAllocVar clobbers x0,x1,x2,x5,x9,x11; data stack untouched).
+            s = sbAppend(s, arm64_pop(7))             // 0: x7 = portLo
+            s = sbAppend(s, arm64_pop(6))             // 1: x6 = portHi
+            s = sbAppend(s, arm64_pop(23))            // 2: x23 = ip d
+            s = sbAppend(s, arm64_pop(22))            // 3: x22 = ip c
+            s = sbAppend(s, arm64_pop(21))            // 4: x21 = ip b
+            s = sbAppend(s, arm64_pop(20))            // 5: x20 = ip a
+            s = sbAppend(s, arm64_pop(19))            // 6: x19 = fd
+            s = sbAppend(s, arm64_movz_x_imm(4, 16))  // 7: alloc size = 16
+            instrIdx = instrIdx + 8
+            s = sbAppend(s, emitAllocVar(instrIdx, textVaddr, textOff))  // x0 = sockaddr (21)
+            instrIdx = instrIdx + 21
+            s = sbAppend(s, arm64_movz_x_imm(9, 16))  // sin_len = 16
+            s = sbAppend(s, arm64_strb_imm(9, 0, 0))
+            s = sbAppend(s, arm64_movz_x_imm(9, 2))   // AF_INET
+            s = sbAppend(s, arm64_strb_imm(9, 0, 1))
+            s = sbAppend(s, arm64_strb_imm(6, 0, 2))  // port hi (BE)
+            s = sbAppend(s, arm64_strb_imm(7, 0, 3))  // port lo
+            s = sbAppend(s, arm64_strb_imm(20, 0, 4)) // ip a
+            s = sbAppend(s, arm64_strb_imm(21, 0, 5)) // ip b
+            s = sbAppend(s, arm64_strb_imm(22, 0, 6)) // ip c
+            s = sbAppend(s, arm64_strb_imm(23, 0, 7)) // ip d
+            s = sbAppend(s, arm64_strb_imm(31, 0, 8)) // zero [8..15]
+            s = sbAppend(s, arm64_strb_imm(31, 0, 9))
+            s = sbAppend(s, arm64_strb_imm(31, 0, 10))
+            s = sbAppend(s, arm64_strb_imm(31, 0, 11))
+            s = sbAppend(s, arm64_strb_imm(31, 0, 12))
+            s = sbAppend(s, arm64_strb_imm(31, 0, 13))
+            s = sbAppend(s, arm64_strb_imm(31, 0, 14))
+            s = sbAppend(s, arm64_strb_imm(31, 0, 15))
+            s = sbAppend(s, arm64_mov_xx(1, 0))       // x1 = sockaddr
+            s = sbAppend(s, arm64_mov_xx(0, 19))      // x0 = fd
+            s = sbAppend(s, arm64_movz_x_imm(2, 16))  // addrlen = 16
+            s = sbAppend(s, arm64_movz_x_imm(16, 98)) // SYS_connect
             s = sbAppend(s, arm64_svc(0x80))
             s = sbAppend(s, arm64_push_x0())          // push result
             instrIdx = instrIdx + 24
