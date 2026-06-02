@@ -1917,7 +1917,7 @@ func opInstrCount(opTok) {
     if opTok == "NOT"              { emit 4 }   // pop, cmp, cset, push
     if opTok == "INDEX"            { emit 27 }  // pop i, pop s, alloc(21), ldrb, strb char, strb NUL, push
     if opTok == "BUILTIN_KP"       { emit 69 }  // string or int dispatch; inline itoa for ints
-    if opTok == "BUILTIN_EXIT"     { emit 5 }
+    if opTok == "BUILTIN_EXIT"     { emit 13 }  // atoi(str arg) then exit(code)
     if opTok == "BUILTIN_LEN"      { emit 7 }   // pop, mov, ldrb-post, cbnz, sub-reg, sub-imm, push
     if opTok == "BUILTIN_CHARCODE" { emit 3 }   // pop, ldrb, push
     if opTok == "BUILTIN_SUBSTRING"{ emit 37 }  // alloc(21) bumped from 15 → +6
@@ -2415,12 +2415,27 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_push(0))
             instrIdx = instrIdx + 5
         } else if opTok == "BUILTIN_EXIT" {
-            s = sbAppend(s, arm64_pop_x0())
+            // exit(code): the arg is a STRING ("1"), so atoi it before the
+            // exit syscall. Popping the pointer straight into x0 (old behavior)
+            // passed a heap pointer as the code -> bogus 71. 13 instr.
+            //   0:pop x6=str  1:x0=0(acc)  2:x8=10
+            //   3(LOOP):ldrb post w7,[x6]  4:cbz w7 DONE(+5)
+            //   5:sub w7,#48  6:x0*=10  7:x0+=w7  8:b LOOP(-5)
+            //   9(DONE):x16=1  10:svc  11:dead movz  12:dead push
+            s = sbAppend(s, arm64_pop(6))
+            s = sbAppend(s, arm64_movz_x_imm(0, 0))
+            s = sbAppend(s, arm64_movz_x_imm(8, 10))
+            s = sbAppend(s, arm64_ldrb_post(7, 6, 1))
+            s = sbAppend(s, arm64_cbz(7, 5))
+            s = sbAppend(s, arm64_sub_imm(7, 7, 48))
+            s = sbAppend(s, arm64_mul_xxx(0, 0, 8))
+            s = sbAppend(s, arm64_add_xxx(0, 0, 7))
+            s = sbAppend(s, arm64_b(0 - 5))
             s = sbAppend(s, arm64_movz_x_imm(16, 1))
             s = sbAppend(s, arm64_svc(0x80))
             s = sbAppend(s, arm64_movz_w_imm(0, 0))
             s = sbAppend(s, arm64_push_x0())
-            instrIdx = instrIdx + 5
+            instrIdx = instrIdx + 13
         } else if opTok == "LT" || opTok == "GT" || opTok == "LE" || opTok == "GE" {
             // Ordering comparisons — int-only. (Compile.k doesn't emit these
             // for string operands; strings compare with EQ/NE only.)
