@@ -12,62 +12,32 @@
 //       msg(app, sel_run)
 //   }
 //
-// Three layers:
-//   1. cls(name), sel(name)  — raw class/selector lookup with module-local
-//                              cache so each name is resolved once.
-//   2. msg / msg_1 / … / msg_6 — typed message sends. The suffix is the
-//                              EXTRA arg count after (self, sel).
-//   3. withPool { ... }      — autorelease pool helper. Allocations made
-//                              inside the block drain at exit. Pair with
-//                              every Cocoa entry point that creates
-//                              temporary objects.
+// FULLY STATELESS — no module-level `let`. Same constraint agent m
+// hit shipping `stdlib/server_native.k`: imported Krypton modules
+// export functions only; top-level `let` state does NOT persist across
+// the import boundary. So everything here takes its inputs from the
+// caller and returns values back; no hidden caches, no globals.
 //
-// SCAFFOLD — agent m owns the codegen side. The dispatch functions below
-// (msg, msg_1, …) all route through the matching objc_msgSend_N variant
-// declared in headers/objc.krh. Once macho_arm64_self.k emits the right
-// BL instruction for each variant, calls land in libobjc with the
-// correct arm64 calling convention (self in x0, SEL in x1, extras in
-// x2..x7).
+// Performance note: `objc_getClass` and `sel_registerName` are
+// idempotent runtime hash lookups — fast enough that a per-call cache
+// isn't worth the state-management complexity. If profiling later
+// shows hot spots on selector resolution, the caller can hoist a
+// `let SEL_setTitle = sel("setTitle:")` out of any loop, paying the
+// lookup cost once at startup.
 
 module objc
 
 import "head:objc"
 import "head:cocoa"
 
-// ── Class + selector cache ─────────────────────────────────────────────
-//
-// Naive impl: every `cls("NSWindow")` call goes through objc_getClass,
-// every `sel("setTitle:")` goes through sel_registerName. Both are
-// idempotent — the runtime returns the same pointer every time — so
-// caching their results once per process is a strict win.
-//
-// We model the cache as a comma-separated `name=ptr` string in a module
-// global. This is the same pattern stdlib/gui.k uses for its state
-// store; it's GC-safe and survives `gcCollect()`. Real hash-table
-// caching is a v2 optimisation.
+// ── Class + selector lookup ────────────────────────────────────────────
 
-let _objc_class_cache = ""
-let _objc_sel_cache   = ""
-
-func cls(name) {
-    let cached = _cache_get(_objc_class_cache, name)
-    if cached != "" { emit cached }
-    let v = objc_getClass(name)
-    _objc_class_cache = _cache_set(_objc_class_cache, name, v)
-    emit v
-}
-
-func sel(name) {
-    let cached = _cache_get(_objc_sel_cache, name)
-    if cached != "" { emit cached }
-    let v = sel_registerName(name)
-    _objc_sel_cache = _cache_set(_objc_sel_cache, name, v)
-    emit v
-}
+func cls(name) { emit objc_getClass(name) }
+func sel(name) { emit sel_registerName(name) }
 
 // ── Message dispatch ───────────────────────────────────────────────────
-// One thin wrapper per arity. The selector name is registered via sel()
-// (cached) before the underlying objc_msgSend_N is called.
+// One thin wrapper per arity. The selector name is resolved through
+// sel() each call; for hot loops, hoist via `let s = sel("foo:")`.
 
 func msg(obj, selName) {
     emit objc_msgSend(obj, sel(selName))
@@ -97,59 +67,43 @@ func msg_6(obj, selName, a, b, c, d, e, f) {
     emit objc_msgSend_6(obj, sel(selName), a, b, c, d, e, f)
 }
 
-// Float-returning variant (CGFloat / double on arm64). Routes to the
-// distinct symbol so the codegen pulls the result from d0 instead of x0.
+// Float-returning variant (CGFloat / double on arm64 lands in d0, not
+// x0, so a distinct entry point is needed).
 func msg_fp(obj, selName) {
     emit objc_msgSend_fpret(obj, sel(selName))
 }
 
-// ── Convenience: alloc + init in one ───────────────────────────────────
-// The classic Obj-C dance:  [[Class alloc] init]
+// ── Convenience ────────────────────────────────────────────────────────
+
+// [[Class alloc] init] in one call.
 func allocInit(className) {
     let raw = msg(cls(className), sel_alloc)
     emit msg(raw, sel_init)
 }
 
-// Convert a Krypton string to an NSString instance. Use whenever a Cocoa
-// API wants a CFStringRef / NSString * — setTitle:, setStringValue:, etc.
+// Convert a Krypton string to an NSString. Use any time a Cocoa setter
+// wants an `NSString *` argument: setTitle:, setStringValue:, etc.
 func nsString(s) {
     emit msg_1(cls(NSString_cls), sel_stringWithUTF8String, s)
 }
 
-// ── Autorelease pool ───────────────────────────────────────────────────
-// Cocoa's drain-at-scope-exit memory pattern, expressed as a closure.
-// Every msg_1(..., sel_autorelease, ...) inside `body` is held until
-// drain. Pair with every long-running event loop or batched UI build.
+// ── Autorelease pool — caller-held handle ──────────────────────────────
+// Cocoa's drain-at-scope-exit memory pattern. The pool is just a regular
+// NSAutoreleasePool instance; the caller is responsible for `drainPool`
+// at the matching scope-end.
 //
-//   withPool(func() {
-//       let win = makeWindow("Hi", 300, 200)
-//       ...
-//   })
-func withPool(body) {
-    let pool = allocInit(NSAutoreleasePool_cls)
-    body()
-    msg(pool, sel_drain)
+//   let pool = newPool()
+//   let win  = makeWindow(...)
+//   drainPool(pool)
+//
+// Encouraged at the top of every event-callback that allocates Cocoa
+// objects, so autoreleased instances don't pile up between events.
+
+func newPool() {
+    emit allocInit(NSAutoreleasePool_cls)
 }
 
-// `drain` isn't in the canonical sel_* list above — define here.
-const sel_drain = "drain"
-
-// ── Internal: comma-separated `name=value` cache ───────────────────────
-// Crude but GC-safe. Replace with a proper hashtable once the rest of
-// the macOS pipeline is stable.
-
-func _cache_get(table, key) {
-    let needle = "," + key + "="
-    let body = "," + table
-    let p = indexOf(body, needle)
-    if p < 0 { emit "" }
-    let start = p + len(needle)
-    let end = indexOf(substring(body, start, len(body)), ",")
-    if end < 0 { emit substring(body, start, len(body)) }
-    emit substring(body, start, start + end)
-}
-
-func _cache_set(table, key, value) {
-    if len(table) == 0 { emit key + "=" + value }
-    emit table + "," + key + "=" + value
+func drainPool(pool) {
+    msg(pool, "drain")
+    emit ""
 }
