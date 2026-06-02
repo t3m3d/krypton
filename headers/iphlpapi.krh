@@ -1,10 +1,14 @@
-// iphlpapi.krh — Krypton header for Windows IP Helper API
-// Usage: import "iphlpapi.krh"
-// Link with: -liphlpapi -lws2_32
+// iphlpapi.krh — Krypton header for Windows IP Helper API.
+// Usage: import "head:iphlpapi"
+//
+// DLL: iphlpapi.dll  (cooperates with ws2_32.dll for socket primitives)
+// Pipeline: native PE only — `kcc.sh -o win.exe app.k`.
+//
+// Declaration-only file. No `cfunc`, no C-header includes — iphlpapi.dll
+// is wired into the IAT by `compiler/windows_x86/x64.k` and called
+// directly. Structs declared natively in Krypton struct syntax.
 
 jxt {
-    c "winsock2.h"
-    c "iphlpapi.h"
 
     struct IP_ADAPTER_INFO {
         field Next            PTR
