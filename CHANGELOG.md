@@ -4,6 +4,40 @@ All notable changes to the Krypton language and compiler.
 
 ## [Unreleased]
 
+**macOS Cocoa scaffold (skeleton for native macOS apps in pure Krypton):**
+
+- `headers/objc.krh` — raw libobjc.dylib bindings: `objc_getClass`,
+  `sel_registerName`, `objc_msgSend` (declared as a fixed-arity family
+  `objc_msgSend` / `_1` / … / `_6` covering the 0..6-extra-arg cases
+  that handle 99% of Cocoa dispatches; all alias the same `objc_msgSend`
+  symbol at link time).
+- `headers/cocoa.krh` — canonical class names + selector strings for
+  Foundation (NSString, NSArray, NSAutoreleasePool) and AppKit
+  (NSApplication, NSWindow, NSButton, NSTextField, NSAlert). Constants
+  for window style masks + activation policies + backing store types.
+- `stdlib/objc.k` — Krypton wrappers: `cls(name)`, `sel(name)` with
+  module-local caching, `msg` / `msg_1` / … / `msg_6` arity helpers,
+  `msg_fp` for float-returning calls (CGFloat on arm64 lands in d0),
+  `allocInit(className)` shortcut, `nsString(s)`, `withPool(body)`
+  autorelease helper.
+- `stdlib/cocoa.k` — high-level wrappers: `cocoaInit`, `cocoaWindow`,
+  `cocoaButton`, `cocoaLabel`, `cocoaTextField`, `cocoaAlert`,
+  `cocoaOnClick`, `cocoaShow`, `cocoaRun`, `cocoaQuit`. Surface mirrors
+  `stdlib/gui.k` on Windows so cross-platform GUI code can target both.
+- `examples/cocoa_hello.ks` — minimal demo (window + label + button
+  with click counter).
+- `docs/cocoa_design.md` — architecture: arm64 ABI for objc_msgSend,
+  NSRect register packing, target/action callback bridge via runtime
+  `objc_allocateClassPair` + a small Krypton trampoline, autorelease
+  pool ↔ Krypton GC interaction. Hands off the codegen work to agent m
+  with the open questions called out at the bottom.
+
+**State:** scaffold only. On macOS arm64 this links + runs once agent m's
+`macho_arm64_self.k` work lands the objc_msgSend calling convention +
+NSRect ABI + the callback trampoline. On Windows/Linux the imports
+parse but symbols don't resolve at link time (expected — Cocoa is
+Apple-only).
+
 **`kr.exe` — Windows-native KryptScript runner (the `.bat` equivalent):**
 
 - New `tools/kr/run.k` → `kr.exe` (~16 KB native PE). Compiles a `.k`/`.ks`
