@@ -1,8 +1,8 @@
-# Agent L — install Krypton on Linux (ParrotOS / Debian)
+# Agent L — install Krypton on Linux (Arch / Debian)
 
 Read this top to bottom. It is the only file you need to get Krypton built,
-installed, and verified on a Debian-based box (ParrotOS, Kali, Ubuntu, Debian).
-Your actual *task* (socket builtins) is at the bottom — install first.
+installed, and verified on Linux (Arch, ParrotOS, Kali, Ubuntu, Debian).
+Your actual *task* (backend builtins) is at the bottom — install first.
 
 ---
 
@@ -27,15 +27,19 @@ user-invocation time. gcc is needed **only once** if you edit `elf.k` (see §4).
 
 ## 1. Prerequisites
 
+**Arch:**
 ```bash
-sudo apt update
-sudo apt install -y git build-essential
+sudo pacman -Syu --needed git base-devel
+```
+**Debian/Ubuntu/Parrot/Kali:**
+```bash
+sudo apt update && sudo apt install -y git build-essential
 ```
 
 - `git` — clone the repo.
-- `build-essential` — gives you `gcc`. **Not needed to install** (a prebuilt
-  seed is shipped), but **needed to rebuild `elf.k`** after you edit it, which
-  is your task. Install it now.
+- `base-devel` (Arch) / `build-essential` (Debian) — gives you `gcc`. **Not
+  needed to install** (a prebuilt seed is shipped), but **needed to rebuild
+  `elf.k`** after you edit it, which is your task. Install it now.
 - Architecture: this ships prebuilt seeds for **x86_64** and **aarch64**.
   Check yours: `uname -m` → `x86_64` (most likely) or `aarch64`. Both work.
 
@@ -110,7 +114,8 @@ automatically on the next compile; you'll see:
 kcc: rebuilding elf host (one-time gcc bootstrap...)
 ```
 If gcc is missing here, you get `no prebuilt elf_host seed ... and no gcc found`
-— fix by `sudo apt install build-essential`.
+— fix with `sudo pacman -S --needed base-devel` (Arch) or `sudo apt install
+build-essential` (Debian).
 
 Verify after every elf.k edit: rebuild succeeds → recompile a `.k` →
 **run it** (offset bugs in a backend show up as SIGILL/SIGSEGV at runtime, not
@@ -162,9 +167,10 @@ sock* kp`. Int adds wrap at 2^32.
 ## TL;DR
 
 ```bash
-sudo apt install -y git build-essential
+# Arch:   sudo pacman -Syu --needed git base-devel
+# Debian: sudo apt install -y git build-essential
 git clone https://github.com/t3m3d/krypton.git && cd krypton
 ./install.sh
 kcc.sh -r <(echo 'just run { kp("ok") }')
-# then read SOCKETS_CROSS_BACKEND_PLAN.md
+# then read handoff_linux_exec.md (your current task) + SOCKETS_CROSS_BACKEND_PLAN.md
 ```
