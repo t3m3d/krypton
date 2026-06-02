@@ -1601,6 +1601,12 @@ func parseFullIR(ir) {
                     } else if bname == "trim" {
                         curOps = sbAppend(curOps, "BUILTIN_TRIM\n")
                         nOps += 1
+                    } else if bname == "toLower" {
+                        curOps = sbAppend(curOps, "BUILTIN_TOLOWER\n")
+                        nOps += 1
+                    } else if bname == "toUpper" {
+                        curOps = sbAppend(curOps, "BUILTIN_TOUPPER\n")
+                        nOps += 1
                     } else if bname == "gcAllocated" {
                         curOps = sbAppend(curOps, "BUILTIN_GCALLOCATED\n")
                         nOps += 1
@@ -1939,6 +1945,8 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_WRITEFILE"    { emit 22 }
     if opTok == "BUILTIN_WRITEBYTES"   { emit 54 }
     if opTok == "BUILTIN_TRIM"         { emit 56 }   // alloc(21) +6 from 50
+    if opTok == "BUILTIN_TOLOWER"      { emit 42 }   // strlen(7)+alloc(21)+xform copy(14)
+    if opTok == "BUILTIN_TOUPPER"      { emit 42 }   // strlen(7)+alloc(21)+xform copy(14)
     if opTok == "BUILTIN_LENGTH"       { emit 13 }   // empty-check + comma-counter loop
     if opTok == "BUILTIN_SPLIT"        { emit 50 }   // scan + alloc(21) + copy + NUL + push
     if opTok == "BUILTIN_RANGE"        { emit 75 }   // alloc(21) + inline itoa loop with stack scratch
@@ -3060,6 +3068,70 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_strb_reg(31, 0, 10))
             s = sbAppend(s, arm64_push_x0())
             instrIdx = instrIdx + 10
+        } else if opTok == "BUILTIN_TOLOWER" {
+            // toLower(s): ASCII A-Z -> a-z (+32), copy into a fresh buffer. 42 instr.
+            // len kept in x10 (survives alloc; emitAllocVar clobbers x0/1/2/5/9/11).
+            //   0:pop x6=s  1:mov x8=x6
+            //   2(LOOP0):ldrb post w7,[x8]  3:cbnz -1
+            //   4:sub x10=x8-x6  5:sub x10,#1  6:add x4=x10+1
+            //   7..27: emitAllocVar -> x0=buf
+            //   28:movz x11=0  29(LOOP):cmp x11,x10  30:b.ge DONE(+10)
+            //   31:ldrb w13=[x6,x11]  32:cmp w13,#65  33:b.lt NOADD(+4)
+            //   34:cmp w13,#90  35:b.gt NOADD(+2)  36:add w13,#32
+            //   37(NOADD):strb w13=[x0,x11]  38:add x11++  39:b LOOP(-10)
+            //   40(DONE):strb wzr=[x0,x10]  41:push
+            s = sbAppend(s, arm64_pop(6))
+            s = sbAppend(s, arm64_mov_xx(8, 6))
+            s = sbAppend(s, arm64_ldrb_post(7, 8, 1))
+            s = sbAppend(s, arm64_cbnz(7, 0 - 1))
+            s = sbAppend(s, arm64_sub_xxx(10, 8, 6))
+            s = sbAppend(s, arm64_sub_imm(10, 10, 1))
+            s = sbAppend(s, arm64_add_imm(4, 10, 1))
+            instrIdx = instrIdx + 7
+            s = sbAppend(s, emitAllocVar(instrIdx, textVaddr, textOff))
+            instrIdx = instrIdx + 21
+            s = sbAppend(s, arm64_movz_x_imm(11, 0))
+            s = sbAppend(s, arm64_cmp_xx(11, 10))
+            s = sbAppend(s, arm64_b_cond(0xa, 10))   // b.ge DONE
+            s = sbAppend(s, arm64_ldrb_reg(13, 6, 11))
+            s = sbAppend(s, arm64_cmp_imm(13, 65))
+            s = sbAppend(s, arm64_b_cond(0xb, 4))    // b.lt NOADD
+            s = sbAppend(s, arm64_cmp_imm(13, 90))
+            s = sbAppend(s, arm64_b_cond(0xc, 2))    // b.gt NOADD
+            s = sbAppend(s, arm64_add_imm(13, 13, 32))
+            s = sbAppend(s, arm64_strb_reg(13, 0, 11))
+            s = sbAppend(s, arm64_add_imm(11, 11, 1))
+            s = sbAppend(s, arm64_b(0 - 10))
+            s = sbAppend(s, arm64_strb_reg(31, 0, 10))
+            s = sbAppend(s, arm64_push_x0())
+            instrIdx = instrIdx + 14
+        } else if opTok == "BUILTIN_TOUPPER" {
+            // toUpper(s): ASCII a-z -> A-Z (-32). Same shape as TOLOWER. 42 instr.
+            s = sbAppend(s, arm64_pop(6))
+            s = sbAppend(s, arm64_mov_xx(8, 6))
+            s = sbAppend(s, arm64_ldrb_post(7, 8, 1))
+            s = sbAppend(s, arm64_cbnz(7, 0 - 1))
+            s = sbAppend(s, arm64_sub_xxx(10, 8, 6))
+            s = sbAppend(s, arm64_sub_imm(10, 10, 1))
+            s = sbAppend(s, arm64_add_imm(4, 10, 1))
+            instrIdx = instrIdx + 7
+            s = sbAppend(s, emitAllocVar(instrIdx, textVaddr, textOff))
+            instrIdx = instrIdx + 21
+            s = sbAppend(s, arm64_movz_x_imm(11, 0))
+            s = sbAppend(s, arm64_cmp_xx(11, 10))
+            s = sbAppend(s, arm64_b_cond(0xa, 10))   // b.ge DONE
+            s = sbAppend(s, arm64_ldrb_reg(13, 6, 11))
+            s = sbAppend(s, arm64_cmp_imm(13, 97))
+            s = sbAppend(s, arm64_b_cond(0xb, 4))    // b.lt NOSUB
+            s = sbAppend(s, arm64_cmp_imm(13, 122))
+            s = sbAppend(s, arm64_b_cond(0xc, 2))    // b.gt NOSUB
+            s = sbAppend(s, arm64_sub_imm(13, 13, 32))
+            s = sbAppend(s, arm64_strb_reg(13, 0, 11))
+            s = sbAppend(s, arm64_add_imm(11, 11, 1))
+            s = sbAppend(s, arm64_b(0 - 10))
+            s = sbAppend(s, arm64_strb_reg(31, 0, 10))
+            s = sbAppend(s, arm64_push_x0())
+            instrIdx = instrIdx + 14
         } else if opTok == "BUILTIN_LENGTH" {
             // length(list): count comma-separated elements.
             //  ""           → 0
