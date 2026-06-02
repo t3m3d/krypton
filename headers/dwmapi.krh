@@ -1,14 +1,19 @@
 // dwmapi.krh — Krypton bindings for the Desktop Window Manager API.
 // Usage: import "head:dwmapi"
-// Link line:  -ldwmapi (gcc) — ships in every MinGW install
 //
-// Native PE pipeline: dwmapi.dll IAT slot added in x64.k Phase A
-// (2026-05-11). Pure Krypton can now call these directly via `kcc -o`.
+// DLL: dwmapi.dll
+// Pipeline: native PE only — `kcc.sh -o win.exe app.k`.
+//
+// The dwmapi.dll IAT slot was added to `compiler/windows_x86/x64.k`
+// in Phase A (2026-05-11). Pure-Krypton callers can invoke these
+// functions directly; the compiler emits an indirect CALL through
+// the IAT entry with no `--gcc` C path involved.
+//
+// This file is declaration-only. No `cfunc`, no `c "header.h"`
+// includes. Translates to a no-op for the C-emit path (deprecated),
+// and to direct IAT calls for the native path (default).
 
 jxt {
-    c "windows.h"
-    c "dwmapi.h"
-
     // Window-attribute setters — dark mode (DWMWA_USE_IMMERSIVE_DARK_MODE = 20),
     // border color, caption color, etc. cbAttribute is sizeof(pvAttribute);
     // a single BOOL is 4 bytes.

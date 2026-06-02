@@ -1,14 +1,21 @@
-// user32.krh — Krypton bindings for the Win32 windowing / message-pump API
-// Usage: import "user32.krh"
-// Link line:  -luser32 (gcc) — ships in every MinGW install
+// user32.krh — Krypton bindings for the Win32 windowing / message-pump API.
+// Usage: import "head:user32"
 //
-// All functions go through the C-emit pipeline (the native PE backend
-// doesn't yet support callback-based windowprocs — see project_v16_plan.md
-// Tier 3). Pair with windows.krh for the GUI structs (RECT, MSG,
-// WNDCLASSEXA, PAINTSTRUCT, CREATESTRUCTA).
+// DLL: user32.dll
+// Pipeline: native PE only — `kcc.sh -o win.exe app.k`.
+//
+// Pair with `head:windows` for the GUI structs (RECT, MSG, WNDCLASSEXA,
+// PAINTSTRUCT, CREATESTRUCTA). Declaration-only file — no `cfunc`, no
+// C-header includes. user32.dll is wired into the IAT by
+// `compiler/windows_x86/x64.k` and the functions below are dispatched
+// via direct IAT calls.
+//
+// Native callback support (for WindowProc and other Win32 callbacks)
+// shipped via `kr_set_wndproc` / `kr_wndproc_addr` in
+// `runtime/krypton_rt.dll`; `stdlib/gui.k`'s `_krkWndProc` is the
+// canonical pattern.
 
 jxt {
-    c "windows.h"
 
     // ── Window class registration ─────────────────────────────────
     func RegisterClassExA(wcx)
