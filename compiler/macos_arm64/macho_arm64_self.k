@@ -4553,6 +4553,62 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_ldp_fp_lr_post16())
             s = sbAppend(s, arm64_ret())
             instrIdx = instrIdx + 2
+        } else if opTok == "BUILTIN_SOCKMAKE" {
+            // sockMake() -> socket(AF_INET=2, SOCK_STREAM=1, 0) syscall #97. 6 instr.
+            s = sbAppend(s, arm64_movz_x_imm(0, 2))   // 0: domain
+            s = sbAppend(s, arm64_movz_x_imm(1, 1))   // 1: type
+            s = sbAppend(s, arm64_movz_x_imm(2, 0))   // 2: proto
+            s = sbAppend(s, arm64_movz_x_imm(16, 97)) // 3: SYS_socket
+            s = sbAppend(s, arm64_svc(0x80))          // 4
+            s = sbAppend(s, arm64_push_x0())          // 5: push fd
+            instrIdx = instrIdx + 6
+        } else if opTok == "BUILTIN_SOCKLISTEN" {
+            // sockListen(fd, backlog) -> listen #106. TOS=backlog, next=fd. 5 instr.
+            s = sbAppend(s, arm64_pop(1))             // 0: x1 = backlog
+            s = sbAppend(s, arm64_pop(0))             // 1: x0 = fd
+            s = sbAppend(s, arm64_movz_x_imm(16, 106))// 2: SYS_listen
+            s = sbAppend(s, arm64_svc(0x80))          // 3
+            s = sbAppend(s, arm64_push_x0())          // 4
+            instrIdx = instrIdx + 5
+        } else if opTok == "BUILTIN_SOCKACCEPT" {
+            // sockAccept(fd) -> accept(fd,0,0) #30. TOS=fd. 6 instr.
+            s = sbAppend(s, arm64_pop(0))             // 0: x0 = fd
+            s = sbAppend(s, arm64_movz_x_imm(1, 0))   // 1: addr=NULL
+            s = sbAppend(s, arm64_movz_x_imm(2, 0))   // 2: addrlen=NULL
+            s = sbAppend(s, arm64_movz_x_imm(16, 30)) // 3: SYS_accept
+            s = sbAppend(s, arm64_svc(0x80))          // 4
+            s = sbAppend(s, arm64_push_x0())          // 5: push client fd
+            instrIdx = instrIdx + 6
+        } else if opTok == "BUILTIN_SOCKRECV" {
+            // sockRecv(fd, buf, len) -> recvfrom(fd,buf,len,0,0,0) #29.
+            // TOS=len, next=buf, next=fd. 9 instr.
+            s = sbAppend(s, arm64_pop(2))             // 0: x2 = len
+            s = sbAppend(s, arm64_pop(1))             // 1: x1 = buf
+            s = sbAppend(s, arm64_pop(0))             // 2: x0 = fd
+            s = sbAppend(s, arm64_movz_x_imm(3, 0))   // 3: flags=0
+            s = sbAppend(s, arm64_movz_x_imm(4, 0))   // 4: from=NULL
+            s = sbAppend(s, arm64_movz_x_imm(5, 0))   // 5: fromlen=NULL
+            s = sbAppend(s, arm64_movz_x_imm(16, 29)) // 6: SYS_recvfrom
+            s = sbAppend(s, arm64_svc(0x80))          // 7
+            s = sbAppend(s, arm64_push_x0())          // 8: push nbytes
+            instrIdx = instrIdx + 9
+        } else if opTok == "BUILTIN_SOCKSEND" {
+            // sockSend(fd, buf, len) -> write(fd,buf,len) #4. Works for
+            // blocking TCP. TOS=len, next=buf, next=fd. 6 instr.
+            s = sbAppend(s, arm64_pop(2))             // 0: x2 = len
+            s = sbAppend(s, arm64_pop(1))             // 1: x1 = buf
+            s = sbAppend(s, arm64_pop(0))             // 2: x0 = fd
+            s = sbAppend(s, arm64_movz_x_imm(16, 4))  // 3: SYS_write
+            s = sbAppend(s, arm64_svc(0x80))          // 4
+            s = sbAppend(s, arm64_push_x0())          // 5: push nbytes
+            instrIdx = instrIdx + 6
+        } else if opTok == "BUILTIN_SOCKCLOSE" {
+            // sockClose(fd) -> close(fd) #6. TOS=fd. 4 instr.
+            s = sbAppend(s, arm64_pop(0))             // 0: x0 = fd
+            s = sbAppend(s, arm64_movz_x_imm(16, 6))  // 1: SYS_close
+            s = sbAppend(s, arm64_svc(0x80))          // 2
+            s = sbAppend(s, arm64_push_x0())          // 3
+            instrIdx = instrIdx + 4
         } else if opTok == "POP" {
             s = sbAppend(s, arm64_pop_x0())
             instrIdx = instrIdx + 1
