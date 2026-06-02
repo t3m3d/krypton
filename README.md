@@ -19,13 +19,21 @@ syntax** — the split is purely a naming convention.
 - **`.k`** — library or compiled program. `module foo`, exports, no shebang.
 - **`.ks`** — KryptScript (new in 2.2). A script meant to run directly:
   `just run { ... }` body, optional `#!/usr/bin/env kr` shebang, `chmod +x`
-  to make it executable on POSIX. Use `.ks` for one-off tools and build
-  glue you'd otherwise reach for bash or Python for. Read more at
+  to make it executable on POSIX. On Windows the installer associates
+  `.ks` with `kr.exe` so double-click + `myscript.ks foo bar` from any
+  shell Just Works — the Windows-native equivalent of a `.bat`. Use `.ks`
+  for one-off tools and build glue you'd otherwise reach for bash or
+  Python for. Read more at
   [`krypton-lang.org/kryptscript`](https://krypton-lang.org/kryptscript.html).
 
 ```bash
-kcc -r examples/hello.ks             # compile + run + clean up
+kcc -r examples/hello.ks             # POSIX: compile + run + clean up
 chmod +x examples/hello.ks && ./examples/hello.ks   # POSIX shebang path
+```
+
+```bat
+:: Windows (after the installer's "Associate .k/.ks files" task)
+myscript.ks foo bar                  :: double-click works too
 ```
 
 The web framework adds a third extension for templates:
@@ -67,10 +75,16 @@ The web framework adds a third extension for templates:
 | Linux x86_64 | 2.1.1 (source) | Build from `compile.k` via the existing 2.0.0 elf seed. Same source as macOS. |
 | **VS Code / Antigravity ext.** | **2.2.0** | `extensions/krypton-language-2.2.0.vsix`. Adds `.ks` (KryptScript) alongside `.k`, bundles the `kls` language server for Windows + macOS, ships `KryptScript` as a language-picker alias. |
 
-**Bundled CLIs (one package, three commands):**
+**Bundled CLIs (one package, four commands):**
 
 - `kcc` / `krypton` — compiler.
-- `kr` — shebang-friendly wrapper (`#!/usr/bin/env kr`) over `kcc -r`.
+- `kr` (POSIX) / `kr.exe` (Windows) — KryptScript runner. POSIX is a
+  shebang-friendly bash shim over `kcc -r`. Windows is a tiny native PE
+  (`tools/kr/run.k` → `kr.exe`, ~16 KB) that compiles a `.k`/`.ks` script
+  to a temp file, runs it inheriting stdio, propagates the script's exit
+  code, then cleans up. The installer associates `.ks` with `kr.exe` so
+  Explorer double-click + cmd.exe `myscript.ks args` both Just Work — the
+  Windows-native equivalent of a `.bat` file.
 - `kweb` — web framework CLI (`kweb init <name>`, `kweb build`, `kweb serve`,
   `kweb deploy <host> <user>`). **Windows-only in 2.1.1**; macOS port targets
   2.1.2 once `stdlib/fs.k` finishes its POSIX rewrite.
@@ -222,6 +236,19 @@ Why this differs in implementation from Linux/Windows: macOS Tahoe+ AMFI rejects
 just run {
     kp("Hello from Krypton!")
 }
+```
+
+For multi-file projects (anything with a `module <name>` decl on at
+least one file), put the `just run { ... }` body in a file literally
+named `run.k`. The compiler emits a warning today when it isn't, and
+will hard-error in the next major. Single-file scripts (no `module`
+decl) are exempt — `myscript.ks` keeps working from anywhere.
+
+```
+myproject/
+  run.k        # `just run { ... }` lives here
+  parser.k     # library code: `module myproject`, `func`, `struct`, ...
+  render.k     # library code
 ```
 
 ### Compile to a native binary (default)
