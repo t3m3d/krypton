@@ -491,10 +491,10 @@ func pagePrograms() {
         "<div class=" + DQ() + "card" + DQ() + " style=" + DQ() + "margin:24px 0" + DQ() + ">" +
         "<span class=" + DQ() + "tag" + DQ() + ">Featured</span>" +
         htH2("kryofetch") +
-        htP("A Windows system-information fetch tool. Reads user, OS, CPU, RAM/disk with bar graphs, GPU, shell, terminal, resolution, uptime, and theme " + DASH() + " rendered next to a coloured ASCII logo.") +
-        htP("~600 lines of Krypton. Talks to Win32 directly " + DASH() + " registry, GlobalMemoryStatusEx, DXGI. No WMI, no PowerShell, no Python.") +
+        htP("A system-information fetch tool. Reads user, OS, CPU, RAM/disk with bar graphs, GPU, shell, terminal, resolution, uptime, and theme " + DASH() + " rendered next to a coloured ASCII logo.") +
+        htP("Windows port (~600 lines, 7 modules) talks to Win32 directly " + DASH() + " registry, GlobalMemoryStatusEx, DXGI. Linux port reads /proc, /sys, /etc/os-release via native readProc syscalls. No WMI, no PowerShell, no Python.") +
         htP(htA("https://github.com/t3m3d/kryofetch", "View on GitHub")) +
-        htP(htEm("Windows 10/11 " + DOT() + " native PE/COFF, no gcc required")) +
+        htP(htEm("Windows 10/11 (native PE/COFF) " + DOT() + " Linux x86_64 (static syscall-only ELF, no gcc at runtime). aarch64 follows when its Milestone 4 ships string-concat.")) +
         "</div>" +
         "<div class=" + DQ() + "card" + DQ() + " style=" + DQ() + "margin:24px 0" + DQ() + ">" +
         "<span class=" + DQ() + "tag" + DQ() + ">New</span>" +
@@ -502,6 +502,22 @@ func pagePrograms() {
         htP("Real-time network monitor. Captures live packets, parses Ethernet + IPv4 + TCP/UDP/ICMP in pure Krypton, streams to a browser dashboard via SSE.") +
         htP(htA("https://github.com/t3m3d/kmon", "View on GitHub")) +
         htP(htEm("Windows 10/11 " + DOT() + " requires Npcap")) +
+        "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + " style=" + DQ() + "margin:24px 0" + DQ() + ">" +
+        "<span class=" + DQ() + "tag" + DQ() + ">New</span>" +
+        htH2("yubiKrypt") +
+        htP("A YubiKey detector and OATH/TOTP authenticator written entirely in KryptScript. Detects a plugged-in key, shows model + interfaces, and (with ykman installed) renders live TOTP codes with a 30-second countdown.") +
+        htP("Single self-contained .ks file. macOS frontend reused verbatim on Linux " + DASH() + " same .ks, same builtins, just a different native backend underneath.") +
+        htP(htA("https://github.com/t3m3d/yubikrypt", "View on GitHub")) +
+        htP(htEm("macOS arm64 " + DOT() + " Linux x86_64 " + DOT() + " no C, no clang. (Linux aarch64 follows when that backend reaches string-concat support.)")) +
+        "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + " style=" + DQ() + "margin:24px 0" + DQ() + ">" +
+        "<span class=" + DQ() + "tag" + DQ() + ">New</span>" +
+        htH2("kryoterm") +
+        htP("A terminal emulator being built in pure Krypton plus KryptScript " + DASH() + " no Qt, no GTK, no libX11. The window comes from stdlib/x11.k (the Krypton X11 wire-protocol client speaking directly over a socket); the binary is a static syscall-only ELF.") +
+        htP("Phase 0 shipped: spawns a child process via shellRun and echoes its output. Phase 1 (X11 window) and Phase 2 (in-window rendering) follow as stdlib/x11.k gains CreateWindow + ImageText8. Sibling project to terk (Qt6/C++) " + DASH() + " kryoterm exists to retire that C++ surface once feature parity lands.") +
+        htP(htA("https://github.com/t3m3d/kryoterm", "View on GitHub")) +
+        htP(htEm("Linux x86_64 " + DOT() + " 4126-byte static ELF (phase 0). Linux aarch64 once that backend finishes Milestone 4 (string-concat).")) +
         "</div>" +
         htH2("More") +
         "<div class=" + DQ() + "grid" + DQ() + ">" +
