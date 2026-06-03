@@ -3197,6 +3197,7 @@ func opByteSize(op) {
     if op == "BUILTIN_SOCKCLOSE"   { emit 9 }  // close(fd)=3
     if op == "BUILTIN_SOCKCONNECT" { emit 77 } // connect(fd,&sa,16)=42; sockaddr_in with IP a.b.c.d on stack
     if op == "BUILTIN_SOCKRECVSTR" { emit 57 } // kr_alloc 64K, recvfrom, NUL-term, return buf
+    if op == "BUILTIN_UNIXCONNECT" { emit 90 } // socket(AF_UNIX,STREAM,0)+connect(&sockaddr_un{path}); for X11/Wayland
     // readProc(path): inline open + read-loop + close (works on /proc & /sys
     // virtual files whose st_size is 0, where kr_readfile's fstat path reads 0).
     if op == "BUILTIN_READPROC"    { emit 95 }
@@ -3553,6 +3554,8 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_SOCKCONNECT")
                 } else if bname == "sockRecvStr" {
                     opSb = sbAppend(opSb, "BUILTIN_SOCKRECVSTR")
+                } else if bname == "unixConnect" {
+                    opSb = sbAppend(opSb, "BUILTIN_UNIXCONNECT")
                 } else if bname == "readProc" {
                     opSb = sbAppend(opSb, "BUILTIN_READPROC")
                 } else if bname == "environ" {
@@ -4266,6 +4269,47 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))  // syscall
             c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xC4) + hexByte(0x10)) // add rsp,16
             c = sbAppend(c, hexByte(0x50))                  // push rax (result)
+        } else if op == "BUILTIN_UNIXCONNECT" {
+            // unixConnect(path) -> socket(AF_UNIX=1, SOCK_STREAM=1, 0) then
+            // connect(fd, &sockaddr_un{ family=1, sun_path=path }, 110). Returns the
+            // fd on success, or the (negative) connect errno on failure. TOS = path
+            // (NUL-terminated string ptr). For local X11 / Wayland display sockets.
+            // The path is byte-copied (incl. its NUL) into sun_path @ offset 2; the
+            // kernel stops at that NUL, so the rest of the buffer need not be zeroed.
+            // 90 bytes — MUST equal opSize BUILTIN_UNIXCONNECT. rbx/r8 are scratch
+            // here (same convention as BUILTIN_SOCKCONNECT).
+            c = sbAppend(c, hexByte(0x5E))                                                  // pop rsi (path)
+            c = sbAppend(c, hexByte(0x56))                                                  // push rsi (save path across socket())
+            c = sbAppend(c, hexByte(0xBF) + hexDword(1))                                    // mov edi,1  (AF_UNIX)
+            c = sbAppend(c, hexByte(0xBE) + hexDword(1))                                    // mov esi,1  (SOCK_STREAM)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xD2))                                  // xor edx,edx (proto 0)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(41))                                   // mov eax,41 (SYS_socket)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                                  // syscall -> rax = fd
+            c = sbAppend(c, hexByte(0x5B))                                                  // pop rbx (path restored)
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x89) + hexByte(0xC0))                  // mov r8,rax (fd)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xEC) + hexByte(0x70))  // sub rsp,112
+            c = sbAppend(c, hexByte(0x66) + hexByte(0xC7) + hexByte(0x04) + hexByte(0x24) + hexByte(0x01) + hexByte(0x00)) // mov word [rsp],1 (sun_family)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x8D) + hexByte(0x7C) + hexByte(0x24) + hexByte(0x02)) // lea rdi,[rsp+2] (sun_path)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xDE))                  // mov rsi,rbx (src = path)
+            // .copy (offset 0): byte-copy path incl. terminating NUL
+            c = sbAppend(c, hexByte(0x8A) + hexByte(0x06))                                  // mov al,[rsi]
+            c = sbAppend(c, hexByte(0x88) + hexByte(0x07))                                  // mov [rdi],al
+            c = sbAppend(c, hexByte(0x84) + hexByte(0xC0))                                  // test al,al
+            c = sbAppend(c, hexByte(0x74) + hexByte(0x08))                                  // je .done (+8)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0xFF) + hexByte(0xC6))                  // inc rsi
+            c = sbAppend(c, hexByte(0x48) + hexByte(0xFF) + hexByte(0xC7))                  // inc rdi
+            c = sbAppend(c, hexByte(0xEB) + hexByte(0xF0))                                  // jmp .copy (-16)
+            // .done: connect(fd, &sockaddr_un, 110)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xC7))                  // mov rdi,r8 (fd)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xE6))                  // mov rsi,rsp (&sockaddr_un)
+            c = sbAppend(c, hexByte(0xBA) + hexDword(110))                                  // mov edx,110 (addrlen)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(42))                                   // mov eax,42 (SYS_connect)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                                  // syscall -> rax = 0 ok / -errno
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xC4) + hexByte(0x70))  // add rsp,112
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x85) + hexByte(0xC0))                  // test rax,rax
+            c = sbAppend(c, hexByte(0x75) + hexByte(0x03))                                  // jne .fail (+3)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xC0))                  // mov rax,r8 (success -> return fd)
+            c = sbAppend(c, hexByte(0x50))                                                  // push rax (result)
         } else if op == "BUILTIN_SOCKRECVSTR" {
             // sockRecvStr(fd): kr_alloc a 64KB+1 buffer, recvfrom into it, NUL-terminate
             // at nbytes, return the buffer as a string. TOS=fd. (57 bytes)

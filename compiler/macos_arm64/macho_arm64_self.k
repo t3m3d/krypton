@@ -1908,10 +1908,10 @@ func opInstrCount(opTok) {
     if opTok == "MUL"          { emit 4 }
     if opTok == "DIV"          { emit 4 }
     if opTok == "MOD"          { emit 5 }
-    if opTok == "LT"           { emit 5 }
-    if opTok == "GT"           { emit 5 }
-    if opTok == "LE"           { emit 5 }
-    if opTok == "GE"           { emit 5 }
+    if opTok == "LT"           { emit 19 }  // polymorphic: int/mixed raw cmp / ptr+ptr strcmp-order
+    if opTok == "GT"           { emit 19 }
+    if opTok == "LE"           { emit 19 }
+    if opTok == "GE"           { emit 19 }
     if opTok == "EQ"           { emit 25 }  // polymorphic: int+int cmp / ptr+ptr strcmp / mixed=unequal
     if opTok == "NE"           { emit 25 }  // same code path with EQ-cond → NE-cond + flipped results
     if opTok == "JUMP"             { emit 1 }
@@ -2465,14 +2465,32 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_push_x0())
             instrIdx = instrIdx + 13
         } else if opTok == "LT" || opTok == "GT" || opTok == "LE" || opTok == "GE" {
-            // Ordering comparisons — int-only. (Compile.k doesn't emit these
-            // for string operands; strings compare with EQ/NE only.)
-            s = sbAppend(s, arm64_pop(0))
-            s = sbAppend(s, arm64_pop(1))
-            s = sbAppend(s, arm64_cmp_xx(1, 0))
-            s = sbAppend(s, arm64_cset(0, irCmpToCond(opTok)))
-            s = sbAppend(s, arm64_push(0))
-            instrIdx = instrIdx + 5
+            // Polymorphic ordering. int/mixed → raw value cmp (old behavior);
+            // ptr+ptr (strings) → byte-by-byte strcmp ordering (NUL = least), so
+            // `c >= "a"` etc. work — compile.k's tokenizer (charIsAlpha) depends
+            // on this. Was int-only (compared heap pointers for strings → garbage,
+            // which broke the native self-host: tokenizer dropped identifiers). 19 instr.
+            let cnd = irCmpToCond(opTok)
+            s = sbAppend(s, arm64_pop(4))                 // 0: b
+            s = sbAppend(s, arm64_pop(3))                 // 1: a
+            s = sbAppend(s, arm64_movz_x_imm_lsl32(14, 1))// 2: threshold 0x100000000
+            s = sbAppend(s, arm64_cmp_xx(3, 14))          // 3
+            s = sbAppend(s, arm64_b_cond(0xb, 12))        // 4: b.lt RAW(16) — a is int
+            s = sbAppend(s, arm64_cmp_xx(4, 14))          // 5
+            s = sbAppend(s, arm64_b_cond(0xb, 10))        // 6: b.lt RAW(16) — b is int (mixed)
+            s = sbAppend(s, arm64_mov_xx(5, 3))           // 7: pa
+            s = sbAppend(s, arm64_mov_xx(6, 4))           // 8: pb
+            s = sbAppend(s, arm64_ldrb_post(7, 5, 1))     // 9: SLOOP  w7=*pa++
+            s = sbAppend(s, arm64_ldrb_post(8, 6, 1))     // 10: w8=*pb++
+            s = sbAppend(s, arm64_cmp_xx(7, 8))           // 11
+            s = sbAppend(s, arm64_b_cond(0x1, 2))         // 12: b.ne SDONE(14)
+            s = sbAppend(s, arm64_cbnz(7, 0 - 4))         // 13: w7!=0 → SLOOP(9); NUL falls to SDONE
+            s = sbAppend(s, arm64_cset(0, cnd))           // 14: SDONE — flags hold deciding bytes (or equal)
+            s = sbAppend(s, arm64_b(3))                   // 15: → PUSH(18)
+            s = sbAppend(s, arm64_cmp_xx(3, 4))           // 16: RAW — raw value cmp
+            s = sbAppend(s, arm64_cset(0, cnd))           // 17
+            s = sbAppend(s, arm64_push(0))                // 18: PUSH
+            instrIdx = instrIdx + 19
         } else if opTok == "EQ" || opTok == "NE" {
             // Polymorphic equality: int+int → cmp; ptr+ptr → strcmp byte-by-byte;
             // mixed (int vs ptr) → always unequal. The opTok-driven branches pick
