@@ -36,6 +36,23 @@ Both: `git pull --rebase` before pushing (macOS/Windows agents share `main`).
       returns response byte 1 (accept), test `tests/x11_handshake_smoke.k` exits 0. **Phase A2
       blocked** — see "Needed from agent-l" below.
 
+## agent-l — native aarch64 backend (`compiler/linux_arm64/elf.k`)
+
+- [x] **Milestone 1 (done):** minimal cross backend — `kp("literal")` → `write`+`exit`,
+      static aarch64 ELF under qemu-user. First native aarch64 binary from the compiler.
+- [x] **Milestone 2 (done):** real stack machine — integers + arithmetic (+ - * / %),
+      locals (STORE/LOAD), and the `kr_str_int` / `kr_print` runtime helpers. Compiles
+      programs that compute and print numbers and variables (kp(2+3*4)→14, let a=21
+      kp(a+a)→42). kp dispatches int vs string on the 0x400000 tag. Verified under qemu.
+- [x] **Milestone 3 (done):** control flow — LABEL/JUMP/JUMPIFNOT, comparisons
+      (LT/GT/EQ/NEQ/LTE/GTE via cmp+cset), isTruthy. Compiles while loops and
+      if/else: `while i<3{kp(i) i=i+1}`→`0 1 2`, squares→`1 4 9 16 25`, sum 1..10→`55`,
+      `if 5>3{...}`. Label addresses resolved by accumulating opSize. Verified under qemu.
+- [ ] **Milestone 4:** string concat (CAT) + `kr_alloc` (so `kp("sum=" + n)` works),
+      function calls (CALL_FUNC + args), negative-literal handling.
+- [ ] Then: MOVK for the operand-stack region (lift the program-size cap) and `kcc.sh`
+      wiring so `--native` on aarch64 uses this backend directly.
+
 ## agent-l — edits to existing files (mostly `elf.k`)
 
 - [ ] **Full 64-bit integers.** Current ceiling `0x7EFFFFFF` (~2.13e9) is a Y2038-class
