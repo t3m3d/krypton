@@ -22,13 +22,16 @@ Both: `git pull --rebase` before pushing (macOS/Windows agents share `main`).
 
 ## agent-l — native aarch64 backend (`compiler/linux_arm64/elf.k`)
 
-- [x] **Milestone 1 (done):** minimal cross backend — lowers `kp("literal")` to
-      `write`+`exit`, emits a static aarch64 ELF that runs under qemu-user. First
-      native aarch64 binary from the compiler. Emits instructions byte-wise (words
-      exceed the 0x7F000000 int ceiling). Test: `qemu-aarch64-static` + binfmt.
-- [ ] Grow toward `elf.k` parity: integers/arithmetic, the `kr_*` runtime helpers
-      (kr_print, kr_str_int, kr_alloc), control flow, MOVK addressing (lift the
-      <4096 program-size cap), then wire into `kcc.sh` for `--native` on aarch64.
+- [x] **Milestone 1 (done):** minimal cross backend — `kp("literal")` → `write`+`exit`,
+      static aarch64 ELF under qemu-user. First native aarch64 binary from the compiler.
+- [x] **Milestone 2 (done):** real stack machine — integers + arithmetic (+ - * / %),
+      locals (STORE/LOAD), and the `kr_str_int` / `kr_print` runtime helpers. Compiles
+      programs that compute and print numbers and variables (kp(2+3*4)→14, let a=21
+      kp(a+a)→42). kp dispatches int vs string on the 0x400000 tag. Verified under qemu.
+- [ ] **Milestone 3:** control flow — LABEL/JUMP/JUMPIFNOT, comparisons (LT/GT/EQ),
+      isTruthy → compile loops/conditionals (while, if).
+- [ ] Then: string concat (CAT) + `kr_alloc`, negative-literal handling, MOVK for the
+      operand-stack region (lift the program-size cap), `kcc.sh` wiring for `--native`.
 
 ## agent-l — edits to existing files (mostly `elf.k`)
 
