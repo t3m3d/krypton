@@ -534,7 +534,7 @@ STORE/LOAD elimination, empty jump removal, unused local removal.
 
 ## Standard Library
 
-35 modules in `stdlib/`:
+37 modules in `stdlib/`:
 
 | Module | Contents |
 |--------|----------|
@@ -545,7 +545,31 @@ STORE/LOAD elimination, empty jump removal, unused local removal.
 | `float_utils.k` | floatAdd/floatMul/floatSqrt/floatFormat/pi() |
 | `string_utils.k` | String manipulation helpers |
 | `list_utils.k` | List processing functions |
-| ... | 29 more modules |
+| `arch.k` | Host CPU detection — `arch()`, `isArm()`, `isX86()`, `is64Bit()` |
+| `x11.k` | X11 wire-protocol client (handshake + server-info parse; Linux GUI flagship) |
+| `server_native.k` | Pure-Krypton HTTP server on the macOS native socket builtins |
+| ... | 27 more modules |
+
+---
+
+## Ecosystem
+
+Sibling repos under the same GitHub org. Each is its own program/repo,
+built against this Krypton checkout via `KRYPTON_ROOT/kcc.sh`.
+
+| Repo | Language | Platforms | What it is |
+|---|---|---|---|
+| [kryofetch](https://github.com/t3m3d/kryofetch) | Krypton | Windows 10/11, Linux x86_64 | System-info CLI (neofetch-class). Talks to Win32 / `/proc` / `/sys` directly — no WMI, no PowerShell, no Python. |
+| [yubikrypt](https://github.com/t3m3d/yubikrypt) | KryptScript | macOS arm64, Linux x86_64 | YubiKey detector + OATH/TOTP authenticator. Single self-contained `.ks`. |
+| [kryoterm](https://github.com/t3m3d/kryoterm) | Krypton + KryptScript | Linux x86_64 (phase 0) | Krypton-native terminal emulator. Targets `stdlib/x11.k` for windowing once Phase B/C ship — no Qt, no GTK, no libX11. |
+| [terk](https://github.com/t3m3d/terk) | C++ / Qt6 | Windows, macOS, Linux | Pre-existing Qt6 terminal. Slated to retire once `kryoterm` reaches feature parity. |
+| [kmon](https://github.com/t3m3d/kmon) | Krypton | Windows 10/11 (requires Npcap) | Real-time network monitor — captures live packets, parses Ethernet + IPv4 + TCP/UDP/ICMP, streams to a browser dashboard via SSE. |
+
+Each app's repo ships its own `build_linux.sh` + `PKGBUILD` (where applicable).
+Arch users: `git clone <repo> && cd <repo> && makepkg -si`.
+
+> Linux aarch64 support for the Krypton-language apps lands once the aarch64
+> backend reaches Milestone 4 (string concat). See [`LINUX_RELEASE_TODO.md`](LINUX_RELEASE_TODO.md).
 
 ---
 
