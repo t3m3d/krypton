@@ -218,7 +218,7 @@ func pagePrograms() {
         htP("A system-information fetch tool. Reads user, OS version, CPU, RAM/disk with bar graphs, GPU, shell, terminal, resolution, uptime, and theme " + fromCharCode(8212) + " rendered next to a coloured ASCII logo.") +
         htP("Windows port (~600 lines, 7 modules) talks to Win32 directly " + fromCharCode(8212) + " registry, GlobalMemoryStatusEx, GetDiskFreeSpaceExA, DXGI for VRAM. Linux port reads /proc, /sys, /etc/os-release via native readProc syscalls. No WMI, no PowerShell, no Python.") +
         htP(htA("https://github.com/t3m3d/kryofetch", "View on GitHub")) +
-        htP(htEm("Windows 10/11 (native PE/COFF) " + fromCharCode(183) + " Linux x86_64 / aarch64 (static syscall-only ELF, no gcc at runtime)")) +
+        htP(htEm("Windows 10/11 (native PE/COFF) " + fromCharCode(183) + " Linux x86_64 (static syscall-only ELF, no gcc at runtime). aarch64 backend arrives when its Milestone 4 ships string-concat.")) +
         "</div>" +
 
         "<div class=\"card\" style=\"margin:24px 0\">" +
@@ -236,7 +236,7 @@ func pagePrograms() {
         htP("A YubiKey detector and OATH/TOTP authenticator written entirely in KryptScript. Detects a plugged-in key, shows model + interfaces, and (with ykman installed) renders live TOTP codes with a 30-second countdown.") +
         htP("Single self-contained .ks file. macOS frontend reused verbatim on Linux " + fromCharCode(8212) + " same .ks, same builtins, just a different native backend underneath.") +
         htP(htA("https://github.com/t3m3d/yubikrypt", "View on GitHub")) +
-        htP(htEm("macOS arm64 " + fromCharCode(183) + " Linux x86_64 / aarch64 " + fromCharCode(183) + " no C, no clang")) +
+        htP(htEm("macOS arm64 " + fromCharCode(183) + " Linux x86_64 " + fromCharCode(183) + " no C, no clang. (Linux aarch64 follows when that backend reaches string-concat support.)")) +
         "</div>" +
 
         "<div class=\"card\" style=\"margin:24px 0\">" +
@@ -245,7 +245,7 @@ func pagePrograms() {
         htP("A terminal emulator being built in pure Krypton plus KryptScript " + fromCharCode(8212) + " no Qt, no GTK, no libX11. The window comes from stdlib/x11.k (the Krypton X11 wire-protocol client speaking directly over a socket); the binary is a static syscall-only ELF.") +
         htP("Phase 0 shipped: spawns a child process via shellRun and echoes its output. Phase 1 (X11 window) and Phase 2 (in-window rendering) follow as stdlib/x11.k gains CreateWindow + ImageText8. Sibling project to terk (Qt6/C++) " + fromCharCode(8212) + " kryoterm exists to retire that C++ surface once feature parity lands.") +
         htP(htA("https://github.com/t3m3d/kryoterm", "View on GitHub")) +
-        htP(htEm("Linux x86_64 / aarch64 " + fromCharCode(183) + " 4126-byte static ELF (phase 0)")) +
+        htP(htEm("Linux x86_64 " + fromCharCode(183) + " 4126-byte static ELF (phase 0). Linux aarch64 once that backend finishes Milestone 4 (string-concat).")) +
         "</div>" +
 
         htH2("More") +
