@@ -1485,11 +1485,16 @@ func parseFullIR(ir) {
                     curOps = sbAppend(curOps, "INDEX\n")
                     nOps += 1
                 } else if op == "LOCAL" {
-                    // Module globals (any LOCAL from __main__) are accessed via
-                    // x28-relative addressing; skip creating a frame slot for them.
+                    // Module globals are __main__'s LOCALs — in __main__ they have
+                    // no frame slot (accessed as globals). But in ANY OTHER function
+                    // a LOCAL whose name matches a global is a SHADOWING local and
+                    // MUST get a frame slot. Skipping it (the old behavior) made the
+                    // local ALIAS the global → stores corrupted shared state (the
+                    // self-host `tokens` bug: a `let tokens` in a helper clobbered
+                    // the module-global tokens). Only __main__ skips the slot.
                     let gIdx = findInList(globalsStr, numGlobals, rest)
-                    if gIdx < 0 {
-                        // Not a module global — add to function-local frame slots.
+                    if gIdx < 0 || curName != "__main__" {
+                        // Add to function-local frame slots (shadows any global).
                         let pIdx = findInList(sbToString(sbParams), nParams, rest)
                         if pIdx < 0 {
                             let lIdx = findInList(sbToString(sbLocals), nLocals, rest)
