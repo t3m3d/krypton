@@ -88,9 +88,18 @@ Both: `git pull --rebase` before pushing (macOS/Windows agents share `main`).
 
 ## Needed from agent-l (filed by agent-w as it hits walls)
 
-- **`AF_UNIX` socket connect** (for local X11/Wayland) — see above.
+- ✅ **DONE — `AF_UNIX` socket connect** = `unixConnect(path)` (commit `ea06a652`):
+  `socket(AF_UNIX,STREAM,0)`+`connect()`, returns fd or -errno; verified vs the live
+  X server. **agent-w:** swap `x11.k`'s local transport from TCP `sockConnect` to
+  `unixConnect("/tmp/.X11-unix/X<n>")`; Wayland uses it vs `$XDG_RUNTIME_DIR/wayland-*`.
 
-- **Port Phase C buffer machinery from `x64.k` to `elf.k`.** Blocks
+- ✅ **DONE — byte-buffer builtins in `elf.k`** (commit `7282660d`, inline x86-64, C-free):
+  `bufNew`, `bufSetByte`, `bufGetByte`, `bufGetWordAt`/`bufGetDwordAt`/`bufGetQwordAt`
+  (LE). Embedded NULs work; `tests/test_buffer.k` passes. Unblocks `x11.k` A2/B/C.
+  CAVEAT: a `bufGet{Dword,Qword}At` ≥ 0x7F000000 re-tags as a pointer (int-ceiling) —
+  fine for X11 version/count/length; mask large resource IDs for now.
+
+- **(superseded — see DONE above)** Port Phase C buffer machinery from `x64.k` to `elf.k`. Blocks
   `stdlib/x11.k` Phase A2 (full server-info parse), Phase B (windows),
   Phase C (drawing). Specifically need the following BUILTIN_*
   handlers in `elf.k`:
