@@ -279,6 +279,27 @@ just run {
             else { exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " " + q(s) + " > " + q(cout)) }
             exit("0")
         }
+        // --gcc: deprecated C+gcc fallback (native is the default and goal). Kept
+        // for drop-in parity; do not build new workflows on it.
+        if hasFlag("--gcc") {
+            let s = linuxSrc()
+            if s == "" { kp("kcc: --gcc needs a source file")  exit("1") }
+            if has("gcc") == "0" { kp("kcc: --gcc needs gcc")  exit("1") }
+            kp("kcc: warning: --gcc is deprecated; native is the default and goal.")
+            let gout = optValue("-o", baseName(s))
+            let gtmp = sh("mktemp /tmp/_kccgcc_XXXXXX.c")
+            exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " " + q(s) + " > " + q(gtmp))
+            exec("gcc " + q(gtmp) + " -o " + q(gout) + " -O2 -lm -w")
+            rm(gtmp)
+            if exists(gout) == "0" { kp("kcc: gcc compile failed")  exit("1") }
+            exec("chmod +x " + q(gout))
+            exit("0")
+        }
+        // --llvm / --wasm: non-functional upstream (kcc.sh's --llvm emits C; --wasm
+        // is an unimplemented stub). Be honest instead of mimicking the bug.
+        if hasFlag("--llvm") { kp("kcc: --llvm is not supported; use --c for C output, or native.")  exit("1") }
+        if hasFlag("--wasm") { kp("kcc: --wasm is not wired into the Krypton-native driver yet.")  exit("1") }
+
         // -e CODE: wrap in `just run { ... }`, compile (x86 or arm64), run, delete.
         if first == "-e" {
             if argCount() < 2 { kp("kcc: -e needs code")  exit("1") }
