@@ -25,7 +25,8 @@ func siteTheme() {
         kcssVar("code-bg",      "#1e1e2e") +
         kcssVar("code-text",    "#cdd6f4") +
         kcssVar("nav-bg",       "#0a0a0f") +
-        kcssVar("nav-text",     "#eee")
+        kcssVar("nav-text",     "#eee") +
+        kcssVar("particle-rgb", "255,255,255")
     )
 }
 
@@ -47,12 +48,17 @@ func siteDarkOverrides() {
             "--card-border:#2d2d40;" +
             "--primary:#8842ff;" +
             "--primary-dark:#7733ff;" +
+            "--particle-rgb:120,100,180;" +
         "}" +
         "p code{background:#262636;color:#bda6ff}" +
         "tr:hover td{background:#1d1d2c}" +
         ".dotbg,section[style*=\"background:#f4f0ff\"]{background:#15151f !important}" +
         ".card{box-shadow:0 1px 0 rgba(255,255,255,0.03)}" +
         "pre{border-color:#2d2d40}" +
+        ".hero{filter:brightness(0.72) saturate(0.85)}" +
+        ".hero .btn{background:#1a1a26 !important;color:#bda6ff !important;border-color:#3a3a4e !important}" +
+        ".hero .btn.primary{background:#1a1a26 !important;color:#e4e4ec !important;border:1px solid #3a3a4e !important}" +
+        "footer{background:#0a0a0f}" +
     "}"
 }
 
@@ -270,6 +276,7 @@ func siteJS() {
         "if(c){" +
         "var ctx=c.getContext('2d');" +
         "var w,h,pts=[];" +
+        "var pr=getComputedStyle(document.documentElement).getPropertyValue('--particle-rgb').trim()||'255,255,255';" +
         "function resize(){w=c.width=c.parentElement.offsetWidth;h=c.height=c.parentElement.offsetHeight;}" +
         "resize();window.addEventListener('resize',resize);" +
         "var isMobile=window.innerWidth<600;" +
@@ -284,11 +291,11 @@ func siteJS() {
         "if(p.x<0)p.x=w;if(p.x>w)p.x=0;" +
         "if(p.y<0)p.y=h;if(p.y>h)p.y=0;" +
         "ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,6.28);" +
-        "ctx.fillStyle='rgba(255,255,255,0.5)';ctx.fill();" +
+        "ctx.fillStyle='rgba('+pr+',0.5)';ctx.fill();" +
         "for(var j=i+1;j<pts.length;j++){" +
         "var q=pts[j];var dx=p.x-q.x;var dy=p.y-q.y;var d=Math.sqrt(dx*dx+dy*dy);" +
         "if(d<pdist){ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(q.x,q.y);" +
-        "ctx.strokeStyle='rgba(255,255,255,'+(0.15*(1-d/pdist))+')';ctx.stroke();}" +
+        "ctx.strokeStyle='rgba('+pr+','+(0.15*(1-d/pdist))+')';ctx.stroke();}" +
         "}}" +
         "requestAnimationFrame(draw);}" +
         "draw();}" +
