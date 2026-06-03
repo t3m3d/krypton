@@ -78,6 +78,32 @@ touch committed seeds until the whole thing self-hosts + regresses clean)
    `0x100000000` must now work).
 8. Only then: refresh + commit seeds.
 
+## CRITICAL COMPLICATION found during implementation (2026-06-02)
+
+Native int arithmetic is **intentionally 32-bit-wrapping**. The ADD emit:
+"INT+INT … 32-bit add so result wraps at 2^32 (SHA-256 requires mod 2^32)".
+The backend's OWN code depends on 32-bit wrap: `hexDword`/instruction encoding,
+CRC32, SHA-256 (ad-hoc code signature), bit twiddling. Low-bit tagging makes
+ints 63-bit → **breaks all 32-bit-wrap code, including the backend emitting its
+own machine code**.
+
+⇒ The root issue is bigger than tagging: Krypton has ONE int type used for BOTH
+32-bit-wrap hashing AND (needed) 64-bit address math — incompatible at a fixed
+width. The C backend survives because C ints are 64-bit with explicit
+`(unsigned int)` masks on the wrap paths (e.g. `kr_bitshl`). The native backend
+would need BOTH: (a) tagging for the int/ptr discriminator, AND (b) 64-bit
+arithmetic with EXPLICIT 32-bit masking on every hash/encode path (audit every
+arithmetic use for wrap-dependence). That is a value-system + arithmetic-width
+rework — weeks of careful work, not a session.
+
+Options to actually finish it:
+  A) Full 63-bit tagged ints + audit/convert all 32-bit-wrap sites to explicit
+     `& 0xFFFFFFFF` masking (CRC32/SHA-256/hexDword/bitwise). Biggest, cleanest.
+  B) Tagged ints that stay 32-bit-wrapping for arithmetic but carry a 64-bit
+     payload only for address constants (a "wide int" subtype) — narrower but
+     hacky; the discriminator + wide-literal path still pervasive.
+  C) Two int types in the language (i32 wrap-int + i64 addr-int) — language change.
+
 ## Risk
 This rewrites the native value representation. A single missed tag/untag =
 silent wrong results (not a crash). Mitigation: stage + test each builtin in
