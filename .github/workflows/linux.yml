@@ -1,0 +1,59 @@
+name: linux native tests
+
+# Runs tests/run_linux.sh on every push that touches the Linux backend,
+# stdlib, or the tests themselves. Catches regressions in elf.k / linux_x86
+# codegen and Linux-side stdlib changes before they reach main.
+#
+# Bootstrap: build.sh prefers a prebuilt seed (gcc-free); CI runner needs gcc
+# only for the source-seed fallback. ubuntu-latest images ship gcc by default.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'compiler/linux_x86/**'
+      - 'compiler/compile.k'
+      - 'stdlib/**'
+      - 'tests/**'
+      - 'build.sh'
+      - 'kcc.sh'
+      - 'bootstrap/**'
+      - '.github/workflows/linux.yml'
+  pull_request:
+    paths:
+      - 'compiler/linux_x86/**'
+      - 'compiler/compile.k'
+      - 'stdlib/**'
+      - 'tests/**'
+      - 'build.sh'
+      - 'kcc.sh'
+      - 'bootstrap/**'
+      - '.github/workflows/linux.yml'
+  workflow_dispatch:
+
+jobs:
+  linux-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: bootstrap kcc
+        # build.sh self-selects prebuilt seed (gcc-free path) if present,
+        # else compiles bootstrap/kcc_seed.c with gcc (already on ubuntu-latest).
+        run: bash build.sh
+
+      - name: verify kcc works
+        run: ./kcc.sh --version || true
+
+      - name: run linux native tests
+        run: bash tests/run_linux.sh
+
+      - name: dump test work-dir on failure
+        if: failure()
+        run: |
+          echo "===== compile logs ====="
+          find tests/.work-linux -name '*.compile' -print -exec tail -20 {} \; 2>/dev/null || true
+          echo "===== run logs ====="
+          find tests/.work-linux -name '*.log' -print -exec tail -20 {} \; 2>/dev/null || true
