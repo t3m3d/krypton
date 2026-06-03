@@ -41,6 +41,8 @@ func e_mul(rd, rn, rm)  { let p = 31744 + rn * 32 + rd  emit wordHL(39680 + rm +
 func e_udiv(rd, rn, rm) { let p = 2048 + rn * 32 + rd   emit wordHL(39616 + rm + p / 65536, p % 65536) }
 func e_msub(rd, rn, rm, ra) { let p = 32768 + ra * 1024 + rn * 32 + rd  emit wordHL(39680 + rm + p / 65536, p % 65536) }
 func e_cmp(rn, rm)   { let p = rn * 32 + 31  emit wordHL(60160 + rm + p / 65536, p % 65536) } // subs xzr,Xn,Xm
+func e_cmpi0(rn) { let p = rn * 32 + 31  emit wordHL(61696 + p / 65536, p % 65536) }          // cmp Xn,#0
+func e_cset(rd, cc) { let p = 2016 + cc * 4096 + rd  emit wordHL(39583 + p / 65536, p % 65536) } // cset Xd (csinc cond=cc)
 func e_movr(rd, rm)  { let p = 992 + rd  emit wordHL(43520 + rm + p / 65536, p % 65536) }     // mov Xd,Xm
 func e_strb(wt, xn)  { let p = xn * 32 + wt  emit wordHL(14592, p) }                 // strb Wt,[Xn]
 func e_ldrbO(wt, xn, xm) { let p = 26624 + xn * 32 + wt  emit wordHL(14432 + xm + p / 65536, p % 65536) }
@@ -103,6 +105,21 @@ func quoted(ln) {
     let q1 = indexOf(ln, "\"")
     emit substring(ln, toInt(q1) + 1, len(ln) - 1)
 }
+// byte offset (== vaddr offset) of a LABEL's target — accumulates opSize.
+func labelOffset(ir, name) {
+    let n = toInt(lineCount(ir))
+    let i = 0
+    let off = 120
+    while i < n {
+        let ln = getLine(ir, i)
+        if startsWith(ln, "LABEL ") {
+            if operand(ln) == name { emit off + "" }
+        }
+        off = off + toInt(opSize(ln))
+        i = i + 1
+    }
+    emit "0"
+}
 // local slot for `name`, scanning LOCAL declarations in order.
 func localSlot(ir, name) {
     let n = toInt(lineCount(ir))
@@ -134,11 +151,16 @@ func opSize(ln) {
     if op == "DIV"     { emit 28 }
     if op == "MOD"     { emit 32 }
     if op == "POP"     { emit 4 }
+    if op == "LABEL"     { emit 0 }
+    if op == "JUMP"      { emit 4 }
+    if op == "JUMPIFNOT" { emit 12 }
+    if op == "LT" || op == "GT" || op == "EQ" || op == "NEQ" || op == "LTE" || op == "GTE" { emit 32 }
     if op == "BUILTIN" {
         let b = operand(ln)
         if startsWith(b, "kp") { emit 28 }
         if startsWith(b, "gcShadowCount") { emit 12 }
         if startsWith(b, "gcShadowPop") { emit 16 }
+        if startsWith(b, "isTruthy") { emit 24 }
         emit 0
     }
     emit 0
@@ -211,8 +233,17 @@ just run {
         if op == "DIV" { code = code + c_pop1() + c_pop0() + e_udiv(0, 0, 1) + c_push()  off = off + 28 }
         if op == "MOD" { code = code + c_pop1() + c_pop0() + e_udiv(2, 0, 1) + e_msub(0, 2, 1, 0) + c_push()  off = off + 32 }
         if op == "POP" { code = code + e_addi(20, 20, 16)  off = off + 4 }
+        if op == "LT"  { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 10) + c_push()  off = off + 32 }
+        if op == "GT"  { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 13) + c_push()  off = off + 32 }
+        if op == "EQ"  { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 1) + c_push()   off = off + 32 }
+        if op == "NEQ" { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 0) + c_push()   off = off + 32 }
+        if op == "LTE" { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 12) + c_push()  off = off + 32 }
+        if op == "GTE" { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 11) + c_push()  off = off + 32 }
+        if op == "JUMP" { code = code + e_b(toInt(labelOffset(ir, operand(ln))) - off)  off = off + 4 }
+        if op == "JUMPIFNOT" { code = code + c_pop0() + e_cbz(0, toInt(labelOffset(ir, operand(ln))) - (off + 8))  off = off + 12 }
         if op == "BUILTIN" {
             let b = operand(ln)
+            if startsWith(b, "isTruthy") { code = code + c_pop0() + e_cmpi0(0) + e_cset(0, 0) + c_push()  off = off + 24 }
             if startsWith(b, "kp") {
                 code = code + c_pop0() + e_movzHi(9, 64) + e_cmp(0, 9) + e_bhs(8)
                 code = code + e_bl(strIntOff - (off + 20)) + e_bl(printOff - (off + 24))
