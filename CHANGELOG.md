@@ -4,6 +4,114 @@ All notable changes to the Krypton language and compiler.
 
 ## [Unreleased]
 
+**Linux GUI flagship — `stdlib/x11.k` Phase A1+A2 (agent w):**
+
+- Pure-Krypton X11 wire-protocol client. No libX11, no libxcb, no
+  dynamic linking. Built on the existing `sockMake` / `sockConnect` /
+  `sockSend` / `sockRecv` builtins plus the new Phase C byte-buffer
+  machinery in `elf.k` (`bufNew`, `bufSetByte`, `bufGetByte`,
+  `bufGetWordAt`, `bufGetDwordAt`).
+- Phase A1: `x11Connect(host, display)` + `x11Handshake(fd)` returns
+  the accept byte. Verified against Xvfb on Arch/WSL2 — TCP loopback
+  to `127.0.0.1:6001`, byte 1 (accept) returned cleanly.
+- Phase A2: full server-info parse on top of agent l's new buf
+  machinery — `x11Vendor`, `x11ResourceIdBase`, `x11ResourceIdMask`,
+  `x11ProtoMajor/Minor`, `x11ReleaseNumber`, `x11MaxRequestLen`,
+  `x11NumScreens` / `NumFormats` / `ImageByteOrder`, keycode range.
+  Dumps "The X.Org Foundation" / proto 11.0 / rid base 0x200000 /
+  rid mask 0x1FFFFF / max-request-len 65535 / 1 screen / 6 formats /
+  LSB byte order / keycodes 8..255 against Xvfb.
+- Phase B (CreateWindow + MapWindow + event loop) and Phase C
+  (CreateGC + PolyFillRectangle + ImageText8) reassigned to agent l —
+  they own the deeper Linux syscall surface (AF_UNIX, forkpty, etc).
+
+**Host architecture detection — `stdlib/arch.k` + kcc.ks integration (agent w):**
+
+- New stdlib module returns the host CPU as a normalized string
+  (`"x86_64"` / `"arm64"` / `"x86"` / `"armv7"` / `"unknown"`) plus
+  `is64Bit()` / `isArm()` / `isX86()` helpers. Layered detection:
+  `/proc/sys/kernel/arch` (Linux kernel-truth) → `PROCESSOR_ARCHITECTURE`
+  env (Windows) → `HOSTTYPE` (bash everywhere) → `CPUTYPE` (zsh).
+  Skips `shellRun` — Linux's `shellRun` inherits stdio rather than
+  capturing it.
+- `kcc.ks --print-arch` — prints the host CPU and exits. Lets
+  PKGBUILDs / build scripts branch on arch without hardcoding
+  `uname -m`.
+- `kcc.ks` auto-routes to the right backend on Linux:
+    - `host x86_64, no flag    → x86_64 backend` (legacy default)
+    - `host arm64,  no flag    → arm64 backend` (NEW)
+    - `--arm64                  → arm64 regardless of host` (existing)
+    - `--x64                    → x86_64 regardless of host` (new opt-out)
+  Sets up Linux aarch64 hosts to "just work" once agent l's M4
+  string-concat lands. Same pattern extends to Windows-on-ARM the day
+  a Windows arm64 backend exists.
+
+**Linux test surface + CI (agent w):**
+
+- `tests/run_linux.sh` — real test runner. Iterates `tests/*.k`,
+  compiles each via `kcc.sh`, classifies PASS / FAIL (timeout, signal-
+  death like SIGSEGV, non-zero exit, `[FAIL]` markers) / SKIP. Exits
+  non-zero on any failure. Replaces the old harness that masked
+  segfaults and exit codes.
+- `.github/workflows/linux.yml` — GitHub Actions CI on `ubuntu-latest`.
+  Bootstraps via `build.sh` (gcc-free if a prebuilt seed is present),
+  runs `tests/run_linux.sh`. Triggers on pushes touching
+  `compiler/linux_x86/**`, `stdlib/**`, `tests/**`, `build.sh`,
+  `kcc.sh`, or `bootstrap/**`.
+
+**Sibling-repo Linux ports + Arch packaging (agent w):**
+
+- `kryofetch` repo: `run_linux.k` + `build_linux.sh` (Krypton-native
+  compile via `KRYPTON_ROOT/kcc.sh`, no gcc at user-invocation time)
+  + `PKGBUILD` for Arch. Built kryofetch reads `/proc`, `/sys`,
+  `/etc/os-release` via the native `readProc` syscalls — full
+  system-info dump with ASCII art (~41 KB static syscall-only ELF).
+- `terk` repo: `build_linux.sh` (cmake wrapper for Arch / Debian /
+  Ubuntu / WSL2) + `BUILD_LINUX.md` (prereqs + troubleshooting) +
+  `PKGBUILD`. Terk stays C++/Qt6 — `kryoterm` is the pure-Krypton
+  replacement path (see below).
+- `yubikrypt` repo: `PKGBUILD` for the existing KryptScript YubiKey
+  authenticator. macOS frontend reused verbatim on Linux.
+- `kryoterm` (new sibling repo): Krypton-native terminal emulator,
+  pure `.k` + `.ks`. Phase 0 stub — spawns child via `shellRun`,
+  echoes stdout (4126 B static ELF). Phase 1 (X11 window) and Phase 2
+  (in-window render) follow as `stdlib/x11.k` gains the matching
+  capabilities. End state retires terk's C++/Qt6 surface.
+- All four sibling repos: `.gitattributes` pinning `*.sh` / `*.k` /
+  `*.ks` / `PKGBUILD` to LF so Windows tooling can't CRLF-break
+  shebang lines on Linux. Bug found live on kryofetch:
+  `env: 'bash\r': No such file or directory`.
+
+**Site (krypton-lang.org):**
+
+- Programs page (`web/site/export.htk`) updated: new cards for
+  `yubiKrypt` and `kryoterm`; reframed `kryofetch` as cross-platform
+  (Windows + Linux x86_64) with honest aarch64 footnote (pending
+  agent l's M4 string-concat).
+- System-following light/dark theme — `@media
+  (prefers-color-scheme: dark)` overrides flip the CSS custom
+  properties on `:root` (no toggle, no localStorage). Hero dimmed via
+  `filter: brightness(0.72) saturate(0.85)` in dark mode so the
+  bright purple gradient doesn't shout against the dark page bg.
+  Hero CTA buttons themed dark to match.
+- Hero typing animation fix — Krypton's `\\n` in source evaluates to
+  a real newline, which a single-quoted JS string couldn't span.
+  Switched to a backtick template literal. Hero canvas particles
+  likewise restored (same SyntaxError took them out).
+- WASM particle theming — particles are rendered by `particles.wasm`
+  (compiled from `particles.ks`) via `wasm_runner.js`. New
+  `themedRGB()` helper in the JS shim reads `--particle-rgb` from
+  the page-level CSS var and overrides the WASM-side R/G/B channels
+  (alpha still honoured from the .ks-tuned packed value). Light mode
+  keeps white particles; dark mode shows soft grey-purple
+  (140, 120, 200). `wasm_runner.js?v=20` cache-bust across all
+  `dist/*.html`.
+- `web/site/PAGES.md` — full inventory of every page in `dist/`
+  with theme coverage + a "rendering layers" table (CSS / inline JS /
+  WASM shim) so future theme changes know which layer to land in.
+  Sub-pages (`docs/`, `learn/`, `blog/`, `playground.html`) had been
+  missing the `@media` block entirely — patched.
+
 **Zero-C HTTP server on macOS — `k:server_native` (agent m):**
 
 - New BSD-socket builtins emitted as direct `svc` syscalls by
