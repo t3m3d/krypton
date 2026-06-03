@@ -24,6 +24,7 @@ import "k:args"
 import "k:fsx"
 import "k:env"
 import "k:sh"
+import "k:arch"
 
 func VERSION() { emit "kcc-native 0.1 (krypton-driver prototype)" }
 
@@ -250,6 +251,12 @@ just run {
     let first = arg(0)
     if first == "--version" || first == "-v" { kp(VERSION())  exit("0") }
 
+    // --print-arch: print the host CPU architecture and exit. Lets shell
+    // scripts and PKGBUILDs branch on host arch without hardcoding `uname -m`
+    // (which doesn't capture cleanly under Krypton's shellRun on Linux).
+    //   x86_64 | arm64 | x86 | armv7 | unknown
+    if first == "--print-arch" { kp(arch())  exit("0") }
+
     let root = findRoot()
     if root == "" {
         kp("kcc: cannot find install root (set KRYPTON_ROOT)")
@@ -260,7 +267,16 @@ just run {
 
     // ── Linux native pipeline (x86-64 native, or --arm64 cross to aarch64) ────
     if os == "Linux" {
-        let toArm = hasFlag("--arm64")          // cross-compile target: aarch64
+        // Auto-route to the right backend by host arch unless the user
+        // overrides with an explicit --arm64 (force cross to aarch64) or
+        // --x64 (force x86-64 even on an aarch64 host).
+        //   host x86_64 + no flags   -> x86_64 backend (legacy default)
+        //   host arm64  + no flags   -> arm64 backend (NEW)
+        //   --arm64                  -> arm64 backend regardless of host
+        //   --x64                    -> x86_64 backend regardless of host
+        let toArm = "0"
+        if hasFlag("--arm64") == "1" { toArm = "1" }
+        else { if hasFlag("--x64") == "0" { if arch() == "arm64" { toArm = "1" } } }
         let fe = root + "/compiler/linux_x86/kcc-x64"   // x86 front-end emits arch-agnostic IR
 
         // --ir: stream IR (arch-agnostic).
