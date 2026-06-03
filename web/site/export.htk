@@ -256,7 +256,7 @@ func siteJS() {
         "if(topBtn){window.addEventListener('scroll',function(){if(window.scrollY>400)topBtn.classList.add('show');else topBtn.classList.remove('show');});}" +
         "var tc=document.getElementById('typeCode');" +
         "if(tc){" +
-        "var raw='func fib(n) {\\n    if n &lt;= 1 { emit n }\\n    emit fib(n - 1) + fib(n - 2)\\n}\\n\\njust run {\\n    kp(fib(10))  // 55\\n}';" +
+        "var raw=`func fib(n) {\\n    if n &lt;= 1 { emit n }\\n    emit fib(n - 1) + fib(n - 2)\\n}\\n\\njust run {\\n    kp(fib(10))  // 55\\n}`;" +
         "var ci=0;" +
         "function hl(s){" +
         "s=s.replace(/\\/\\/.*/g,function(m){return '<span class=cm>'+m+'</span>';});" +
