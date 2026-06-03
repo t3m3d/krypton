@@ -9,9 +9,12 @@
 // x22). Compiles real programs: factorial/fib recursion, nested calls, kp("n="+n).
 // kp dispatches int vs string on the 0x7F000000 tag.
 //
-// KNOWN LIMITATION: kp leaks +16/op via an x86-backend miscompile (see opOff note),
-// so very print-heavy programs (hundreds of lines) eventually crash. Missing many
-// stdlib builtins (substring/charCode/len/toInt/range/...). Both are future work.
+// NOTE: kp's bytes are built via a local sbAppend, NOT consecutive `code = code + ..`
+// statements — the x86 backend (elf_host) miscompiles 3+ consecutive `+=`-style
+// string appends in a deeply-nested block (drops/dupes instructions). Print-heavy
+// programs now work to ~1000s of lines. Still missing many stdlib builtins
+// (substring/charCode/len/toInt/range/...) and the main `code` accumulator is still
+// O(n^2) `+` (crashes the backend on ~5000+ op programs) — both future work.
 //
 // aarch64 words exceed the int ceiling (0x7F000000), so each is emitted byte-wise
 // via two 16-bit halves (wordHL). Operand stack = register x20 (grows down);
@@ -306,11 +309,6 @@ just run {
     }
     let total = dataOff + strBytes
     let heapOff = (total + 15) / 16 * 16            // heap start (offset from load base)
-    // KNOWN LIMITATION: the kp lowering leaks +16/op via an x86-backend miscompile
-    // (elf_host duplicates an `add x20` in the kp handler — the arm64 source here is
-    // verified correct). Print-heavy programs (hundreds of lines) eventually drift
-    // x20 off the op stack and crash. Real programs (recursion, functions, moderate
-    // output) work. Fix belongs in the x86 backend / a StringBuilder rewrite.
     let opOff = heapOff + 1048576 + 65536           // x20 start = heap + 1 MiB + 64 KiB
 
     // ── _start: x20=op stack, x22=heap, bl __main__, exit(0) ──────────────────
@@ -384,9 +382,11 @@ just run {
             let b = operand(ln)
             if startsWith(b, "isTruthy") { code = code + c_pop0() + e_cmpi0(0) + e_cset(0, 0) + c_push()  off = off + 24 }
             if startsWith(b, "kp") {
-                code = code + c_pop0()                              // pop arg -> x0 (driver, x20)
-                code = code + e_bl(kpDispOff - (off + 8))           // dispatch + print
-                code = code + c_push()                              // push dummy (x0 garbage; IR POPs it)
+                let kc = sbNew()
+                kc = sbAppend(kc, c_pop0())                         // pop arg -> x0
+                kc = sbAppend(kc, e_bl(kpDispOff - (off + 8)))      // dispatch + print
+                kc = sbAppend(kc, c_push())                         // push dummy (IR POPs it)
+                code = code + sbToString(kc)
                 off = off + 20
             }
             if startsWith(b, "gcShadowCount") { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
