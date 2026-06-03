@@ -3,11 +3,15 @@
 // Cross backend: built by the x86 kcc, runs on x86, emits aarch64. Reads Krypton
 // IR (arg 0), writes a static syscall-only aarch64 ELF (arg 1). Test under qemu.
 //
-// Milestone 2: a real stack machine. Integers + arithmetic (+ - * / %), locals
-// (STORE/LOAD), and the kr_str_int / kr_print runtime helpers, so it compiles
-// programs that compute and print numbers — e.g. kp(2 + 3 * 4) -> "14". kp also
-// still prints string literals (kp dispatches on the int/pointer tag at 0x400000).
-// Control flow (LABEL/JUMP/comparisons) is the next milestone.
+// Status (M1-M5): a real stack machine with integers + arithmetic (+ - * / %),
+// string interpolation (CAT/ADD via kr_plus), locals, control flow (loops/ifs),
+// and USER FUNCTIONS with recursion (call frames on sp, op stack in x20, heap in
+// x22). Compiles real programs: factorial/fib recursion, nested calls, kp("n="+n).
+// kp dispatches int vs string on the 0x7F000000 tag.
+//
+// KNOWN LIMITATION: kp leaks +16/op via an x86-backend miscompile (see opOff note),
+// so very print-heavy programs (hundreds of lines) eventually crash. Missing many
+// stdlib builtins (substring/charCode/len/toInt/range/...). Both are future work.
 //
 // aarch64 words exceed the int ceiling (0x7F000000), so each is emitted byte-wise
 // via two 16-bit halves (wordHL). Operand stack = register x20 (grows down);
@@ -51,11 +55,11 @@ func e_ldr8(rt, rn, off8) { let p = off8 * 1024 + rn * 32 + rt  emit wordHL(6380
 func e_ret() { emit wordHL(54879, 960) }
 func e_svc() { emit wordHL(54272, 1) }
 // branches: off = target - this instruction, in bytes (multiple of 4)
-func e_b(off)  { let q = off / 4  if q < 0 { q = q + 67108864 }  emit wordHL(5120 + q / 65536, q % 65536) }
-func e_bl(off) { let q = off / 4  if q < 0 { q = q + 67108864 }  emit wordHL(37888 + q / 65536, q % 65536) }
-func e_cbz(rt, off)  { let q = off / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + rt  emit wordHL(46080 + p / 65536, p % 65536) }
-func e_cbnz(rt, off) { let q = off / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + rt  emit wordHL(46336 + p / 65536, p % 65536) }
-func e_bhs(off) { let q = off / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 2  emit wordHL(21504 + p / 65536, p % 65536) }
+func e_b(dsp)  { let q = dsp / 4  if q < 0 { q = q + 67108864 }  emit wordHL(5120 + q / 65536, q % 65536) }
+func e_bl(dsp) { let q = dsp / 4  if q < 0 { q = q + 67108864 }  emit wordHL(37888 + q / 65536, q % 65536) }
+func e_cbz(rt, dsp)  { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + rt  emit wordHL(46080 + p / 65536, p % 65536) }
+func e_cbnz(rt, dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + rt  emit wordHL(46336 + p / 65536, p % 65536) }
+func e_bhs(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 2  emit wordHL(21504 + p / 65536, p % 65536) }
 
 // composites
 func c_push() { emit e_subi(20, 20, 16) + e_str0(0, 20) }      // push x0
@@ -102,6 +106,23 @@ func emitPlus(strIntOff, allocOff, thisOff) {
     c = c + e_movz(2, 0) + e_cmp(2, 14) + e_bhs(24) + e_ldrbO(3, 11, 2) + e_strb(3, 0) + e_addi(0, 0, 1) + e_addi(2, 2, 1) + e_b(0 - 24)  // copy sa
     c = c + e_movz(2, 0) + e_cmp(2, 16) + e_bhs(24) + e_ldrbO(3, 12, 2) + e_strb(3, 0) + e_addi(0, 0, 1) + e_addi(2, 2, 1) + e_b(0 - 24)  // copy sb
     c = c + e_strb(31, 0) + e_movr(0, 17) + e_movr(30, 23) + e_ret()              // NUL; return dst
+    emit c
+}
+// kp dispatch, extracted from the driver so the huge `just run` stays small enough
+// for the x86 backend to compile correctly (a large-function miscompile drops/garbles
+// statements). Pops arg; pointer -> print, int -> kr_str_int then print; push dummy 0.
+// kp dispatch helper (x0 = value in; prints it; preserves x20/x19). The op-stack
+// pop/push stays in the driver — only the x20-free dispatch lives here, since
+// add/sub x20 inside an emit* helper triggers an x86-backend miscompile. 32 bytes.
+func emitKpDisp(thisOff, siOff, prOff) {
+    let c = e_movr(25, 30)
+    c = c + e_movzHi(9, 32512)
+    c = c + e_cmp(0, 9)
+    c = c + e_bhs(8)
+    c = c + e_bl(siOff - (thisOff + 16))
+    c = c + e_bl(prOff - (thisOff + 20))
+    c = c + e_movr(30, 25)
+    c = c + e_ret()
     emit c
 }
 // kr_print: x0=ptr -> write the NUL-terminated string then a newline.
@@ -240,7 +261,7 @@ func opSize(ln) {
     if op == "LT" || op == "GT" || op == "EQ" || op == "NEQ" || op == "LTE" || op == "GTE" { emit 32 }
     if op == "BUILTIN" {
         let b = operand(ln)
-        if startsWith(b, "kp") { emit 28 }
+        if startsWith(b, "kp") { emit 20 }   // pop + bl kpDisp + push (no movz between bl and push)
         if startsWith(b, "gcShadowCount") { emit 12 }
         if startsWith(b, "gcShadowPush") { emit 16 }
         if startsWith(b, "gcShadowPop") { emit 16 }
@@ -268,7 +289,8 @@ just run {
     let strIntOff = allocOff + 16
     let plusOff   = strIntOff + 100
     let printOff  = plusOff + 212
-    let nlOff = printOff + 64
+    let kpDispOff = printOff + 64
+    let nlOff = kpDispOff + 32
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -284,7 +306,12 @@ just run {
     }
     let total = dataOff + strBytes
     let heapOff = (total + 15) / 16 * 16            // heap start (offset from load base)
-    let opOff = heapOff + 1048576 + 65536           // op stack top (64 KiB above 1 MiB heap)
+    // KNOWN LIMITATION: the kp lowering leaks +16/op via an x86-backend miscompile
+    // (elf_host duplicates an `add x20` in the kp handler — the arm64 source here is
+    // verified correct). Print-heavy programs (hundreds of lines) eventually drift
+    // x20 off the op stack and crash. Real programs (recursion, functions, moderate
+    // output) work. Fix belongs in the x86 backend / a StringBuilder rewrite.
+    let opOff = heapOff + 1048576 + 65536           // x20 start = heap + 1 MiB + 64 KiB
 
     // ── _start: x20=op stack, x22=heap, bl __main__, exit(0) ──────────────────
     let mainOff = toInt(funcVaddrOf(ir, "__main__"))
@@ -357,9 +384,10 @@ just run {
             let b = operand(ln)
             if startsWith(b, "isTruthy") { code = code + c_pop0() + e_cmpi0(0) + e_cset(0, 0) + c_push()  off = off + 24 }
             if startsWith(b, "kp") {
-                code = code + c_pop0() + e_movzHi(9, 32512) + e_cmp(0, 9) + e_bhs(8)
-                code = code + e_bl(strIntOff - (off + 20)) + e_bl(printOff - (off + 24))
-                off = off + 28
+                code = code + c_pop0()                              // pop arg -> x0 (driver, x20)
+                code = code + e_bl(kpDispOff - (off + 8))           // dispatch + print
+                code = code + c_push()                              // push dummy (x0 garbage; IR POPs it)
+                off = off + 20
             }
             if startsWith(b, "gcShadowCount") { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
             if startsWith(b, "gcShadowPush") { code = code + e_addi(20, 20, 16) + e_movz(0, 0) + c_push()  off = off + 16 }
@@ -373,7 +401,7 @@ just run {
     }
 
     // helpers appended after main code, in layout order (alloc, str_int, plus, print)
-    let body = code + emitAlloc() + emitStrInt(allocOff, strIntOff) + emitPlus(strIntOff, allocOff, plusOff) + emitPrint(nlOff)
+    let body = code + emitAlloc() + emitStrInt(allocOff, strIntOff) + emitPlus(strIntOff, allocOff, plusOff) + emitPrint(nlOff) + emitKpDisp(kpDispOff, strIntOff, printOff)
 
     // data region: newline byte (at nlOff) then string literals
     let data = hexByte(10)                                     // newline
@@ -396,7 +424,7 @@ just run {
     eh = eh + le8vaddr(HDR) + le8(64) + le8(0)
     eh = eh + "x00x00x00x00" + "x40x00" + "x38x00" + "x01x00" + "x00x00" + "x00x00" + "x00x00"
     let ph = "x01x00x00x00" + "x07x00x00x00"
-    let memsz = heapOff + 1048576 + 65536                  // file + 1 MiB heap + 64 KiB op stack (BSS)
+    let memsz = heapOff + 1048576 + 65536                  // 1 MiB heap + 64 KiB op stack (BSS)
     ph = ph + le8(0) + le8vaddr(0) + le8vaddr(0) + le8(total) + le8(memsz) + le8(65536)
 
     writeBytes(outFile, eh + ph + body + data)
