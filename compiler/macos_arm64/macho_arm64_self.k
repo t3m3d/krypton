@@ -2024,7 +2024,7 @@ func computeFunctionInstrs(parsed, fIdx) {
     if frame > 0 { n = n + 1 }     // sub sp
     n = n + nP                     // save each param
     // __main__ also saves argc/argv to fixed cells (4 instr)
-    if funcName(parsed, fIdx) == "__main__" { n = n + 4 }
+    if funcName(parsed, fIdx) == "__main__" { n = n + 18 }  // 4 argc/argv save + 14 mmap-heap seed
     let oi = 0
     while oi < nO {
         let opLine = funcOp(parsed, fIdx, oi)
@@ -2070,7 +2070,7 @@ func buildFunctionLabelTable(parsed, fIdx, funcStartInstr) {
     let n = funcStartInstr + 2
     if frame > 0 { n = n + 1 }
     n = n + nP
-    if funcName(parsed, fIdx) == "__main__" { n = n + 4 }
+    if funcName(parsed, fIdx) == "__main__" { n = n + 18 }  // 4 argc/argv save + 14 mmap-heap seed
     let opBase = funcStartLine(parsed, fIdx) + 1 + nP + funcNLocals(parsed, fIdx)
     let oi = 0
     while oi < nO {
@@ -2222,6 +2222,29 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
         s = sbAppend(s, arm64_str_imm(0, 9, 1))  // str x0 (argc), [x9, #8]
         s = sbAppend(s, arm64_str_imm(1, 9, 2))  // str x1 (argv), [x9, #16]
         instrIdx = instrIdx + 4
+        // mmap a large anonymous heap and seed the bump pointer with it. The
+        // __DATA zero-fill heap caps at 0x70000000 (dyld shared cache sits at
+        // ~0x180000000 right above it), too small to self-compile compile.k.
+        // An anon mmap lands high (~0x300000000) with room to spare. emitAllocVar
+        // reads bump_cell+0 and uses it when non-zero, so seeding it = heap moves
+        // off __DATA. On mmap failure (x0 < 4GB) we leave it 0 → default __DATA
+        // heap (unchanged behavior). 14 instr.
+        s = sbAppend(s, arm64_movz_x_imm(0, 0))          // 0: addr = 0 (kernel picks)
+        s = sbAppend(s, arm64_movz_x_imm_lsl32(1, 2))    // 1: len = 2<<32 = 8 GB
+        s = sbAppend(s, arm64_movz_x_imm(2, 3))          // 2: prot = PROT_READ|WRITE
+        s = sbAppend(s, arm64_movz_x_imm(3, 0x1002))     // 3: flags = MAP_ANON|MAP_PRIVATE
+        s = sbAppend(s, arm64_movn_x_imm(4, 0))          // 4: fd = -1
+        s = sbAppend(s, arm64_movz_x_imm(5, 0))          // 5: offset = 0
+        s = sbAppend(s, arm64_movz_x_imm(16, 197))       // 6: SYS_mmap
+        s = sbAppend(s, arm64_svc(0x80))                 // 7: x0 = base or error
+        let imm21m = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + (instrIdx + 8) * 4) / 4096
+        s = sbAppend(s, arm64_adrp(9, imm21m))           // 8: re-derive cell (svc may clobber x9)
+        s = sbAppend(s, arm64_add_imm(9, 9, 0))          // 9
+        s = sbAppend(s, arm64_movz_x_imm_lsl32(14, 1))   // 10: x14 = 0x100000000 (4 GB)
+        s = sbAppend(s, arm64_cmp_xx(0, 14))             // 11: cmp base, 4GB
+        s = sbAppend(s, arm64_b_cond(0x3, 2))            // 12: b.lo SKIP (mmap failed → keep 0)
+        s = sbAppend(s, arm64_str_imm(0, 9, 0))          // 13: bump_cell+0 = mmap base
+        instrIdx = instrIdx + 14
     }
 
     // Cache the op-block base line once (funcOp re-derived it per op, re-parsing
