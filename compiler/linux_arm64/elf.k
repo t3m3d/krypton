@@ -53,6 +53,8 @@ func e_cset(rd, cc) { let p = 2016 + cc * 4096 + rd  emit wordHL(39583 + p / 655
 func e_movr(rd, rm)  { let p = 992 + rd  emit wordHL(43520 + rm + p / 65536, p % 65536) }     // mov Xd,Xm
 func e_strb(wt, xn)  { let p = xn * 32 + wt  emit wordHL(14592, p) }                 // strb Wt,[Xn]
 func e_ldrbO(wt, xn, xm) { let p = 26624 + xn * 32 + wt  emit wordHL(14432 + xm + p / 65536, p % 65536) }
+func e_ldrb0(wt, xn) { let p = xn * 32 + wt  emit wordHL(14656, p) }                 // ldrb Wt,[Xn]
+func e_strbO(wt, xn, off) { let p = off * 1024 + xn * 32 + wt  emit wordHL(14592 + p / 65536, p % 65536) } // strb Wt,[Xn,#off]
 func e_str8(rt, rn, off8) { let p = off8 * 1024 + rn * 32 + rt  emit wordHL(63744 + p / 65536, p % 65536) } // str Xt,[Xn,#off8*8]
 func e_ldr8(rt, rn, off8) { let p = off8 * 1024 + rn * 32 + rt  emit wordHL(63808 + p / 65536, p % 65536) } // ldr Xt,[Xn,#off8*8]
 func e_ret() { emit wordHL(54879, 960) }
@@ -126,6 +128,15 @@ func emitKpDisp(thisOff, siOff, prOff) {
     c = c + e_bl(prOff - (thisOff + 20))
     c = c + e_movr(30, 25)
     c = c + e_ret()
+    emit c
+}
+// kr_atoi: x0=string ptr -> x0=parsed non-negative int (stops at NUL/non-digit).
+func emitAtoi() {
+    let c = e_movr(1, 0) + e_movz(0, 0) + e_movz(4, 10)        // x1=ptr, x0=0, x4=10
+    c = c + e_ldrb0(2, 1) + e_cbz(2, 24)                       // .loop: w2=[x1]; 0 -> .done
+    c = c + e_mul(0, 0, 4) + e_subi(2, 2, 48) + e_addr(0, 0, 2) // x0 = x0*10 + (c-'0')
+    c = c + e_addi(1, 1, 1) + e_b(0 - 24)                      // x1++; -> .loop
+    c = c + e_ret()                                            // .done: ret
     emit c
 }
 // kr_print: x0=ptr -> write the NUL-terminated string then a newline.
@@ -268,6 +279,11 @@ func opSize(ln) {
         if startsWith(b, "gcShadowCount") { emit 12 }
         if startsWith(b, "gcShadowPush") { emit 16 }
         if startsWith(b, "gcShadowPop") { emit 16 }
+        if startsWith(b, "charCode") { emit 20 }
+        if startsWith(b, "len") { emit 40 }
+        if startsWith(b, "toStr") { emit 32 }
+        if startsWith(b, "toInt") { emit 20 }
+        if startsWith(b, "fromCharCode") { emit 36 }
         if startsWith(b, "isTruthy") { emit 24 }
         emit 0
     }
@@ -293,7 +309,8 @@ just run {
     let plusOff   = strIntOff + 100
     let printOff  = plusOff + 212
     let kpDispOff = printOff + 64
-    let nlOff = kpDispOff + 32
+    let atoiOff = kpDispOff + 32
+    let nlOff = atoiOff + 44
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -392,6 +409,63 @@ just run {
             if startsWith(b, "gcShadowCount") { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
             if startsWith(b, "gcShadowPush") { code = code + e_addi(20, 20, 16) + e_movz(0, 0) + c_push()  off = off + 16 }
             if startsWith(b, "gcShadowPop") { code = code + e_addi(20, 20, 16) + e_movz(0, 0) + c_push()  off = off + 16 }
+            // charCode(s) -> first byte of s (int). 20 bytes.
+            if startsWith(b, "charCode") {
+                let kc = sbNew()
+                kc = sbAppend(kc, c_pop0())
+                kc = sbAppend(kc, e_ldrb0(0, 0))
+                kc = sbAppend(kc, c_push())
+                code = code + sbToString(kc)
+                off = off + 20
+            }
+            // len(s)/length(s) -> strlen (int). 40 bytes.
+            if startsWith(b, "len") {
+                let kc = sbNew()
+                kc = sbAppend(kc, c_pop0())                  // x0 = ptr
+                kc = sbAppend(kc, e_movz(1, 0))              // len=0
+                kc = sbAppend(kc, e_ldrbO(2, 0, 1))          // .loop: w2=[x0+len]
+                kc = sbAppend(kc, e_cbz(2, 12))              // 0 -> .done
+                kc = sbAppend(kc, e_addi(1, 1, 1))           // len++
+                kc = sbAppend(kc, e_b(0 - 12))               // loop
+                kc = sbAppend(kc, e_movr(0, 1))              // x0 = len
+                kc = sbAppend(kc, c_push())
+                code = code + sbToString(kc)
+                off = off + 40
+            }
+            // toStr(x) -> x as a string (kr_str_int for ints; identity for strings). 32 bytes.
+            if startsWith(b, "toStr") {
+                let kc = sbNew()
+                kc = sbAppend(kc, c_pop0())
+                kc = sbAppend(kc, e_movzHi(9, 32512))
+                kc = sbAppend(kc, e_cmp(0, 9))
+                kc = sbAppend(kc, e_bhs(8))                  // pointer -> already a string
+                kc = sbAppend(kc, e_bl(strIntOff - (off + 20)))
+                kc = sbAppend(kc, c_push())
+                code = code + sbToString(kc)
+                off = off + 32
+            }
+            // toInt(s) -> parse non-negative decimal (kr_atoi). 20 bytes.
+            if startsWith(b, "toInt") {
+                let kc = sbNew()
+                kc = sbAppend(kc, c_pop0())                       // x0 = string ptr
+                kc = sbAppend(kc, e_bl(atoiOff - (off + 8)))      // x0 = parsed int
+                kc = sbAppend(kc, c_push())
+                code = code + sbToString(kc)
+                off = off + 20
+            }
+            // fromCharCode(n) -> 1-char string for byte n (kr_alloc(2)). 36 bytes.
+            if startsWith(b, "fromCharCode") {
+                let kc = sbNew()
+                kc = sbAppend(kc, c_pop0())                       // x0 = code (int)
+                kc = sbAppend(kc, e_movr(10, 0))                  // save code in x10
+                kc = sbAppend(kc, e_movz(0, 2))                   // size = 2
+                kc = sbAppend(kc, e_bl(allocOff - (off + 16)))    // x0 = buf
+                kc = sbAppend(kc, e_strb(10, 0))                  // buf[0] = code
+                kc = sbAppend(kc, e_strbO(31, 0, 1))             // buf[1] = NUL
+                kc = sbAppend(kc, c_push())                       // push buf
+                code = code + sbToString(kc)
+                off = off + 36
+            }
         }
         // RETURN and END: epilogue (free locals, restore x19/x30, ret). For __main__
         // this returns to _start, which then exits(0).
@@ -401,7 +475,7 @@ just run {
     }
 
     // helpers appended after main code, in layout order (alloc, str_int, plus, print)
-    let body = code + emitAlloc() + emitStrInt(allocOff, strIntOff) + emitPlus(strIntOff, allocOff, plusOff) + emitPrint(nlOff) + emitKpDisp(kpDispOff, strIntOff, printOff)
+    let body = code + emitAlloc() + emitStrInt(allocOff, strIntOff) + emitPlus(strIntOff, allocOff, plusOff) + emitPrint(nlOff) + emitKpDisp(kpDispOff, strIntOff, printOff) + emitAtoi()
 
     // data region: newline byte (at nlOff) then string literals
     let data = hexByte(10)                                     // newline
