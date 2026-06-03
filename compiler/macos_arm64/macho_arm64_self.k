@@ -959,7 +959,7 @@ func emitAllocVar(instrIdx, textVaddr, textOff) {
     s = s + arm64_brk(99)                               // 9: brk #99 (limit exceeded)
     s = s + arm64_ldr_imm(0, 1, 0)                      // 10
     s = s + arm64_cbnz(0, 2)                            // 11
-    s = s + arm64_add_imm(0, 1, 64)                     // 12: first-time init
+    s = s + arm64_add_imm(0, 1, 96)                     // 12: first-time init (heap @ +96; +56/64/72 = getLine cache)
     s = s + arm64_add_xxx(2, 0, 4)                      // 13: x2 = x0 + size
     s = s + arm64_add_imm(2, 2, 16)                     // 14: x2 += 16 (header)
     s = s + arm64_str_imm(2, 1, 0)                      // 15: advance bump
@@ -1017,7 +1017,7 @@ func emitAllocN(n, instrIdx, textVaddr, textOff) {
     s = s + arm64_brk(99)                               // 9: brk #99 (limit exceeded)
     s = s + arm64_ldr_imm(0, 1, 0)                      // 10: ldr  x0, [x1]   ; current free
     s = s + arm64_cbnz(0, 2)                            // 11: if x0 != 0 skip first-time init
-    s = s + arm64_add_imm(0, 1, 64)                     // 12: x0 = bump_cell + 64 (heap, past system area)
+    s = s + arm64_add_imm(0, 1, 96)                     // 12: x0 = bump_cell + 96 (heap; +56/64/72 = getLine cache)
     s = s + arm64_add_imm(2, 0, nWithHdr)               // 13: x2 = x0 + (nAligned+16)  new bump
     s = s + arm64_str_imm(2, 1, 0)                      // 14: str x2, [x1]    ; advance bump
     s = s + arm64_ldr_imm(11, 1, 6)                     // 15: ldr x11, [x1, #48]  (old gcAllocsHead)
@@ -1966,7 +1966,7 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_COUNT"        { emit 10 }   // walk string, cnt = 1 + commas
     if opTok == "BUILTIN_ISTRUTHY"     { emit 35 }   // int=nonzero / ptr: empty / "0" / "false" → falsy, else truthy
     if opTok == "BUILTIN_LINECOUNT"    { emit 18 }   // \n counter with trailing-NL adjustment (matches C kr_linecount)
-    if opTok == "BUILTIN_GETLINE"      { emit 50 }   // identical structure to SPLIT, \n delimiter
+    if opTok == "BUILTIN_GETLINE"      { emit 65 }   // SPLIT-style \n scan + pointer-keyed cache (O(1) sequential)
     if opTok == "BUILTIN_REPLACE"      { emit 95 }   // strlens + occurrence count + alloc(21) + substituting copy
     if opTok == "BUILTIN_GCALLOCATED"  { emit 4 }   // adrp + add + ldr [x1,#24] + push
     if opTok == "BUILTIN_GCLIMIT"      { emit 4 }   // adrp + add + ldr [x1,#32] + push
@@ -3437,46 +3437,64 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_push_x0())  // 17
             instrIdx = instrIdx + 18
         } else if opTok == "BUILTIN_GETLINE" {
-            // getLine(s, idx) → idx-th \n-separated line. Identical structure to
-            // SPLIT but with 0x0a delimiter instead of 0x2c. 50 instructions.
-            s = sbAppend(s, arm64_pop(4))  // 0: idx
-            s = sbAppend(s, arm64_pop(3))  // 1: s
-            s = sbAppend(s, arm64_movz_x_imm(5, 0))  // 2: count = 0
-            s = sbAppend(s, arm64_mov_xx(10, 3))  // 3: start = s
-            s = sbAppend(s, arm64_mov_xx(1, 3))  // 4: scan = s
-            // SCAN @ 5:
-            s = sbAppend(s, arm64_ldrb_zero(6, 1))  // 5
-            s = sbAppend(s, arm64_cbz(6, 9))  // 6: NUL → END_SCAN (idx 15)
-            s = sbAppend(s, arm64_cmp_imm(6, 0x0a))  // 7
-            s = sbAppend(s, arm64_b_cond(0x1, 5))  // 8: b.ne NEXT (idx 13)
-            s = sbAppend(s, arm64_cmp_xx(5, 4))  // 9
-            s = sbAppend(s, arm64_b_cond(0x0, 8))  // 10: b.eq FOUND (idx 18)
-            s = sbAppend(s, arm64_add_imm(5, 5, 1))  // 11
-            s = sbAppend(s, arm64_add_imm(10, 1, 1))  // 12: start = p+1
-            // NEXT @ 13:
-            s = sbAppend(s, arm64_add_imm(1, 1, 1))  // 13
-            s = sbAppend(s, arm64_b(0 - 9))  // 14: → SCAN
-            // END_SCAN @ 15:
-            s = sbAppend(s, arm64_cmp_xx(5, 4))  // 15
-            s = sbAppend(s, arm64_b_cond(0x0, 2))  // 16: → FOUND (rel +2)
-            s = sbAppend(s, arm64_mov_xx(10, 1))  // 17: not found → len 0
-            // FOUND @ 18:
-            s = sbAppend(s, arm64_sub_xxx(7, 1, 10))  // 18: len = p - start
-            s = sbAppend(s, arm64_add_imm(4, 7, 1))  // 19: alloc size
-            instrIdx = instrIdx + 20
+            // getLine(s, idx) → idx-th \n-separated line. Pointer-keyed cache at
+            // bump_cell +56(ptr)/+64(idx)/+72(off): same string & cached_idx<=idx
+            // resumes the scan from the cached line start → O(1) for sequential
+            // access (tokAt loops) instead of O(idx) rescans → kills the O(n^2)
+            // that stalled self-host. Cache miss (other string or idx<cached)
+            // rescans from 0, so always correct. 65 instr.
+            s = sbAppend(s, arm64_pop(4))   // 0: idx
+            s = sbAppend(s, arm64_pop(3))   // 1: s
+            let imm21gl = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + (instrIdx + 2) * 4) / 4096
+            s = sbAppend(s, arm64_adrp(9, imm21gl))   // 2: x9 = bump_cell page
+            s = sbAppend(s, arm64_add_imm(9, 9, 0))   // 3
+            s = sbAppend(s, arm64_ldr_imm(11, 9, 7))  // 4: cache_ptr (+56)
+            s = sbAppend(s, arm64_ldr_imm(12, 9, 8))  // 5: cache_idx (+64)
+            s = sbAppend(s, arm64_ldr_imm(13, 9, 9))  // 6: cache_off (+72)
+            s = sbAppend(s, arm64_cmp_xx(11, 3))      // 7: cache_ptr == s?
+            s = sbAppend(s, arm64_b_cond(0x1, 6))     // 8: b.ne MISS (→14)
+            s = sbAppend(s, arm64_cmp_xx(12, 4))      // 9: cache_idx <= idx?
+            s = sbAppend(s, arm64_b_cond(0x8, 4))     // 10: b.hi MISS (→14)
+            s = sbAppend(s, arm64_mov_xx(5, 12))      // 11: HIT count = cache_idx
+            s = sbAppend(s, arm64_mov_xx(10, 13))     // 12: start = cache_off
+            s = sbAppend(s, arm64_b(3))               // 13: → SCAN_INIT (→16)
+            s = sbAppend(s, arm64_movz_x_imm(5, 0))   // 14: MISS count = 0
+            s = sbAppend(s, arm64_mov_xx(10, 3))      // 15: start = s
+            s = sbAppend(s, arm64_mov_xx(1, 10))      // 16: SCAN_INIT scan = start
+            // SCAN @ 17:
+            s = sbAppend(s, arm64_ldrb_zero(6, 1))    // 17
+            s = sbAppend(s, arm64_cbz(6, 9))          // 18: NUL → END_SCAN (→27)
+            s = sbAppend(s, arm64_cmp_imm(6, 0x0a))   // 19
+            s = sbAppend(s, arm64_b_cond(0x1, 5))     // 20: b.ne NEXT (→25)
+            s = sbAppend(s, arm64_cmp_xx(5, 4))       // 21
+            s = sbAppend(s, arm64_b_cond(0x0, 8))     // 22: b.eq FOUND (→30)
+            s = sbAppend(s, arm64_add_imm(5, 5, 1))   // 23
+            s = sbAppend(s, arm64_add_imm(10, 1, 1))  // 24: start = p+1
+            // NEXT @ 25:
+            s = sbAppend(s, arm64_add_imm(1, 1, 1))   // 25
+            s = sbAppend(s, arm64_b(0 - 9))           // 26: → SCAN (→17)
+            // END_SCAN @ 27:
+            s = sbAppend(s, arm64_cmp_xx(5, 4))       // 27
+            s = sbAppend(s, arm64_b_cond(0x0, 2))     // 28: → FOUND (→30)
+            s = sbAppend(s, arm64_mov_xx(10, 1))      // 29: not found → len 0
+            // FOUND @ 30: update cache (x9 = cell), then build the line string
+            s = sbAppend(s, arm64_str_imm(3, 9, 7))   // 30: cache_ptr = s
+            s = sbAppend(s, arm64_str_imm(4, 9, 8))   // 31: cache_idx = idx
+            s = sbAppend(s, arm64_str_imm(10, 9, 9))  // 32: cache_off = start
+            s = sbAppend(s, arm64_sub_xxx(7, 1, 10))  // 33: len = p - start
+            s = sbAppend(s, arm64_add_imm(4, 7, 1))   // 34: alloc size
+            instrIdx = instrIdx + 35
             s = sbAppend(s, emitAllocVar(instrIdx, textVaddr, textOff))
             instrIdx = instrIdx + 21
-            s = sbAppend(s, arm64_movz_x_imm(13, 0))  // 0: i
-            // COPY @ rel 1:
-            s = sbAppend(s, arm64_cmp_xx(13, 7))  // 1
-            s = sbAppend(s, arm64_b_cond(0xa, 5))  // 2: b.ge AFTER (rel 7)
-            s = sbAppend(s, arm64_ldrb_reg(14, 10, 13))  // 3
+            s = sbAppend(s, arm64_movz_x_imm(13, 0))    // 0: i
+            s = sbAppend(s, arm64_cmp_xx(13, 7))        // 1
+            s = sbAppend(s, arm64_b_cond(0xa, 5))       // 2: b.ge AFTER (rel 7)
+            s = sbAppend(s, arm64_ldrb_reg(14, 10, 13)) // 3
             s = sbAppend(s, arm64_strb_reg(14, 0, 13))  // 4
-            s = sbAppend(s, arm64_add_imm(13, 13, 1))  // 5
-            s = sbAppend(s, arm64_b(0 - 5))  // 6
-            // AFTER @ rel 7:
-            s = sbAppend(s, arm64_strb_reg(31, 0, 7))  // 7
-            s = sbAppend(s, arm64_push_x0())  // 8
+            s = sbAppend(s, arm64_add_imm(13, 13, 1))   // 5
+            s = sbAppend(s, arm64_b(0 - 5))             // 6
+            s = sbAppend(s, arm64_strb_reg(31, 0, 7))   // 7
+            s = sbAppend(s, arm64_push_x0())            // 8
             instrIdx = instrIdx + 9
         } else if opTok == "BUILTIN_REPLACE" {
             // replace(s, old, new): substitute every occurrence of `old` in `s`
