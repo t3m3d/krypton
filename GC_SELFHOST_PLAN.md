@@ -9,6 +9,19 @@ seeds, but seed regen still needs clang once).
 Status when this plan was written (2026-06-02): user path is clang-free via
 seeds. Native self-host SEGVs ~3 min into compiling compile.k. Root cause below.
 
+UPDATE (283825a1): the **memory wall is SOLVED** without GC — `__main__` now
+mmaps an 8 GB heap (commit msg there), so a native host compiles compile.k to
+COMPLETION (~190s, no SEGV). **GC is therefore no longer REQUIRED for
+self-host** — it remains a memory-efficiency win (the host uses ~GBs of leaked
+intermediates) but is optional. The plan below stays valid for that efficiency
+work. THE REMAINING self-host blocker is now a **native-codegen correctness
+bug**: a native-built frontend (compile.k compiled by the native backend) emits
+only the IR header then stops — tokenize/parse miscompiled. Present on clean git
+HEAD too (not caused by the mmap or layout changes). That bug — not memory — is
+what must be fixed next to self-host. Chase: diff native-frontend vs clang-
+frontend IR on a small input; the native one dies right after the header, so the
+miscompiled construct is hit early in compile.k's read/tokenize/main path.
+
 ---
 
 ## Why it dies — and why "more heap" can't fix it
