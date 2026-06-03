@@ -1,3 +1,8 @@
+> **RESOLVED 2026-06-03 — see SELFHOST_MACOS.md.** Self-host did NOT need GC:
+> the mmap heap removed the memory wall, and the real stall was O(n^2) tokAt
+> (fixed with a getLine cache). This GC design stays as an optional future
+> memory-efficiency improvement, not a self-host blocker.
+
 # Native self-host via conservative GC — implementation plan (macOS arm64)
 
 Goal: a `macho_host` built by the **native** pipeline (no clang) can compile the
