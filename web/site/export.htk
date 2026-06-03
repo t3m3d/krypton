@@ -29,6 +29,33 @@ func siteTheme() {
     )
 }
 
+// System-following light/dark theme. When the user's OS / browser is in
+// dark mode (`prefers-color-scheme: dark`), the CSS custom properties
+// flip to a dark palette. No JS, no localStorage, no toggle button —
+// the site just matches whatever the user already picked at the OS
+// level. Light mode stays the default (siteTheme()).
+//
+// We also patch a handful of hardcoded light-only colors so the diff /
+// table-hover / inline-code spots don't burn out against a dark bg.
+func siteDarkOverrides() {
+    emit "@media (prefers-color-scheme: dark){" +
+        ":root{" +
+            "--bg:#0f0f17;" +
+            "--text:#e4e4ec;" +
+            "--text-light:#9a9aaa;" +
+            "--card-bg:#1a1a26;" +
+            "--card-border:#2d2d40;" +
+            "--primary:#8842ff;" +
+            "--primary-dark:#7733ff;" +
+        "}" +
+        "p code{background:#262636;color:#bda6ff}" +
+        "tr:hover td{background:#1d1d2c}" +
+        ".dotbg,section[style*=\"background:#f4f0ff\"]{background:#15151f !important}" +
+        ".card{box-shadow:0 1px 0 rgba(255,255,255,0.03)}" +
+        "pre{border-color:#2d2d40}" +
+    "}"
+}
+
 func siteAnims() {
     emit kcssKeyframes("gradShift",
             "0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}") +
@@ -51,6 +78,7 @@ func siteAnims() {
 func siteCSS() {
     emit kcssStyle(
         siteTheme() +
+        siteDarkOverrides() +
         siteAnims() +
         ".reveal{opacity:0;transform:translateY(30px);transition:opacity 0.6s ease,transform 0.6s ease}.reveal.visible{opacity:1;transform:translateY(0)}" +
         "*{box-sizing:border-box;margin:0;padding:0}" +
