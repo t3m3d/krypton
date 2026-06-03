@@ -10,8 +10,9 @@
 //     kcc.sh kcc.ks -o kcc-native
 //     ./kcc-native hello.k -o hello
 //
-// SCOPE: macOS arm64 + Linux x86-64 native pipelines, with --version/--ir/-o/-r.
-// (Windows not yet wired.) Both share one KryptScript driver — no bash, no .bat.
+// SCOPE: macOS arm64 + Linux x86-64 native, + Linux aarch64 cross-compile (--arm64).
+// Modes: --version/--ir/-o/-r/-e/--c. (Windows not yet wired.) One KryptScript
+// driver, no bash, no .bat.
 //
 // Usage:
 //   kcc-native <src.k|src.ks> [-o OUT]   compile to native binary
@@ -128,6 +129,88 @@ func ensureElfHost(root) {
     emit "1"
 }
 
+// Ensure the Linux optimizer host exists / is current. Best-effort: returns
+// "1" if usable, "0" to skip optimization (mirrors kcc.sh's silent skip).
+func ensureOptHost(root) {
+    let host = root + "/compiler/linux_x86/optimize_host"
+    let src  = root + "/compiler/optimize.k"
+    let fe   = root + "/compiler/linux_x86/kcc-x64"
+    let need = "1"
+    if exists(host) == "1" {
+        if sh("test " + q(src) + " -nt " + q(host) + " && echo 1 || echo 0") == "0" { need = "0" }
+    }
+    if need == "0" { emit "1" }
+    if has("gcc") == "0" { emit "0" }
+    let tmpc = sh("mktemp /tmp/_kccopt_XXXXXX.c")
+    exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " " + q(src) + " > " + q(tmpc))
+    exec("gcc -O2 -w " + q(tmpc) + " -o " + q(host) + " -lm")
+    rm(tmpc)
+    if exists(host) == "1" { emit "1" }
+    emit "0"
+}
+
+// First non-flag source arg, skipping -o and its value. (positional() wrongly
+// treats valueless flags like --arm64/--ir/--c/-r as consuming the next token.)
+func linuxSrc() {
+    let i = 0
+    while i < argCount() {
+        let a = arg(i)
+        if a == "-o" { i = i + 2 }
+        else {
+            if startsWith(a, "-") { i = i + 1 }
+            else { emit a }
+        }
+    }
+    emit ""
+}
+
+// Ensure the aarch64 backend host (an x86 binary that EMITS arm64) is built from
+// compiler/linux_arm64/elf.k. "1" ok / "0" fail.
+func ensureArm64Host(root) {
+    let host = root + "/compiler/linux_arm64/elf_host"
+    let bsrc = root + "/compiler/linux_arm64/elf.k"
+    let fe   = root + "/compiler/linux_x86/kcc-x64"
+    let need = "1"
+    if exists(host) == "1" {
+        if sh("test " + q(bsrc) + " -nt " + q(host) + " && echo 1 || echo 0") == "0" { need = "0" }
+    }
+    if need == "0" { emit "1" }
+    if has("gcc") == "0" {
+        kp("kcc: arm64 backend needs a one-time gcc build, but gcc not found")
+        emit "0"
+    }
+    kp("kcc: building arm64 backend host (one-time gcc bootstrap)...")
+    let tmpc = sh("mktemp /tmp/_kccarm_XXXXXX.c")
+    exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " " + q(bsrc) + " > " + q(tmpc))
+    exec("gcc -O2 -w " + q(tmpc) + " -o " + q(host) + " -lm")
+    rm(tmpc)
+    if exists(host) == "1" { emit "1" }
+    emit "0"
+}
+
+// Cross-compile to a static aarch64 ELF: x86 front-end IR -> arm64 backend.
+// (No optimizer pass yet — the arm64 backend consumes the raw IR.) "1"/"0".
+func compileArm64(root, src, out) {
+    let fe = root + "/compiler/linux_x86/kcc-x64"
+    let host = root + "/compiler/linux_arm64/elf_host"
+    if ensureArm64Host(root) == "0" { emit "0" }
+    let tmpir = sh("mktemp /tmp/_kcka_XXXXXX.kir")
+    exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src) + " > " + q(tmpir))
+    if size(tmpir) == 0 {
+        kp("kcc: IR emission failed for " + src)
+        rm(tmpir)
+        emit "0"
+    }
+    exec(q(host) + " " + q(tmpir) + " " + q(out))
+    rm(tmpir)
+    if exists(out) == "0" {
+        kp("kcc: arm64 codegen failed")
+        emit "0"
+    }
+    exec("chmod +x " + q(out))
+    emit "1"
+}
+
 // native Linux x86-64 compile: src -> out. Returns "1" ok / "0" fail.
 func compileLinux(root, src, out) {
     let fe = root + "/compiler/linux_x86/kcc-x64"
@@ -139,6 +222,13 @@ func compileLinux(root, src, out) {
         kp("kcc: IR emission failed for " + src)
         rm(tmpir)
         emit "0"
+    }
+    // optimizer pass (best-effort, IR->IR; mirrors kcc.sh)
+    if ensureOptHost(root) == "1" {
+        let tmpopt = sh("mktemp /tmp/_kckopt_XXXXXX.kir")
+        exec(q(root + "/compiler/linux_x86/optimize_host") + " " + q(tmpir) + " > " + q(tmpopt) + " 2>/dev/null")
+        if size(tmpopt) == 0 { rm(tmpopt) }
+        else { exec("mv " + q(tmpopt) + " " + q(tmpir)) }
     }
     exec(q(host) + " " + q(tmpir) + " " + q(out))
     rm(tmpir)
@@ -168,27 +258,57 @@ just run {
 
     let os = sh("uname -s")
 
-    // ── Linux native pipeline (kcc-x64 frontend -> elf_host backend) ──────────
+    // ── Linux native pipeline (x86-64 native, or --arm64 cross to aarch64) ────
     if os == "Linux" {
-        if first == "--ir" {
-            if argCount() < 2 { kp("kcc: --ir needs a source file")  exit("1") }
-            let fe = root + "/compiler/linux_x86/kcc-x64"
-            kp(sh("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(arg(1))))
+        let toArm = hasFlag("--arm64")          // cross-compile target: aarch64
+        let fe = root + "/compiler/linux_x86/kcc-x64"   // x86 front-end emits arch-agnostic IR
+
+        // --ir: stream IR (arch-agnostic).
+        if hasFlag("--ir") {
+            let s = linuxSrc()
+            if s == "" { kp("kcc: --ir needs a source file")  exit("1") }
+            kp(sh("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(s)))
             exit("0")
         }
-        if first == "-r" {
-            if argCount() < 2 { kp("kcc: -r needs a source file")  exit("1") }
+        // --c: emit C source (front-end, no --ir).
+        if hasFlag("--c") {
+            let s = linuxSrc()
+            if s == "" { kp("kcc: --c needs a source file")  exit("1") }
+            let cout = optValue("-o", "")
+            if cout == "" { kp(sh("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " " + q(s))) }
+            else { exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " " + q(s) + " > " + q(cout)) }
+            exit("0")
+        }
+        // -e CODE: wrap in `just run { ... }`, compile (x86 or arm64), run, delete.
+        if first == "-e" {
+            if argCount() < 2 { kp("kcc: -e needs code")  exit("1") }
+            let ek = sh("mktemp /tmp/_kcceval_XXXXXX.ks")
+            writeText(ek, "just run {\n" + arg(1) + "\n}\n")
+            let ebin = sh("mktemp /tmp/_kcceval_XXXXXX")
+            let oke = "0"
+            if toArm == "1" { oke = compileArm64(root, ek, ebin) } else { oke = compileLinux(root, ek, ebin) }
+            if oke == "0" { rm(ek)  exit("1") }
+            kp(sh(q(ebin)))                      // arm64 runs via qemu binfmt
+            rm(ek)  rm(ebin)
+            exit("0")
+        }
+
+        // -r (compile+run) or default (compile to -o). --arm64 selects the backend.
+        let s = linuxSrc()
+        if s == "" { kp("kcc: no source file")  exit("1") }
+        if hasFlag("-r") {
             let tmpbin = sh("mktemp /tmp/_kcckrun_XXXXXX")
-            if compileLinux(root, arg(1), tmpbin) == "0" { exit("1") }
-            let passed = restFrom(2)
-            kp(sh(q(tmpbin) + " " + passed))
+            let okr = "0"
+            if toArm == "1" { okr = compileArm64(root, s, tmpbin) } else { okr = compileLinux(root, s, tmpbin) }
+            if okr == "0" { exit("1") }
+            kp(sh(q(tmpbin)))                    // arm64 runs via qemu binfmt
             rm(tmpbin)
             exit("0")
         }
-        let lsrc = positional(0)
-        if lsrc == "" { kp("kcc: no source file")  exit("1") }
-        let lout = optValue("-o", baseName(lsrc))
-        if compileLinux(root, lsrc, lout) == "0" { exit("1") }
+        let out = optValue("-o", baseName(s))
+        let okc = "0"
+        if toArm == "1" { okc = compileArm64(root, s, out) } else { okc = compileLinux(root, s, out) }
+        if okc == "0" { exit("1") }
         exit("0")
     }
 
