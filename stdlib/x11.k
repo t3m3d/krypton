@@ -2,51 +2,35 @@
 //
 // Speaks the X Window System core protocol (X11 Release 11.0) directly
 // over a socket. No libX11. No libxcb. No dynamic linking. Built on the
-// native BSD-socket builtins (sockMake/sockConnect/sockSend/sockRecvStr)
-// that the Linux + macOS native backends emit as direct syscalls.
+// native BSD-socket builtins (sockMake/sockConnect/sockSend/sockRecv)
+// plus the Phase C byte-buffer machinery (bufNew/bufSetByte/bufGet*At),
+// all of which the Linux native backend emits as direct syscalls or
+// inline x86-64 codegen.
 //
 // Currently TCP-only: sockConnect builds an AF_INET sockaddr. Local
 // display sockets on Linux are AF_UNIX (/tmp/.X11-unix/X<n>); use TCP
 // transport meanwhile by starting the X server with `-listen tcp` and
 // connecting to 127.0.0.1:6000+display. The protocol layer here is
-// transport-agnostic — swap the transport when AF_UNIX lands.
+// transport-agnostic — swap the transport when AF_UNIX lands in x11Connect.
 //
-// ── BLOCKERS ─────────────────────────────────────────────────────────
-// Phase A1 (this file): connect + 12-byte handshake + accept byte.
-//   Demonstrates the wire protocol works end-to-end against a real
-//   X server (proven against Xorg/Xvfb on Arch on WSL2 2026-06-02).
-//
-// Phase A2 (BLOCKED — needs agent-l): parse full server-info reply.
-//   Blocked on Linux because:
-//     (1) elf.k has no bufNew/bufSetByte/bufGet*At builtins (those
-//         are the Phase C typed-pointer machinery shipped in x64.k
-//         but never ported). We need them so received bytes can be
-//         held in a real byte buffer rather than a Krypton string.
-//     (2) Krypton strings are C-strings: len(s) is strlen(s) and
-//         stops at the first NUL. Every X11 reply contains NUL pad
-//         bytes at offset 1, 3, 5, 7, etc. — making len() useless.
-//         String concat also drops bytes after the first NUL.
-//   Even byte-by-byte sockSend with the `sockSend(fd, "", 1)` NUL
-//   trick can't rebuild a parseable response because all the byte-
-//   access primitives we'd combine into one work off len() too.
-//
-//   Listed in LINUX_RELEASE_TODO.md under "Needed from agent-l":
-//   port bufNew/bufSetByte/bufGetByte/bufGetWordAt/bufGetDwordAt
-//   from x64.k Phase C to elf.k. Once that lands, this file can
-//   ship Phase A2 (full server info), Phase B (windows), and
-//   Phase C (drawing) without further Linux-side workarounds.
-//
-// Phase B / C: planned, see header comment in tests/x11_*.k.
+// Phase A2 (this file): connect + handshake + full server-info parse
+//   — vendor, resource-id range, protocol version, screen + format counts.
+// Phase B (planned):   resource-id allocation, CreateWindow, MapWindow,
+//                      event loop on sockRecv.
+// Phase C (planned):   CreateGC + PolyFillRectangle + ImageText8.
 //
 // Reference: https://www.x.org/releases/X11R7.7/doc/xproto/x11protocol.html
 //
-// Usage (today, phase A1):
+// Usage:
 //   import "k:x11"
 //   just run {
-//       let fd = x11Connect("127.0.0.1", 1)
+//       let fd = x11Connect("127.0.0.1", 1)         // display :1 -> port 6001
 //       if fd < 0 { print("connect failed")  exit(1) }
-//       let r = x11Handshake(fd)
-//       if r == 1 { print("accepted") }
+//       let info = x11Handshake(fd)
+//       if x11Accepted(info) {
+//           print("vendor: " + x11Vendor(info))
+//           print("rid base = " + x11ResourceIdBase(info))
+//       }
 //       sockClose(fd)
 //   }
 
@@ -87,52 +71,110 @@ func _ipOctet(s, idx) {
     emit toInt(rest)
 }
 
-// ── handshake (phase A1) ──────────────────────────────────────────────
-// Sends the 12-byte no-auth setup, reads the first chunk, returns
-// the X server's response byte:
-//   1 = success / accepted
-//   0 = failed / refused
-//   2 = authentication required (server wants xauth)
-//  -1 = read returned nothing (socket closed before reply)
+// ── handshake (phase A2) ──────────────────────────────────────────────
+// x11Handshake(fd) -> raw server-info buf, or a 1-byte buf carrying
+// the X server's failure byte if the read returned nothing.
 //
-// We don't try to parse beyond the first byte — see the Phase A2
-// blocker note at the top of this file. Once bufNew lands on Linux,
-// x11Handshake will return a full info buffer and we'll add the
-// x11Vendor / x11ResourceIdBase / etc. accessors back.
+// Sends the 12-byte little-endian no-auth setup as a single sockSend
+// (built in a buf so embedded NULs survive — Krypton strings can't
+// carry NULs because they're C-strings), then reads the reply into
+// a 16-KB buf via repeated sockRecv until either:
+//   - we hit the X server's stated end (8 + 4*tail-len), or
+//   - sockRecv returns 0 (server closed).
+// Caller can probe with x11Accepted / x11Vendor / x11ResourceIdBase / etc.
 func x11Handshake(fd) {
-    _sendSetup(fd)
-    let reply = sockRecvStr(fd)
-    if len(reply) == 0 { emit 0 - 1 }
-    emit charCode(reply[0])
+    let req = bufNew(12)
+    bufSetByte(req, 0, 108)   // 'l' = little-endian client
+    bufSetByte(req, 1, 0)     // pad
+    bufSetByte(req, 2, 11)    // major version (LE lo)
+    bufSetByte(req, 3, 0)     // major version (LE hi)
+    bufSetByte(req, 4, 0)     // minor version
+    bufSetByte(req, 5, 0)     // minor version
+    bufSetByte(req, 6, 0)     // auth-name length
+    bufSetByte(req, 7, 0)     // auth-name length
+    bufSetByte(req, 8, 0)     // auth-data length
+    bufSetByte(req, 9, 0)     // auth-data length
+    bufSetByte(req, 10, 0)    // pad
+    bufSetByte(req, 11, 0)    // pad
+    sockSend(fd, req, 12)
+
+    // Single sockRecv into a 16 KB buf — X servers reliably reply in
+    // one TCP segment for the connection setup (the full reply is
+    // ~2-3 KB max). If a future bigger-than-16K reply ever shows up
+    // we'll need a chunked recv with pointer arithmetic on the buf,
+    // which requires a `bufOffset` builtin (currently `buf + off`
+    // mangles the smart-int-tagged pointer).
+    let info = bufNew(16384)
+    sockRecv(fd, info, 16384)
+    emit info
 }
 
-// ── 12-byte handshake send (byte-by-byte, NUL-safe) ───────────────────
-// Krypton-on-Linux can't build a 12-byte string with embedded NULs
-// (fromCharCode(0) returns ""), so we issue 12 individual sockSend
-// calls. For non-NUL bytes use a 1-char string. For NUL bytes use
-// sockSend(fd, "", 1) — write() ignores the C-string terminator and
-// writes len=1 byte from the empty string's buffer (which is 0x00).
-//
-// Wire layout (X11 Release 11.0, no auth):
-//   byte  0: 'l' = little-endian client
-//   byte  1: 0   = pad
-//   u16   2: 11  = protocol-major-version
-//   u16   4: 0   = protocol-minor-version
-//   u16   6: 0   = auth-name length
-//   u16   8: 0   = auth-data length
-//   u16  10: 0   = pad
-func _sendSetup(fd) {
-    sockSend(fd, "l", 1)                 // byte 0
-    sockSend(fd, "", 1)                  // byte 1 (NUL pad)
-    sockSend(fd, fromCharCode(11), 1)    // byte 2 (major lo = 11)
-    sockSend(fd, "", 1)                  // byte 3 (major hi)
-    sockSend(fd, "", 1)                  // byte 4 (minor lo)
-    sockSend(fd, "", 1)                  // byte 5 (minor hi)
-    sockSend(fd, "", 1)                  // byte 6 (auth-name lo)
-    sockSend(fd, "", 1)                  // byte 7 (auth-name hi)
-    sockSend(fd, "", 1)                  // byte 8 (auth-data lo)
-    sockSend(fd, "", 1)                  // byte 9 (auth-data hi)
-    sockSend(fd, "", 1)                  // byte 10 (pad)
-    sockSend(fd, "", 1)                  // byte 11 (pad)
-    emit 0
+// ── server-info accessors (success case, byte 0 = 1) ──────────────────
+// X11 server-info reply layout:
+//   byte  0: 1=success, 0=failed, 2=authenticate-required
+//   byte  1: reason-length (failure case) or pad
+//   u16   2: protocol-major-version
+//   u16   4: protocol-minor-version
+//   u16   6: length of additional data in 4-byte units
+//   u32   8: release-number
+//   u32  12: resource-id-base
+//   u32  16: resource-id-mask
+//   u32  20: motion-buffer-size
+//   u16  24: vendor-length
+//   u16  26: maximum-request-length (in 4-byte units)
+//   byte 28: number-of-screens
+//   byte 29: number-of-formats
+//   byte 30: image-byte-order   (0=LSB, 1=MSB)
+//   byte 31: bitmap-format-bit-order
+//   byte 32: bitmap-format-scanline-unit
+//   byte 33: bitmap-format-scanline-pad
+//   byte 34: min-keycode
+//   byte 35: max-keycode
+//   bytes 36..39: pad
+//   then: vendor (vendor-length, padded to 4), formats (8 each), screens.
+
+func x11ResponseByte(info) { emit bufGetByte(info, 0) }
+func x11Accepted(info)     { emit bufGetByte(info, 0) == 1 }
+func x11Failed(info)       { emit bufGetByte(info, 0) == 0 }
+func x11NeedsAuth(info)    { emit bufGetByte(info, 0) == 2 }
+
+func x11ProtoMajor(info)      { emit bufGetWordAt(info, 2) }
+func x11ProtoMinor(info)      { emit bufGetWordAt(info, 4) }
+func x11ReleaseNumber(info)   { emit bufGetDwordAt(info, 8) }
+func x11ResourceIdBase(info)  { emit bufGetDwordAt(info, 12) }
+func x11ResourceIdMask(info)  { emit bufGetDwordAt(info, 16) }
+func x11MotionBufferSize(info){ emit bufGetDwordAt(info, 20) }
+func x11VendorLength(info)    { emit bufGetWordAt(info, 24) }
+func x11MaxRequestLen(info)   { emit bufGetWordAt(info, 26) }
+func x11NumScreens(info)      { emit bufGetByte(info, 28) }
+func x11NumFormats(info)      { emit bufGetByte(info, 29) }
+func x11ImageByteOrder(info)  { emit bufGetByte(info, 30) }
+func x11MinKeycode(info)      { emit bufGetByte(info, 34) }
+func x11MaxKeycode(info)      { emit bufGetByte(info, 35) }
+
+// Vendor string lives at byte offset 40, length from x11VendorLength.
+// Vendor names are ASCII and don't contain NULs, so a string-build
+// via fromCharCode is safe here.
+func x11Vendor(info) {
+    let n = x11VendorLength(info)
+    let out = ""
+    let i = 0
+    while i < n {
+        out = out + fromCharCode(bufGetByte(info, 40 + i))
+        i += 1
+    }
+    emit out
+}
+
+// Failure case: byte 1 = reason length, ascii reason at byte 8.
+func x11FailReason(info) {
+    if bufGetByte(info, 0) != 0 { emit "" }
+    let n = bufGetByte(info, 1)
+    let out = ""
+    let i = 0
+    while i < n {
+        out = out + fromCharCode(bufGetByte(info, 8 + i))
+        i += 1
+    }
+    emit out
 }
