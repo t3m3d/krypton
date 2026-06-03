@@ -1620,6 +1620,9 @@ func parseFullIR(ir) {
                     } else if bname == "toUpper" {
                         curOps = sbAppend(curOps, "BUILTIN_TOUPPER\n")
                         nOps += 1
+                    } else if bname == "environ" {
+                        curOps = sbAppend(curOps, "BUILTIN_ENVIRON\n")
+                        nOps += 1
                     } else if bname == "gcAllocated" {
                         curOps = sbAppend(curOps, "BUILTIN_GCALLOCATED\n")
                         nOps += 1
@@ -1960,6 +1963,7 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_TRIM"         { emit 56 }   // alloc(21) +6 from 50
     if opTok == "BUILTIN_TOLOWER"      { emit 42 }   // strlen(7)+alloc(21)+xform copy(14)
     if opTok == "BUILTIN_TOUPPER"      { emit 42 }   // strlen(7)+alloc(21)+xform copy(14)
+    if opTok == "BUILTIN_ENVIRON"      { emit 21 }   // scan saved envp (cell+80) for name= ; value ptr or ""
     if opTok == "BUILTIN_LENGTH"       { emit 13 }   // empty-check + comma-counter loop
     if opTok == "BUILTIN_SPLIT"        { emit 50 }   // scan + alloc(21) + copy + NUL + push
     if opTok == "BUILTIN_RANGE"        { emit 75 }   // alloc(21) + inline itoa loop with stack scratch
@@ -2037,7 +2041,7 @@ func computeFunctionInstrs(parsed, fIdx) {
     if frame > 0 { n = n + 1 }     // sub sp
     n = n + nP                     // save each param
     // __main__ also saves argc/argv to fixed cells (4 instr)
-    if funcName(parsed, fIdx) == "__main__" { n = n + 18 }  // 4 argc/argv save + 14 mmap-heap seed
+    if funcName(parsed, fIdx) == "__main__" { n = n + 19 }  // 5 argc/argv/envp save + 14 mmap-heap seed
     let oi = 0
     while oi < nO {
         let opLine = funcOp(parsed, fIdx, oi)
@@ -2083,7 +2087,7 @@ func buildFunctionLabelTable(parsed, fIdx, funcStartInstr) {
     let n = funcStartInstr + 2
     if frame > 0 { n = n + 1 }
     n = n + nP
-    if funcName(parsed, fIdx) == "__main__" { n = n + 18 }  // 4 argc/argv save + 14 mmap-heap seed
+    if funcName(parsed, fIdx) == "__main__" { n = n + 19 }  // 5 argc/argv/envp save + 14 mmap-heap seed
     let opBase = funcStartLine(parsed, fIdx) + 1 + nP + funcNLocals(parsed, fIdx)
     let oi = 0
     while oi < nO {
@@ -2234,7 +2238,8 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
         s = sbAppend(s, arm64_add_imm(9, 9, 0))  // bump cell is page-aligned, pageoff=0
         s = sbAppend(s, arm64_str_imm(0, 9, 1))  // str x0 (argc), [x9, #8]
         s = sbAppend(s, arm64_str_imm(1, 9, 2))  // str x1 (argv), [x9, #16]
-        instrIdx = instrIdx + 4
+        s = sbAppend(s, arm64_str_imm(2, 9, 10)) // str x2 (envp), [x9, #80] — for environ() (before mmap clobbers x2)
+        instrIdx = instrIdx + 5
         // mmap a large anonymous heap and seed the bump pointer with it. The
         // __DATA zero-fill heap caps at 0x70000000 (dyld shared cache sits at
         // ~0x180000000 right above it), too small to self-compile compile.k.
@@ -3201,6 +3206,39 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_strb_reg(31, 0, 10))
             s = sbAppend(s, arm64_push_x0())
             instrIdx = instrIdx + 14
+        } else if opTok == "BUILTIN_ENVIRON" {
+            // environ(name): scan saved envp (bump_cell+80, set in __main__) for
+            // an entry "name=value"; return a pointer to value (into envp, a live
+            // NUL-terminated C string) or "" (the envp NULL slot, 8 zero bytes).
+            // Was a no-op passthrough natively → installRoot wrong → imports broke. 21 instr.
+            let imm21e = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + (instrIdx + 1) * 4) / 4096
+            s = sbAppend(s, arm64_pop(6))             // 0: name
+            s = sbAppend(s, arm64_adrp(9, imm21e))    // 1: cell
+            s = sbAppend(s, arm64_add_imm(9, 9, 0))   // 2
+            s = sbAppend(s, arm64_ldr_imm(7, 9, 10))  // 3: x7 = envp (cell+80)
+            // ENTRY_LOOP @4:
+            s = sbAppend(s, arm64_ldr_imm(10, 7, 0))  // 4: x10 = envp[i]
+            s = sbAppend(s, arm64_add_imm(7, 7, 8))   // 5: x7 → next
+            s = sbAppend(s, arm64_cbz(10, 13))        // 6: NULL → NOTFOUND (→19)
+            s = sbAppend(s, arm64_mov_xx(11, 6))      // 7: name scan
+            s = sbAppend(s, arm64_mov_xx(12, 10))     // 8: entry scan
+            // CMP_LOOP @9:
+            s = sbAppend(s, arm64_ldrb_post(13, 11, 1)) // 9: *name++
+            s = sbAppend(s, arm64_ldrb_post(14, 12, 1)) // 10: *entry++
+            s = sbAppend(s, arm64_cbz(13, 4))         // 11: name end → NAME_END (→15)
+            s = sbAppend(s, arm64_cmp_xx(13, 14))     // 12
+            s = sbAppend(s, arm64_b_cond(0x1, 0 - 9)) // 13: b.ne → ENTRY_LOOP (→4)
+            s = sbAppend(s, arm64_b(0 - 5))           // 14: → CMP_LOOP (→9)
+            // NAME_END @15:
+            s = sbAppend(s, arm64_cmp_imm(14, 0x3d))  // 15: entry char == '='?
+            s = sbAppend(s, arm64_b_cond(0x1, 0 - 12))// 16: b.ne → ENTRY_LOOP (→4)
+            s = sbAppend(s, arm64_mov_xx(0, 12))      // 17: MATCH value = x12 (past '=')
+            s = sbAppend(s, arm64_b(2))               // 18: → PUSH (skip NOTFOUND@19)
+            // NOTFOUND @19:
+            s = sbAppend(s, arm64_sub_imm(0, 7, 8))   // 19: x0 = NULL-slot addr → "" (8 zero bytes)
+            // PUSH @20:
+            s = sbAppend(s, arm64_push_x0())          // 20
+            instrIdx = instrIdx + 21
         } else if opTok == "BUILTIN_LENGTH" {
             // length(list): count comma-separated elements.
             //  ""           → 0
