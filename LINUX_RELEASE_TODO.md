@@ -19,6 +19,22 @@ Both: `git pull --rebase` before pushing (macOS/Windows agents share `main`).
 - [x] Int/pointer tag ceiling raised `0x40000000 → 0x7F000000` (~1.07e9 → ~2.13e9,
       Unix epoch through ~2037). Commit `5f06fc97`, regression `tests/test_int_ceiling.k`.
 - [x] yubiKrypt (TUI authenticator) runs on Linux — its macOS frontend reused verbatim.
+- [x] **aarch64 Linux backend** working (2026-06-02). `stdlib/x11.k` ships as one file across x86_64 + aarch64.
+
+## Done (agent-w, 2026-06-02)
+
+- [x] **kryofetch Linux port** (sibling repo): `run_linux.k` + `build_linux.sh`. Builds against
+      Linux elf backend via `KRYPTON_ROOT/kcc.sh`, no gcc at user-invocation time.
+- [x] **terk Linux build path** (sibling repo): `build_linux.sh` (cmake wrapper) + `BUILD_LINUX.md`
+      (Arch + Debian prereqs, WSL2 specifics, troubleshooting). The Qt6/C++ source already
+      had cross-platform CMakeLists + `platform/linux/PTYPlatform.cpp`.
+- [x] **`tests/run_linux.sh`** — real Linux test runner. Iterates `tests/*.k`, classifies PASS /
+      FAIL (timeout, signal-death like SIGSEGV, non-zero exit, `[FAIL]` markers) / SKIP. Exits
+      non-zero on any failure. Modeled on `tests/wasm/RUN.sh`.
+- [x] **`stdlib/x11.k` Phase A1** — connect + 12-byte X11 handshake + accept-byte response.
+      Pure-Krypton, no libX11/libxcb. Verified end-to-end against Xvfb on Arch/WSL2 — server
+      returns response byte 1 (accept), test `tests/x11_handshake_smoke.k` exits 0. **Phase A2
+      blocked** — see "Needed from agent-l" below.
 
 ## agent-l — edits to existing files (mostly `elf.k`)
 
@@ -55,8 +71,35 @@ Both: `git pull --rebase` before pushing (macOS/Windows agents share `main`).
 
 ## Needed from agent-l (filed by agent-w as it hits walls)
 
-- `AF_UNIX` socket connect (for local X11/Wayland) — see above.
-- _(append here)_
+- **`AF_UNIX` socket connect** (for local X11/Wayland) — see above.
+
+- **Port Phase C buffer machinery from `x64.k` to `elf.k`.** Blocks
+  `stdlib/x11.k` Phase A2 (full server-info parse), Phase B (windows),
+  Phase C (drawing). Specifically need the following BUILTIN_*
+  handlers in `elf.k`:
+    - `bufNew(n)` — allocate n-byte buffer, return raw pointer
+    - `bufSetByte(buf, off, val)` — store one byte
+    - `bufGetByte(buf, off)` — load one byte
+    - `bufGetWordAt(buf, off)` — u16 LE
+    - `bufGetDwordAt(buf, off)` — u32 LE
+    - `bufGetQwordAt(buf, off)` — u64 LE (for completeness)
+  These exist in `x64.k` (the 1.8.5 → 1.8.7 Phase C work). The reason
+  they're blocking is that **Krypton strings are C-strings** (len() is
+  strlen(), concat truncates at first NUL, fromCharCode(0) returns ""),
+  so X11 wire data — which is rich with NUL bytes — can't be held in
+  or constructed as a Krypton string. `stdlib/x11.k` currently does a
+  byte-by-byte sockSend for the 12-byte handshake using
+  `sockSend(fd, "", 1)` to emit each NUL — works but doesn't scale
+  to the larger requests (CreateWindow is 32 bytes, PolyFillRectangle
+  variable-length). The read side has no equivalent workaround.
+
+- **`sockRecvAll(fd, want)` or a length-tracked recv builtin.** Even
+  with bufNew, the X server may split its reply across multiple
+  recvfrom returns. A "loop until N bytes or EOF" variant of
+  sockRecvStr (returning bytes-actually-read separately from the
+  buffer) would let `stdlib/x11.k` assemble the full server-info
+  reply cleanly. Lower priority than bufNew — could be worked around
+  with two sockRecvStr calls + careful indexing once bufNew lands.
 
 ---
 
