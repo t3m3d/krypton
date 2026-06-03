@@ -4522,17 +4522,22 @@ func irTypeStr(tokens, start, end) {
 // Look up a name's type in the per-function types table.
 // Each line is "name|type". Returns "" if not found.
 func irTypeOf(types, name) {
-    let n = lineCount(types)
-    let i = 0
-    while i < n {
-        let line = getLine(types, i)
-        let pipePos = indexOf(line, "|")
-        if pipePos > 0 {
-            if substring(line, 0, pipePos) == name {
-                emit substring(line, pipePos + 1, len(line))
+    // Single linear pass: O(len). The old getLine(types,i) per index rescanned
+    // from the start each time → O(count^2); irTypeOf is called per expression
+    // during IR gen → O(n^2) that stalled native self-host on big functions.
+    let n = len(types)
+    let needle = name + "|"
+    let nlen = len(needle)
+    let start = 0
+    while start < n {
+        let e = start
+        while e < n && types[e] != "\n" { e += 1 }
+        if e - start > nlen {
+            if substring(types, start, start + nlen) == needle {
+                emit substring(types, start + nlen, e)
             }
         }
-        i += 1
+        start = e + 1
     }
     emit ""
 }
@@ -6183,10 +6188,22 @@ just run {
                 if tokAt(tokens, lskip2) == "ARROW" { lskip2 += 2 }
                 i = skipBlock(tokens, lskip2)
             } else {
+            if irMode == 1 {
+                // IR mode discards the C output (sb). Skip the expensive C body
+                // compilation (compileFunc → compileBlock is O(n^2) on huge
+                // functions, which stalled native self-host); just advance past
+                // the function. IR is generated separately via irFuncIR.
+                let sk = i + 2
+                while sk < ntoks && tokAt(tokens, sk) != "RPAREN" { sk += 1 }
+                sk += 1
+                if tokAt(tokens, sk) == "ARROW" { sk += 2 }
+                i = skipBlock(tokens, sk)
+            } else {
             let fp = compileFunc(tokens, i, ntoks)
             let fcode = pairVal(fp)
             sb = sbAppend(sb, fcode)
             i = pairPos(fp)
+            }
             }
         } else if tok == "KW:callback" {
             // callback func — compile as void C function
