@@ -1,3 +1,7 @@
+> **NOT REQUIRED for clang-free (2026-06-03).** macOS self-host was achieved
+> WITHOUT value tagging (see SELFHOST_MACOS.md). This stays as a future feature
+> for full 64-bit user integers; current ints are 32-bit-wrapping by design.
+
 # Low-bit integer tagging for the macOS arm64 backend — design + staged plan
 
 Goal: replace the **magnitude-based** int/ptr discrimination (a value ≥
