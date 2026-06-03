@@ -10,8 +10,8 @@
 //     kcc.sh kcc.ks -o kcc-native
 //     ./kcc-native hello.k -o hello
 //
-// SCOPE (prototype): macOS arm64 native pipeline + --version/--ir/-o/-r. Linux
-// and Windows stubs point at their backends but aren't wired yet.
+// SCOPE: macOS arm64 + Linux x86-64 native pipelines, with --version/--ir/-o/-r.
+// (Windows not yet wired.) Both share one KryptScript driver — no bash, no .bat.
 //
 // Usage:
 //   kcc-native <src.k|src.ks> [-o OUT]   compile to native binary
@@ -29,14 +29,20 @@ func VERSION() { emit "kcc-native 0.1 (krypton-driver prototype)" }
 // Locate the install root: $KRYPTON_ROOT, else the dev repo, else the pkg
 // install. The dev repo is preferred over /usr/local/krypton because the pkg
 // install is often stale (missing newly-added stdlib). Returns "" if none.
+// A valid root has at least one platform frontend (macOS arm64 or Linux x86).
+func hasFrontend(root) {
+    if exists(root + "/compiler/macos_arm64/kcc-arm64") == "1" { emit "1" }
+    if exists(root + "/compiler/linux_x86/kcc-x64") == "1" { emit "1" }
+    emit "0"
+}
 func findRoot() {
     let r = env("KRYPTON_ROOT")
     if r != "" {
-        if exists(r + "/compiler/macos_arm64/kcc-arm64") == "1" { emit r }
+        if hasFrontend(r) == "1" { emit r }
     }
     let dev = home() + "/Documents/GitHub/krypton"
-    if exists(dev + "/compiler/macos_arm64/kcc-arm64") == "1" { emit dev }
-    if exists("/usr/local/krypton/compiler/macos_arm64/kcc-arm64") == "1" { emit "/usr/local/krypton" }
+    if hasFrontend(dev) == "1" { emit dev }
+    if hasFrontend("/usr/local/krypton") == "1" { emit "/usr/local/krypton" }
     emit ""
 }
 
@@ -97,6 +103,53 @@ func compileMacos(root, src, out) {
     emit "1"
 }
 
+// Ensure the Linux elf_host backend exists / is current; rebuild once via gcc
+// (gcc here = toolchain bootstrap only, never for user programs). "1" ok / "0" fail.
+func ensureElfHost(root) {
+    let host = root + "/compiler/linux_x86/elf_host"
+    let src  = root + "/compiler/linux_x86/elf.k"
+    let fe   = root + "/compiler/linux_x86/kcc-x64"
+    let need = "0"
+    if exists(host) == "0" { need = "1" }
+    else {
+        if sh("test " + q(src) + " -nt " + q(host) + " && echo 1 || echo 0") == "1" { need = "1" }
+    }
+    if need == "0" { emit "1" }
+    if has("gcc") == "0" {
+        kp("kcc: elf_host needs a one-time gcc build, but gcc not found")
+        emit "0"
+    }
+    kp("kcc: building elf_host (one-time gcc bootstrap)...")
+    let tmpc = sh("mktemp /tmp/_kccelf_XXXXXX.c")
+    exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " " + q(src) + " > " + q(tmpc))
+    exec("gcc -O2 -w " + q(tmpc) + " -o " + q(host) + " -lm")
+    rm(tmpc)
+    if exists(host) == "0" { kp("kcc: elf_host build failed")  emit "0" }
+    emit "1"
+}
+
+// native Linux x86-64 compile: src -> out. Returns "1" ok / "0" fail.
+func compileLinux(root, src, out) {
+    let fe = root + "/compiler/linux_x86/kcc-x64"
+    let host = root + "/compiler/linux_x86/elf_host"
+    if ensureElfHost(root) == "0" { emit "0" }
+    let tmpir = sh("mktemp /tmp/_kcck_XXXXXX.kir")
+    exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src) + " > " + q(tmpir))
+    if size(tmpir) == 0 {
+        kp("kcc: IR emission failed for " + src)
+        rm(tmpir)
+        emit "0"
+    }
+    exec(q(host) + " " + q(tmpir) + " " + q(out))
+    rm(tmpir)
+    if exists(out) == "0" {
+        kp("kcc: native codegen failed")
+        emit "0"
+    }
+    exec("chmod +x " + q(out))
+    emit "1"
+}
+
 just run {
     if argCount() < 1 {
         kp(VERSION())
@@ -114,8 +167,33 @@ just run {
     }
 
     let os = sh("uname -s")
+
+    // ── Linux native pipeline (kcc-x64 frontend -> elf_host backend) ──────────
+    if os == "Linux" {
+        if first == "--ir" {
+            if argCount() < 2 { kp("kcc: --ir needs a source file")  exit("1") }
+            let fe = root + "/compiler/linux_x86/kcc-x64"
+            kp(sh("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(arg(1))))
+            exit("0")
+        }
+        if first == "-r" {
+            if argCount() < 2 { kp("kcc: -r needs a source file")  exit("1") }
+            let tmpbin = sh("mktemp /tmp/_kcckrun_XXXXXX")
+            if compileLinux(root, arg(1), tmpbin) == "0" { exit("1") }
+            let passed = restFrom(2)
+            kp(sh(q(tmpbin) + " " + passed))
+            rm(tmpbin)
+            exit("0")
+        }
+        let lsrc = positional(0)
+        if lsrc == "" { kp("kcc: no source file")  exit("1") }
+        let lout = optValue("-o", baseName(lsrc))
+        if compileLinux(root, lsrc, lout) == "0" { exit("1") }
+        exit("0")
+    }
+
     if os != "Darwin" {
-        kp("kcc-native prototype: only macOS wired up; this host is " + os)
+        kp("kcc-native: unsupported host " + os + " (macOS + Linux wired)")
         exit("1")
     }
 
