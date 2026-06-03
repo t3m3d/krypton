@@ -81,11 +81,17 @@ case "$(uname -s 2>/dev/null)" in
 esac
 
 if [[ "$PLATFORM" == "macos" ]]; then
+    # Auto-detect macOS CPU arch (Apple Silicon arm64 vs Intel x86_64) so the
+    # right backend/frontend is selected. Only arm64 ships today; x86_64 paths
+    # are wired for when that backend exists (clear error until then).
+    case "$(uname -m 2>/dev/null)" in
+        arm64|aarch64) MACOS_ARCH=arm64 ;;
+        x86_64|amd64)  MACOS_ARCH=x86_64 ;;
+        *)             MACOS_ARCH=arm64 ;;
+    esac
     # 2.1.1: point at the platform binary directly, NOT at a libexec/kcc
-    # dispatcher. The 2.0.0 tarball shipped a 1.4KB dispatcher script at
-    # libexec/kcc; the 2.1.1 repo accidentally has a 15.5KB stale copy of
-    # kcc.sh at the same path, which causes infinite recursion.
-    KCC_EXE="$SCRIPT_DIR/compiler/macos_arm64/kcc-arm64"
+    # dispatcher (a stale libexec/kcc copy caused infinite recursion).
+    KCC_EXE="$SCRIPT_DIR/compiler/macos_${MACOS_ARCH}/kcc-${MACOS_ARCH}"
     KCC_HEADERS="$SCRIPT_DIR/headers"
 elif [[ "$PLATFORM" == "linux" ]]; then
     KCC_EXE="$SCRIPT_DIR/compiler/linux_x86/kcc-x64"
@@ -232,6 +238,13 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
     TMPIR="/tmp/_kcc_native_$$.kir"
 
     if [[ "$PLATFORM" == "macos" ]]; then
+        # Only arm64 has a Mach-O backend today. x86_64 macOS isn't built yet —
+        # fail clearly rather than mis-compile.
+        if [[ "$MACOS_ARCH" != "arm64" ]]; then
+            echo "kcc --native: macOS $MACOS_ARCH has no native backend yet (only arm64 is built)." >&2
+            echo "kcc --native: build/run on Apple Silicon, or use --gcc for the C path." >&2
+            exit 1
+        fi
         MACHO_DIR="$SCRIPT_DIR/compiler/macos_arm64"
         MACHO_BIN="$MACHO_DIR/macho_host"
         MACHO_SRC="$MACHO_DIR/macho_arm64_self.k"
