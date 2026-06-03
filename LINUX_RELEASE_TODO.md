@@ -48,8 +48,10 @@ Both: `git pull --rebase` before pushing (macOS/Windows agents share `main`).
       (LT/GT/EQ/NEQ/LTE/GTE via cmp+cset), isTruthy. Compiles while loops and
       if/else: `while i<3{kp(i) i=i+1}`→`0 1 2`, squares→`1 4 9 16 25`, sum 1..10→`55`,
       `if 5>3{...}`. Label addresses resolved by accumulating opSize. Verified under qemu.
-- [ ] **Milestone 4:** string concat (CAT) + `kr_alloc` (so `kp("sum=" + n)` works),
-      function calls (CALL_FUNC + args), negative-literal handling.
+- [x] **Milestone 4 (done):** string interpolation — BSS heap + `kr_alloc` + polymorphic
+      `kr_plus` (ADD: int+int adds, string+anything concatenates via `kr_str_int`).
+      `kp("sum="+(2+3))`→`sum=5`, `kp("n="+n+" sq="+n*n)`→`n=7 sq=49`. Verified under qemu.
+- [ ] **Milestone 5:** function calls (CALL_FUNC + args + frame), negative literals (movn).
 - [ ] Then: MOVK for the operand-stack region (lift the program-size cap) and `kcc.sh`
       wiring so `--native` on aarch64 uses this backend directly.
 
