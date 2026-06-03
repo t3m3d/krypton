@@ -46,6 +46,8 @@ func e_cset(rd, cc) { let p = 2016 + cc * 4096 + rd  emit wordHL(39583 + p / 655
 func e_movr(rd, rm)  { let p = 992 + rd  emit wordHL(43520 + rm + p / 65536, p % 65536) }     // mov Xd,Xm
 func e_strb(wt, xn)  { let p = xn * 32 + wt  emit wordHL(14592, p) }                 // strb Wt,[Xn]
 func e_ldrbO(wt, xn, xm) { let p = 26624 + xn * 32 + wt  emit wordHL(14432 + xm + p / 65536, p % 65536) }
+func e_str8(rt, rn, off8) { let p = off8 * 1024 + rn * 32 + rt  emit wordHL(63744 + p / 65536, p % 65536) } // str Xt,[Xn,#off8*8]
+func e_ldr8(rt, rn, off8) { let p = off8 * 1024 + rn * 32 + rt  emit wordHL(63808 + p / 65536, p % 65536) } // ldr Xt,[Xn,#off8*8]
 func e_ret() { emit wordHL(54879, 960) }
 func e_svc() { emit wordHL(54272, 1) }
 // branches: off = target - this instruction, in bytes (multiple of 4)
@@ -86,7 +88,7 @@ func emitStrInt(allocOff, thisOff) {
 // to a string (kr_str_int for the int side) and concat into a fresh heap buffer.
 // Saves lr in x23; VBASE in x9; sa=x11 sb=x12 b=x13 lenA=x14 lenB=x16 dst=x17.
 func emitPlus(strIntOff, allocOff, thisOff) {
-    let c = e_movr(23, 30) + e_movzHi(9, 64)                                       // lr; x9=VBASE
+    let c = e_movr(23, 30) + e_movzHi(9, 32512)                                       // lr; x9=VBASE
     c = c + e_cmp(0, 9) + e_bhs(24) + e_cmp(1, 9) + e_bhs(16)                      // either >=VBASE -> concat
     c = c + e_addr(0, 0, 1) + e_movr(30, 23) + e_ret()                            // both int: a+b
     c = c + e_movr(13, 1)                                                          // [cc] x13=b
@@ -103,9 +105,9 @@ func emitPlus(strIntOff, allocOff, thisOff) {
     emit c
 }
 // kr_print: x0=ptr -> write the NUL-terminated string then a newline.
-func emitPrint(nl) {
-    let lo = nl % 65536
-    let hi = nl / 65536
+func emitPrint(nlOff) {
+    let lo = nlOff % 65536
+    let hi = 32512 + nlOff / 65536              // fold the 0x7F000000 load base
     let c = e_movr(1, 0) + e_movz(2, 0)
     c = c + e_ldrbO(3, 1, 2) + e_cbz(3, 12) + e_addi(2, 2, 1) + e_b(0 - 12)           // strlen
     c = c + e_movz(0, 1) + e_movz(8, 64) + e_svc()                                    // write(1,buf,len)
@@ -132,47 +134,101 @@ func quoted(ln) {
     let q1 = indexOf(ln, "\"")
     emit substring(ln, toInt(q1) + 1, len(ln) - 1)
 }
-// byte offset (== vaddr offset) of a LABEL's target — accumulates opSize.
-func labelOffset(ir, name) {
+// "FUNC add 2" -> "add" ; "CALL add 2" -> "add"
+func headName(ln) {
+    let rest = operand(ln)
+    let p = indexOf(rest, " ")
+    if p < 0 { emit rest }
+    emit substring(rest, 0, toInt(p))
+}
+// "FUNC add 2" -> "2"
+func funcArgc(ln) {
+    let rest = operand(ln)
+    let p = indexOf(rest, " ")
+    if p < 0 { emit "0" }
+    emit substring(rest, toInt(p) + 1, len(rest))
+}
+// count PARAM+LOCAL slots of the function starting at line fStart.
+func countLocals(ir, fStart) {
     let n = toInt(lineCount(ir))
-    let i = 0
-    let off = 120
+    let i = fStart + 1
+    let c = 0
     while i < n {
-        let ln = getLine(ir, i)
-        if startsWith(ln, "LABEL ") {
-            if operand(ln) == name { emit off + "" }
-        }
-        off = off + toInt(opSize(ln))
+        let op = opcode(getLine(ir, i))
+        if op == "FUNC" { emit c + "" }
+        if op == "END"  { emit c + "" }
+        if op == "PARAM" { c = c + 1 }
+        if op == "LOCAL" { c = c + 1 }
         i = i + 1
     }
-    emit "0"
+    emit c + ""
 }
-// local slot for `name`, scanning LOCAL declarations in order.
-func localSlot(ir, name) {
+// slot index of `name` within the function at fStart (PARAM then LOCAL, in order).
+func localSlotIn(ir, fStart, name) {
     let n = toInt(lineCount(ir))
-    let i = 0
+    let i = fStart + 1
     let slot = 0
     while i < n {
         let ln = getLine(ir, i)
-        if startsWith(ln, "LOCAL ") {
-            if operand(ln) == name { emit slot + "" }
-            slot = slot + 1
-        }
+        let op = opcode(ln)
+        if op == "FUNC" { emit "0" }
+        if op == "END"  { emit "0" }
+        if op == "PARAM" { if operand(ln) == name { emit slot + "" }  slot = slot + 1 }
+        if op == "LOCAL" { if operand(ln) == name { emit slot + "" }  slot = slot + 1 }
         i = i + 1
     }
     emit "0"
 }
-
-// byte size each op lowers to (must equal the emit below).
+// byte size of IR line i, WITH function context (FUNC=prologue, RETURN/END=epilogue).
+func opBytes(ir, i) {
+    let ln = getLine(ir, i)
+    let op = opcode(ln)
+    if op == "FUNC"   { emit (5 + 3 * toInt(funcArgc(ln))) * 4 + "" }   // prologue
+    if op == "PARAM"  { emit "0" }
+    if op == "LOCAL"  { emit "0" }
+    if op == "RETURN" { emit "20" }                                    // epilogue
+    if op == "END"    { emit "20" }                                    // epilogue
+    if op == "CALL"   { emit "4" }                                     // bl
+    emit toInt(opSize(ln)) + ""
+}
+// absolute byte offset of LABEL `name` (walks _start + all function code).
+func labelAbsOffset(ir, name) {
+    let n = toInt(lineCount(ir))
+    let i = 0
+    let off = 152                       // HDR(120) + _start(32)
+    while i < n {
+        let ln = getLine(ir, i)
+        if opcode(ln) == "LABEL" {
+            if operand(ln) == name { emit off + "" }
+        }
+        off = off + toInt(opBytes(ir, i))
+        i = i + 1
+    }
+    emit "0"
+}
+// absolute byte offset of FUNC `name`.
+func funcVaddrOf(ir, name) {
+    let n = toInt(lineCount(ir))
+    let i = 0
+    let off = 152
+    while i < n {
+        let ln = getLine(ir, i)
+        if opcode(ln) == "FUNC" {
+            if headName(ln) == name { emit off + "" }
+        }
+        off = off + toInt(opBytes(ir, i))
+        i = i + 1
+    }
+    emit "0"
+}
+// byte size of a non-structural op (body of a function).
 func opSize(ln) {
     let op = opcode(ln)
-    if op == "FUNC"    { emit 20 }       // prologue (sub sp / mov x19 / add x20 / movz+movk x22)
-    if op == "END"     { emit 12 }       // exit(0)
-    if op == "LOCAL"   { emit 0 }
-    if op == "PUSH"    { emit 16 }       // load imm/addr (2) + push (2)
+    if op == "PUSH"    { emit 16 }
     if op == "STORE"   { emit 12 }
     if op == "LOAD"    { emit 12 }
     if op == "ADD"     { emit 28 }
+    if op == "CAT"     { emit 28 }
     if op == "SUB"     { emit 28 }
     if op == "MUL"     { emit 28 }
     if op == "DIV"     { emit 28 }
@@ -186,6 +242,7 @@ func opSize(ln) {
         let b = operand(ln)
         if startsWith(b, "kp") { emit 28 }
         if startsWith(b, "gcShadowCount") { emit 12 }
+        if startsWith(b, "gcShadowPush") { emit 16 }
         if startsWith(b, "gcShadowPop") { emit 16 }
         if startsWith(b, "isTruthy") { emit 24 }
         emit 0
@@ -200,52 +257,66 @@ just run {
     let nlines = toInt(lineCount(ir))
 
     let HDR = 120
+    let START = 32                       // _start size (2x movz/movk + bl + 3 exit)
 
-    // ── pass 1: code size + string-literal layout ────────────────────────────
+    // total function code size (multi-function, context-aware)
     let codeSize = 0
     let i = 0
-    while i < nlines {
-        codeSize = codeSize + toInt(opSize(getLine(ir, i)))
-        i = i + 1
-    }
-    // helpers + scratch + newline, then string data.
-    let allocOff  = HDR + codeSize
+    while i < nlines { codeSize = codeSize + toInt(opBytes(ir, i))  i = i + 1 }
+
+    let allocOff  = HDR + START + codeSize
     let strIntOff = allocOff + 16
     let plusOff   = strIntOff + 100
     let printOff  = plusOff + 212
     let nlOff = printOff + 64
     let dataOff = nlOff + 1
-    let VBASE = 4194304
+    // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
+    // enough for real ints (matches the x86 backend). The backend itself can't hold
+    // a >=0x7F000000 value (its own int ceiling), so all addresses stay as OFFSETS
+    // and 0x7F00 is folded into the movk high half at emit time.
 
-    // string-data size, then total file size; heap (BSS) starts 16-aligned above it.
     let strBytes = 0
     i = 0
     while i < nlines {
-        let ln0 = getLine(ir, i)
-        if isStrPush(ln0) == "1" { strBytes = strBytes + (len(quoted(ln0)) + 1) }
+        let l0 = getLine(ir, i)
+        if isStrPush(l0) == "1" { strBytes = strBytes + (len(quoted(l0)) + 1) }
         i = i + 1
     }
     let total = dataOff + strBytes
-    let heapBase = VBASE + ((total + 15) / 16 * 16)
+    let heapOff = (total + 15) / 16 * 16            // heap start (offset from load base)
+    let opOff = heapOff + 1048576 + 65536           // op stack top (64 KiB above 1 MiB heap)
 
-    // ── pass 2: emit code ────────────────────────────────────────────────────
-    let code = ""
-    let off = HDR                          // current byte offset (== vaddr offset)
-    let sidx = 0                           // running string-literal index
-    let strCursor = dataOff                // next string's data offset
+    // ── _start: x20=op stack, x22=heap, bl __main__, exit(0) ──────────────────
+    let mainOff = toInt(funcVaddrOf(ir, "__main__"))
+    let code = e_movz(20, opOff % 65536) + e_movk16(20, 32512 + opOff / 65536)
+    code = code + e_movz(22, heapOff % 65536) + e_movk16(22, 32512 + heapOff / 65536)
+    code = code + e_bl(mainOff - (HDR + 16))
+    code = code + e_movz(0, 0) + e_movz(8, 93) + e_svc()
+    let off = HDR + START
+
+    // ── functions: each gets a frame on sp (x19=locals base); op stack is x20 ──
+    let curF = 0
+    let frame = 0
+    let sidx = 0
     i = 0
     while i < nlines {
         let ln = getLine(ir, i)
         let op = opcode(ln)
         if op == "FUNC" {
-            code = code + e_subi(31, 31, 2048) + e_addi(19, 31, 0) + e_addi(20, 31, 2048)
-            code = code + e_movz(22, heapBase % 65536) + e_movk16(22, heapBase / 65536)  // x22 = heap base
-            off = off + 20
+            curF = i
+            let argc = toInt(funcArgc(ln))
+            frame = toInt(countLocals(ir, i)) * 16
+            code = code + e_subi(31, 31, 16) + e_str0(19, 31) + e_str8(30, 31, 1)   // save x19, x30
+            code = code + e_subi(31, 31, frame) + e_addi(19, 31, 0)                 // alloc locals, x19=sp
+            let p = 0
+            while p < argc {                                                        // pop args -> param slots
+                code = code + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_strIdx(0, 19, argc - 1 - p)
+                p = p + 1
+            }
+            off = off + (5 + 3 * argc) * 4
         }
         if op == "PUSH" {
             if isStrPush(ln) == "1" {
-                let s = quoted(ln)
-                // this string's vaddr offset:
                 let sOff = dataOff
                 let j = 0
                 let k = 0
@@ -257,17 +328,17 @@ just run {
                     }
                     j = j + 1
                 }
-                let sa = VBASE + sOff
-                code = code + e_movz(0, sa % 65536) + e_movk16(0, sa / 65536) + c_push()
+                code = code + e_movz(0, sOff % 65536) + e_movk16(0, 32512 + sOff / 65536) + c_push()
                 sidx = sidx + 1
             } else {
                 code = code + c_loadImm(toInt(operand(ln))) + c_push()
             }
             off = off + 16
         }
-        if op == "STORE" { code = code + c_pop0() + e_strIdx(0, 19, toInt(localSlot(ir, operand(ln))))  off = off + 12 }
-        if op == "LOAD"  { code = code + e_ldrIdx(0, 19, toInt(localSlot(ir, operand(ln)))) + c_push()   off = off + 12 }
+        if op == "STORE" { code = code + c_pop0() + e_strIdx(0, 19, toInt(localSlotIn(ir, curF, operand(ln))))  off = off + 12 }
+        if op == "LOAD"  { code = code + e_ldrIdx(0, 19, toInt(localSlotIn(ir, curF, operand(ln)))) + c_push()   off = off + 12 }
         if op == "ADD" { code = code + c_pop1() + c_pop0() + e_bl(plusOff - (off + 16)) + c_push()  off = off + 28 }  // polymorphic via kr_plus
+        if op == "CAT" { code = code + c_pop1() + c_pop0() + e_bl(plusOff - (off + 16)) + c_push()  off = off + 28 }  // template-string concat via kr_plus
         if op == "SUB" { code = code + c_pop1() + c_pop0() + e_subr(0, 0, 1) + c_push()  off = off + 28 }
         if op == "MUL" { code = code + c_pop1() + c_pop0() + e_mul(0, 0, 1) + c_push()   off = off + 28 }
         if op == "DIV" { code = code + c_pop1() + c_pop0() + e_udiv(0, 0, 1) + c_push()  off = off + 28 }
@@ -279,25 +350,30 @@ just run {
         if op == "NEQ" { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 0) + c_push()   off = off + 32 }
         if op == "LTE" { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 12) + c_push()  off = off + 32 }
         if op == "GTE" { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 11) + c_push()  off = off + 32 }
-        if op == "JUMP" { code = code + e_b(toInt(labelOffset(ir, operand(ln))) - off)  off = off + 4 }
-        if op == "JUMPIFNOT" { code = code + c_pop0() + e_cbz(0, toInt(labelOffset(ir, operand(ln))) - (off + 8))  off = off + 12 }
+        if op == "JUMP" { code = code + e_b(toInt(labelAbsOffset(ir, operand(ln))) - off)  off = off + 4 }
+        if op == "JUMPIFNOT" { code = code + c_pop0() + e_cbz(0, toInt(labelAbsOffset(ir, operand(ln))) - (off + 8))  off = off + 12 }
+        if op == "CALL" { code = code + e_bl(toInt(funcVaddrOf(ir, headName(ln))) - off)  off = off + 4 }
         if op == "BUILTIN" {
             let b = operand(ln)
             if startsWith(b, "isTruthy") { code = code + c_pop0() + e_cmpi0(0) + e_cset(0, 0) + c_push()  off = off + 24 }
             if startsWith(b, "kp") {
-                code = code + c_pop0() + e_movzHi(9, 64) + e_cmp(0, 9) + e_bhs(8)
+                code = code + c_pop0() + e_movzHi(9, 32512) + e_cmp(0, 9) + e_bhs(8)
                 code = code + e_bl(strIntOff - (off + 20)) + e_bl(printOff - (off + 24))
                 off = off + 28
             }
             if startsWith(b, "gcShadowCount") { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
+            if startsWith(b, "gcShadowPush") { code = code + e_addi(20, 20, 16) + e_movz(0, 0) + c_push()  off = off + 16 }
             if startsWith(b, "gcShadowPop") { code = code + e_addi(20, 20, 16) + e_movz(0, 0) + c_push()  off = off + 16 }
         }
-        if op == "END" { code = code + e_movz(0, 0) + e_movz(8, 93) + e_svc()  off = off + 12 }
+        // RETURN and END: epilogue (free locals, restore x19/x30, ret). For __main__
+        // this returns to _start, which then exits(0).
+        if op == "RETURN" { code = code + e_addi(31, 31, frame) + e_ldr0(19, 31) + e_ldr8(30, 31, 1) + e_addi(31, 31, 16) + e_ret()  off = off + 20 }
+        if op == "END"    { code = code + e_addi(31, 31, frame) + e_ldr0(19, 31) + e_ldr8(30, 31, 1) + e_addi(31, 31, 16) + e_ret()  off = off + 20 }
         i = i + 1
     }
 
     // helpers appended after main code, in layout order (alloc, str_int, plus, print)
-    let body = code + emitAlloc() + emitStrInt(allocOff, strIntOff) + emitPlus(strIntOff, allocOff, plusOff) + emitPrint(VBASE + nlOff)
+    let body = code + emitAlloc() + emitStrInt(allocOff, strIntOff) + emitPlus(strIntOff, allocOff, plusOff) + emitPrint(nlOff)
 
     // data region: newline byte (at nlOff) then string literals
     let data = hexByte(10)                                     // newline
@@ -317,11 +393,11 @@ just run {
     // ELF64 header (aarch64, ET_EXEC) + PT_LOAD (RWX); total/heapBase computed above
     let eh = hexByte(127) + "x45x4Cx46" + "x02x01x01x00" + "x00x00x00x00x00x00x00x00"
     eh = eh + "x02x00" + "xB7x00" + "x01x00x00x00"
-    eh = eh + le8(VBASE + HDR) + le8(64) + le8(0)
+    eh = eh + le8vaddr(HDR) + le8(64) + le8(0)
     eh = eh + "x00x00x00x00" + "x40x00" + "x38x00" + "x01x00" + "x00x00" + "x00x00" + "x00x00"
     let ph = "x01x00x00x00" + "x07x00x00x00"
-    let memsz = (heapBase - VBASE) + 1048576              // file + 1 MiB BSS heap
-    ph = ph + le8(0) + le8(VBASE) + le8(VBASE) + le8(total) + le8(memsz) + le8(65536)
+    let memsz = heapOff + 1048576 + 65536                  // file + 1 MiB heap + 64 KiB op stack (BSS)
+    ph = ph + le8(0) + le8vaddr(0) + le8vaddr(0) + le8(total) + le8(memsz) + le8(65536)
 
     writeBytes(outFile, eh + ph + body + data)
 }
@@ -344,4 +420,10 @@ func le8(v) {
     let k = 0
     while k < 8 { out = out + hexByte(x % 256)  x = x / 256  k = k + 1 }
     emit out
+}
+
+// Emit (0x7F000000 + off) as an 8-byte LE vaddr without holding the full value
+// (the backend's own int ceiling is 0x7F000000). byte3 = 0x7F + (off>>24).
+func le8vaddr(off) {
+    emit hexByte(off % 256) + hexByte((off / 256) % 256) + hexByte((off / 65536) % 256) + hexByte(127 + off / 16777216) + hexByte(0) + hexByte(0) + hexByte(0) + hexByte(0)
 }
