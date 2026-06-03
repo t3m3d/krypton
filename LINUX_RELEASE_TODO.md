@@ -51,9 +51,21 @@ Both: `git pull --rebase` before pushing (macOS/Windows agents share `main`).
 - [x] **Milestone 4 (done):** string interpolation — BSS heap + `kr_alloc` + polymorphic
       `kr_plus` (ADD: int+int adds, string+anything concatenates via `kr_str_int`).
       `kp("sum="+(2+3))`→`sum=5`, `kp("n="+n+" sq="+n*n)`→`n=7 sq=49`. Verified under qemu.
-- [ ] **Milestone 5:** function calls (CALL_FUNC + args + frame), negative literals (movn).
-- [ ] Then: MOVK for the operand-stack region (lift the program-size cap) and `kcc.sh`
-      wiring so `--native` on aarch64 uses this backend directly.
+- [x] **Milestone 5 (done):** user functions + recursion (call frames on sp, CALL=bl,
+      per-fn locals, CAT, int threshold→0x7F000000). factorial/fib recursion, nested
+      calls, 3-arg fns; fibonacci/factorial/fizzbuzz byte-identical to kcc.sh. Commits
+      aa566dc7, ba08a05f.
+- [ ] **Known bugs (next):**
+      1. **kp leaks +16/op** — x86 backend (elf_host) miscompiles the kp handler (dupes
+         an `add x20`); arm64 source verified correct by bisection. Print-heavy programs
+         (100s of lines) drift x20 off the op stack and crash. Likely fixed when the x86
+         backend is fixed, or by a StringBuilder rewrite of this file.
+      2. **Backend crashes on ~1000+ op programs** — naive `code = code + ...` is O(n^2);
+         rewrite with sbAppend (like x86 elf.k).
+      3. **Missing stdlib builtins** — substring/charCode/len/toInt/range/split/trim/...
+         Most example programs need these (the "make programs work" track, M6).
+- [ ] Then: negative literals (movn), MOVK for the op-stack region, `kcc.sh --native`
+      auto-using this backend on aarch64.
 
 ## agent-l — edits to existing files (mostly `elf.k`)
 
