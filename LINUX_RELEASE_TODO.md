@@ -20,6 +20,16 @@ Both: `git pull --rebase` before pushing (macOS/Windows agents share `main`).
       Unix epoch through ~2037). Commit `5f06fc97`, regression `tests/test_int_ceiling.k`.
 - [x] yubiKrypt (TUI authenticator) runs on Linux — its macOS frontend reused verbatim.
 
+## agent-l — native aarch64 backend (`compiler/linux_arm64/elf.k`)
+
+- [x] **Milestone 1 (done):** minimal cross backend — lowers `kp("literal")` to
+      `write`+`exit`, emits a static aarch64 ELF that runs under qemu-user. First
+      native aarch64 binary from the compiler. Emits instructions byte-wise (words
+      exceed the 0x7F000000 int ceiling). Test: `qemu-aarch64-static` + binfmt.
+- [ ] Grow toward `elf.k` parity: integers/arithmetic, the `kr_*` runtime helpers
+      (kr_print, kr_str_int, kr_alloc), control flow, MOVK addressing (lift the
+      <4096 program-size cap), then wire into `kcc.sh` for `--native` on aarch64.
+
 ## agent-l — edits to existing files (mostly `elf.k`)
 
 - [ ] **Full 64-bit integers.** Current ceiling `0x7EFFFFFF` (~2.13e9) is a Y2038-class
