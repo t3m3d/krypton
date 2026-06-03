@@ -64,15 +64,42 @@ func c_loadImm(v) {                                            // x0 = v (32-bit
 }
 
 // ── runtime helpers (ported from the validated prototype) ────────────────────
-// kr_str_int: x0=value(>=0) -> x0 = ptr to NUL-terminated decimal in scratch.
-func emitStrInt(scr) {
-    let lo = scr % 65536
-    let hi = scr / 65536
-    let c = e_movz(1, lo) + e_movk16(1, hi) + e_addi(1, 1, 31) + e_movz(4, 10) + e_strb(31, 1)
-    c = c + e_cbnz(0, 24)                                                  // if x0!=0 -> .loop
-    c = c + e_subi(1, 1, 1) + e_movz(2, 48) + e_strb(2, 1) + e_movr(0, 1) + e_ret()   // zero
-    c = c + e_udiv(3, 0, 4) + e_msub(5, 3, 4, 0) + e_addi(5, 5, 48) + e_subi(1, 1, 1)
-    c = c + e_strb(5, 1) + e_movr(0, 3) + e_cbnz(0, 0 - 24) + e_movr(0, 1) + e_ret()  // .loop
+// Heap = BSS above the file; x22 = bump pointer (set in the prologue).
+// kr_alloc: x0=size -> x0=ptr, bumps x22. Leaf (uses x15).
+func emitAlloc() {
+    emit e_movr(15, 22) + e_addr(22, 22, 0) + e_movr(0, 15) + e_ret()
+}
+// kr_str_int: x0=value(>=0) -> x0 = ptr to NUL-term decimal in a FRESH heap buffer
+// (heap-allocated so two conversions can coexist during concat). Saves lr in x24;
+// allocOff/thisOff are byte offsets, BL disp = allocOff-(thisOff+12).
+func emitStrInt(allocOff, thisOff) {
+    let c = e_movr(24, 30) + e_movr(10, 0) + e_movz(0, 24)            // save lr, val; size=24
+    c = c + e_bl(allocOff - (thisOff + 12))                          // bl kr_alloc -> x0=buf
+    c = c + e_addi(1, 0, 23) + e_movr(0, 10) + e_movz(4, 10) + e_strb(31, 1)  // x1=buf+23; x0=val; *x1=NUL
+    c = c + e_cbnz(0, 28)                                            // x0!=0 -> .loop (idx15)
+    c = c + e_subi(1, 1, 1) + e_movz(2, 48) + e_strb(2, 1) + e_movr(0, 1) + e_movr(30, 24) + e_ret()  // "0"
+    c = c + e_udiv(3, 0, 4) + e_msub(5, 3, 4, 0) + e_addi(5, 5, 48) + e_subi(1, 1, 1)  // .loop
+    c = c + e_strb(5, 1) + e_movr(0, 3) + e_cbnz(0, 0 - 24) + e_movr(0, 1) + e_movr(30, 24) + e_ret()
+    emit c
+}
+// kr_plus(a=x0, b=x1) -> x0. Polymorphic +: both ints -> a+b; else convert each
+// to a string (kr_str_int for the int side) and concat into a fresh heap buffer.
+// Saves lr in x23; VBASE in x9; sa=x11 sb=x12 b=x13 lenA=x14 lenB=x16 dst=x17.
+func emitPlus(strIntOff, allocOff, thisOff) {
+    let c = e_movr(23, 30) + e_movzHi(9, 64)                                       // lr; x9=VBASE
+    c = c + e_cmp(0, 9) + e_bhs(24) + e_cmp(1, 9) + e_bhs(16)                      // either >=VBASE -> concat
+    c = c + e_addr(0, 0, 1) + e_movr(30, 23) + e_ret()                            // both int: a+b
+    c = c + e_movr(13, 1)                                                          // [cc] x13=b
+    c = c + e_cmp(0, 9) + e_bhs(8) + e_bl(strIntOff - (thisOff + 48))             // conv a
+    c = c + e_movr(11, 0)                                                          // [as] sa
+    c = c + e_movr(0, 13) + e_cmp(0, 9) + e_bhs(8) + e_bl(strIntOff - (thisOff + 68))  // conv b
+    c = c + e_movr(12, 0)                                                          // [bs] sb
+    c = c + e_movz(14, 0) + e_ldrbO(3, 11, 14) + e_cbz(3, 12) + e_addi(14, 14, 1) + e_b(0 - 12)  // strlen sa
+    c = c + e_movz(16, 0) + e_ldrbO(3, 12, 16) + e_cbz(3, 12) + e_addi(16, 16, 1) + e_b(0 - 12)  // strlen sb
+    c = c + e_addr(0, 14, 16) + e_addi(0, 0, 1) + e_bl(allocOff - (thisOff + 124)) + e_movr(17, 0)  // dst=alloc(lenA+lenB+1)
+    c = c + e_movz(2, 0) + e_cmp(2, 14) + e_bhs(24) + e_ldrbO(3, 11, 2) + e_strb(3, 0) + e_addi(0, 0, 1) + e_addi(2, 2, 1) + e_b(0 - 24)  // copy sa
+    c = c + e_movz(2, 0) + e_cmp(2, 16) + e_bhs(24) + e_ldrbO(3, 12, 2) + e_strb(3, 0) + e_addi(0, 0, 1) + e_addi(2, 2, 1) + e_b(0 - 24)  // copy sb
+    c = c + e_strb(31, 0) + e_movr(0, 17) + e_movr(30, 23) + e_ret()              // NUL; return dst
     emit c
 }
 // kr_print: x0=ptr -> write the NUL-terminated string then a newline.
@@ -139,7 +166,7 @@ func localSlot(ir, name) {
 // byte size each op lowers to (must equal the emit below).
 func opSize(ln) {
     let op = opcode(ln)
-    if op == "FUNC"    { emit 12 }       // prologue
+    if op == "FUNC"    { emit 20 }       // prologue (sub sp / mov x19 / add x20 / movz+movk x22)
     if op == "END"     { emit 12 }       // exit(0)
     if op == "LOCAL"   { emit 0 }
     if op == "PUSH"    { emit 16 }       // load imm/addr (2) + push (2)
@@ -182,12 +209,24 @@ just run {
         i = i + 1
     }
     // helpers + scratch + newline, then string data.
-    let strIntOff = HDR + codeSize
-    let printOff  = strIntOff + 80
-    let scratchOff = printOff + 64
-    let nlOff = scratchOff + 32
+    let allocOff  = HDR + codeSize
+    let strIntOff = allocOff + 16
+    let plusOff   = strIntOff + 100
+    let printOff  = plusOff + 212
+    let nlOff = printOff + 64
     let dataOff = nlOff + 1
     let VBASE = 4194304
+
+    // string-data size, then total file size; heap (BSS) starts 16-aligned above it.
+    let strBytes = 0
+    i = 0
+    while i < nlines {
+        let ln0 = getLine(ir, i)
+        if isStrPush(ln0) == "1" { strBytes = strBytes + (len(quoted(ln0)) + 1) }
+        i = i + 1
+    }
+    let total = dataOff + strBytes
+    let heapBase = VBASE + ((total + 15) / 16 * 16)
 
     // ── pass 2: emit code ────────────────────────────────────────────────────
     let code = ""
@@ -200,7 +239,8 @@ just run {
         let op = opcode(ln)
         if op == "FUNC" {
             code = code + e_subi(31, 31, 2048) + e_addi(19, 31, 0) + e_addi(20, 31, 2048)
-            off = off + 12
+            code = code + e_movz(22, heapBase % 65536) + e_movk16(22, heapBase / 65536)  // x22 = heap base
+            off = off + 20
         }
         if op == "PUSH" {
             if isStrPush(ln) == "1" {
@@ -227,7 +267,7 @@ just run {
         }
         if op == "STORE" { code = code + c_pop0() + e_strIdx(0, 19, toInt(localSlot(ir, operand(ln))))  off = off + 12 }
         if op == "LOAD"  { code = code + e_ldrIdx(0, 19, toInt(localSlot(ir, operand(ln)))) + c_push()   off = off + 12 }
-        if op == "ADD" { code = code + c_pop1() + c_pop0() + e_addr(0, 0, 1) + c_push()  off = off + 28 }
+        if op == "ADD" { code = code + c_pop1() + c_pop0() + e_bl(plusOff - (off + 16)) + c_push()  off = off + 28 }  // polymorphic via kr_plus
         if op == "SUB" { code = code + c_pop1() + c_pop0() + e_subr(0, 0, 1) + c_push()  off = off + 28 }
         if op == "MUL" { code = code + c_pop1() + c_pop0() + e_mul(0, 0, 1) + c_push()   off = off + 28 }
         if op == "DIV" { code = code + c_pop1() + c_pop0() + e_udiv(0, 0, 1) + c_push()  off = off + 28 }
@@ -256,14 +296,11 @@ just run {
         i = i + 1
     }
 
-    // helpers (returned bytes appended after main code); scratch/nl as full vaddrs
-    let body = code + emitStrInt(VBASE + scratchOff) + emitPrint(VBASE + nlOff)
+    // helpers appended after main code, in layout order (alloc, str_int, plus, print)
+    let body = code + emitAlloc() + emitStrInt(allocOff, strIntOff) + emitPlus(strIntOff, allocOff, plusOff) + emitPrint(VBASE + nlOff)
 
-    // string data + scratch + newline
-    let data = ""
-    let z = 0
-    while z < 32 { data = data + hexByte(0)  z = z + 1 }      // scratch
-    data = data + hexByte(10)                                  // newline
+    // data region: newline byte (at nlOff) then string literals
+    let data = hexByte(10)                                     // newline
     // string literals in order
     i = 0
     while i < nlines {
@@ -277,15 +314,14 @@ just run {
         i = i + 1
     }
 
-    let total = dataOff + (countStrBytes(ir))
-
-    // ELF64 header (aarch64, ET_EXEC) + PT_LOAD (RWX, scratch is writable)
+    // ELF64 header (aarch64, ET_EXEC) + PT_LOAD (RWX); total/heapBase computed above
     let eh = hexByte(127) + "x45x4Cx46" + "x02x01x01x00" + "x00x00x00x00x00x00x00x00"
     eh = eh + "x02x00" + "xB7x00" + "x01x00x00x00"
     eh = eh + le8(VBASE + HDR) + le8(64) + le8(0)
     eh = eh + "x00x00x00x00" + "x40x00" + "x38x00" + "x01x00" + "x00x00" + "x00x00" + "x00x00"
     let ph = "x01x00x00x00" + "x07x00x00x00"
-    ph = ph + le8(0) + le8(VBASE) + le8(VBASE) + le8(total) + le8(total) + le8(65536)
+    let memsz = (heapBase - VBASE) + 1048576              // file + 1 MiB BSS heap
+    ph = ph + le8(0) + le8(VBASE) + le8(VBASE) + le8(total) + le8(memsz) + le8(65536)
 
     writeBytes(outFile, eh + ph + body + data)
 }
