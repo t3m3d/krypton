@@ -204,16 +204,16 @@ let g_TEXT_VMSIZE         = 0x4000
 let g_DATA_CONST_FILE_OFF = 0x4000
 let g_DATA_FILE_OFF       = 0x8000
 let g_LINKEDIT_FILE_OFF   = 0xC000
-let g_DATA_VADDR          = 0x100008000
-let g_LINKEDIT_VADDR      = 0x100408000
+let g_DATA_VADDR          = 0x8000
+let g_LINKEDIT_VADDR      = 0x408000
 let g_CODESIG_OFF         = 0xC0C0
 let g_CODESIG_SIZE        = 244
 let g_FILE_TOTAL_SIZE     = 0xC0C0 + 244
 
-func TEXT_VADDR()         { emit 0x100000000 }
-func DATA_CONST_VADDR()   { emit 0x100000000 + g_TEXT_VMSIZE }
+func TEXT_VADDR()         { emit 0 }
+func DATA_CONST_VADDR()   { emit 0 + g_TEXT_VMSIZE }
 func LINKEDIT_VADDR()     { emit g_LINKEDIT_VADDR }
-func PAGEZERO_VMSIZE()    { emit 0x100000000 }
+func PAGEZERO_VMSIZE()    { emit 0 }
 func SEG_PAGE_SIZE()      { emit 0x4000 }       // 16 KB
 
 func TEXT_FILE_OFF()      { emit 0 }
@@ -235,7 +235,7 @@ func computeLayout() {
     g_DATA_CONST_FILE_OFF = textVmsize
     g_DATA_FILE_OFF = textVmsize + 0x4000
     g_LINKEDIT_FILE_OFF = textVmsize + 0x8000
-    g_DATA_VADDR = 0x100000000 + textVmsize + 0x4000
+    g_DATA_VADDR = 0 + textVmsize + 0x4000
     g_LINKEDIT_VADDR = g_DATA_VADDR + DATA_VMSIZE()  // must match DATA vmsize, else LINKEDIT overlaps the heap (was hardcoded 0x40000000=1GB while DATA vmsize=0x70000000 → heap SEGV'd at 1GB; blocked native self-host)
     g_CODESIG_OFF = g_LINKEDIT_FILE_OFF + 192
     let nCodeSlots = (g_CODESIG_OFF + pageSize - 1) / pageSize
@@ -943,7 +943,7 @@ func arm64_brk(imm16) {
 // (instead of x4 like emitAllocN) so the size register isn't clobbered.
 // Adds 16-byte header per alloc; returns user_ptr = header_ptr + 16.
 func emitAllocVar(instrIdx, textVaddr, textOff) {
-    // Use page offsets relative to TEXT base to avoid 0x100000000 arithmetic on
+    // Use page offsets relative to TEXT base to avoid 0 arithmetic on
     // native binary (where values >= threshold are treated as string pointers).
     let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
     let s = ""
@@ -1031,13 +1031,13 @@ func emitAllocN(n, instrIdx, textVaddr, textOff) {
 
 // Polymorphic string concat — emits 111 arm64 instructions assuming the two
 // operands are already in x3 (a) and x6 (b). Either may be an int (raw, less
-// than 0x100000000) or a pointer to a NUL-terminated string. Ints are itoa'd
+// than 0) or a pointer to a NUL-terminated string. Ints are itoa'd
 // into a 64-byte stack scratch buffer. Result is alloc'd via emitAllocVar and
 // pushed onto the eval stack. Shared by both CAT and ADD's concat path.
 func emitPolyConcat(instrIdx, textVaddr, textOff) {
     let s = ""
     s = s + arm64_sub_imm(31, 31, 64)             // 0: reserve 64B scratch (2×24-byte bufs + pad)
-    s = s + arm64_movz_x_imm_lsl32(14, 1)         // 1: 0x100000000 ptr/int boundary
+    s = s + arm64_movz_x_imm_lsl32(14, 1)         // 1: 0 ptr/int boundary
     s = s + arm64_cmp_xx(3, 14)                   // 2
     s = s + arm64_b_cond(0xa, 27)                 // 3: b.ge A_AFTER (idx 30)
     // itoa a → buf [sp..sp+23] (26 instr)
@@ -1188,10 +1188,18 @@ func internIntoList(list, count, name) {
 
 // Find name in newline-separated list of `count` entries. Returns idx or -1.
 func findInList(list, count, name) {
+    // Single linear pass: O(total length). The old getLine(list,i) per index
+    // rescanned from the start each time → O(count^2) per call, which made
+    // per-op LOAD/STORE resolution O(K * L^2) and blew up on big functions.
     let i = 0
+    let start = 0
+    let n = len(list)
     while i < count {
-        if getLine(list, i) == name { emit i }
+        let e = start
+        while e < n && list[e] != "\n" { e += 1 }
+        if substring(list, start, e) == name { emit i }
         i += 1
+        start = e + 1
     }
     emit 0 - 1
 }
@@ -2194,7 +2202,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
     let nO = funcNOps(parsed, fIdx)
     let labels = buildFunctionLabelTable(parsed, fIdx, funcStartInstr)
 
-    let textVaddr = 0x100000000
+    let textVaddr = 0
     let textOff = 0x460
     let stubsOff = textOff + textSz
     let cstringOff = stubsOff + 12
@@ -2245,7 +2253,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
         let imm21m = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + (instrIdx + 8) * 4) / 4096
         s = sbAppend(s, arm64_adrp(9, imm21m))           // 8: re-derive cell (svc may clobber x9)
         s = sbAppend(s, arm64_add_imm(9, 9, 0))          // 9
-        s = sbAppend(s, arm64_movz_x_imm_lsl32(14, 1))   // 10: x14 = 0x100000000 (4 GB)
+        s = sbAppend(s, arm64_movz_x_imm_lsl32(14, 1))   // 10: x14 = 0 (4 GB)
         s = sbAppend(s, arm64_cmp_xx(0, 14))             // 11: cmp base, 4GB
         s = sbAppend(s, arm64_b_cond(0x3, 2))            // 12: b.lo SKIP (mmap failed → keep 0)
         s = sbAppend(s, arm64_str_imm(0, 9, 0))          // 13: bump_cell+0 = mmap base
@@ -2473,7 +2481,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             let cnd = irCmpToCond(opTok)
             s = sbAppend(s, arm64_pop(4))                 // 0: b
             s = sbAppend(s, arm64_pop(3))                 // 1: a
-            s = sbAppend(s, arm64_movz_x_imm_lsl32(14, 1))// 2: threshold 0x100000000
+            s = sbAppend(s, arm64_movz_x_imm_lsl32(14, 1))// 2: threshold 0
             s = sbAppend(s, arm64_cmp_xx(3, 14))          // 3
             s = sbAppend(s, arm64_b_cond(0xb, 12))        // 4: b.lt RAW(16) — a is int
             s = sbAppend(s, arm64_cmp_xx(4, 14))          // 5
@@ -2666,13 +2674,13 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             instrIdx = instrIdx + 10
         } else if opTok == "BUILTIN_TOINT" {
             // toInt(s): parse a signed decimal string → int. 30 instructions.
-            // If arg is already an int (< 0x100000000), return as-is. Otherwise
+            // If arg is already an int (< 0), return as-is. Otherwise
             // parse, honoring a leading '-' (KIR encodes large/negative constants
             // like 0xfeedfacf as the signed value -17958193, so the sign MUST be
             // handled or self-compile mis-encodes every such PUSH_INT).
             // Regs: x7=s x0=result x4=10 x8=neg x5=i x6=char x9=scratch
             s = sbAppend(s, arm64_pop(7))  // 0
-            s = sbAppend(s, arm64_movz_x_imm_lsl32(3, 1))  // 1: x3 = 0x100000000
+            s = sbAppend(s, arm64_movz_x_imm_lsl32(3, 1))  // 1: x3 = 0
             s = sbAppend(s, arm64_cmp_xx(7, 3))  // 2
             s = sbAppend(s, arm64_b_cond(0x3, 25))  // 3: b.lo INT_MOV@28
             s = sbAppend(s, arm64_movz_x_imm(0, 0))  // 4: result = 0
@@ -2871,7 +2879,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             instrIdx = instrIdx + 23
         } else if opTok == "BUILTIN_PRINT" {
             // print(v): write v to stdout. Handles strings and ints (no newline).
-            // Dispatch: if v < 0x100000000 it's an int; else a pointer.
+            // Dispatch: if v < 0 it's an int; else a pointer.
             // String path = 10 instr, int path = itoa + write. 52 total.
             s = sbAppend(s, arm64_pop(3))  // 0: x3 = arg
             s = sbAppend(s, arm64_movz_x_imm_lsl32(14, 1))  // 1: x14 = 1<<32
@@ -2998,14 +3006,14 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
         } else if opTok == "BUILTIN_ARG" {
             // arg(i): i may be an integer literal (common) or a string like "0".
             // 25 instructions. Int passthrough prefix + inline-toInt + load argv.
-            //   0:pop x4  1:movz x3=0x100000000  2:cmp x4,x3  3:b.lo→INT_ENTRY@18
+            //   0:pop x4  1:movz x3=0  2:cmp x4,x3  3:b.lo→INT_ENTRY@18
             //   4:movz x6=0  5:movz x5=0  6:movz x10=10
             //   7:LOOP:ldrb w7  8:cbz→DONE@19(+11)  9:cmp48  10:b.lt→DONE@19(+9)
             //   11:cmp57  12:b.gt→DONE@19(+7)  13:sub  14:mul  15:add x6  16:add x5
             //   17:b→LOOP(-10)  18:INT_ENTRY:mov x6,x4
             //   19(DONE):adrp x9  20:add  21:ldr argv  22:add x6,#1  23:ldr x0  24:push
             s = sbAppend(s, arm64_pop(4))  // 0
-            s = sbAppend(s, arm64_movz_x_imm_lsl32(3, 1))  // 1: x3 = 0x100000000
+            s = sbAppend(s, arm64_movz_x_imm_lsl32(3, 1))  // 1: x3 = 0
             s = sbAppend(s, arm64_cmp_xx(4, 3))  // 2
             s = sbAppend(s, arm64_b_cond(0x3, 15))  // 3: b.lo → INT_ENTRY@18
             s = sbAppend(s, arm64_movz_x_imm(6, 0))  // 4
@@ -3359,7 +3367,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             //   anything else (ptr) → truthy
             // Uses x5 as a scratch ptr to byte-walk the string.  35 instructions.
             s = sbAppend(s, arm64_pop(3))  // 0: v
-            s = sbAppend(s, arm64_movz_x_imm_lsl32(14, 1))  // 1: 0x100000000
+            s = sbAppend(s, arm64_movz_x_imm_lsl32(14, 1))  // 1: 0
             s = sbAppend(s, arm64_cmp_xx(3, 14))  // 2
             s = sbAppend(s, arm64_b_cond(0xa, 4))  // 3: b.ge PTR_PATH (idx 7)
             // INT path
@@ -4585,7 +4593,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             instrIdx = instrIdx + 3
         } else if opTok == "BUILTIN_KP" {
             // kp(v): write v to stdout + newline. Handles both strings and ints.
-            // Dispatch: if v < 0x100000000 it's an int; else a pointer (heap or __TEXT).
+            // Dispatch: if v < 0 it's an int; else a pointer (heap or __TEXT).
             // String path = 19 instr (was 21 — same as before, sans pop).
             // Int path = inline itoa + write. 69 instructions total.
             s = sbAppend(s, arm64_pop(3))  // 0: x3 = arg
@@ -5002,7 +5010,7 @@ func emitSymtab() {
     s = s + hexByte(0x0f)                       // n_type = N_EXT | N_SECT
     s = s + hexByte(1)                          // n_sect = 1 (__text)
     s = s + hexWord(0x10)                       // n_desc = REFERENCED_DYNAMICALLY (matches clang)
-    s = s + hexQword2(TEXT_VADDR(), 1)          // n_value = 0x100000000
+    s = s + hexQword2(TEXT_VADDR(), 1)          // n_value = 0
     // sym 1: _main
     s = s + hexDword(STRX_MAIN())
     s = s + hexByte(0x0f)
@@ -5174,7 +5182,7 @@ func emitLcPagezero() {
     s = s + hexDword(LC_SEGMENT_64()) + hexDword(72)
     s = s + hexStr("__PAGEZERO") + hexPad(6)        // 16-byte segname
     s = s + hexQword2(0, 0)                         // vmaddr
-    s = s + hexQword2(0, 1)                         // vmsize = 0x100000000
+    s = s + hexQword2(0, 1)                         // vmsize = 0
     s = s + hexQword(0)                             // fileoff
     s = s + hexQword(0)                             // filesize
     s = s + hexDword(0)                             // maxprot
@@ -5190,7 +5198,7 @@ func emitLcSegText() {
     let s = ""
     s = s + hexDword(LC_SEGMENT_64()) + hexDword(312)
     s = s + hexStr("__TEXT") + hexPad(10)
-    s = s + hexQword2(0, 1)                         // vmaddr = 0x100000000
+    s = s + hexQword2(0, 1)                         // vmaddr = 0
     s = s + hexQword(g_TEXT_VMSIZE)                 // vmsize = TEXT_VMSIZE
     s = s + hexQword(0)                             // fileoff
     s = s + hexQword(g_TEXT_VMSIZE)                 // filesize = same
