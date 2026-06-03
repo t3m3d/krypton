@@ -128,6 +128,26 @@ func ensureElfHost(root) {
     emit "1"
 }
 
+// Ensure the Linux optimizer host exists / is current. Best-effort: returns
+// "1" if usable, "0" to skip optimization (mirrors kcc.sh's silent skip).
+func ensureOptHost(root) {
+    let host = root + "/compiler/linux_x86/optimize_host"
+    let src  = root + "/compiler/optimize.k"
+    let fe   = root + "/compiler/linux_x86/kcc-x64"
+    let need = "1"
+    if exists(host) == "1" {
+        if sh("test " + q(src) + " -nt " + q(host) + " && echo 1 || echo 0") == "0" { need = "0" }
+    }
+    if need == "0" { emit "1" }
+    if has("gcc") == "0" { emit "0" }
+    let tmpc = sh("mktemp /tmp/_kccopt_XXXXXX.c")
+    exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " " + q(src) + " > " + q(tmpc))
+    exec("gcc -O2 -w " + q(tmpc) + " -o " + q(host) + " -lm")
+    rm(tmpc)
+    if exists(host) == "1" { emit "1" }
+    emit "0"
+}
+
 // native Linux x86-64 compile: src -> out. Returns "1" ok / "0" fail.
 func compileLinux(root, src, out) {
     let fe = root + "/compiler/linux_x86/kcc-x64"
@@ -139,6 +159,13 @@ func compileLinux(root, src, out) {
         kp("kcc: IR emission failed for " + src)
         rm(tmpir)
         emit "0"
+    }
+    // optimizer pass (best-effort, IR->IR; mirrors kcc.sh)
+    if ensureOptHost(root) == "1" {
+        let tmpopt = sh("mktemp /tmp/_kckopt_XXXXXX.kir")
+        exec(q(root + "/compiler/linux_x86/optimize_host") + " " + q(tmpir) + " > " + q(tmpopt) + " 2>/dev/null")
+        if size(tmpopt) == 0 { rm(tmpopt) }
+        else { exec("mv " + q(tmpopt) + " " + q(tmpir)) }
     }
     exec(q(host) + " " + q(tmpir) + " " + q(out))
     rm(tmpir)
@@ -174,6 +201,29 @@ just run {
             if argCount() < 2 { kp("kcc: --ir needs a source file")  exit("1") }
             let fe = root + "/compiler/linux_x86/kcc-x64"
             kp(sh("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(arg(1))))
+            exit("0")
+        }
+        // --c: emit C source (front-end with no --ir). Legacy/debug, kept for parity.
+        if first == "--c" {
+            if argCount() < 2 { kp("kcc: --c needs a source file")  exit("1") }
+            let csrc = arg(1)
+            let cfe = root + "/compiler/linux_x86/kcc-x64"
+            let cout = optValue("-o", "")
+            if cout == "" { kp(sh("KRYPTON_ROOT=" + q(root) + " " + q(cfe) + " " + q(csrc))) }
+            else { exec("KRYPTON_ROOT=" + q(root) + " " + q(cfe) + " " + q(csrc) + " > " + q(cout)) }
+            exit("0")
+        }
+        // -e CODE [args]: wrap in `just run { ... }`, compile, run, delete.
+        // Write the wrapped source with writeText (NOT shell printf) so embedded
+        // quotes/newlines in CODE survive.
+        if first == "-e" {
+            if argCount() < 2 { kp("kcc: -e needs code")  exit("1") }
+            let ek = sh("mktemp /tmp/_kcceval_XXXXXX.ks")
+            writeText(ek, "just run {\n" + arg(1) + "\n}\n")
+            let ebin = sh("mktemp /tmp/_kcceval_XXXXXX")
+            if compileLinux(root, ek, ebin) == "0" { rm(ek)  exit("1") }
+            kp(sh(q(ebin) + " " + restFrom(2)))
+            rm(ek)  rm(ebin)
             exit("0")
         }
         if first == "-r" {
