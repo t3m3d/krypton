@@ -65,6 +65,31 @@
     if (activeCtx) activeCtx.lineWidth = 0.5;
   }
 
+  // Theme-aware RGB override: when the page sets `--particle-rgb` on :root
+  // (e.g. via `@media (prefers-color-scheme: dark)`), use those R/G/B
+  // values for the particle field instead of whatever's packed into the
+  // KryptScript-side rgba. Alpha is always taken from the packed value so
+  // the .ks-tuned ~99% fill / 26% stroke distinction is preserved.
+  // Re-read every call so a runtime theme flip (system pref change)
+  // reaches the next frame without a reload.
+  function themedRGB(fallbackR, fallbackG, fallbackB) {
+    try {
+      var v = getComputedStyle(document.documentElement)
+                .getPropertyValue('--particle-rgb').trim();
+      if (v) {
+        var p = v.split(',');
+        if (p.length === 3) {
+          return [
+            parseInt(p[0], 10) | 0,
+            parseInt(p[1], 10) | 0,
+            parseInt(p[2], 10) | 0
+          ];
+        }
+      }
+    } catch (e) { /* ignore — fall through to defaults */ }
+    return [fallbackR, fallbackG, fallbackB];
+  }
+
   function rgbaToCss(packed) {
     // Colour encoding: 0xAARRGGBB, but Krypton's tagged-int model halves
     // the usable range (every i32 literal is silently `(N<<1)` so it has
@@ -72,21 +97,21 @@
     // for alpha — values 0x00..0x3F. We extrapolate to 0..252 in JS by
     // multiplying the masked byte by 4, so `0x3FFFFFFF` lands at ~99%
     // opacity and `0x05FFFFFF` at ~8%.
+    //
+    // RGB is overridden by the page-level `--particle-rgb` CSS variable
+    // when set (theme-aware), falling back to whatever's in the packed
+    // value. The alpha encoded in the WASM call is always honoured.
     var u = packed >>> 0;
     var a = (((u >>> 24) & 0x3f) * 4) / 255;
-    var r = (u >>> 16) & 0xff;
-    var g = (u >>> 8)  & 0xff;
-    var b = u & 0xff;
-    return 'rgba(' + r + ',' + g + ',' + b + ',' + a.toFixed(3) + ')';
+    var rgb = themedRGB((u >>> 16) & 0xff, (u >>> 8) & 0xff, u & 0xff);
+    return 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + a.toFixed(3) + ')';
   }
 
   function rgbaToCssDim(packed, scale) {
     var u = packed >>> 0;
     var a = ((((u >>> 24) & 0x3f) * 4) / 255) * scale;
-    var r = (u >>> 16) & 0xff;
-    var g = (u >>> 8)  & 0xff;
-    var b = u & 0xff;
-    return 'rgba(' + r + ',' + g + ',' + b + ',' + a.toFixed(3) + ')';
+    var rgb = themedRGB((u >>> 16) & 0xff, (u >>> 8) & 0xff, u & 0xff);
+    return 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + a.toFixed(3) + ')';
   }
 
   function makeImports(memLookup) {
