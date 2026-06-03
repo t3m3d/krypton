@@ -3198,6 +3198,16 @@ func opByteSize(op) {
     if op == "BUILTIN_SOCKCONNECT" { emit 77 } // connect(fd,&sa,16)=42; sockaddr_in with IP a.b.c.d on stack
     if op == "BUILTIN_SOCKRECVSTR" { emit 57 } // kr_alloc 64K, recvfrom, NUL-term, return buf
     if op == "BUILTIN_UNIXCONNECT" { emit 90 } // socket(AF_UNIX,STREAM,0)+connect(&sockaddr_un{path}); for X11/Wayland
+    // Byte-buffer builtins (Phase C parity from x64.k, but inline/C-free) — for binary
+    // wire protocols (X11) that NUL-laden Krypton C-strings can't hold. buf ptr is a
+    // kr_alloc'd heap pointer; offsets index it directly. (kr_bufgetdwordat result may
+    // exceed 0x7F000000 and be re-tagged as a pointer — caller's caution until 64-bit ints.)
+    if op == "BUILTIN_BUFNEW"        { emit 7 }  // pop size; call kr_alloc; push ptr
+    if op == "BUILTIN_BUFSETBYTE"    { emit 7 }  // [buf+off] = val
+    if op == "BUILTIN_BUFGETBYTE"    { emit 7 }  // movzx byte
+    if op == "BUILTIN_BUFGETWORDAT"  { emit 7 }  // movzx word (u16 LE)
+    if op == "BUILTIN_BUFGETDWORDAT" { emit 6 }  // mov eax (u32 LE)
+    if op == "BUILTIN_BUFGETQWORDAT" { emit 7 }  // mov rax (u64 LE)
     // readProc(path): inline open + read-loop + close (works on /proc & /sys
     // virtual files whose st_size is 0, where kr_readfile's fstat path reads 0).
     if op == "BUILTIN_READPROC"    { emit 95 }
@@ -3556,6 +3566,18 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_SOCKRECVSTR")
                 } else if bname == "unixConnect" {
                     opSb = sbAppend(opSb, "BUILTIN_UNIXCONNECT")
+                } else if bname == "bufNew" {
+                    opSb = sbAppend(opSb, "BUILTIN_BUFNEW")
+                } else if bname == "bufSetByte" {
+                    opSb = sbAppend(opSb, "BUILTIN_BUFSETBYTE")
+                } else if bname == "bufGetByte" {
+                    opSb = sbAppend(opSb, "BUILTIN_BUFGETBYTE")
+                } else if bname == "bufGetWordAt" {
+                    opSb = sbAppend(opSb, "BUILTIN_BUFGETWORDAT")
+                } else if bname == "bufGetDwordAt" {
+                    opSb = sbAppend(opSb, "BUILTIN_BUFGETDWORDAT")
+                } else if bname == "bufGetQwordAt" {
+                    opSb = sbAppend(opSb, "BUILTIN_BUFGETQWORDAT")
                 } else if bname == "readProc" {
                     opSb = sbAppend(opSb, "BUILTIN_READPROC")
                 } else if bname == "environ" {
@@ -4310,6 +4332,43 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             c = sbAppend(c, hexByte(0x75) + hexByte(0x03))                                  // jne .fail (+3)
             c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xC0))                  // mov rax,r8 (success -> return fd)
             c = sbAppend(c, hexByte(0x50))                                                  // push rax (result)
+        } else if op == "BUILTIN_BUFNEW" {
+            // bufNew(size) -> kr_alloc(size). TOS=size. (7 bytes)
+            c = sbAppend(c, hexByte(0x5F))                                          // pop rdi (size)
+            let baDisp = krAllocVAddr - (funcStartVAddr + off + 6)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(baDisp))                       // call kr_alloc
+            c = sbAppend(c, hexByte(0x50))                                          // push rax (ptr)
+        } else if op == "BUILTIN_BUFSETBYTE" {
+            // bufSetByte(buf, off, val) -> [buf+off] = val&0xFF, returns val. TOS=val. (7 bytes)
+            c = sbAppend(c, hexByte(0x58))                                          // pop rax (val)
+            c = sbAppend(c, hexByte(0x59))                                          // pop rcx (off)
+            c = sbAppend(c, hexByte(0x5E))                                          // pop rsi (buf)
+            c = sbAppend(c, hexByte(0x88) + hexByte(0x04) + hexByte(0x0E))          // mov [rsi+rcx], al
+            c = sbAppend(c, hexByte(0x50))                                          // push rax (val)
+        } else if op == "BUILTIN_BUFGETBYTE" {
+            // bufGetByte(buf, off) -> zero-extended byte. TOS=off. (7 bytes)
+            c = sbAppend(c, hexByte(0x59))                                          // pop rcx (off)
+            c = sbAppend(c, hexByte(0x5E))                                          // pop rsi (buf)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0xB6) + hexByte(0x04) + hexByte(0x0E)) // movzx eax, byte [rsi+rcx]
+            c = sbAppend(c, hexByte(0x50))                                          // push rax
+        } else if op == "BUILTIN_BUFGETWORDAT" {
+            // bufGetWordAt(buf, off) -> u16 LE. TOS=off. (7 bytes)
+            c = sbAppend(c, hexByte(0x59))                                          // pop rcx (off)
+            c = sbAppend(c, hexByte(0x5E))                                          // pop rsi (buf)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0xB7) + hexByte(0x04) + hexByte(0x0E)) // movzx eax, word [rsi+rcx]
+            c = sbAppend(c, hexByte(0x50))                                          // push rax
+        } else if op == "BUILTIN_BUFGETDWORDAT" {
+            // bufGetDwordAt(buf, off) -> u32 LE. TOS=off. (6 bytes)
+            c = sbAppend(c, hexByte(0x59))                                          // pop rcx (off)
+            c = sbAppend(c, hexByte(0x5E))                                          // pop rsi (buf)
+            c = sbAppend(c, hexByte(0x8B) + hexByte(0x04) + hexByte(0x0E))          // mov eax, [rsi+rcx] (zero-extends)
+            c = sbAppend(c, hexByte(0x50))                                          // push rax
+        } else if op == "BUILTIN_BUFGETQWORDAT" {
+            // bufGetQwordAt(buf, off) -> u64 LE. TOS=off. (7 bytes)
+            c = sbAppend(c, hexByte(0x59))                                          // pop rcx (off)
+            c = sbAppend(c, hexByte(0x5E))                                          // pop rsi (buf)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x8B) + hexByte(0x04) + hexByte(0x0E)) // mov rax, [rsi+rcx]
+            c = sbAppend(c, hexByte(0x50))                                          // push rax
         } else if op == "BUILTIN_SOCKRECVSTR" {
             // sockRecvStr(fd): kr_alloc a 64KB+1 buffer, recvfrom into it, NUL-terminate
             // at nbytes, return the buffer as a string. TOS=fd. (57 bytes)
