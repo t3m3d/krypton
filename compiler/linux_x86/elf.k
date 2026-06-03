@@ -87,19 +87,28 @@ func hexQword(n) {
 }
 
 // Emit the bytes of an ABSOLUTE vaddr given as a load-base-relative OFFSET.
-// The runtime tags any value >= 0x40000000 (== VADDR_BASE == the ELF load base)
-// as a pointer and would dereference it inside toInt/%//, so we must NEVER form
-// a full vaddr as a number. Instead all vaddr math is done in offset space
-// (offsets < 0x40000000 stay in int range) and the base is folded in here, at
-// emit time, as a byte-level OR into the top byte (VADDR_BASE = 0x40000000, so
-// its only nonzero byte is the high byte of the low dword = 0x40). This mirrors
-// macho_arm64_self.k's "page offsets relative to base" technique.
+// The runtime tags any value >= VADDR_BASE (== the ELF load base) as a pointer
+// and would dereference it inside toInt/%//, so we must NEVER form a full vaddr
+// as a number. Instead all vaddr math is done in offset space (offsets stay in
+// int range) and the base is folded in here, at emit time, as a byte-level add
+// into the top byte (VADDR_BASE's only nonzero byte is the high byte of the low
+// dword). This mirrors macho_arm64_self.k's "page offsets relative to base".
+//
+// VADDR_BASE = 0x7F000000 (top byte 0x7F). It was raised from 0x40000000 so the
+// usable int range (values < VADDR_BASE) grows from 2^30 (~1.07e9) to 0x7EFFFFFF
+// (~2.13e9) — covering Unix epoch seconds through ~2037. The base must stay a
+// single-top-byte value <= 0x7F000000 so (a) it folds via one byte add and (b)
+// every code/string vaddr (base + offset) stays a POSITIVE 32-bit sign-extended
+// immediate (<= 0x7FFFFFFF). That caps program code+strings at 16 MiB of offset
+// space (off < 0x01000000); these syscall-only binaries are KiB-sized, so fine.
+// Heap is mmap(0) at ~0x7ffff… (47-bit), far above VADDR_BASE, so allocations
+// are still correctly tagged as pointers regardless of this base.
 func hexDwordVaddr(off) {
     let v = off
     let b0 = v % 256
     let b1 = (v / 256) % 256
     let b2 = (v / 65536) % 256
-    let b3 = (v / 16777216) % 256 + 64   // + 0x40 = VADDR_BASE's top byte
+    let b3 = (v / 16777216) % 256 + 127  // + 0x7F = VADDR_BASE's top byte (0x7F000000)
     emit hexByte(b0) + hexByte(b1) + hexByte(b2) + hexByte(b3)
 }
 func hexQwordVaddr(off) { emit hexDwordVaddr(off) + hexDword(0) }
@@ -3194,6 +3203,11 @@ func opByteSize(op) {
     // environ(name): walk envp (saved at [R14+16] by _start) for "name=", return
     // the value ptr (into the env block, NUL-terminated) or "" if absent.
     if op == "BUILTIN_ENVIRON"     { emit 69 }
+    // exec(cmd): pipe2+fork+dup2+execve(/bin/sh -c cmd)+read-loop+wait4, capture
+    // stdout, return buffer. shellRun(cmd): fork+execve+wait4, return exit code
+    // as a string (kr_str_int). Counts MUST equal the emit blocks byte-for-byte.
+    if op == "BUILTIN_EXEC"        { emit 265 }
+    if op == "BUILTIN_SHELLRUN"    { emit 142 }
     if op == "POP"        { emit 1 }
     if op == "LABEL"      { emit 0 }
     if op == "JUMP"       { emit 5 }    // E9 + d32
@@ -3543,6 +3557,10 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_READPROC")
                 } else if bname == "environ" {
                     opSb = sbAppend(opSb, "BUILTIN_ENVIRON")
+                } else if bname == "exec" {
+                    opSb = sbAppend(opSb, "BUILTIN_EXEC")
+                } else if bname == "shellRun" {
+                    opSb = sbAppend(opSb, "BUILTIN_SHELLRUN")
                 } else {
                     // Unknown builtin: emit a marker and leave the stack
                     // alone. Programs that hit this are already incorrect;
@@ -4342,6 +4360,141 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xF8)) // [62] .notfound: mov rax,r15 (zeroed heap = "")
             c = sbAppend(c, hexByte(0x49) + hexByte(0xFF) + hexByte(0xC7)) // [65] inc r15 (consume NUL so kr_concat can't alias)
             c = sbAppend(c, hexByte(0x50))                                 // [68] .done: push rax
+        } else if op == "BUILTIN_SHELLRUN" {
+            // shellRun(cmd): fork + execve("/bin/sh","-c",cmd) with INHERITED
+            // stdio, wait4, return WEXITSTATUS as a decimal string (kr_str_int).
+            // Mirrors macOS BUILTIN_SHELLRUN. CHILD block first so the only
+            // forward jump is a short rel8 and the child path always ends in
+            // execve/exit (never falls back into the VM → no fork-bomb). R14/R15
+            // reserved; syscall clobbers only RCX/R11. cmd ptr is TOS. (142 bytes)
+            // --- arg setup: build "/bin/sh\0","-c\0" + argv[] on a 64B frame ---
+            c = sbAppend(c, hexByte(0x5B))                                 // [0]  pop rbx (cmd)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xEC) + hexByte(0x40)) // [1]  sub rsp,64
+            c = sbAppend(c, hexByte(0xC7) + hexByte(0x04) + hexByte(0x24) + hexDword(0x6e69622f)) // [5]  mov dword [rsp],"/bin"
+            c = sbAppend(c, hexByte(0xC7) + hexByte(0x44) + hexByte(0x24) + hexByte(0x04) + hexDword(0x0068732f)) // [12] mov dword [rsp+4],"/sh\0"
+            c = sbAppend(c, hexByte(0xC7) + hexByte(0x44) + hexByte(0x24) + hexByte(0x08) + hexDword(0x0000632d)) // [20] mov dword [rsp+8],"-c\0\0"
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x8D) + hexByte(0x04) + hexByte(0x24)) // [28] lea rax,[rsp]
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x44) + hexByte(0x24) + hexByte(0x10)) // [32] mov [rsp+16],rax (argv0=&"/bin/sh")
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x8D) + hexByte(0x44) + hexByte(0x24) + hexByte(0x08)) // [37] lea rax,[rsp+8]
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x44) + hexByte(0x24) + hexByte(0x18)) // [42] mov [rsp+24],rax (argv1=&"-c")
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x5C) + hexByte(0x24) + hexByte(0x20)) // [47] mov [rsp+32],rbx (argv2=cmd)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xC0))                 // [52] xor eax,eax
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x44) + hexByte(0x24) + hexByte(0x28)) // [54] mov [rsp+40],rax (argv3=NULL)
+            // --- fork ---
+            c = sbAppend(c, hexByte(0xB8) + hexDword(57))                  // [59] mov eax,57 (fork)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                 // [64] syscall
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)) // [66] test rax,rax
+            c = sbAppend(c, hexByte(0x75) + hexByte(0x20))                 // [69] jnz +0x20 -> .parent(103)
+            // --- CHILD (71): execve("/bin/sh", argv@rsp+16, envp); exit(127) ---
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x8D) + hexByte(0x3C) + hexByte(0x24)) // [71] lea rdi,[rsp] (path)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x8D) + hexByte(0x74) + hexByte(0x24) + hexByte(0x10)) // [75] lea rsi,[rsp+16] (argv)
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x8B) + hexByte(0x56) + hexByte(0x10)) // [80] mov rdx,[r14+16] (envp)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(59))                  // [84] mov eax,59 (execve)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                 // [89] syscall
+            c = sbAppend(c, hexByte(0xBF) + hexDword(127))                 // [91] mov edi,127
+            c = sbAppend(c, hexByte(0xB8) + hexDword(60))                  // [96] mov eax,60 (exit)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                 // [101] syscall
+            // --- PARENT (103): wait4(pid,&status,0,0); push itoa(WEXITSTATUS) ---
+            c = sbAppend(c, hexByte(0x89) + hexByte(0xC7))                 // [103] mov edi,eax (child pid)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x8D) + hexByte(0x74) + hexByte(0x24) + hexByte(0x30)) // [105] lea rsi,[rsp+48] (&status)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xD2))                 // [110] xor edx,edx (options=0)
+            c = sbAppend(c, hexByte(0x45) + hexByte(0x31) + hexByte(0xD2)) // [112] xor r10d,r10d (rusage=NULL)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(61))                  // [115] mov eax,61 (wait4)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                 // [120] syscall
+            c = sbAppend(c, hexByte(0x8B) + hexByte(0x44) + hexByte(0x24) + hexByte(0x30)) // [122] mov eax,[rsp+48] (status)
+            c = sbAppend(c, hexByte(0xC1) + hexByte(0xE8) + hexByte(0x08)) // [126] shr eax,8
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0xB6) + hexByte(0xF8)) // [129] movzx edi,al (WEXITSTATUS)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xC4) + hexByte(0x40)) // [132] add rsp,64
+            let srDisp = krStrIntVAddr - (funcStartVAddr + off + 141)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(srDisp))             // [136] call kr_str_int -> rax=string
+            c = sbAppend(c, hexByte(0x50))                                 // [141] push rax
+        } else if op == "BUILTIN_EXEC" {
+            // exec(cmd): run "/bin/sh -c cmd", capture child stdout, return it as a
+            // NUL-terminated string (NO trailing-whitespace strip — matches macOS
+            // BUILTIN_EXEC, so exec("echo hi")=="hi\n"). pipe2+fork+dup2+execve in
+            // the child; parent closes the write end, read-loops into a 64KB+1
+            // kr_alloc buffer (mirrors readProc), wait4's the child (no zombies).
+            // CHILD block first (jnz over it) so the child path always ends in
+            // execve/exit — never falls back into the VM (no fork-bomb). RBX=buf,
+            // R12=read_fd, R13=cursor, R8=remaining survive kr_alloc (touches only
+            // RAX/R15/RDI) and syscall (clobbers only RCX/R11). cmd=TOS. (265 bytes)
+            // --- arg setup: "/bin/sh\0","-c\0" + argv[] on a 64B frame ---
+            c = sbAppend(c, hexByte(0x5B))                                 // [0]  pop rbx (cmd)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xEC) + hexByte(0x40)) // [1]  sub rsp,64
+            c = sbAppend(c, hexByte(0xC7) + hexByte(0x04) + hexByte(0x24) + hexDword(0x6e69622f)) // [5]  mov dword [rsp],"/bin"
+            c = sbAppend(c, hexByte(0xC7) + hexByte(0x44) + hexByte(0x24) + hexByte(0x04) + hexDword(0x0068732f)) // [12] mov dword [rsp+4],"/sh\0"
+            c = sbAppend(c, hexByte(0xC7) + hexByte(0x44) + hexByte(0x24) + hexByte(0x08) + hexDword(0x0000632d)) // [20] mov dword [rsp+8],"-c\0\0"
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x8D) + hexByte(0x04) + hexByte(0x24)) // [28] lea rax,[rsp]
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x44) + hexByte(0x24) + hexByte(0x10)) // [32] mov [rsp+16],rax (argv0)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x8D) + hexByte(0x44) + hexByte(0x24) + hexByte(0x08)) // [37] lea rax,[rsp+8]
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x44) + hexByte(0x24) + hexByte(0x18)) // [42] mov [rsp+24],rax (argv1)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x5C) + hexByte(0x24) + hexByte(0x20)) // [47] mov [rsp+32],rbx (argv2=cmd)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xC0))                 // [52] xor eax,eax
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x44) + hexByte(0x24) + hexByte(0x28)) // [54] mov [rsp+40],rax (argv3=NULL)
+            // --- pipe2(&pipefd@[rsp+48], 0) ---
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x8D) + hexByte(0x7C) + hexByte(0x24) + hexByte(0x30)) // [59] lea rdi,[rsp+48]
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xF6))                 // [64] xor esi,esi (flags=0)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(293))                 // [66] mov eax,293 (pipe2)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                 // [71] syscall
+            // --- fork ---
+            c = sbAppend(c, hexByte(0xB8) + hexDword(57))                  // [73] mov eax,57 (fork)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                 // [78] syscall
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)) // [80] test rax,rax
+            c = sbAppend(c, hexByte(0x75) + hexByte(0x46))                 // [83] jnz +0x46 -> .parent(155)
+            // --- CHILD (85): dup2(write,1); close pipe ends; execve; exit(127) ---
+            c = sbAppend(c, hexByte(0x8B) + hexByte(0x7C) + hexByte(0x24) + hexByte(0x34)) // [85] mov edi,[rsp+52] (write_fd)
+            c = sbAppend(c, hexByte(0xBE) + hexDword(1))                   // [89] mov esi,1 (stdout)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(33))                  // [94] mov eax,33 (dup2)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                 // [99] syscall
+            c = sbAppend(c, hexByte(0x8B) + hexByte(0x7C) + hexByte(0x24) + hexByte(0x30)) // [101] mov edi,[rsp+48] (read_fd)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(3))                   // [105] mov eax,3 (close)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                 // [110] syscall
+            c = sbAppend(c, hexByte(0x8B) + hexByte(0x7C) + hexByte(0x24) + hexByte(0x34)) // [112] mov edi,[rsp+52] (write_fd)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(3))                   // [116] mov eax,3 (close)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                 // [121] syscall
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x8D) + hexByte(0x3C) + hexByte(0x24)) // [123] lea rdi,[rsp] (path)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x8D) + hexByte(0x74) + hexByte(0x24) + hexByte(0x10)) // [127] lea rsi,[rsp+16] (argv)
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x8B) + hexByte(0x56) + hexByte(0x10)) // [132] mov rdx,[r14+16] (envp)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(59))                  // [136] mov eax,59 (execve)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                 // [141] syscall
+            c = sbAppend(c, hexByte(0xBF) + hexDword(127))                 // [143] mov edi,127
+            c = sbAppend(c, hexByte(0xB8) + hexDword(60))                  // [148] mov eax,60 (exit)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                 // [153] syscall
+            // --- PARENT (155): close write; alloc; read-loop; close read; wait4 ---
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x44) + hexByte(0x24) + hexByte(0x38)) // [155] mov [rsp+56],rax (child pid)
+            c = sbAppend(c, hexByte(0x8B) + hexByte(0x7C) + hexByte(0x24) + hexByte(0x34)) // [160] mov edi,[rsp+52] (write_fd)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(3))                   // [164] mov eax,3 (close)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                 // [169] syscall
+            c = sbAppend(c, hexByte(0x44) + hexByte(0x8B) + hexByte(0x64) + hexByte(0x24) + hexByte(0x30)) // [171] mov r12d,[rsp+48] (read_fd)
+            c = sbAppend(c, hexByte(0xBF) + hexDword(65537))              // [176] mov edi,0x10001 (64K+1)
+            let exDisp = krAllocVAddr - (funcStartVAddr + off + 186)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(exDisp))             // [181] call kr_alloc -> rax=buf
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xC3)) // [186] mov rbx,rax (buf base)
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x89) + hexByte(0xC5)) // [189] mov r13,rax (cursor)
+            c = sbAppend(c, hexByte(0x41) + hexByte(0xB8) + hexDword(65536)) // [192] mov r8d,0x10000 (remaining)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xC0))                 // [198] .loop: xor eax,eax (read=0)
+            c = sbAppend(c, hexByte(0x44) + hexByte(0x89) + hexByte(0xE7)) // [200] mov edi,r12d (fd)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xEE)) // [203] mov rsi,r13 (cursor)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xC2)) // [206] mov rdx,r8 (remaining)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                 // [209] syscall -> rax=nread
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)) // [211] test rax,rax
+            c = sbAppend(c, hexByte(0x7E) + hexByte(0x08))                 // [214] jle +8 -> .done(224)
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x01) + hexByte(0xC5)) // [216] add r13,rax (cursor+=n)
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x29) + hexByte(0xC0)) // [219] sub r8,rax (remaining-=n)
+            c = sbAppend(c, hexByte(0x7F) + hexByte(0xE6))                 // [222] jg -26 -> .loop(198)
+            c = sbAppend(c, hexByte(0x41) + hexByte(0xC6) + hexByte(0x45) + hexByte(0x00) + hexByte(0x00)) // [224] .done: mov byte [r13],0
+            c = sbAppend(c, hexByte(0x44) + hexByte(0x89) + hexByte(0xE7)) // [229] mov edi,r12d (read_fd)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(3))                   // [232] mov eax,3 (close)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                 // [237] syscall
+            c = sbAppend(c, hexByte(0x8B) + hexByte(0x7C) + hexByte(0x24) + hexByte(0x38)) // [239] mov edi,[rsp+56] (child pid)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xF6))                 // [243] xor esi,esi (status=NULL)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xD2))                 // [245] xor edx,edx (options=0)
+            c = sbAppend(c, hexByte(0x45) + hexByte(0x31) + hexByte(0xD2)) // [247] xor r10d,r10d (rusage=NULL)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(61))                  // [250] mov eax,61 (wait4)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                 // [255] syscall
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xD8)) // [257] mov rax,rbx (return buf)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xC4) + hexByte(0x40)) // [260] add rsp,64
+            c = sbAppend(c, hexByte(0x50))                                 // [264] push rax
         } else if op == "BUILTIN_WRITEFILE" {
             // POP RSI (content, top) ; POP RDI (path) ; CALL kr_writefile ; PUSH RAX
             c = sbAppend(c, hexByte(0x5E))
