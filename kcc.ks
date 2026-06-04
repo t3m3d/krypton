@@ -26,7 +26,7 @@ import "k:env"
 import "k:sh"
 import "k:arch"
 
-func VERSION() { emit "kcc-native 0.1 (krypton-driver prototype)" }
+func VERSION() { emit "kcc version 2.2.0" }
 
 // Locate the install root: $KRYPTON_ROOT, else the dev repo, else the pkg
 // install. The dev repo is preferred over /usr/local/krypton because the pkg
@@ -279,6 +279,20 @@ just run {
 
     let first = arg(0)
     if first == "--version" || first == "-v" { kp(VERSION())  exit("0") }
+    if first == "--help" || first == "-h" {
+        kp("kcc — Krypton compiler driver (2.2.0)")
+        kp("")
+        kp("Usage: kcc <source.k|source.ks> [flags]")
+        kp("  --native    (default) emit native binary at ./<basename>")
+        kp("  --ir        emit Krypton IR to stdout")
+        kp("  --arm64     cross-compile to a static aarch64 ELF")
+        kp("  -o FILE     output path")
+        kp("  -r FILE     compile, run, delete (like python file.py)")
+        kp("  -e CODE     compile + run an inline snippet (like python -c)")
+        kp("  --version   print version")
+        kp("  --help      this help")
+        exit("0")
+    }
 
     // --print-arch: print the host CPU architecture and exit. Lets shell
     // scripts and PKGBUILDs branch on host arch without hardcoding `uname -m`
