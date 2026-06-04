@@ -303,37 +303,43 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
         ELF_SEED="$SCRIPT_DIR/bootstrap/elf_host_${PLATFORM}_${_ARCH}"
         OPT_SEED="$SCRIPT_DIR/bootstrap/optimize_host_${PLATFORM}_${_ARCH}"
 
-        # Rebuild elf_host. Native rebuild is the goal but blocked by the
-        # elf.k self-host bug at >66 funcs (bootstrap/REBUILD_SEED.md). Until
-        # that lands, fall back to a one-shot gcc bootstrap for elf.k editors;
-        # end users with a prebuilt seed never hit this path.
+        # Rebuild elf_host with NO C compiler:
+        #   - seed current      -> cp the prebuilt native seed (user path)
+        #   - elf.k edited       -> self-host: the seed elf_host compiles the
+        #                           edited elf.k's IR into a fresh elf_host.
+        # elf.k self-hosts to a byte-for-byte fixpoint; the gcc bootstrap is gone.
         if [[ ! -f "$ELF_BIN" || "$ELF_SRC" -nt "$ELF_BIN" ]]; then
-            if [[ -f "$ELF_SEED" && "$ELF_SEED" -nt "$ELF_SRC" ]]; then
+            if [[ -f "$ELF_SEED" && ! "$ELF_SRC" -nt "$ELF_SEED" ]]; then
                 cp "$ELF_SEED" "$ELF_BIN"
                 chmod +x "$ELF_BIN"
             else
-                if [[ -z "$GCC_EXE" || ! -x "$(command -v "$GCC_EXE" 2>/dev/null)$GCC_EXE" ]] && ! command -v "$GCC_EXE" >/dev/null 2>&1; then
-                    echo "kcc --native: no prebuilt elf_host seed for ${PLATFORM}_${_ARCH} and no gcc found" >&2
-                    echo "kcc --native: stale elf.k requires rebuild — run on a Linux box with gcc once, see bootstrap/REBUILD_SEED.md" >&2
+                ELF_BOOT="$ELF_SEED"; [[ -x "$ELF_BOOT" ]] || ELF_BOOT="$ELF_BIN"
+                if [[ ! -x "$ELF_BOOT" ]]; then
+                    echo "kcc --native: no elf_host seed to self-host from for ${PLATFORM}_${_ARCH}" >&2
                     exit 1
                 fi
-                echo "kcc: rebuilding elf host (one-time gcc bootstrap; goal is to drop this once self-host bug is fixed)..." >&2
-                "$KCC_EXE" "$ELF_SRC" > /tmp/_kcc_elf_build.c && \
-                "$GCC_EXE" /tmp/_kcc_elf_build.c -o "$ELF_BIN" $LIBS && rm -f /tmp/_kcc_elf_build.c
-                if [[ $? -ne 0 ]]; then echo "kcc --native: failed to build elf codegen" >&2; exit 1; fi
+                echo "kcc: rebuilding elf host natively (self-host, no C — slow on elf.k)..." >&2
+                _elfir="/tmp/_kcc_elf_self_$$.kir"
+                "$KCC_EXE" --ir $HEADERS_FLAG "$ELF_SRC" > "$_elfir" || { echo "kcc --native: IR emit for elf.k failed" >&2; rm -f "$_elfir"; exit 1; }
+                "$ELF_BOOT" "$_elfir" "$ELF_BIN"
+                if [[ $? -ne 0 || ! -s "$ELF_BIN" ]]; then echo "kcc --native: native elf self-host failed" >&2; rm -f "$_elfir"; exit 1; fi
+                chmod +x "$ELF_BIN"; rm -f "$_elfir"
             fi
         fi
 
         # optimize_host is best-effort; if rebuild fails we skip optimization
-        # silently rather than blocking the build.
+        # silently rather than blocking the build. No C compiler.
         if [[ ! -f "$OPT_BIN" || "$OPT_SRC" -nt "$OPT_BIN" ]]; then
-            if [[ -f "$OPT_SEED" && "$OPT_SEED" -nt "$OPT_SRC" ]]; then
+            if [[ -f "$OPT_SEED" && ! "$OPT_SRC" -nt "$OPT_SEED" ]]; then
                 cp "$OPT_SEED" "$OPT_BIN"
                 chmod +x "$OPT_BIN"
-            elif command -v "$GCC_EXE" >/dev/null 2>&1; then
-                echo "kcc: rebuilding optimize host (one-time gcc bootstrap)..." >&2
-                "$KCC_EXE" "$OPT_SRC" > /tmp/_kcc_opt_build.c && \
-                "$GCC_EXE" /tmp/_kcc_opt_build.c -o "$OPT_BIN" $LIBS && rm -f /tmp/_kcc_opt_build.c
+            elif [[ -x "$ELF_BIN" ]]; then
+                echo "kcc: rebuilding optimize host natively (self-host, no C)..." >&2
+                _optir="/tmp/_kcc_opt_self_$$.kir"
+                if "$KCC_EXE" --ir $HEADERS_FLAG "$OPT_SRC" > "$_optir"; then
+                    "$ELF_BIN" "$_optir" "$OPT_BIN" && chmod +x "$OPT_BIN"
+                fi
+                rm -f "$_optir"
             fi
         fi
 
@@ -460,36 +466,11 @@ if [[ -z "$OUTFILE" ]]; then
     fi
 fi
 
-if [[ "$GCC_MODE" -ne 1 ]]; then
-    NATIVE_MODE=1
-    # Re-exec by absolute path, NOT "$0": when invoked as a bare `bash kcc.sh`,
-    # `$0` is "kcc.sh" and exec would do a PATH lookup, re-dispatching to a
-    # DIFFERENT installed copy (e.g. /usr/local/krypton/kcc.sh) with the wrong
-    # SCRIPT_DIR/KRYPTON_ROOT — so imports resolve against the wrong stdlib.
-    exec "$SCRIPT_DIR/kcc.sh" --native -o "$OUTFILE" "$SRCFILE"
+# --gcc / the C path is REMOVED — Krypton is C-free; native is the only path.
+# Always re-exec as --native (by absolute path, not "$0": a bare `bash kcc.sh`
+# would PATH-lookup a different installed copy with the wrong SCRIPT_DIR).
+if [[ "$GCC_MODE" -eq 1 ]]; then
+    echo "kcc: --gcc was removed (Krypton compiles natively, no C); building --native." >&2
 fi
-
-# ─── C+gcc/clang path — DEPRECATED ─────────────────────────────────────────
-# Reached only when --gcc was passed explicitly. The goal is to remove this
-# block entirely once all platforms' native pipelines are verified stable:
-#   - Linux:   elf.k self-host bug at >66 funcs (bootstrap/REBUILD_SEED.md)
-#   - Windows: x64.k self-host parity unverified
-#   - macOS:   macho_arm64_self.k covers only the core surface
-# Do NOT introduce new callers of this path. If native fails, fix native.
-if [[ "$GCC_EXPLICIT" -eq 1 ]]; then
-    echo "kcc: warning: --gcc is deprecated; native is the default and goal." >&2
-    echo "kcc: see bootstrap/REBUILD_SEED.md for the path to gcc-free." >&2
-fi
-TMPFILE="${OUTFILE}__kcc_tmp.c"
-"$KCC_EXE" $HEADERS_FLAG "$SRCFILE" > "$TMPFILE"
-if [[ $? -ne 0 ]]; then
-    rm -f "$TMPFILE"
-    echo "kcc: Krypton compilation failed" >&2
-    exit 1
-fi
-
-"$GCC_EXE" "$TMPFILE" -o "$OUTFILE" $LIBS
-GCC_RET=$?
-rm -f "$TMPFILE"
-if [[ $GCC_RET -ne 0 ]]; then echo "kcc: C compilation failed" >&2; exit 1; fi
-exit 0
+NATIVE_MODE=1
+exec "$SCRIPT_DIR/kcc.sh" --native -o "$OUTFILE" "$SRCFILE"
