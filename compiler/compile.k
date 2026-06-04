@@ -2786,42 +2786,22 @@ just run {
                     while ij < iNtoks {
                         let itk = tokAt(iToks, ij)
                         if itk == "KW:jxt" {
-                            // Process jxt block from imported file
+                            // Process jxt block from imported file (IR-only)
                             let ijxtPos = ij + 2
-                            let ijxtHasCHeader = 0
                             while tokAt(iToks, ijxtPos) != "RBRACE" {
                                 let ijLang = tokVal(tokAt(iToks, ijxtPos))
                                 if ijLang == "c" || ijLang == "t" {
-                                    let ijPath = tokVal(tokAt(iToks, ijxtPos + 1))
-                                    ijxtHasCHeader = 1
-                                    let ijIncLine = ""
-                                    if contains(ijPath, "/") || contains(ijPath, "\\") {
-                                        ijIncLine = ""
-                                    } else {
-                                        ijIncLine = ""
-                                    }
-                                    // c: prepend (foundation headers first), t: append (depends on c headers)
-                                    if ijLang == "c" {
-                                        iDecls = ijIncLine + iDecls
-                                    } else {
-                                    }
                                     ijxtPos += 2
                                 } else if ijLang == "struct" {
-                                    // Process struct declaration
                                     let isName = tokVal(tokAt(iToks, ijxtPos + 1))
                                     let isfPos = ijxtPos + 3
                                     let isEntry = isName + ":"
                                     let isFirst = 1
-                                    let getBody = ""
-                                    let setBody = ""
                                     while tokAt(iToks, isfPos) != "RBRACE" {
                                         if tokVal(tokAt(iToks, isfPos)) == "field" {
                                             let isfName = tokVal(tokAt(iToks, isfPos + 1))
                                             let isfType = tokVal(tokAt(iToks, isfPos + 2))
-                                            // optional C access path (string literal): field name TYPE "c.path"
-                                            let isfCPath = isfName
                                             if tokType(tokAt(iToks, isfPos + 3)) == "STR" {
-                                                isfCPath = tokVal(tokAt(iToks, isfPos + 3))
                                                 isfPos = isfPos + 4
                                             } else {
                                                 isfPos = isfPos + 3
@@ -2829,43 +2809,6 @@ just run {
                                             if isFirst == 0 { isEntry = isEntry + "," }
                                             isEntry = isEntry + isfName + ":" + isfType
                                             isFirst = 0
-                                            let getExpr = "kr_itoa(s->" + isfCPath + ")"
-                                            if isfType == "ULONGLONG" || isfType == "SIZE_T" || isfType == "ULONG_PTR" {
-                                                getExpr = "({ char _b[32]; snprintf(_b,32,\"%llu\",(unsigned long long)s->" + isfCPath + "); kr_str(_b); })"
-                                            }
-                                            if isfType == "LONGLONG" {
-                                                getExpr = "({ char _b[32]; snprintf(_b,32,\"%lld\",(long long)s->" + isfCPath + "); kr_str(_b); })"
-                                            }
-                                            if isfType == "HANDLE" || isfType == "PVOID" {
-                                                getExpr = "((char*)s->" + isfCPath + ")"
-                                            }
-                                            if isfType == "CHAR_ARRAY" {
-                                                getExpr = "kr_str(s->" + isfCPath + ")"
-                                            }
-                                            if isfType == "BYTE" || isfType == "UCHAR" || isfType == "BOOL" {
-                                                getExpr = "kr_itoa((int)(unsigned char)s->" + isfCPath + ")"
-                                            }
-                                            getBody = getBody + "    if(strcmp(f,\"" + isfName + "\")==0) return " + getExpr + ";\n"
-                                            let setStmt = "s->" + isfCPath + "=(DWORD)atoi(v);"
-                                            if isfType == "ULONGLONG" || isfType == "SIZE_T" || isfType == "ULONG_PTR" {
-                                                setStmt = "s->" + isfCPath + "=(ULONGLONG)atoll(v);"
-                                            }
-                                            if isfType == "LONGLONG" {
-                                                setStmt = "s->" + isfCPath + "=(LONGLONG)atoll(v);"
-                                            }
-                                            if isfType == "WORD" || isfType == "USHORT" {
-                                                setStmt = "s->" + isfCPath + "=(WORD)atoi(v);"
-                                            }
-                                            if isfType == "BYTE" || isfType == "UCHAR" || isfType == "BOOL" {
-                                                setStmt = "s->" + isfCPath + "=(BYTE)atoi(v);"
-                                            }
-                                            if isfType == "HANDLE" || isfType == "PVOID" {
-                                                setStmt = "s->" + isfCPath + "=(HANDLE)v;"
-                                            }
-                                            if isfType == "CHAR_ARRAY" {
-                                                setStmt = "strncpy(s->" + isfCPath + ",v,sizeof(s->" + isfCPath + ")-1);"
-                                            }
-                                            setBody = setBody + "    if(strcmp(f,\"" + isfName + "\")==0){" + setStmt + " return _K_EMPTY;}\n"
                                         } else {
                                             isfPos += 1
                                         }
@@ -2880,56 +2823,12 @@ just run {
                                         if tokType(tokAt(iToks, ijfPos)) == "ID" { ijfPc += 1 }
                                         ijfPos += 1
                                     }
-                                    // only emit char* forward declaration if no C header (avoids conflicts)
-                                    if ijxtHasCHeader == 0 {
-                                        if ijfPc == 0 { ijfDecl = "char* " + ijfName + "(" }
-                                        let ijfPi = 1
-                                    }
-                                    // Add to ftable
                                     let ijfInfo = ijfName + ":" + ijfPc + ":0"
                                     if len(ftable) > 0 { ftable = ftable + "\n" + ijfInfo }
                                     else { ftable = ijfInfo }
                                     ijfPos += 1
-                                    // Check for -> ReturnType and generate wrapper
-                                    let ijfRetType = ""
                                     if tokAt(iToks, ijfPos) == "ARROW" {
-                                        ijfRetType = tokVal(tokAt(iToks, ijfPos + 1))
                                         ijfPos += 2
-                                    }
-                                    let ijfCName = ijfName
-                                    // Skip wrapper if the new Win32 marshalling table covers this name.
-                                    let _iHasMarshal = "0"
-                                    if len("") > 0 { _iHasMarshal = "1" }
-                                    if len("") > 0 { _iHasMarshal = "1" }
-                                    if (ijfRetType == "INT" || ijfRetType == "UINT" || ijfRetType == "DWORD" || ijfRetType == "LONG" || ijfRetType == "BOOL") && _iHasMarshal == "0" {
-                                        let iwpi = 0
-                                        while iwpi < ijfPc {
-                                            iwpi += 1
-                                        }
-                                        iwpi = 0
-                                        while iwpi < ijfPc {
-                                            iwpi += 1
-                                        }
-                                    }
-                                    if (ijfRetType == "UINT64" || ijfRetType == "ULONGLONG") && _iHasMarshal == "0" {
-                                        let iwpi = 0
-                                        while iwpi < ijfPc {
-                                            iwpi += 1
-                                        }
-                                        iwpi = 0
-                                        while iwpi < ijfPc {
-                                            iwpi += 1
-                                        }
-                                    }
-                                    if ijfRetType == "zero" && _iHasMarshal == "0" {
-                                        let iwpi = 0
-                                        while iwpi < ijfPc {
-                                            iwpi += 1
-                                        }
-                                        iwpi = 0
-                                        while iwpi < ijfPc {
-                                            iwpi += 1
-                                        }
                                     }
                                     ijxtPos = ijfPos
                                 } else {
@@ -2941,24 +2840,7 @@ just run {
                             // next sibling token (otherwise we'd skip it).
                             ij = skipBlock(iToks, ij + 1) - 1
                         } else if itk == "KW:func" || itk == "KW:fn" {
-                            let iname = tokVal(tokAt(iToks, ij + 1))
-                            if len(iname) > 0 {
-                                let iinfo = funcLookup(iFtable, iname)
-                                let ipc = funcParamCount(iinfo)
-                                let ipj = 1
-                                while toInt(ipj) < toInt(ipc) {
-                                    ipj += 1
-                                }
-                                if toInt(ipc) == 0 {
-                                    idecl = "char* " + iname + "("
-                                }
-                            }
                         } else if tokType(itk) == "CBLOCK" {
-                            // Top-level cfunc { } in imported module: emit the raw
-                            // C body verbatim into the import-decls block so any
-                            // statics/globals/helpers it defines are reachable from
-                            // jxt-declared functions in the same imported file.
-                            let icraw = replace(tokVal(itk), "\x01", "\n")
                         }
                         ij += 1
                     }
@@ -2995,14 +2877,12 @@ just run {
             }
             ii += 2
         } else if itok == "KW:jxt" {
-            // jxt { c "header.h"  k "module.k"  t "other.h" }
+            // jxt { k "module.k"  struct ...  func ... }   (IR-only)
             let jxtPos = ii + 2
-            let jxtHasCHeader = 0
             while tokAt(tokens, jxtPos) != "RBRACE" {
                 let lang = tokVal(tokAt(tokens, jxtPos))
                 let jxtPath = tokVal(tokAt(tokens, jxtPos + 1))
                 if lang == "k" {
-                    // Krypton module - process same as KW:import
                     let jFullPath = jxtPath
                     if len(baseDir) > 0 {
                         if !startsWith(jxtPath, "/") && !startsWith(jxtPath, "C:") {
@@ -3026,36 +2906,17 @@ just run {
                     }
                     jxtPos += 2
                 } else if lang == "c" || lang == "t" {
-                    // C header: c = prepend (foundation), t = append (depends on c headers)
-                    jxtHasCHeader = 1
-                    let jIncLine = ""
-                    if contains(jxtPath, "/") || contains(jxtPath, "\\") {
-                        jIncLine = ""
-                    } else {
-                        jIncLine = ""
-                    }
-                    if lang == "c" {
-                        importFwdDecls = jIncLine + importFwdDecls
-                    } else {
-                    }
                     jxtPos += 2
                 } else if lang == "struct" {
-                    // jxt extern struct: struct NAME { field fname TYPE ... }
                     let sName = tokVal(tokAt(tokens, jxtPos + 1))
                     let sfPos = jxtPos + 3
                     let sEntry = sName + ":"
                     let sfFirst = 1
-                    // Build C accessor functions
-                    let getBody = ""
-                    let setBody = ""
                     while tokAt(tokens, sfPos) != "RBRACE" {
                         if tokVal(tokAt(tokens, sfPos)) == "field" {
                             let sfName = tokVal(tokAt(tokens, sfPos + 1))
                             let sfType = tokVal(tokAt(tokens, sfPos + 2))
-                            // optional C access path (string literal): field name TYPE "c.path"
-                            let sfCPath = sfName
                             if tokType(tokAt(tokens, sfPos + 3)) == "STR" {
-                                sfCPath = tokVal(tokAt(tokens, sfPos + 3))
                                 sfPos = sfPos + 4
                             } else {
                                 sfPos = sfPos + 3
@@ -3063,133 +2924,26 @@ just run {
                             if sfFirst == 0 { sEntry = sEntry + "," }
                             sEntry = sEntry + sfName + ":" + sfType
                             sfFirst = 0
-                            // Generate get accessor for this field
-                            let getExpr = "kr_itoa(s->" + sfCPath + ")"
-                            if sfType == "ULONGLONG" || sfType == "SIZE_T" || sfType == "ULONG_PTR" {
-                                getExpr = "({ char _b[32]; snprintf(_b,32,\"%llu\",(unsigned long long)s->" + sfCPath + "); kr_str(_b); })"
-                            }
-                            if sfType == "LONGLONG" {
-                                getExpr = "({ char _b[32]; snprintf(_b,32,\"%lld\",(long long)s->" + sfCPath + "); kr_str(_b); })"
-                            }
-                            if sfType == "HANDLE" || sfType == "PVOID" || sfType == "LPVOID" {
-                                getExpr = "((char*)s->" + sfCPath + ")"
-                            }
-                            if sfType == "CHAR_ARRAY" {
-                                getExpr = "kr_str(s->" + sfCPath + ")"
-                            }
-                            if sfType == "BYTE" || sfType == "UCHAR" || sfType == "BOOL" {
-                                getExpr = "kr_itoa((int)(unsigned char)s->" + sfCPath + ")"
-                            }
-                            getBody = getBody + "    if(strcmp(f,\"" + sfName + "\")==0) return " + getExpr + ";\n"
-                            // Generate set accessor for this field
-                            let setStmt = "s->" + sfCPath + "=(DWORD)atoi(v);"
-                            if sfType == "ULONGLONG" || sfType == "SIZE_T" || sfType == "ULONG_PTR" {
-                                setStmt = "s->" + sfCPath + "=(ULONGLONG)atoll(v);"
-                            }
-                            if sfType == "LONGLONG" {
-                                setStmt = "s->" + sfCPath + "=(LONGLONG)atoll(v);"
-                            }
-                            if sfType == "WORD" || sfType == "USHORT" {
-                                setStmt = "s->" + sfCPath + "=(WORD)atoi(v);"
-                            }
-                            if sfType == "BYTE" || sfType == "UCHAR" || sfType == "BOOL" {
-                                setStmt = "s->" + sfCPath + "=(BYTE)atoi(v);"
-                            }
-                            if sfType == "HANDLE" || sfType == "PVOID" {
-                                setStmt = "s->" + sfCPath + "=(HANDLE)v;"
-                            }
-                            if sfType == "CHAR_ARRAY" {
-                                setStmt = "strncpy(s->" + sfCPath + ",v,sizeof(s->" + sfCPath + ")-1);"
-                            }
-                            setBody = setBody + "    if(strcmp(f,\"" + sfName + "\")==0){" + setStmt + " return _K_EMPTY;}\n"
                         } else {
                             sfPos += 1
                         }
                     }
                     structTable = structTable + sEntry + "\n"
-                    // C accessor functions skipped in --ir mode (native pipeline doesn't
-                    // need C source). structTable still updated above so the type info
-                    // is available for IR generation. Legacy --c path's C accessors
-                    // need a Krypton replacement (TODO: emit IR-side struct accessors).
-                    if irMode == 0 {
-                    }
                     jxtPos = sfPos + 1
                 } else if lang == "func" {
-                    // jxt func declaration: func name(p1, p2) -> type
-                    // jxtPos is at ID:func, jxtPos+1 is ID:name
                     let jfName = tokVal(tokAt(tokens, jxtPos + 1))
-                    let jfCName = jfName
-                    // collect params: scan from LPAREN to RPAREN
                     let jfPos = jxtPos + 3
-                    let jfParams = ""
                     let jfPc = 0
                     while tokAt(tokens, jfPos) != "RPAREN" {
-                        if tokType(tokAt(tokens, jfPos)) == "ID" {
-                            if jfPc > 0 { jfParams = jfParams + "," }
-                            jfParams = jfParams + tokVal(tokAt(tokens, jfPos))
-                            jfPc += 1
-                        }
+                        if tokType(tokAt(tokens, jfPos)) == "ID" { jfPc += 1 }
                         jfPos += 1
                     }
-                    // only emit char* forward declaration if no C header (avoids conflicts)
-                    if jxtHasCHeader == 0 {
-                        let jfDecl = "char* " + jfCName + "(char*"
-                        let jfPi = 1
-                        while jfPi < jfPc { jfDecl = jfDecl + ", char*"  jfPi += 1 }
-                        if jfPc == 0 { jfDecl = "char* " + jfCName + "(" }
-                        jfDecl = jfDecl + ");\n"
-                    }
-                    // add to function table
                     let jfInfo = jfName + ":" + jfPc + ":0"
                     if len(ftable) > 0 { ftable = ftable + "\n" + jfInfo }
                     else { ftable = jfInfo }
-                    // advance past RPAREN and check for -> ReturnType annotation
                     jfPos += 1
-                    let jfRetType = ""
                     if tokAt(tokens, jfPos) == "ARROW" {
-                        jfRetType = tokVal(tokAt(tokens, jfPos + 1))
                         jfPos += 2
-                    }
-                    // Skip the legacy wrapper if this function is in the new
-                    // Win32 marshalling table — the inline marshalling at the
-                    // call site (compileCall) does the right thing for both
-                    // 32-bit and 64-bit returns and for atoi'd int args.
-                    let _hasNewMarshal = ""
-                    if len(_hasNewMarshal) > 0 || len("") > 0 {
-                        // No wrapper needed — fall through.
-                    }
-                    // Generate static wrapper + #define for integer-returning APIs.
-                    // Args passed as char* (no int cast) — C handles implicit conversion,
-                    // which is safe for both pointer args and toHandle() integer args.
-                    if (jfRetType == "INT" || jfRetType == "UINT" || jfRetType == "DWORD" || jfRetType == "LONG" || jfRetType == "BOOL") && len(_hasNewMarshal) == 0 && len("") == 0 {
-                        let wpi = 0
-                        while wpi < jfPc {
-                            wpi += 1
-                        }
-                        wpi = 0
-                        while wpi < jfPc {
-                            wpi += 1
-                        }
-                    }
-                    if (jfRetType == "UINT64" || jfRetType == "ULONGLONG") && len(_hasNewMarshal) == 0 && len("") == 0 {
-                        let wpi = 0
-                        while wpi < jfPc {
-                            wpi += 1
-                        }
-                        wpi = 0
-                        while wpi < jfPc {
-                            wpi += 1
-                        }
-                    }
-                    if jfRetType == "zero" && len(_hasNewMarshal) == 0 && len("") == 0 {
-                        let wpi = 0
-                        while wpi < jfPc {
-                            wpi += 1
-                        }
-                        wpi = 0
-                        while wpi < jfPc {
-                            wpi += 1
-                        }
                     }
                     jxtPos = jfPos
                 } else {
