@@ -215,7 +215,7 @@
     }
     syncCanvasSize();
 
-    fetch('/particles.wasm?v=18', { cache: 'no-cache' })
+    fetch('/particles.wasm?v=20', { cache: 'no-cache' })
       .then(function (r) { return r.ok ? r.arrayBuffer() : null; })
       .catch(function () { return null; })
       .then(function (bytes) {
@@ -279,9 +279,14 @@
           // MAX_LINKS_PER_PARTICLE. Result: free-drifting particles that
           // each have a bounded degree, with the surviving links being
           // the shortest available.
-          var LINK_DIST_PX = 80;
+          // Proximity link config — restored to match the original inline-JS
+          // constellation feel: longer link distance (was 80, now 120 to
+          // match the original `pdist`), no per-particle degree cap (was
+          // 3, now effectively unlimited), and per-line alpha that fades
+          // with distance like the original `0.15*(1-d/pdist)`.
+          var LINK_DIST_PX = 120;
           var LINK_DIST_SQ = LINK_DIST_PX * LINK_DIST_PX;
-          var MAX_LINKS_PER_PARTICLE = 3;
+          var MAX_LINKS_PER_PARTICLE = 999;   // effectively no cap
           function drawExtraLinks(ps) {
             if (!activeCtx || !ps || ps.length < 4) return;
             var n = ps.length / 2;
@@ -294,6 +299,13 @@
               }
             }
             pairs.sort(function (a, b) { return a[2] - b[2]; });
+            // Per-line alpha base, in the SAME themed RGB the dots use
+            // (so dark mode lines auto-tint). Multiplied by the distance-
+            // fade factor (1 - d/LINK_DIST) so far pairs become almost
+            // invisible while close pairs are crisp — that's the
+            // breathing constellation feel.
+            var trgb = themedRGB(255, 255, 255);
+            var rgbPrefix = 'rgba(' + trgb[0] + ',' + trgb[1] + ',' + trgb[2] + ',';
             var deg = new Int32Array(n);
             for (var k = 0; k < pairs.length; k++) {
               var a = pairs[k][0], b = pairs[k][1];
@@ -301,6 +313,10 @@
               if (deg[ai] >= MAX_LINKS_PER_PARTICLE) continue;
               if (deg[bi] >= MAX_LINKS_PER_PARTICLE) continue;
               deg[ai]++; deg[bi]++;
+              var d = Math.sqrt(pairs[k][2]);
+              var alpha = 0.40 * (1 - d / LINK_DIST_PX);
+              if (alpha < 0.02) continue;     // skip near-invisible lines
+              activeCtx.strokeStyle = rgbPrefix + alpha.toFixed(3) + ')';
               activeCtx.beginPath();
               activeCtx.moveTo(ps[a],   ps[a+1]);
               activeCtx.lineTo(ps[b],   ps[b+1]);

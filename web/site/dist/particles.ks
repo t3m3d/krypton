@@ -1,34 +1,27 @@
 #!/usr/bin/env kr
-// particles.ks — Krypton-side hero particle field, cluster-tumble edition.
+// particles.ks — Krypton-side hero particle field.
 //
-// Compiled to particles.wasm by wasm_self.k (the Krypton WASM backend) and
-// loaded into the browser by web/site/dist/wasm_runner.js. The colors come
-// from the host shim's themedRGB() (reads the --particle-rgb CSS var, so
-// dark mode auto-themes); only the MOTION is defined here.
+// Matches the original constellation-style JS animation that used to
+// live inline in every page. Each particle drifts independently in its
+// own random-ish direction (including backward), wrapping at the canvas
+// edges. The 4-pass mirror trick in wasm_runner.js renders this 15-
+// particle source as ~60 visible dots; the proximity stitcher in the
+// same shim draws lines between any pair within LINK_DIST_PX with a
+// distance-faded alpha — the constellation look.
 //
-// Layout: 9 small clusters of 5 dots each (= 45 dots, ~current 44).
-//   - Each cluster has a CENTER that drifts linearly across the canvas
-//     at its own (vx, vy), giving each group an independent trajectory.
-//   - Within a cluster, the 5 dots tumble around the center via two
-//     phase-offset triangle waves (90° apart for x vs y → roughly circular
-//     orbit). Per-cluster periods vary so the groups desync over time
-//     (organic, not synchronized).
+// Working unit is 1/64 of a CSS pixel for sub-pixel-smooth integer
+// motion: x = (x0 + vx * t) mod canvas_width_fine.
 //
-// Lines between dots are drawn by the JS proximity stitcher in
-// wasm_runner.js (canvasLine here is a no-op in hero mode). With
-// LINK_DIST_PX=80 and an orbit radius of ~25px, dots within the same
-// cluster auto-link; clusters stay visually distinct unless their centers
-// pass close to each other (rare, looks like a "reaction" when it happens).
-//
-// Working unit is 1/64 of a CSS pixel — sub-pixel-accurate integer math
-// that the host shim divides before handing to ctx.arc.
+// NO clusters, NO orbits, NO z-axis depth — those were experiments
+// that all felt over-designed compared to the original. The honest
+// constellation drift is what reads as "Krypton" on the hero.
 
-func tri(t, period, amp) {
-    // Triangle wave: t in [0, period), returns value in [0, 2*amp].
-    // Ramps 0 → 2*amp over the first half, 2*amp → 0 over the second.
-    let half = period / 2
-    if t < half { emit (t * 2 * amp) / half }
-    emit (2 * amp) - ((t - half) * 2 * amp) / half
+func posMod(x, m) {
+    // Modulo that always returns [0, m) even if x is negative.
+    // Krypton's `%` is C-style: (-3) % 10 == -3, not 7.
+    let r = x % m
+    if r < 0 { emit r + m }
+    emit r
 }
 
 just run {
@@ -43,65 +36,34 @@ just run {
     let wf = w * 64
     let hf = h * 64
 
-    let nClusters = 9
-    let perCluster = 5
+    // 15 source particles -> 60 visible via 4-pass mirror in wasm_runner.js.
+    let n = 15
 
-    // Orbit radius in fine units. 25 display-px * 64 = 1600.
-    // Small enough that intra-cluster dots all sit within LINK_DIST_PX=80
-    // of each other, so the proximity stitcher links them all.
-    let orbitR = 1600
+    let i = 0
+    while i < n {
+        // Per-particle velocity in [-5, +5] fine units / ms. With t
+        // advancing ~16 ms/frame, display motion is up to ~1.25 px/frame —
+        // matches the original JS Math.random()*0.6 drift speed. The two
+        // odd primes (31, 73) give x and y independent distributions; the
+        // +7/+13 phase shifts ensure no particle is perfectly stationary.
+        let vx = ((i * 31 + 7)  % 11) - 5
+        let vy = ((i * 73 + 13) % 11) - 5
 
-    let c = 0
-    while c < nClusters {
-        // Cluster center: linear drift with cluster-specific velocity.
-        // Prime multipliers (7, 11, 173, 211) spread starting positions
-        // and velocities so the 9 clusters look unrelated, not gridded.
-        let cvx = ((c * 7) % 5) + 1
-        let cvy = ((c * 11) % 5) + 1
-        let cx0f = ((c * 173) % w) * 64
-        let cy0f = ((c * 211) % h) * 64
-        let xcf = (cx0f + cvx * t) % wf
-        let ycf = (cy0f + cvy * t) % hf
+        // Spread initial positions with primes that don't share factors
+        // with the velocity primes — avoids aliasing into visible bands.
+        let x0f = ((i * 197 + 41) % w) * 64
+        let y0f = ((i * 149 + 23) % h) * 64
 
-        // Tumble period varies per cluster (3000..5400 ms) so the groups
-        // desync over time — no two clusters complete an orbit in lockstep.
-        let period = 3000 + (c % 5) * 600
-        let quarter = period / 4
+        // Linear motion with proper wrap on both signs (posMod).
+        let xf = posMod(x0f + vx * t, wf)
+        let yf = posMod(y0f + vy * t, hf)
 
-        let p = 0
-        while p < perCluster {
-            // Each dot in the cluster gets an evenly-spaced phase offset
-            // (0°, 72°, 144°, 216°, 288° around the orbit). The z-axis
-            // phase is offset further so x/y/z cycle independently —
-            // each dot reads as moving in 3D space, not on a flat ring.
-            let phaseShift = (p * period) / perCluster
-            let tp = (t + phaseShift) % period
-            let ty = (tp + quarter) % period
-            let tz = (tp + period / 8) % period   // 45° z lead
+        // Radius 1.5..2.5 px — original was Math.random()*2+1 (1..3 px),
+        // but the 4-pass mirror multiplies the visible density, so a
+        // tighter range here keeps the field from looking cluttered.
+        let r = 96 + ((i * 17) % 64)
 
-            // Triangle waves for x and y offset, 90° (quarter-period) apart.
-            // Subtracting orbitR centres the [0, 2*orbitR] range onto the
-            // cluster centre. Adding wf/hf before mod keeps the result
-            // non-negative through the wrap.
-            let dx = tri(tp, period, orbitR) - orbitR
-            let dy = tri(ty, period, orbitR) - orbitR
-
-            // Z-axis (depth) triangle wave drives the dot RADIUS. Each
-            // dot cycles front-to-back-to-front independently, so within
-            // a cluster you always see some dots near (bigger) and some
-            // far (smaller) — reads as a tumbling 3D blob, not a flat ring.
-            // dz ∈ [-orbitR, +orbitR]. Maps to scale ∈ [50, 150] (% of 160
-            // base), so radius ∈ [80, 240] fine units = 1.25 px..3.75 px.
-            let dz = tri(tz, period, orbitR) - orbitR
-            let scale = 100 + (dz * 50) / orbitR
-            let r = (160 * scale) / 100
-
-            let xf = (xcf + dx + wf) % wf
-            let yf = (ycf + dy + hf) % hf
-
-            canvasCircle(xf, yf, r)
-            p = p + 1
-        }
-        c = c + 1
+        canvasCircle(xf, yf, r)
+        i = i + 1
     }
 }
