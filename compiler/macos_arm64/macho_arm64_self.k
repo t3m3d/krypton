@@ -153,7 +153,7 @@ func hexBytesLen(s) { emit len(s) / 3 }
 
 // ── Mach-O constants ────────────────────────────────────────────────────────
 
-func MH_MAGIC_64() { emit 0xfeedfacf }
+func MH_MAGIC_64() { emit (0xfeed * 0x10000 + 0xfacf) }
 func CPU_TYPE_ARM64() { emit 0x0100000c }      // = 16777228
 func MH_EXECUTE() { emit 2 }
 func MH_NOUNDEFS() { emit 0x1 }
@@ -168,8 +168,8 @@ func LC_DYSYMTAB() { emit 0xb }
 func LC_LOAD_DYLIB() { emit 0xc }
 func LC_LOAD_DYLINKER() { emit 0xe }
 func LC_BUILD_VERSION() { emit 0x32 }
-func LC_MAIN() { emit 0x80000028 }
-func LC_DYLD_CHAINED_FIXUPS() { emit 0x80000034 }
+func LC_MAIN() { emit (0x8000 * 0x10000 + 0x28) }
+func LC_DYLD_CHAINED_FIXUPS() { emit (0x8000 * 0x10000 + 0x34) }
 func LC_CODE_SIGNATURE() { emit 0x1d }
 
 // VM protections
@@ -183,7 +183,7 @@ func S_CSTRING_LITERALS() { emit 0x2 }
 func S_NON_LAZY_SYMBOL_POINTERS() { emit 0x6 }
 func S_SYMBOL_STUBS() { emit 0x8 }
 func S_ATTR_SOME_INSTRUCTIONS() { emit 0x00000400 }
-func S_ATTR_PURE_INSTRUCTIONS() { emit 0x80000000 }
+func S_ATTR_PURE_INSTRUCTIONS() { emit (0x8000 * 0x10000 + 0x0) }
 // __text:   PURE | SOME = 0x80000400 (type S_REGULAR)
 // __stubs:  PURE | SOME | type S_SYMBOL_STUBS = 0x80000408
 // __cstring: type S_CSTRING_LITERALS = 0x00000002
@@ -348,34 +348,34 @@ func u32_add(a, b) { emit a + b }
 func sha256_K(i) {
     if i == 0  { emit 0x428a2f98 }
     if i == 1  { emit 0x71374491 }
-    if i == 2  { emit 0xb5c0fbcf }
-    if i == 3  { emit 0xe9b5dba5 }
+    if i == 2  { emit (0xb5c0 * 0x10000 + 0xfbcf) }
+    if i == 3  { emit (0xe9b5 * 0x10000 + 0xdba5) }
     if i == 4  { emit 0x3956c25b }
     if i == 5  { emit 0x59f111f1 }
-    if i == 6  { emit 0x923f82a4 }
-    if i == 7  { emit 0xab1c5ed5 }
-    if i == 8  { emit 0xd807aa98 }
+    if i == 6  { emit (0x923f * 0x10000 + 0x82a4) }
+    if i == 7  { emit (0xab1c * 0x10000 + 0x5ed5) }
+    if i == 8  { emit (0xd807 * 0x10000 + 0xaa98) }
     if i == 9  { emit 0x12835b01 }
     if i == 10 { emit 0x243185be }
     if i == 11 { emit 0x550c7dc3 }
     if i == 12 { emit 0x72be5d74 }
-    if i == 13 { emit 0x80deb1fe }
-    if i == 14 { emit 0x9bdc06a7 }
-    if i == 15 { emit 0xc19bf174 }
-    if i == 16 { emit 0xe49b69c1 }
-    if i == 17 { emit 0xefbe4786 }
+    if i == 13 { emit (0x80de * 0x10000 + 0xb1fe) }
+    if i == 14 { emit (0x9bdc * 0x10000 + 0x6a7) }
+    if i == 15 { emit (0xc19b * 0x10000 + 0xf174) }
+    if i == 16 { emit (0xe49b * 0x10000 + 0x69c1) }
+    if i == 17 { emit (0xefbe * 0x10000 + 0x4786) }
     if i == 18 { emit 0x0fc19dc6 }
     if i == 19 { emit 0x240ca1cc }
     if i == 20 { emit 0x2de92c6f }
     if i == 21 { emit 0x4a7484aa }
     if i == 22 { emit 0x5cb0a9dc }
     if i == 23 { emit 0x76f988da }
-    if i == 24 { emit 0x983e5152 }
-    if i == 25 { emit 0xa831c66d }
-    if i == 26 { emit 0xb00327c8 }
-    if i == 27 { emit 0xbf597fc7 }
-    if i == 28 { emit 0xc6e00bf3 }
-    if i == 29 { emit 0xd5a79147 }
+    if i == 24 { emit (0x983e * 0x10000 + 0x5152) }
+    if i == 25 { emit (0xa831 * 0x10000 + 0xc66d) }
+    if i == 26 { emit (0xb003 * 0x10000 + 0x27c8) }
+    if i == 27 { emit (0xbf59 * 0x10000 + 0x7fc7) }
+    if i == 28 { emit (0xc6e0 * 0x10000 + 0xbf3) }
+    if i == 29 { emit (0xd5a7 * 0x10000 + 0x9147) }
     if i == 30 { emit 0x06ca6351 }
     if i == 31 { emit 0x14292967 }
     if i == 32 { emit 0x27b70a85 }
@@ -384,15 +384,15 @@ func sha256_K(i) {
     if i == 35 { emit 0x53380d13 }
     if i == 36 { emit 0x650a7354 }
     if i == 37 { emit 0x766a0abb }
-    if i == 38 { emit 0x81c2c92e }
-    if i == 39 { emit 0x92722c85 }
-    if i == 40 { emit 0xa2bfe8a1 }
-    if i == 41 { emit 0xa81a664b }
-    if i == 42 { emit 0xc24b8b70 }
-    if i == 43 { emit 0xc76c51a3 }
-    if i == 44 { emit 0xd192e819 }
-    if i == 45 { emit 0xd6990624 }
-    if i == 46 { emit 0xf40e3585 }
+    if i == 38 { emit (0x81c2 * 0x10000 + 0xc92e) }
+    if i == 39 { emit (0x9272 * 0x10000 + 0x2c85) }
+    if i == 40 { emit (0xa2bf * 0x10000 + 0xe8a1) }
+    if i == 41 { emit (0xa81a * 0x10000 + 0x664b) }
+    if i == 42 { emit (0xc24b * 0x10000 + 0x8b70) }
+    if i == 43 { emit (0xc76c * 0x10000 + 0x51a3) }
+    if i == 44 { emit (0xd192 * 0x10000 + 0xe819) }
+    if i == 45 { emit (0xd699 * 0x10000 + 0x624) }
+    if i == 46 { emit (0xf40e * 0x10000 + 0x3585) }
     if i == 47 { emit 0x106aa070 }
     if i == 48 { emit 0x19a4c116 }
     if i == 49 { emit 0x1e376c08 }
@@ -404,12 +404,12 @@ func sha256_K(i) {
     if i == 55 { emit 0x682e6ff3 }
     if i == 56 { emit 0x748f82ee }
     if i == 57 { emit 0x78a5636f }
-    if i == 58 { emit 0x84c87814 }
-    if i == 59 { emit 0x8cc70208 }
-    if i == 60 { emit 0x90befffa }
-    if i == 61 { emit 0xa4506ceb }
-    if i == 62 { emit 0xbef9a3f7 }
-    if i == 63 { emit 0xc67178f2 }
+    if i == 58 { emit (0x84c8 * 0x10000 + 0x7814) }
+    if i == 59 { emit (0x8cc7 * 0x10000 + 0x208) }
+    if i == 60 { emit (0x90be * 0x10000 + 0xfffa) }
+    if i == 61 { emit (0xa450 * 0x10000 + 0x6ceb) }
+    if i == 62 { emit (0xbef9 * 0x10000 + 0xa3f7) }
+    if i == 63 { emit (0xc671 * 0x10000 + 0x78f2) }
     emit 0
 }
 
@@ -554,16 +554,16 @@ func sha256_hex(data, byteOff, byteCount) {
 // Each emit returns 4 hex bytes via hexDword.
 
 // stp x29, x30, [sp, #-16]!   →  0xa9bf7bfd
-func arm64_stp_fp_lr_pre16()    { emit hexDword(0xa9bf7bfd) }
+func arm64_stp_fp_lr_pre16()    { emit hexDword((0xa9bf * 0x10000 + 0x7bfd)) }
 // mov x29, sp                  →  0x910003fd
-func arm64_mov_fp_sp()          { emit hexDword(0x910003fd) }
+func arm64_mov_fp_sp()          { emit hexDword((0x9100 * 0x10000 + 0x3fd)) }
 // adrp Rd, #imm21 (page rel)
 func arm64_adrp(rd, imm21) {
     let i = imm21
     if i < 0 { i = i + 0x200000 }       // 2's complement into 21 bits
     let immlo = i % 4
     let immhi = i / 4
-    let insn = 0x90000000
+    let insn = (0x9000 * 0x10000 + 0x0)
     insn = insn + (immlo * 0x20000000)   // bits[30:29]
     insn = insn + (immhi * 0x20)         // bits[23:5]
     insn = insn + rd                     // bits[4:0]
@@ -571,7 +571,7 @@ func arm64_adrp(rd, imm21) {
 }
 // add Rd, Rn, #imm12 (64-bit, no shift)
 func arm64_add_imm(rd, rn, imm12) {
-    let insn = 0x91000000
+    let insn = (0x9100 * 0x10000 + 0x0)
     insn = insn + (imm12 * 0x400)        // bits[21:10]
     insn = insn + (rn * 0x20)            // bits[9:5]
     insn = insn + rd
@@ -583,43 +583,43 @@ func arm64_bl(rel26) {
     let r = rel26
     if r < 0 { r = r + 0x04000000 }      // 2's complement into 26 bits
     r = r % 0x04000000
-    emit hexDword(0x94000000 + r)
+    emit hexDword((0x9400 * 0x10000 + 0x0) + r)
 }
 // movz w0, #0   →  0x52800000
 func arm64_movz_w0_zero()       { emit hexDword(0x52800000) }
 // ldp x29, x30, [sp], #16   →  0xa8c17bfd
-func arm64_ldp_fp_lr_post16()   { emit hexDword(0xa8c17bfd) }
+func arm64_ldp_fp_lr_post16()   { emit hexDword((0xa8c1 * 0x10000 + 0x7bfd)) }
 // ret                       →  0xd65f03c0
-func arm64_ret()                { emit hexDword(0xd65f03c0) }
+func arm64_ret()                { emit hexDword((0xd65f * 0x10000 + 0x3c0)) }
 
 // ldr Xt, [Xn, #imm12_scaled]  (64-bit, unsigned offset)
 func arm64_ldr_imm(rt, rn, imm12_scaled) {
-    let insn = 0xf9400000
+    let insn = (0xf940 * 0x10000 + 0x0)
     insn = insn + (imm12_scaled * 0x400) // bits[21:10]
     insn = insn + (rn * 0x20)
     insn = insn + rt
     emit hexDword(insn)
 }
 // br Xn  →  0xd61f0000 | (Xn << 5)
-func arm64_br(rn) { emit hexDword(0xd61f0000 + rn * 0x20) }
+func arm64_br(rn) { emit hexDword((0xd61f * 0x10000 + 0x0) + rn * 0x20) }
 
 // str Xt, [sp, #-16]!   (push Xt to eval stack)  → 0xf81f0fe0 | Rt
-func arm64_push(rt) { emit hexDword(0xf81f0fe0 + rt) }
+func arm64_push(rt) { emit hexDword((0xf81f * 0x10000 + 0xfe0) + rt) }
 // ldr Xt, [sp], #16     (pop top of eval stack into Xt) → 0xf84107e0 | Rt
-func arm64_pop(rt)  { emit hexDword(0xf84107e0 + rt) }
+func arm64_pop(rt)  { emit hexDword((0xf841 * 0x10000 + 0x7e0) + rt) }
 // Convenience aliases for x0 (most common usage)
 func arm64_push_x0() { emit arm64_push(0) }
 func arm64_pop_x0()  { emit arm64_pop(0) }
 
 // sub sp, sp, #imm12 (64-bit)  → 0xd10003ff | (imm12 << 10)
 func arm64_sub_sp(imm12) {
-    let insn = 0xd10003ff
+    let insn = (0xd100 * 0x10000 + 0x3ff)
     insn = insn + (imm12 * 0x400)
     emit hexDword(insn)
 }
 // add sp, sp, #imm12 (64-bit)  → 0x910003ff | (imm12 << 10)
 func arm64_add_sp(imm12) {
-    let insn = 0x910003ff
+    let insn = (0x9100 * 0x10000 + 0x3ff)
     insn = insn + (imm12 * 0x400)
     emit hexDword(insn)
 }
@@ -630,7 +630,7 @@ func arm64_stur(rt, rn, imm9) {
     let i = imm9
     if i < 0 { i = i + 512 }   // 9-bit two's complement
     i = i % 512
-    let insn = 0xf8000000
+    let insn = (0xf800 * 0x10000 + 0x0)
     insn = insn + (i * 0x1000)
     insn = insn + (rn * 0x20)
     insn = insn + rt
@@ -641,7 +641,7 @@ func arm64_ldur(rt, rn, imm9) {
     let i = imm9
     if i < 0 { i = i + 512 }
     i = i % 512
-    let insn = 0xf8400000
+    let insn = (0xf840 * 0x10000 + 0x0)
     insn = insn + (i * 0x1000)
     insn = insn + (rn * 0x20)
     insn = insn + rt
@@ -657,18 +657,18 @@ func arm64_movz_w_imm(rd, imm16) {
 }
 // movz Xd, #imm16 (64-bit, no shift)  → 0xd2800000 | (imm16 << 5) | Rd
 func arm64_movz_x_imm(rd, imm16) {
-    let insn = 0xd2800000
+    let insn = (0xd280 * 0x10000 + 0x0)
     insn = insn + (imm16 * 0x20)
     insn = insn + rd
     emit hexDword(insn)
 }
 // movz Xd, #imm16, LSL #16  → 0xd2a00000 | (imm16 << 5) | Rd
 func arm64_movz_x_imm_lsl16(rd, imm16) {
-    emit hexDword(0xd2a00000 + (imm16 * 0x20) + rd)
+    emit hexDword((0xd2a0 * 0x10000 + 0x0) + (imm16 * 0x20) + rd)
 }
 // movn Xd, #imm16 (64-bit, no shift) — Rd = ~(imm16) sign-extended → 0x92800000 | (imm16 << 5) | Rd
 func arm64_movn_x_imm(rd, imm16) {
-    let insn = 0x92800000
+    let insn = (0x9280 * 0x10000 + 0x0)
     insn = insn + (imm16 * 0x20)
     insn = insn + rd
     emit hexDword(insn)
@@ -676,7 +676,7 @@ func arm64_movn_x_imm(rd, imm16) {
 
 // add Xd, Xn, Xm (64-bit, no shift) → 0x8b000000 | (Rm<<16) | (Rn<<5) | Rd
 func arm64_add_xxx(rd, rn, rm) {
-    let insn = 0x8b000000 + (rm * 0x10000) + (rn * 0x20) + rd
+    let insn = (0x8b00 * 0x10000 + 0x0) + (rm * 0x10000) + (rn * 0x20) + rd
     emit hexDword(insn)
 }
 func arm64_add_www(rd, rn, rm) {
@@ -685,33 +685,33 @@ func arm64_add_www(rd, rn, rm) {
 }
 // sub Xd, Xn, Xm (64-bit, no shift) → 0xcb000000 | (Rm<<16) | (Rn<<5) | Rd
 func arm64_sub_xxx(rd, rn, rm) {
-    let insn = 0xcb000000 + (rm * 0x10000) + (rn * 0x20) + rd
+    let insn = (0xcb00 * 0x10000 + 0x0) + (rm * 0x10000) + (rn * 0x20) + rd
     emit hexDword(insn)
 }
 // mul Xd, Xn, Xm (madd Xd, Xn, Xm, xzr) → 0x9b007c00 | (Rm<<16) | (Rn<<5) | Rd
 func arm64_mul_xxx(rd, rn, rm) {
-    let insn = 0x9b007c00 + (rm * 0x10000) + (rn * 0x20) + rd
+    let insn = (0x9b00 * 0x10000 + 0x7c00) + (rm * 0x10000) + (rn * 0x20) + rd
     emit hexDword(insn)
 }
 // sdiv Xd, Xn, Xm (signed divide) → 0x9ac00c00 | (Rm<<16) | (Rn<<5) | Rd
 func arm64_sdiv_xxx(rd, rn, rm) {
-    let insn = 0x9ac00c00 + (rm * 0x10000) + (rn * 0x20) + rd
+    let insn = (0x9ac0 * 0x10000 + 0xc00) + (rm * 0x10000) + (rn * 0x20) + rd
     emit hexDword(insn)
 }
 // msub Xd, Xn, Xm, Xa  →  Rd = Ra - Rn*Rm   → 0x9b008000 | (Rm<<16) | (Ra<<10) | (Rn<<5) | Rd
 func arm64_msub_xxxx(rd, rn, rm, ra) {
-    let insn = 0x9b008000 + (rm * 0x10000) + (ra * 0x400) + (rn * 0x20) + rd
+    let insn = (0x9b00 * 0x10000 + 0x8000) + (rm * 0x10000) + (ra * 0x400) + (rn * 0x20) + rd
     emit hexDword(insn)
 }
 // svc #imm16 → 0xd4000001 | (imm16 << 5)
 func arm64_svc(imm16) {
-    let insn = 0xd4000001 + (imm16 * 0x20)
+    let insn = (0xd400 * 0x10000 + 0x1) + (imm16 * 0x20)
     emit hexDword(insn)
 }
 
 // cmp Xn, Xm  (alias for `subs xzr, Xn, Xm`) → 0xeb00001f | (Rm<<16) | (Rn<<5)
 func arm64_cmp_xx(rn, rm) {
-    emit hexDword(0xeb00001f + (rm * 0x10000) + (rn * 0x20))
+    emit hexDword((0xeb00 * 0x10000 + 0x1f) + (rm * 0x10000) + (rn * 0x20))
 }
 // cset Xd, <cond>  (alias for `csinc Xd, xzr, xzr, invert(cond)`)
 //   csinc encoding: 0x9a800400 | (Rm<<16) | (cond<<12) | (Rn<<5) | Rd
@@ -720,7 +720,7 @@ func arm64_cmp_xx(rn, rm) {
 func arm64_cset(rd, cond) {
     let inv = cond
     if (cond % 2) == 0 { inv = cond + 1 } else { inv = cond - 1 }
-    emit hexDword(0x9a800400 + (31 * 0x10000) + (inv * 0x1000) + (31 * 0x20) + rd)
+    emit hexDword((0x9a80 * 0x10000 + 0x400) + (31 * 0x10000) + (inv * 0x1000) + (31 * 0x20) + rd)
 }
 // b <imm26>  (unconditional branch, signed 26-bit in instruction units)
 //   encoding: 0x14000000 | (imm26 & 0x3ffffff)
@@ -736,22 +736,22 @@ func arm64_cbz(rt, rel) {
     let r = rel
     if r < 0 { r = r + 0x80000 }
     r = r % 0x80000
-    emit hexDword(0xb4000000 + (r * 0x20) + rt)
+    emit hexDword((0xb400 * 0x10000 + 0x0) + (r * 0x20) + rt)
 }
 // cbnz Xt, <imm19>  → 0xb5000000 | ((imm19 & 0x7ffff) << 5) | Rt
 func arm64_cbnz(rt, rel) {
     let r = rel
     if r < 0 { r = r + 0x80000 }
     r = r % 0x80000
-    emit hexDword(0xb5000000 + (r * 0x20) + rt)
+    emit hexDword((0xb500 * 0x10000 + 0x0) + (r * 0x20) + rt)
 }
 // cmp Xn, #imm12  (alias for `subs xzr, Xn, #imm12`) → 0xf100001f | (imm12 << 10) | (Rn << 5)
 func arm64_cmp_imm(rn, imm12) {
-    emit hexDword(0xf100001f + (imm12 * 0x400) + (rn * 0x20))
+    emit hexDword((0xf100 * 0x10000 + 0x1f) + (imm12 * 0x400) + (rn * 0x20))
 }
 // mov Xd, Xm  (alias for `orr Xd, xzr, Xm`) → 0xaa0003e0 | (Rm << 16) | Rd
 func arm64_mov_xx(rd, rm) {
-    emit hexDword(0xaa0003e0 + (rm * 0x10000) + rd)
+    emit hexDword((0xaa00 * 0x10000 + 0x3e0) + (rm * 0x10000) + rd)
 }
 // ldrb Wt, [Xn], #imm9  (post-indexed byte load) → 0x38400400 | (imm9<<12) | (Rn<<5) | Rt
 func arm64_ldrb_post(rt, rn, imm9) {
@@ -766,11 +766,11 @@ func arm64_ldrb_zero(rt, rn) {
 }
 // sub Xd, Xn, #imm12 (64-bit, no shift) → 0xd1000000 | (imm12<<10) | (Rn<<5) | Rd
 func arm64_sub_imm(rd, rn, imm12) {
-    emit hexDword(0xd1000000 + (imm12 * 0x400) + (rn * 0x20) + rd)
+    emit hexDword((0xd100 * 0x10000 + 0x0) + (imm12 * 0x400) + (rn * 0x20) + rd)
 }
 // str Xt, [Xn, #imm12_scaled] (unsigned offset, 64-bit) → 0xf9000000 | ...
 func arm64_str_imm(rt, rn, imm12_scaled) {
-    emit hexDword(0xf9000000 + (imm12_scaled * 0x400) + (rn * 0x20) + rt)
+    emit hexDword((0xf900 * 0x10000 + 0x0) + (imm12_scaled * 0x400) + (rn * 0x20) + rt)
 }
 // strb Wt, [Xn, #imm12]  (unscaled byte store)
 func arm64_strb_imm(rt, rn, imm12) {
@@ -786,58 +786,58 @@ func arm64_strb_reg(rt, rn, rm) {
 }
 // ldr Xt, [Xn, Xm, LSL #3]  (register-offset 64-bit load with index*8)
 func arm64_ldr_reg_lsl3(rt, rn, rm) {
-    emit hexDword(0xf8607800 + (rm * 0x10000) + (rn * 0x20) + rt)
+    emit hexDword((0xf860 * 0x10000 + 0x7800) + (rm * 0x10000) + (rn * 0x20) + rt)
 }
 // str Xt, [Xn, Xm, LSL #3]  (register-offset 64-bit store with index*8)
 // Encoding differs from LDR only in bit 22 (load=1 → store=0).
 func arm64_str_reg_lsl3(rt, rn, rm) {
-    emit hexDword(0xf8207800 + (rm * 0x10000) + (rn * 0x20) + rt)
+    emit hexDword((0xf820 * 0x10000 + 0x7800) + (rm * 0x10000) + (rn * 0x20) + rt)
 }
 // movz Xd, #imm16, LSL #48  (load constant into high 16 bits, zero rest)
 // Encoding: 0xd2e00000 | (imm16 << 5) | Rd  (sf=1, opc=10 movz, hw=11 LSL #48)
 // Used to construct the 1<<63 mark-bit mask for the GC.
 func arm64_movz_x_imm_lsl48(rd, imm16) {
-    emit hexDword(0xd2e00000 + (imm16 * 0x20) + rd)
+    emit hexDword((0xd2e0 * 0x10000 + 0x0) + (imm16 * 0x20) + rd)
 }
 // movz Xd, #imm16, LSL #32 — hw=10 → 0xd2c00000 base. Used for the 1<<32
 // boundary between small ints and pointers in BUILTIN_KP's dispatch.
 func arm64_movz_x_imm_lsl32(rd, imm16) {
-    emit hexDword(0xd2c00000 + (imm16 * 0x20) + rd)
+    emit hexDword((0xd2c0 * 0x10000 + 0x0) + (imm16 * 0x20) + rd)
 }
 // movk Xd, #imm16, LSL #16 — preserves other bits (unlike movz). Used to
 // load the high 16 bits of a 32-bit positive constant after a movz of the low.
 // Encoding: 0xf2a00000 | (imm16 << 5) | Rd  (sf=1, opc=11 movk, hw=01 LSL #16)
 func arm64_movk_x_imm_lsl16(rd, imm16) {
-    emit hexDword(0xf2a00000 + (imm16 * 0x20) + rd)
+    emit hexDword((0xf2a0 * 0x10000 + 0x0) + (imm16 * 0x20) + rd)
 }
 // movk Xd, #imm16          — keep-insert bits [15:0], hw=00
 // Encoding: 0xf2800000 | (imm16 << 5) | Rd
 func arm64_movk_x_imm(rd, imm16) {
-    emit hexDword(0xf2800000 + (imm16 * 0x20) + rd)
+    emit hexDword((0xf280 * 0x10000 + 0x0) + (imm16 * 0x20) + rd)
 }
 // movk Xd, #imm16, LSL #32 — keep-insert bits [47:32], hw=10
 // Encoding: 0xf2c00000 | (imm16 << 5) | Rd
 func arm64_movk_x_imm_lsl32(rd, imm16) {
-    emit hexDword(0xf2c00000 + (imm16 * 0x20) + rd)
+    emit hexDword((0xf2c0 * 0x10000 + 0x0) + (imm16 * 0x20) + rd)
 }
 // movk Xd, #imm16, LSL #48 — keep-insert bits [63:48], hw=11
 // Encoding: 0xf2e00000 | (imm16 << 5) | Rd
 func arm64_movk_x_imm_lsl48(rd, imm16) {
-    emit hexDword(0xf2e00000 + (imm16 * 0x20) + rd)
+    emit hexDword((0xf2e0 * 0x10000 + 0x0) + (imm16 * 0x20) + rd)
 }
 // nop — does nothing. 0xd503201f.
-func arm64_nop() { emit hexDword(0xd503201f) }
+func arm64_nop() { emit hexDword((0xd503 * 0x10000 + 0x201f)) }
 // orr Xd, Xn, Xm  (bitwise OR, no shift) → 0xaa000000 | (Rm<<16) | (Rn<<5) | Rd
 func arm64_orr_xxx(rd, rn, rm) {
-    emit hexDword(0xaa000000 + (rm * 0x10000) + (rn * 0x20) + rd)
+    emit hexDword((0xaa00 * 0x10000 + 0x0) + (rm * 0x10000) + (rn * 0x20) + rd)
 }
 // eor Xd, Xn, Xm  (bitwise XOR, no shift) → 0xca000000 | (Rm<<16) | (Rn<<5) | Rd
 func arm64_eor_xxx(rd, rn, rm) {
-    emit hexDword(0xca000000 + (rm * 0x10000) + (rn * 0x20) + rd)
+    emit hexDword((0xca00 * 0x10000 + 0x0) + (rm * 0x10000) + (rn * 0x20) + rd)
 }
 // and Xd, Xn, Xm  (64-bit bitwise AND) → 0x8a000000 | (Rm<<16) | (Rn<<5) | Rd
 func arm64_and_xxx(rd, rn, rm) {
-    emit hexDword(0x8a000000 + (rm * 0x10000) + (rn * 0x20) + rd)
+    emit hexDword((0x8a00 * 0x10000 + 0x0) + (rm * 0x10000) + (rn * 0x20) + rd)
 }
 // and Wd, Wn, Wm  (32-bit bitwise AND, zero-extends to Xd) → 0x0a000000 | ...
 func arm64_and_www(rd, rn, rm) {
@@ -861,15 +861,15 @@ func arm64_lsr_w(rd, rn, rm) {
 }
 // lsl Xd, Xn, Xm  (64-bit variable shift left; LSLV alias) → 0x9AC02000
 func arm64_lsl_var(rd, rn, rm) {
-    emit hexDword(0x9ac02000 + (rm * 0x10000) + (rn * 0x20) + rd)
+    emit hexDword((0x9ac0 * 0x10000 + 0x2000) + (rm * 0x10000) + (rn * 0x20) + rd)
 }
 // lsr Xd, Xn, Xm  (64-bit variable shift right; LSRV alias) → 0x9AC02400
 func arm64_lsr_var(rd, rn, rm) {
-    emit hexDword(0x9ac02400 + (rm * 0x10000) + (rn * 0x20) + rd)
+    emit hexDword((0x9ac0 * 0x10000 + 0x2400) + (rm * 0x10000) + (rn * 0x20) + rd)
 }
 // mvn Xd, Xm  (64-bit bitwise NOT; ORN Xd, XZR, Xm) → 0xAA200000 | (Rm<<16) | (31<<5) | Rd
 func arm64_mvn_x(rd, rm) {
-    emit hexDword(0xaa200000 + (rm * 0x10000) + 0x3e0 + rd)
+    emit hexDword((0xaa20 * 0x10000 + 0x0) + (rm * 0x10000) + 0x3e0 + rd)
 }
 // mvn Wd, Wm  (32-bit bitwise NOT, zero-extends to Xd; ORN Wd, WZR, Wm) → 0x2A200000 | ...
 func arm64_mvn_w(rd, rm) {
@@ -879,11 +879,11 @@ func arm64_mvn_w(rd, rm) {
 //   ubfm 64-bit: 0xd3400000 | (immr<<16) | (imms<<10) | (Rn<<5) | Rd
 //   For LSR #N: immr=N, imms=63. For N=32: 0xd3400000 + (32<<16) + (63<<10) = 0xd360FC00
 func arm64_lsr_imm32(rd, rn) {
-    emit hexDword(0xd360FC00 + (rn * 0x20) + rd)
+    emit hexDword((0xd360 * 0x10000 + 0xfc00) + (rn * 0x20) + rd)
 }
 // neg Xd, Xn  (alias for sub Xd, xzr, Xn)
 func arm64_neg(rd, rn) {
-    emit hexDword(0xcb0003e0 + (rn * 0x10000) + rd)
+    emit hexDword((0xcb00 * 0x10000 + 0x3e0) + (rn * 0x10000) + rd)
 }
 // stp Xt1, Xt2, [sp, #-16]!  (push pair, pre-indexed, 16-byte block)
 //   encoding: 0xa9bf0000 | (Rt2<<10) | (Rn=31<<5) | Rt
@@ -900,29 +900,29 @@ func arm64_neg(rd, rn) {
 //   Actually let me just expose a general stp_pre helper for arbitrary pair.
 func arm64_stp_pre16(rt1, rt2) {
     // stp Xt1, Xt2, [sp, #-16]! ; imm7 = -2 (encoded as 0x7e in 7 bits)
-    emit hexDword(0xa9bf0000 + ((rt2 % 32) * 0x400) + (31 * 0x20) + (rt1 % 32))
+    emit hexDword((0xa9bf * 0x10000 + 0x0) + ((rt2 % 32) * 0x400) + (31 * 0x20) + (rt1 % 32))
 }
 // ldp Xt1, Xt2, [sp], #16  (post-indexed pop pair)
 func arm64_ldp_post16(rt1, rt2) {
-    emit hexDword(0xa8c10000 + ((rt2 % 32) * 0x400) + (31 * 0x20) + (rt1 % 32))
+    emit hexDword((0xa8c1 * 0x10000 + 0x0) + ((rt2 % 32) * 0x400) + (31 * 0x20) + (rt1 % 32))
 }
 // stp Xt1, Xt2, [Xn, #imm7_scaled]  (signed offset, scale 8)
 func arm64_stp_off(rt1, rt2, rn, imm7_scaled) {
     let i = imm7_scaled
     if i < 0 { i = i + 128 }
     i = i % 128
-    emit hexDword(0xa9000000 + (i * 0x8000) + ((rt2 % 32) * 0x400) + ((rn % 32) * 0x20) + (rt1 % 32))
+    emit hexDword((0xa900 * 0x10000 + 0x0) + (i * 0x8000) + ((rt2 % 32) * 0x400) + ((rn % 32) * 0x20) + (rt1 % 32))
 }
 // ldp Xt1, Xt2, [Xn, #imm7_scaled]
 func arm64_ldp_off(rt1, rt2, rn, imm7_scaled) {
     let i = imm7_scaled
     if i < 0 { i = i + 128 }
     i = i % 128
-    emit hexDword(0xa9400000 + (i * 0x8000) + ((rt2 % 32) * 0x400) + ((rn % 32) * 0x20) + (rt1 % 32))
+    emit hexDword((0xa940 * 0x10000 + 0x0) + (i * 0x8000) + ((rt2 % 32) * 0x400) + ((rn % 32) * 0x20) + (rt1 % 32))
 }
 // udiv Xd, Xn, Xm
 func arm64_udiv_xxx(rd, rn, rm) {
-    emit hexDword(0x9ac00800 + (rm * 0x10000) + (rn * 0x20) + rd)
+    emit hexDword((0x9ac0 * 0x10000 + 0x800) + (rm * 0x10000) + (rn * 0x20) + rd)
 }
 // b.cond #imm19  (conditional branch, signed 19-bit, 4-byte units)
 //   encoding: 0x54000000 | ((imm19 & 0x7ffff) << 5) | cond
@@ -934,7 +934,7 @@ func arm64_b_cond(cond, rel) {
 }
 // brk #imm16  (software breakpoint trap) → 0xd4200000 | (imm16 << 5)
 func arm64_brk(imm16) {
-    emit hexDword(0xd4200000 + (imm16 * 0x20))
+    emit hexDword((0xd420 * 0x10000 + 0x0) + (imm16 * 0x20))
 }
 // add Xd, Xn, Xm (64-bit, no shift, register form) — alias for the 3-reg add.
 // Already covered by arm64_add_xxx; just alias here.
@@ -4169,7 +4169,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_movz_x_imm(16, 7))  // 29: SYS_wait4
             s = sbAppend(s, arm64_svc(0x80))  // 30
             s = sbAppend(s, arm64_ldr_imm(8, 31, 6))  // 31: x8=status@[sp+48]
-            s = sbAppend(s, hexDword(0xd348fd08))  // 32: lsr x8,x8,#8
+            s = sbAppend(s, hexDword((0xd348 * 0x10000 + 0xfd08)))  // 32: lsr x8,x8,#8
             s = sbAppend(s, hexDword(0x12001d08))  // 33: and w8,w8,#0xff (WEXITSTATUS)
             s = sbAppend(s, arm64_add_sp(64))  // 34: clean stack
             s = sbAppend(s, emitAllocN(4, instrIdx + 35, textVaddr, textOff))  // 35-55: heap buf→x0
@@ -5010,7 +5010,7 @@ func emitCString() { emit hexStr("Hi") + hexByte(0) }
 // ── __got slot (8 bytes) ────────────────────────────────────────────────────
 // dyld_chained_ptr_64_bind: bind=1, next=0, reserved=0, addend=0, ordinal=0.
 // Encoded: bit 63 = 1, all other bits 0. 8-byte LE: 00 00 00 00 00 00 00 80.
-func emitGotSlot() { emit hexDword(0) + hexDword(0x80000000) }
+func emitGotSlot() { emit hexDword(0) + hexDword((0x8000 * 0x10000 + 0x0)) }
 
 // ── empty chained_fixups payload (56 bytes) ─────────────────────────────────
 // dyld requires LC_DYLD_CHAINED_FIXUPS present, but this binary has nothing to
@@ -5105,12 +5105,12 @@ func hexQwordBe(hi, lo) { emit hexDwordBe(hi) + hexDwordBe(lo) }
 // Matches what `codesign -s -` emits; the kernel on Apple Silicon expects this
 // blob (and its hash in special slot -2) for an ad-hoc signature to be valid.
 func buildRequirementsBlob() {
-    emit hexDwordBe(0xfade0c01) + hexDwordBe(12) + hexDwordBe(0)
+    emit hexDwordBe((0xfade * 0x10000 + 0xc01)) + hexDwordBe(12) + hexDwordBe(0)
 }
 
 // Empty CMS signature blob (CSMAGIC_BLOBWRAPPER, no payload). 8 bytes.
 func buildCmsBlob() {
-    emit hexDwordBe(0xfade0b01) + hexDwordBe(8)
+    emit hexDwordBe((0xfade * 0x10000 + 0xb01)) + hexDwordBe(8)
 }
 
 func buildCodeDirectory(fileBytes, codeLimit, identifier) {
@@ -5127,7 +5127,7 @@ func buildCodeDirectory(fileBytes, codeLimit, identifier) {
     let cdLength = hashOffset + nCodeSlots * hashSize
 
     let cd = ""
-    cd = cd + hexDwordBe(0xfade0c02)         // magic CSMAGIC_CODEDIRECTORY
+    cd = cd + hexDwordBe((0xfade * 0x10000 + 0xc02))         // magic CSMAGIC_CODEDIRECTORY
     cd = cd + hexDwordBe(cdLength)
     cd = cd + hexDwordBe(0x00020400)         // version (SUPPORTSEXECSEG)
     cd = cd + hexDwordBe(0x00000002)         // flags = adhoc
@@ -5190,7 +5190,7 @@ func buildSuperBlob(cdHex) {
     let cmsOff = reqOff + reqLen
     let totalLen = cmsOff + cmsLen
     let s = ""
-    s = s + hexDwordBe(0xfade0cc0)         // magic CSMAGIC_EMBEDDED_SIGNATURE
+    s = s + hexDwordBe((0xfade * 0x10000 + 0xcc0))         // magic CSMAGIC_EMBEDDED_SIGNATURE
     s = s + hexDwordBe(totalLen)
     s = s + hexDwordBe(3)                  // count = 3
     s = s + hexDwordBe(0) + hexDwordBe(cdOff)        // CSSLOT_CODEDIRECTORY
@@ -5241,7 +5241,7 @@ func emitLcSegText() {
     s = s + hexDword(2)                             // align = 2^2 = 4
     s = s + hexDword(0)                             // reloff
     s = s + hexDword(0)                             // nreloc
-    s = s + hexDword(0x80000400)                    // flags = PURE | SOME (S_REGULAR)
+    s = s + hexDword((0x8000 * 0x10000 + 0x400))                    // flags = PURE | SOME (S_REGULAR)
     s = s + hexDword(0)                             // reserved1
     s = s + hexDword(0)                             // reserved2
     s = s + hexDword(0)                             // reserved3
