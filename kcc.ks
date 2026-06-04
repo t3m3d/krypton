@@ -315,23 +315,14 @@ just run {
             kp(sh("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(s)))
             exit("0")
         }
-        // --c: emit C source (front-end, no --ir).
-        if hasFlag("--c") {
-            let s = linuxSrc()
-            if s == "" { kp("kcc: --c needs a source file")  exit("1") }
-            let cout = optValue("-o", "")
-            if cout == "" { kp(sh("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " " + q(s))) }
-            else { exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " " + q(s) + " > " + q(cout)) }
-            exit("0")
-        }
-        // --gcc is REMOVED — Krypton is C-free; native is the only path.
-        if hasFlag("--gcc") {
-            kp("kcc: --gcc was removed (Krypton compiles natively, no C). Building native.")
-        }
-        // --llvm / --wasm: non-functional upstream (kcc.sh's --llvm emits C; --wasm
-        // is an unimplemented stub). Be honest instead of mimicking the bug.
-        if hasFlag("--llvm") { kp("kcc: --llvm is not supported; use --c for C output, or native.")  exit("1") }
-        if hasFlag("--wasm") { kp("kcc: --wasm is not wired into the Krypton-native driver yet.")  exit("1") }
+        // --c / --gcc / --llvm: REMOVED 2026-06-04. Krypton is C-free;
+        // the native pipeline is the only path. Hard error so user scripts
+        // surface the change immediately instead of silently producing
+        // different output.
+        if hasFlag("--c")    { kp("kcc: --c was removed (Krypton is C-free; native pipeline only).")    exit("1") }
+        if hasFlag("--gcc")  { kp("kcc: --gcc was removed (Krypton is C-free; native pipeline only).")  exit("1") }
+        if hasFlag("--llvm") { kp("kcc: --llvm was removed (Krypton is C-free; native pipeline only).") exit("1") }
+        if hasFlag("--wasm") { kp("kcc: --wasm is not wired into the Krypton-native driver yet.")        exit("1") }
 
         // -e CODE: wrap in `just run { ... }`, compile (x86 or arm64), run, delete.
         if first == "-e" {
