@@ -534,7 +534,7 @@ STORE/LOAD elimination, empty jump removal, unused local removal.
 
 ## Standard Library
 
-37 modules in `stdlib/`:
+77+ modules in `stdlib/`. Highlights:
 
 | Module | Contents |
 |--------|----------|
@@ -543,12 +543,15 @@ STORE/LOAD elimination, empty jump removal, unused local removal.
 | `option.k` | optSome/optNone/isSome/isNone/optUnwrap |
 | `json.k` | jsonStr/jsonBool/jsonArray/jsonObject/jsonNull |
 | `float_utils.k` | floatAdd/floatMul/floatSqrt/floatFormat/pi() |
-| `string_utils.k` | String manipulation helpers |
-| `list_utils.k` | List processing functions |
 | `arch.k` | Host CPU detection — `arch()`, `isArm()`, `isX86()`, `is64Bit()` |
 | `x11.k` | X11 wire-protocol client (handshake + server-info parse; Linux GUI flagship) |
 | `server_native.k` | Pure-Krypton HTTP server on the macOS native socket builtins |
-| ... | 27 more modules |
+| `color.k` | Hex/RGB/HSL conversion + lighten/darken/mix |
+| `mime.k` | MIME type lookup by extension or path |
+| `cookie.k` | HTTP cookie parse + build (`Set-Cookie:` attrs) |
+| `base64.k` / `hex.k` | RFC 4648 + standard hex encode/decode |
+| `csv.k` / `url.k` | RFC 4180 CSV + RFC 3986 URL parse / build |
+| ... | 65 more modules in `stdlib/` — see `ls stdlib/*.k` |
 
 ---
 
