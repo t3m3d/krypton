@@ -3024,6 +3024,15 @@ func emitPEHeader(numSections, textSize, rdataSize, textRva, rdataRva, entryRva,
 }
 
 func emitSectionHeader(name, virtSize, virtAddr, rawSize, rawOffset, characteristics) {
+    emit emitSectionHeader2(name, virtSize, virtAddr, rawSize, rawOffset, hexDword(characteristics))
+}
+
+// emitSectionHeader2: takes characteristics pre-encoded as a 4-byte LE hex
+// string (built via `hexByte(b0)+hexByte(b1)+hexByte(b2)+hexByte(b3)`).
+// Use this when the characteristics value is above the smart-int ceiling
+// (0x7F000000) — e.g. .rdata's 0xC0000040 with MEM_WRITE set for bootstrap
+// DLL builds. Avoids needing the int literal at all.
+func emitSectionHeader2(name, virtSize, virtAddr, rawSize, rawOffset, charsHex) {
     let h = sbNew()
     h = sbAppend(h, hexStr(name))
     // Pad name to 8 bytes
@@ -3038,7 +3047,7 @@ func emitSectionHeader(name, virtSize, virtAddr, rawSize, rawOffset, characteris
     h = sbAppend(h, hexDword(0))   // PointerToLinenumbers
     h = sbAppend(h, hexByte(0) + hexByte(0))   // NumberOfRelocations
     h = sbAppend(h, hexByte(0) + hexByte(0))   // NumberOfLinenumbers
-    h = sbAppend(h, hexDword(characteristics))
+    h = sbAppend(h, charsHex)
     emit sbToString(h)
 }
 
@@ -3776,7 +3785,7 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xCE))                      // [6-8]    MOV RSI, RCX
     sb = sbAppend(sb, hexByte(0xE8)+hexDword(pr_sl))                                  // [9-13]   CALL kr_strlen
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))                      // [14-16]  MOV RBX, RAX (len)
-    sb = sbAppend(sb, hexByte(0xB9)+hexDword(0xFFFFFFF5))                              // [17-21]  MOV ECX, -11 (STD_OUTPUT)
+    sb = sbAppend(sb, hexByte(0xB9)+hexByte(0xF5)+hexByte(0xFF)+hexByte(0xFF)+hexByte(0xFF))  // [17-21]  MOV ECX, -11 (STD_OUTPUT) — split to avoid int ceiling
     sb = sbAppend(sb, hexByte(0xFF)+hexByte(0x15)+hexDword(pr_gsh_d))                 // [22-27]  CALL [GetStdHandle]
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0x44)+hexByte(0x24)+hexByte(0x28))  // [28-32]  MOV [RSP+0x28], RAX (cache handle)
     // First WriteFile: the string itself
@@ -3816,7 +3825,7 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xCE))
     sb = sbAppend(sb, hexByte(0xE8)+hexDword(pe_sl))
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xC3))
-    sb = sbAppend(sb, hexByte(0xB9)+hexDword(0xFFFFFFF4))                              // MOV ECX,-12 (STD_ERROR)
+    sb = sbAppend(sb, hexByte(0xB9)+hexByte(0xF4)+hexByte(0xFF)+hexByte(0xFF)+hexByte(0xFF))  // MOV ECX,-12 (STD_ERROR) — split to avoid int ceiling
     sb = sbAppend(sb, hexByte(0xFF)+hexByte(0x15)+hexDword(pe_gsh_d))
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0x44)+hexByte(0x24)+hexByte(0x28))  // MOV [RSP+0x28], RAX (cache handle)
     sb = sbAppend(sb, hexByte(0x48)+hexByte(0x89)+hexByte(0xC1))
@@ -4418,7 +4427,7 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x56))                                            // [7]   PUSH R14
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x48))                 // [9]   SUB RSP, 0x48
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0xCE))                              // [13]  MOV RSI, RCX (save path)
-    sb2 = sbAppend(sb2, hexByte(0xBA)+hexDword(0x80000000))                                     // [16]  MOV EDX, GENERIC_READ
+    sb2 = sbAppend(sb2, hexByte(0xBA)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00)+hexByte(0x80))  // [16]  MOV EDX, GENERIC_READ (0x80000000 — split to avoid int ceiling)
     sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0xB8)+hexDword(1))                                // [21]  MOV R8D, FILE_SHARE_READ
     sb2 = sbAppend(sb2, hexByte(0x4D)+hexByte(0x33)+hexByte(0xC9))                              // [27]  XOR R9, R9
     sb2 = sbAppend(sb2, hexByte(0xC7)+hexByte(0x44)+hexByte(0x24)+hexByte(0x20)+hexDword(3))    // [30]  MOV [RSP+0x20], 3 (OPEN_EXISTING)
@@ -8552,8 +8561,11 @@ just run {
         let bsPEH = emitPEHeader(2, bsFullText, bsRdataSz, PE_TEXT_RVA2, bsRdataRvaB, bsEntryRva, bsImgSz, bsIatDescRvaB, bsIatTotalSzB, bsIatInfo)
         let bsTxtHdr = emitSectionHeader(".text", bsFullText, PE_TEXT_RVA2, bsTextFileSz, PE_TEXT_FILE_OFF, 536870944)
         // .rdata characteristics: 0xC0000040 = MEM_READ | MEM_WRITE | CNT_INITIALIZED_DATA
-        // (was 0x40000040, MEM_READ only — needed write for the GC globals slot)
-        let bsRdHdr = emitSectionHeader(".rdata", bsRdataSz, bsRdataRvaB, bsRdataFileSz, bsRdataFileOffB, 3221225536)
+        // (was 0x40000040, MEM_READ only — needed write for the GC globals slot).
+        // 0xC0000040 = 3221225536 exceeds the smart-int ceiling, so we hand
+        // the 4 bytes directly to emitSectionHeader2 and skip the int form.
+        let bsRdHdr = emitSectionHeader2(".rdata", bsRdataSz, bsRdataRvaB, bsRdataFileSz, bsRdataFileOffB,
+            hexByte(0x40) + hexByte(0x00) + hexByte(0x00) + hexByte(0xC0))
 
         let bsHdrHex = bsDos + bsPEH + bsTxtHdr + bsRdHdr
         let bsHdrPad = PE_HEADER_SIZE - len(bsHdrHex) / 3
