@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # build.sh — Krypton bootstrap build for Linux / macOS / WSL
 #
-# Two paths:
-#   1) Prebuilt seed (no gcc needed): if bootstrap/kcc_seed_<arch>_<os> exists,
-#      copy it directly as ./kcc. This is the gcc-free path.
-#   2) Source seed (needs gcc): if no prebuilt binary, compile bootstrap/kcc_seed.c
-#      with gcc to produce ./kcc, then self-rebuild via compile.k.
+# Seed-only, C-free: copy the prebuilt bootstrap/kcc_seed_<os>_<arch> binary as
+# ./kcc. Every supported platform ships a Krypton-built seed binary — no C
+# compiler is ever invoked. (The old gcc-compiled kcc_seed.c source seed was
+# removed 2026-06-03; the seeds are now Krypton-built artifacts.)
 #
-# After either path: smoke-test by compiling and running examples/fibonacci.k.
+# After install: smoke-test by compiling and running examples/fibonacci.k.
 
 set -euo pipefail
 
@@ -21,7 +20,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # ── Config ──────────────────────────────────────────────────────────────────
-SEED_C="bootstrap/kcc_seed.c"
 COMPILE_K="compiler/compile.k"
 # KCC is the platform-specific binary (compiler/<arch>/kcc-<arch>, kcc.exe on Windows).
 # ./kcc itself is a symlink to ./kcc.sh, the driver that detects OS/arch and
@@ -249,56 +247,8 @@ if [[ -f "$SEED_BIN" ]]; then
     exit 0
 fi
 
-# ── Path B: source seed (gcc required) ──────────────────────────────────────
-[[ -f "$SEED_C" ]] || fail "missing both $SEED_BIN and $SEED_C — cannot bootstrap"
-command -v "$CC" >/dev/null || fail "$CC not found in PATH (no prebuilt seed for ${OSNAME}/${ARCH} either)"
-
-info "platform:  ${OSNAME}/${ARCH}  (no prebuilt seed for this platform)"
-info "compiler:  $CC"
-info "seed:      $SEED_C ($(wc -l < "$SEED_C") lines)"
-echo ""
-
-echo "[1/3] Building kcc from bootstrap seed..."
-mkdir -p "$(dirname "$KCC")"
-"$CC" "$SEED_C" -o "$KCC" $CFLAGS || fail "gcc compilation of seed failed"
-ok "$KCC built ($(stat -c%s "$KCC" 2>/dev/null || stat -f%z "$KCC") bytes)"
-
-echo ""
-echo "[2/3] Self-rebuilding kcc from $COMPILE_K..."
-"$KCC" "$COMPILE_K" > /tmp/_kcc_self.c || fail "kcc failed to compile compile.k"
-"$CC" /tmp/_kcc_self.c -o /tmp/_kcc_self $CFLAGS || fail "gcc failed on self-rebuilt kcc"
-mv /tmp/_kcc_self "$KCC"
-rm -f /tmp/_kcc_self.c
-ok "$KCC self-rebuilt"
-
-echo ""
-echo "[3/3] Smoke test: examples/fibonacci.k..."
-"$KCC" examples/fibonacci.k > /tmp/_fib.c || fail "kcc failed on fibonacci.k"
-"$CC" /tmp/_fib.c -o /tmp/_fib $CFLAGS || fail "gcc failed on fibonacci"
-OUTPUT=$(/tmp/_fib)
-echo "$OUTPUT" | grep -q "fib(19) = 4181" || fail "fibonacci output wrong: $OUTPUT"
-rm -f /tmp/_fib.c /tmp/_fib
-ok "fibonacci → 4181"
-
-VERSION=$("$KCC" --version 2>&1 | head -1)
-echo ""
-echo "════════════════════════════════════════════════════"
-echo "  Build complete: $VERSION"
-echo "════════════════════════════════════════════════════"
-echo ""
-echo "  Usage:"
-if native_pipeline_available; then
-    echo "    ./build.sh run hello.k        compile + run a .k file (native, no $CC)"
-    echo "    ./build.sh test               run the test suite (native, no $CC)"
-else
-    echo "    ./build.sh run hello.k        compile + run a .k file (needs $CC)"
-    echo "    ./build.sh test               run the test suite (needs $CC)"
-fi
-if [[ "$OSNAME" == "linux" ]]; then
-    echo "    ./kcc.sh --native hello.k -o hello   gcc-free native ELF"
-elif [[ "$OSNAME" == "macos" ]]; then
-    echo "    ./kcc.sh --native hello.k -o hello   gcc-free native Mach-O (arm64)"
-elif [[ "$OSNAME" == "windows" ]]; then
-    echo "    ./kcc.sh --native hello.k -o hello   gcc-free native PE/COFF"
-fi
-echo ""
+# ── No prebuilt seed for this platform ──────────────────────────────────────
+# There is no C source seed anymore — seeds are Krypton-built binaries. A
+# platform without a committed seed binary must be bootstrapped from an existing
+# one (cross-build) rather than from C.
+fail "no prebuilt seed for ${OSNAME}/${ARCH} (expected $SEED_BIN). Seeds are Krypton-built binaries — bootstrap this platform from an existing seed; there is no C source seed."

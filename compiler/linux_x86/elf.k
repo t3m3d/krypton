@@ -2767,7 +2767,9 @@ func emitKrReplaceCode(thisVAddr, strlenVAddr, allocVAddr) {
     c = c + hexByte(0x41) + hexByte(0x54)
     c = c + hexByte(0x41) + hexByte(0x55)
     c = c + hexByte(0x41) + hexByte(0x56)
-    c = c + hexByte(0x41) + hexByte(0x57)
+    c = c + hexByte(0x41) + hexByte(0x53)   // PUSH R11 (was R15) — must NOT save/restore R15: it is the
+                                            // global heap_next, advanced by kr_alloc below; restoring it
+                                            // would undo this call's allocation (caller reuses the buffer).
     c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xFB)
     c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xF4)
     c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xD5)
@@ -2817,7 +2819,8 @@ func emitKrReplaceCode(thisVAddr, strlenVAddr, allocVAddr) {
     c = c + hexByte(0xEB) + hexByte(256 - 43)
     c = c + hexByte(0xC6) + hexByte(0x07) + hexByte(0x00)
     c = c + hexByte(0x58)
-    c = c + hexByte(0x41) + hexByte(0x5F)
+    c = c + hexByte(0x41) + hexByte(0x5B)   // POP R11 (was R15) — discard the saved value; R15 keeps the
+                                            // post-alloc heap_next so the caller sees this call's allocation.
     c = c + hexByte(0x41) + hexByte(0x5E)
     c = c + hexByte(0x41) + hexByte(0x5D)
     c = c + hexByte(0x41) + hexByte(0x5C)
