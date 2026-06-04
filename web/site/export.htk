@@ -150,6 +150,13 @@ func siteCSS() {
         "tr:hover td{background:#f8f6ff}" +
         "footer{background:var(--nav-bg);color:var(--nav-text);text-align:center;padding:32px;font-size:0.9rem;border-top:1px solid rgba(119,34,255,0.15)}" +
         "footer a{color:var(--primary)}" +
+        ".sponsor-slot{display:block;max-width:728px;margin:32px auto 16px;padding:0;background:transparent;border:1px dashed var(--card-border);border-radius:8px;text-decoration:none;color:var(--text-light);transition:border-color 0.2s,transform 0.2s,background 0.2s}" +
+        ".sponsor-slot:hover{border-color:var(--primary);transform:translateY(-1px);background:rgba(119,34,255,0.04);text-decoration:none}" +
+        ".sponsor-inner{padding:24px 28px;min-height:90px;display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap}" +
+        ".sponsor-label{opacity:0.55;font-size:0.72rem;letter-spacing:1.5px;text-transform:uppercase}" +
+        ".sponsor-name{color:var(--primary);font-weight:600;font-size:1.05rem}" +
+        ".sponsor-slot img{display:block;max-width:100%;height:auto;margin:0 auto;border-radius:8px}" +
+        "@media (max-width:640px){.sponsor-slot{margin:24px 14px 12px}.sponsor-inner{padding:18px 14px;min-height:70px}}" +
         ".tag{display:inline-block;background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;padding:4px 14px;border-radius:20px;font-size:0.8rem;margin-bottom:8px;font-weight:600}" +
         ".stat{text-align:center;padding:20px}.stat .num{font-size:2.5rem;font-weight:800;color:var(--primary);display:block}.stat .label{font-size:0.95rem;color:var(--text-light)}" +
         "ul{margin:8px 0 8px 24px}li{margin:4px 0}" +
@@ -344,8 +351,25 @@ func siteNav(active) {
          "</div></div></nav>"
 }
 
+// Sponsor slot — leaderboard-sized clickable area above the footer.
+// Currently shows a styled text placeholder ("Sponsor: The People Wire →").
+// When an image is dropped at dist/ads/thepeoplewire.png, replace the
+// inner `<div class="sponsor-inner">...</div>` with
+// `<img src="/ads/thepeoplewire.png" alt="The People Wire">`.
+func siteSponsorSlot() {
+    emit "<a href=" + DQ() + "https://www.thepeoplewire.com" + DQ() +
+         " target=" + DQ() + "_blank" + DQ() +
+         " rel=" + DQ() + "noopener noreferrer sponsored" + DQ() +
+         " class=" + DQ() + "sponsor-slot" + DQ() + ">" +
+         "<div class=" + DQ() + "sponsor-inner" + DQ() + ">" +
+         "<span class=" + DQ() + "sponsor-label" + DQ() + ">Sponsor</span>" +
+         "<span class=" + DQ() + "sponsor-name" + DQ() + ">The People Wire &rarr;</span>" +
+         "</div></a>"
+}
+
 func siteFooter() {
-    emit "<footer>" +
+    emit siteSponsorSlot() +
+         "<footer>" +
          "<p style=" + DQ() + "margin-bottom:8px" + DQ() + ">" +
          "Built and maintained by Brian. Support the project on " +
          htA("/sponsor.html", "&#10084; GitHub Sponsors") +
