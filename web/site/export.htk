@@ -365,10 +365,9 @@ func siteSponsorSlot() {
          " target=" + DQ() + "_blank" + DQ() +
          " rel=" + DQ() + "noopener noreferrer sponsored" + DQ() +
          " class=" + DQ() + "sponsor-slot" + DQ() + ">" +
-         "<div class=" + DQ() + "sponsor-inner" + DQ() + ">" +
-         "<span class=" + DQ() + "sponsor-label" + DQ() + ">Sponsor</span>" +
-         "<span class=" + DQ() + "sponsor-name" + DQ() + ">The People Wire &rarr;</span>" +
-         "</div></a>"
+         "<img src=" + DQ() + "/ads/thepeoplewire.png" + DQ() +
+         " alt=" + DQ() + "The People Wire" + DQ() + ">" +
+         "</a>"
 }
 
 func siteFooter() {

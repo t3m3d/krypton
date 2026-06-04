@@ -49,28 +49,75 @@ func hexDigitVal(c) {
     emit -1
 }
 
+// Compare two leading-zero-stripped decimal strings; "1" if a >= b.
+func decGE(a, b) {
+    if len(a) > len(b) { emit "1" }
+    if len(a) < len(b) { emit "0" }
+    let j = 0
+    while j < len(a) {
+        if a[j] > b[j] { emit "1" }
+        if a[j] < b[j] { emit "0" }
+        j += 1
+    }
+    emit "1"
+}
+
 func readNumber(text, i) {
     let start = i
     // hex literal: 0x... or 0X...
     if text[i] == "0" && i + 1 < len(text) && (text[i + 1] == "x" || text[i + 1] == "X") {
         i = i + 2
-        let hexVal = 0
+        let hstart = i
         while i < len(text) && hexDigitVal(text[i]) >= 0 {
-            hexVal = hexVal * 16 + hexDigitVal(text[i])
             i += 1
+        }
+        // Magnitude guard: the native runtime tags any value >= 0x7F000000 as a
+        // pointer, so building such an int segfaults. Decide on the digit STRING
+        // (before any int math) and fail cleanly instead of crashing.
+        let z = hstart
+        while z < i - 1 && text[z] == "0" { z += 1 }   // strip leading zeros
+        let sig = i - z                                // significant hex digits
+        let over = "0"
+        if sig > 8 { over = "1" }
+        if sig == 8 {
+            let d0 = hexDigitVal(text[z])
+            if d0 > 7 { over = "1" }
+            if d0 == 7 && hexDigitVal(text[z + 1]) == 15 { over = "1" }
+        }
+        if over == "1" {
+            printErr("kcc: integer literal 0x" + substring(text, hstart, i) + " exceeds the native runtime limit (max 0x7EFFFFFF) — represent it as a string or split it.\n")
+            exit(1)
+        }
+        let hexVal = 0
+        let k = hstart
+        while k < i {
+            hexVal = hexVal * 16 + hexDigitVal(text[k])
+            k += 1
         }
         emit hexVal + "," + i
     }
+    let dstart = i
     while i < len(text) && isDigit(text[i]) {
         i += 1
     }
+    let isFloat = "0"
     // check for float: digits followed by . followed by digits
     if i < len(text) && text[i] == "." {
         if i + 1 < len(text) && isDigit(text[i + 1]) {
+            isFloat = "1"
             i += 1
             while i < len(text) && isDigit(text[i]) {
                 i += 1
             }
+        }
+    }
+    // Same magnitude guard for decimal integers (ceiling 0x7F000000 = 2130706432).
+    if isFloat == "0" && i > dstart {
+        let z2 = dstart
+        while z2 < i - 1 && text[z2] == "0" { z2 += 1 }
+        if decGE(substring(text, z2, i), "2130706432") == "1" {
+            printErr("kcc: integer literal " + substring(text, dstart, i) + " exceeds the native runtime limit (max 2130706431) — represent it as a string or split it.\n")
+            exit(1)
         }
     }
     emit substring(text, start, i) + "," + i
