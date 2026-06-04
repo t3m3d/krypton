@@ -3161,20 +3161,17 @@ just run {
                         }
                     }
                     structTable = structTable + sEntry + "\n"
-                    // Emit C accessor functions
-                    let sAccessors = "static char* structnew_" + sName + "(void){"
-                    sAccessors = sAccessors + sName + "* s=(" + sName + "*)_alloc(sizeof(" + sName + "));"
-                    sAccessors = sAccessors + "memset(s,0,sizeof(" + sName + ")); return (char*)s;}\n"
-                    sAccessors = sAccessors + "static char* structget_" + sName + "(char* p,char* f){"
-                    sAccessors = sAccessors + sName + "* s=(" + sName + "*)p;\n"
-                    sAccessors = sAccessors + getBody
-                    sAccessors = sAccessors + "    return _K_EMPTY;}\n"
-                    sAccessors = sAccessors + "static char* structset_" + sName + "(char* p,char* f,char* v){"
-                    sAccessors = sAccessors + sName + "* s=(" + sName + "*)p;\n"
-                    sAccessors = sAccessors + setBody
-                    sAccessors = sAccessors + "    return _K_EMPTY;}\n"
-                    sAccessors = sAccessors + "static char* structsizeof_" + sName + "(void){return kr_itoa(sizeof(" + sName + "));}\n"
-                    importFwdDecls = importFwdDecls + sAccessors
+                    // C accessor functions skipped in --ir mode (native pipeline doesn't
+                    // need C source). structTable still updated above so the type info
+                    // is available for IR generation. Legacy --c path's C accessors
+                    // need a Krypton replacement (TODO: emit IR-side struct accessors).
+                    if irMode == 0 {
+                        let sAccessors = "static char* structnew_" + sName + "(void){}\n"
+                        sAccessors = sAccessors + "static char* structget_" + sName + "(char* p,char* f){return _K_EMPTY;}\n"
+                        sAccessors = sAccessors + "static char* structset_" + sName + "(char* p,char* f,char* v){return _K_EMPTY;}\n"
+                        sAccessors = sAccessors + "static char* structsizeof_" + sName + "(void){return _K_EMPTY;}\n"
+                        importFwdDecls = importFwdDecls + sAccessors
+                    }
                     jxtPos = sfPos + 1
                 } else if lang == "func" {
                     // jxt func declaration: func name(p1, p2) -> type
