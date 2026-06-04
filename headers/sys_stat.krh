@@ -3,8 +3,6 @@
 // Linux/macOS only.
 
 jxt {
-    c "sys/stat.h"
-    c "sys/types.h"
 
     // The stat struct layout varies by platform — declared here as opaque;
     // use stat() to populate, then helper macros (S_ISDIR/S_ISREG/etc.)

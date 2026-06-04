@@ -3,8 +3,6 @@
 // Linux/macOS. Pair with sys_socket.krh and arpa_inet.krh.
 
 jxt {
-    c "netinet/in.h"
-    c "sys/socket.h"
 
     struct in_addr {
         field s_addr UINT

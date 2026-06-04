@@ -8,7 +8,6 @@
 //   MS_ASYNC=1, MS_SYNC=4, MS_INVALIDATE=2
 
 jxt {
-    c "sys/mman.h"
 
     func mmap(addr, length, prot, flags, fd, offset)
     func munmap(addr, length)

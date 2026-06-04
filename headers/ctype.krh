@@ -7,7 +7,6 @@
 // passes raw byte values.
 
 jxt {
-    c "ctype.h"
 
     // Classification
     func isalnum(c)

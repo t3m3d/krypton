@@ -5,7 +5,6 @@
 // Windows users want process.krh's CreateThread / WaitForSingleObject.
 
 jxt {
-    c "pthread.h"
 
     // Thread management
     func pthread_create(thread, attr, start_routine, arg)

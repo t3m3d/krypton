@@ -2,7 +2,6 @@
 // Usage: import "headers/string.krh"
 
 jxt {
-    c "string.h"
 
     func strlen(s)
     func strcpy(dst, src)
