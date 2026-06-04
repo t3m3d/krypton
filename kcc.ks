@@ -357,8 +357,67 @@ just run {
         exit("0")
     }
 
+    // ── Windows native pipeline (x86-64 PE/COFF) ──────────────────────────
+    // git-bash + MSYS report uname -s as MINGW64_NT-... or MSYS_NT-...; native
+    // cmd doesn't run this script anyway. Single-stage: kcc.exe is the
+    // combined front+back-end, no separate host binary like macOS/Linux.
+    if startsWith(os, "MINGW") == "1" || startsWith(os, "MSYS") == "1" || startsWith(os, "CYGWIN") == "1" {
+        if hasFlag("--c")    { kp("kcc: --c was removed (Krypton is C-free; native pipeline only).")    exit("1") }
+        if hasFlag("--gcc")  { kp("kcc: --gcc was removed (Krypton is C-free; native pipeline only).")  exit("1") }
+        if hasFlag("--llvm") { kp("kcc: --llvm was removed (Krypton is C-free; native pipeline only).") exit("1") }
+        if hasFlag("--wasm") { kp("kcc: --wasm is not wired into the Krypton-native driver yet.")        exit("1") }
+
+        // Try install root, then C:\krypton, then PATH-installed.
+        let kccExe = root + "/kcc.exe"
+        if exists(kccExe) == "0" { kccExe = "C:/krypton/kcc.exe" }
+        if exists(kccExe) == "0" {
+            kp("kcc-native: cannot find kcc.exe (looked in $KRYPTON_ROOT and C:/krypton).")
+            exit("1")
+        }
+
+        // --ir: front-end only, IR to stdout.
+        if hasFlag("--ir") {
+            let s = linuxSrc()
+            if s == "" { kp("kcc: --ir needs a source file")  exit("1") }
+            kp(sh(q(kccExe) + " --ir " + q(s)))
+            exit("0")
+        }
+        // -e CODE: wrap, compile, run, delete.
+        if first == "-e" {
+            if argCount() < 2 { kp("kcc: -e needs code")  exit("1") }
+            let ek = sh("mktemp /tmp/_kcceval_XXXXXX.ks")
+            writeText(ek, "just run {\n" + arg(1) + "\n}\n")
+            let ebin = sh("mktemp /tmp/_kcceval_XXXXXX.exe")
+            exec(q(kccExe) + " -o " + q(ebin) + " " + q(ek))
+            if exists(ebin) == "0" { rm(ek)  exit("1") }
+            kp(sh(q(ebin)))
+            rm(ek)
+            rm(ebin)
+            exit("0")
+        }
+        // -r SRC [args]: compile, run, delete.
+        if first == "-r" {
+            if argCount() < 2 { kp("kcc: -r needs a source file")  exit("1") }
+            let src = arg(1)
+            let tmpbin = sh("mktemp /tmp/_kcckrun_XXXXXX.exe")
+            exec(q(kccExe) + " -o " + q(tmpbin) + " " + q(src))
+            if exists(tmpbin) == "0" { exit("1") }
+            let passed = restFrom(2)
+            kp(sh(q(tmpbin) + " " + passed))
+            rm(tmpbin)
+            exit("0")
+        }
+        // default: compile src [-o OUT].
+        let src = positional(0)
+        if src == "" { kp("kcc: no source file")  exit("1") }
+        let out = optValue("-o", baseName(src) + ".exe")
+        exec(q(kccExe) + " -o " + q(out) + " " + q(src))
+        if exists(out) == "0" { kp("kcc: native codegen failed")  exit("1") }
+        exit("0")
+    }
+
     if os != "Darwin" {
-        kp("kcc-native: unsupported host " + os + " (macOS + Linux wired)")
+        kp("kcc-native: unsupported host " + os + " (macOS + Linux + Windows wired)")
         exit("1")
     }
 
