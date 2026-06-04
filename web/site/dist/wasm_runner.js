@@ -215,7 +215,7 @@
     }
     syncCanvasSize();
 
-    fetch('/particles.wasm?v=16', { cache: 'no-cache' })
+    fetch('/particles.wasm?v=17', { cache: 'no-cache' })
       .then(function (r) { return r.ok ? r.arrayBuffer() : null; })
       .catch(function () { return null; })
       .then(function (bytes) {
