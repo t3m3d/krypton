@@ -25,6 +25,32 @@ All notable changes to the Krypton language and compiler.
   (CreateGC + PolyFillRectangle + ImageText8) reassigned to agent l —
   they own the deeper Linux syscall surface (AF_UNIX, forkpty, etc).
 
+**Three more stdlib modules — color / mime / cookie (agent w):**
+
+Filling JS/Python-equivalent gaps that the existing 74 modules
+didn't cover. All pure Krypton, no syscalls, no C; verified via
+`tests/smoke_new_stdlib.k` (21/21 PASS).
+
+- `stdlib/color.k` — `colorHexToRgb` / `colorRgbToHex` /
+  `colorRgbToHsl` / `colorHslToRgb` / `colorLighten` / `colorDarken`
+  / `colorMix`. Integer-only HSL math (sat/light 0..100, hue 0..360),
+  clamps RGB to 0..255. Companion to `k:gui` and site theme code.
+- `stdlib/mime.k` — `mimeFromExt(ext)` / `mimeFromPath(path)`. ~50-
+  entry table covering web + dev formats (html/css/js/json/svg/png/
+  jpg/webp/avif/woff/woff2/mp4/webm/wasm/pdf/zip/yaml/toml + the
+  Krypton extensions: `.k`, `.ks`, `.krh`, `.htk`). Falls back to
+  `application/octet-stream`. Companion to `k:server_native` / `k:fs`.
+- `stdlib/cookie.k` — `cookieGet` / `cookieParse` / `cookieBuild` /
+  `cookieSet`. Parses `Cookie:` request headers, builds
+  `Set-Cookie:` responses with attrs (Path / Max-Age / Expires /
+  Secure / HttpOnly / SameSite). Prefix-collision-safe lookups.
+  Companion to `k:server_native`.
+
+(uuid was attempted but deferred — Krypton's `random()` builtin
+returns 0 on Linux, and `rdtsc` / `timestamp` exceed the smart-int
+pointer ceiling at 0x7F000000 and get re-tagged. Coming back once a
+small-int entropy primitive lands.)
+
 **Host architecture detection — `stdlib/arch.k` + kcc.ks integration (agent w):**
 
 - New stdlib module returns the host CPU as a normalized string
