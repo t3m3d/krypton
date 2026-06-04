@@ -3362,11 +3362,18 @@ just run {
             }
             }
         } else if tok == "KW:callback" {
-            // callback func — compile as void C function
-            let fp = compileCallbackFunc(tokens, i + 1, ntoks)
-            let fcode = pairVal(fp)
-            sb = sbAppend(sb, fcode)
-            i = pairPos(fp)
+            // callback func — was compiled as void C function in --c mode.
+            // compileCallbackFunc deleted with the C-emit code; advance past
+            // the body in IR mode (which has its own handling via irFuncIR).
+            if irMode == 1 {
+                let cbSk = i + 3
+                while cbSk < ntoks && tokAt(tokens, cbSk) != "RPAREN" { cbSk += 1 }
+                cbSk += 1
+                if tokAt(tokens, cbSk) == "ARROW" { cbSk += 2 }
+                i = skipBlock(tokens, cbSk)
+            } else {
+                i += 1
+            }
         } else if tokType(tok) == "CBLOCK" {
             // cfunc { } — decode SOH placeholders back to newlines and emit verbatim
             let craw = replace(tokVal(tok), "\x01", "\n")
