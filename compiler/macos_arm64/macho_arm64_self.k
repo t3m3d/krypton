@@ -228,7 +228,10 @@ func DATA_FILESIZE()      { emit 0x4000 }    // 16 KB file backing (1 page; rest
 // __TEXT vmsize = 16 KB-aligned (0x460 + text + stubs(12) + cstring).
 func computeLayout() {
     let pageSize = 0x4000
-    let textEnd = 0x460 + g_TEXT_SIZE + 12 + g_CSTRING_SIZE
+    // No __stubs section anymore (the dead _puts import was removed for a
+    // C-free, libSystem-free runtime), so __text is followed directly by
+    // __cstring — drop the old +12 stub bytes.
+    let textEnd = 0x460 + g_TEXT_SIZE + g_CSTRING_SIZE
     let textVmsize = ((textEnd + pageSize - 1) / pageSize) * pageSize
     if textVmsize < pageSize { textVmsize = pageSize }
     g_TEXT_VMSIZE = textVmsize
@@ -237,7 +240,11 @@ func computeLayout() {
     g_LINKEDIT_FILE_OFF = textVmsize + 0x8000
     g_DATA_VADDR = 0 + textVmsize + 0x4000
     g_LINKEDIT_VADDR = g_DATA_VADDR + DATA_VMSIZE()  // must match DATA vmsize, else LINKEDIT overlaps the heap (was hardcoded 0x40000000=1GB while DATA vmsize=0x70000000 → heap SEGV'd at 1GB; blocked native self-host)
-    g_CODESIG_OFF = g_LINKEDIT_FILE_OFF + 192
+    // LINKEDIT meta = empty chained-fixups(56) + symtab(2×16=32) + strtab(32)
+    // = 120. The chained-fixups blob has zero imports (no libSystem/_puts) and
+    // zero rebases — it exists only because dyld requires the command present.
+    // No indirect symtab (that belonged to the removed _puts stub/got).
+    g_CODESIG_OFF = g_LINKEDIT_FILE_OFF + 120
     let nCodeSlots = (g_CODESIG_OFF + pageSize - 1) / pageSize
     // SuperBlob: hdr(12) + 3 indices(24) + CD + requirements(12) + CMS(8).
     // CD = 88 hdr + ident "krypton"+NUL(8) + 2 special slots(64) + nCode*32.
@@ -251,21 +258,18 @@ func TEXT_OFF()           { emit 0x460 }        // fixed: just past header+LCs
 func TEXT_SIZE()          { emit g_TEXT_SIZE }
 func STUBS_OFF()          { emit 0x460 + g_TEXT_SIZE }
 func STUBS_SIZE()         { emit 12 }           // 1 stub for _puts × 12 bytes
-func CSTRING_OFF()        { emit 0x460 + g_TEXT_SIZE + 12 }
+func CSTRING_OFF()        { emit 0x460 + g_TEXT_SIZE }
 func CSTRING_SIZE()       { emit g_CSTRING_SIZE }
-func GOT_OFF()            { emit g_DATA_CONST_FILE_OFF }
-func GOT_SIZE()           { emit 8 }
 
+// LINKEDIT layout after the libSystem/_puts removal: empty chained-fixups,
+// then symtab + strtab. No __got, no indirect symtab.
 func CHAINED_FIXUPS_OFF() { emit g_LINKEDIT_FILE_OFF }
-func CHAINED_FIXUPS_SIZE() { emit 96 }
-func SYMTAB_OFF()         { emit g_LINKEDIT_FILE_OFF + 96 }
-func NSYMS()              { emit 3 }
-func SYMTAB_SIZE()        { emit 48 }           // 3 × nlist_64 (16 bytes each)
-func INDIRECT_SYMTAB_OFF() { emit g_LINKEDIT_FILE_OFF + 144 }
-func NINDIRECTSYMS()      { emit 2 }
-func INDIRECT_SYMTAB_SIZE() { emit 8 }
-func STRTAB_OFF()         { emit g_LINKEDIT_FILE_OFF + 152 }
-func STRTAB_SIZE()        { emit 40 }           // padded to 8
+func CHAINED_FIXUPS_SIZE() { emit 56 }          // empty: header(32)+starts_in_image(24)
+func SYMTAB_OFF()         { emit g_LINKEDIT_FILE_OFF + 56 }
+func NSYMS()              { emit 2 }
+func SYMTAB_SIZE()        { emit 32 }           // 2 × nlist_64 (16 bytes each)
+func STRTAB_OFF()         { emit g_LINKEDIT_FILE_OFF + 88 }
+func STRTAB_SIZE()        { emit 32 }           // ' '+NUL+__mh_execute_header\0+_main\0 = 28, padded to 32
 
 func CODESIG_OFF()        { emit g_CODESIG_OFF }
 func CODESIG_SIZE()       { emit g_CODESIG_SIZE }
@@ -2208,9 +2212,9 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
 
     let textVaddr = 0
     let textOff = 0x460
-    let stubsOff = textOff + textSz
-    let cstringOff = stubsOff + 12
-    let stubVaddr = textVaddr + stubsOff
+    // __cstring follows __text directly now (the 12-byte _puts stub is gone).
+    let cstringOff = textOff + textSz
+    let stubVaddr = textVaddr + cstringOff
 
     let s = sbNew()
     let instrIdx = funcStartInstr
@@ -5008,57 +5012,39 @@ func emitCString() { emit hexStr("Hi") + hexByte(0) }
 // Encoded: bit 63 = 1, all other bits 0. 8-byte LE: 00 00 00 00 00 00 00 80.
 func emitGotSlot() { emit hexDword(0) + hexDword(0x80000000) }
 
-// ── chained_fixups payload (96 bytes, hardcoded) ────────────────────────────
-// dyld_chained_fixups_header (32 B):
-//   fixups_version=0, starts_offset=32, imports_offset=80,
-//   symbols_offset=84, imports_count=1, imports_format=1, symbols_format=0
-// + dyld_chained_starts_in_image (4 segs) at offset 32
-// + dyld_chained_starts_in_segment (page_size 0x4000, format 6,
-//   seg_offset=0x4000, page_count=1, page_start[0]=0) at offset 56
-// + import (4 B): lib_ordinal=1 (libSystem), name_offset=1
-// + symbols: NUL "_puts" NUL (8 B)
+// ── empty chained_fixups payload (56 bytes) ─────────────────────────────────
+// dyld requires LC_DYLD_CHAINED_FIXUPS present, but this binary has nothing to
+// bind (no imports — libSystem/_puts gone) and nothing to rebase (non-PIE,
+// absolute vaddrs). So: header with imports_count=0, and a starts_in_image
+// whose every segment offset is 0 (no segment carries a fixup chain).
+//   header (32B): version=0, starts_offset=32, imports_offset=56,
+//     symbols_offset=56, imports_count=0, imports_format=1, symbols_format=0
+//   starts_in_image (24B): seg_count=5, then 5 × uint32 seg_info_offset = 0
 func emitChainedFixups() {
     let s = ""
-    // header — 32 B
     s = s + hexDword(0)              // fixups_version
     s = s + hexDword(32)             // starts_offset
-    s = s + hexDword(80)             // imports_offset
-    s = s + hexDword(84)             // symbols_offset
-    s = s + hexDword(1)              // imports_count
-    s = s + hexDword(1)              // imports_format = DYLD_CHAINED_IMPORT
-    s = s + hexDword(0)              // symbols_format = uncompressed
+    s = s + hexDword(56)             // imports_offset (== end; no imports)
+    s = s + hexDword(56)             // symbols_offset (== end; no symbols)
+    s = s + hexDword(0)              // imports_count = 0
+    s = s + hexDword(1)              // imports_format
+    s = s + hexDword(0)              // symbols_format
     s = s + hexDword(0)              // pad to 32B
-    // starts_in_image — 24 B (seg_count + 5 × uint32 seg_info_offset)
+    // starts_in_image — 24 B: seg_count + 5 × seg_info_offset (all 0)
     s = s + hexDword(5)              // seg_count (PAGEZERO/TEXT/DATA_CONST/DATA/LINKEDIT)
-    s = s + hexDword(0)              // [0] __PAGEZERO
-    s = s + hexDword(0)              // [1] __TEXT
-    s = s + hexDword(24)             // [2] __DATA_CONST → starts_in_segment at offset 24
-    s = s + hexDword(0)              // [3] __DATA      (heap; no chained pointers)
-    s = s + hexDword(0)              // [4] __LINKEDIT
-    // starts_in_segment for __DATA_CONST — 24 B (header 8 + segoff 8 + maxptr 4 + page_count+page_start 4)
-    s = s + hexDword(24)             // size
-    s = s + hexWord(0x4000)          // page_size = 16 KB
-    s = s + hexWord(6)               // pointer_format = DYLD_CHAINED_PTR_64_OFFSET
-    s = s + hexQword(g_DATA_CONST_FILE_OFF)  // segment_offset (image-base-relative; matches __DATA_CONST file offset)
-    s = s + hexDword(0)              // max_valid_pointer
-    s = s + hexWord(1)               // page_count
-    s = s + hexWord(0)               // page_start[0] = 0 (chain starts at byte 0 of page)
-    // imports table — 4 B (1 import) at offset 80
-    // dyld_chained_import: lib_ordinal=1, weak=0, name_offset=1
-    // packed: ordinal | (weak<<8) | (name_offset<<9) = 1 | (1<<9) = 0x201
-    s = s + hexDword(0x00000201)
-    // symbols section starts at offset 84, runs to offset 96 = 12 B
-    s = s + hexByte(0)               // sentinel at offset 0
-    s = s + hexStr("_puts") + hexByte(0)  // 6 B
-    s = s + hexPad(5)                // pad to 12 B (total chained-fixups = 96)
+    s = s + hexDword(0)              // [0] __PAGEZERO  — no fixups
+    s = s + hexDword(0)              // [1] __TEXT      — no fixups
+    s = s + hexDword(0)              // [2] __DATA_CONST — no fixups
+    s = s + hexDword(0)              // [3] __DATA      — no fixups
+    s = s + hexDword(0)              // [4] __LINKEDIT  — no fixups
     emit s
 }
 
-// ── symtab (48 B = 3 × nlist_64) ────────────────────────────────────────────
+// ── symtab (32 B = 2 × nlist_64) ────────────────────────────────────────────
 // Symbols (in declaration order, matches strtab layout):
 //   0: __mh_execute_header  (defined, sect 1, value = TEXT_VADDR)
 //   1: _main                (defined, sect 1, value = TEXT_VADDR + TEXT_OFF)
-//   2: _puts                (undefined, lib ordinal 1 in n_desc)
+// (_puts was removed — the runtime imports nothing.)
 func emitSymtab() {
     let s = ""
     // sym 0: __mh_execute_header
@@ -5073,39 +5059,23 @@ func emitSymtab() {
     s = s + hexByte(1)
     s = s + hexWord(0)
     s = s + hexQword2(TEXT_VADDR() + g_ENTRY_OFF, 1) // _main vaddr (entry point)
-    // sym 2: _puts (undef, imported)
-    s = s + hexDword(STRX_PUTS())
-    s = s + hexByte(0x01)                       // n_type = N_EXT (UNDF)
-    s = s + hexByte(0)                          // n_sect = 0
-    s = s + hexWord(0x0100)                     // n_desc: lib_ordinal=1 in high byte
-    s = s + hexQword(0)
     emit s
 }
 
-// ── indirect symtab (8 B = 2 × uint32) ──────────────────────────────────────
-// Both entries reference symtab idx 2 (_puts):
-//   entry 0 → __stubs[0]  → _puts
-//   entry 1 → __got[0]    → _puts
-func emitIndirectSymtab() {
-    emit hexDword(2) + hexDword(2)
-}
-
-// ── strtab (40 B padded) ────────────────────────────────────────────────────
-// Layout (matches reference for compatibility):
+// ── strtab (32 B padded) ────────────────────────────────────────────────────
+// Layout:
 //   [0]  ' '              (1 B, "space" sentinel some strtabs use)
 //   [1]  NUL              (1 B, empty string at idx 1)
 //   [2]  "__mh_execute_header\0"  (20 B)
 //   [22] "_main\0"        (6 B)
-//   [28] "_puts\0"        (6 B)
-//   [34] pad to 40        (6 NULs)
+//   [28] pad to 32        (4 NULs)
 func emitStrtab() {
     let s = ""
     s = s + hexByte(0x20)            // ' '
     s = s + hexByte(0)               // NUL @ offset 1
     s = s + hexStr("__mh_execute_header") + hexByte(0)
     s = s + hexStr("_main") + hexByte(0)
-    s = s + hexStr("_puts") + hexByte(0)
-    s = s + hexPad(6)                // pad to 40 bytes
+    s = s + hexPad(4)                // pad to 32 bytes
     emit s
 }
 
@@ -5248,11 +5218,11 @@ func emitLcPagezero() {
     emit s
 }
 
-// LC_SEGMENT_64 __TEXT (with 3 sections: __text, __stubs, __cstring)
-// cmdsize = 72 + 3*80 = 312
+// LC_SEGMENT_64 __TEXT (with 2 sections: __text, __cstring)
+// cmdsize = 72 + 2*80 = 232. (__stubs removed with the dead _puts import.)
 func emitLcSegText() {
     let s = ""
-    s = s + hexDword(LC_SEGMENT_64()) + hexDword(312)
+    s = s + hexDword(LC_SEGMENT_64()) + hexDword(232)
     s = s + hexStr("__TEXT") + hexPad(10)
     s = s + hexQword2(0, 1)                         // vmaddr = 0
     s = s + hexQword(g_TEXT_VMSIZE)                 // vmsize = TEXT_VMSIZE
@@ -5260,7 +5230,7 @@ func emitLcSegText() {
     s = s + hexQword(g_TEXT_VMSIZE)                 // filesize = same
     s = s + hexDword(5)                             // maxprot = R+X
     s = s + hexDword(5)                             // initprot = R+X
-    s = s + hexDword(3)                             // nsects
+    s = s + hexDword(2)                             // nsects
     s = s + hexDword(0)                             // flags
     // Section 1: __text
     s = s + hexStr("__text") + hexPad(10)
@@ -5275,20 +5245,7 @@ func emitLcSegText() {
     s = s + hexDword(0)                             // reserved1
     s = s + hexDword(0)                             // reserved2
     s = s + hexDword(0)                             // reserved3
-    // Section 2: __stubs
-    s = s + hexStr("__stubs") + hexPad(9)
-    s = s + hexStr("__TEXT") + hexPad(10)
-    s = s + hexQword2(TEXT_VADDR() + STUBS_OFF(), 1)
-    s = s + hexQword(STUBS_SIZE())
-    s = s + hexDword(STUBS_OFF())
-    s = s + hexDword(2)                             // align 4
-    s = s + hexDword(0)
-    s = s + hexDword(0)
-    s = s + hexDword(0x80000408)                    // PURE | SOME | S_SYMBOL_STUBS
-    s = s + hexDword(0)                             // reserved1 = 0 (idx into indirect symtab)
-    s = s + hexDword(12)                            // reserved2 = stub size
-    s = s + hexDword(0)                             // reserved3
-    // Section 3: __cstring
+    // Section 2: __cstring
     s = s + hexStr("__cstring") + hexPad(7)
     s = s + hexStr("__TEXT") + hexPad(10)
     s = s + hexQword2(TEXT_VADDR() + CSTRING_OFF(), 1)
@@ -5304,33 +5261,21 @@ func emitLcSegText() {
     emit s
 }
 
-// LC_SEGMENT_64 __DATA_CONST (1 section: __got)
-// cmdsize = 72 + 80 = 152
+// LC_SEGMENT_64 __DATA_CONST (0 sections — empty reserved page)
+// Kept (as an R-only zero page) only so __DATA and the heap keep their file
+// offsets / vaddrs after the __got removal. cmdsize = 72.
 func emitLcSegDataConst() {
     let s = ""
-    s = s + hexDword(LC_SEGMENT_64()) + hexDword(152)
+    s = s + hexDword(LC_SEGMENT_64()) + hexDword(72)
     s = s + hexStr("__DATA_CONST") + hexPad(4)
     s = s + hexQword2(g_TEXT_VMSIZE, 1)             // vmaddr = TEXT_VADDR + TEXT_VMSIZE
     s = s + hexQword(0x4000)                        // vmsize (one page)
     s = s + hexQword(g_DATA_CONST_FILE_OFF)         // fileoff
     s = s + hexQword(0x4000)                        // filesize
-    s = s + hexDword(3)                             // maxprot = R+W
-    s = s + hexDword(3)                             // initprot = R+W
-    s = s + hexDword(1)                             // nsects
+    s = s + hexDword(1)                             // maxprot = R
+    s = s + hexDword(1)                             // initprot = R
+    s = s + hexDword(0)                             // nsects
     s = s + hexDword(0x10)                          // SG_READ_ONLY
-    // Section 1: __got
-    s = s + hexStr("__got") + hexPad(11)
-    s = s + hexStr("__DATA_CONST") + hexPad(4)
-    s = s + hexQword2(g_TEXT_VMSIZE, 1)             // addr = same as segment vmaddr
-    s = s + hexQword(GOT_SIZE())
-    s = s + hexDword(GOT_OFF())
-    s = s + hexDword(3)                             // align 8
-    s = s + hexDword(0)
-    s = s + hexDword(0)
-    s = s + hexDword(0x00000006)                    // S_NON_LAZY_SYMBOL_POINTERS
-    s = s + hexDword(1)                             // reserved1 = 1 (indirect symtab idx)
-    s = s + hexDword(0)
-    s = s + hexDword(0)
     emit s
 }
 
@@ -5383,7 +5328,7 @@ func emitLcSegLinkedit() {
     emit s
 }
 
-// LC_DYLD_CHAINED_FIXUPS (16 B)
+// LC_DYLD_CHAINED_FIXUPS (16 B) — points at the empty fixups blob.
 func emitLcChainedFixups() {
     let s = ""
     s = s + hexDword(LC_DYLD_CHAINED_FIXUPS()) + hexDword(16)
@@ -5404,8 +5349,8 @@ func emitLcSymtab() {
 }
 
 // LC_DYSYMTAB (80 B)
-// We have: nlocalsym=0, nextdefsym=2 (mh_execute_header, _main), nundefsym=1 (_puts).
-// Symbol order in symtab matches: idx 0,1 are extdef; idx 2 is undef.
+// nlocalsym=0, nextdefsym=2 (mh_execute_header, _main), nundefsym=0.
+// No indirect symtab (the __stubs/__got that needed it are gone).
 func emitLcDysymtab() {
     let s = ""
     s = s + hexDword(LC_DYSYMTAB()) + hexDword(80)
@@ -5414,15 +5359,15 @@ func emitLcDysymtab() {
     s = s + hexDword(0)                             // iextdefsym
     s = s + hexDword(2)                             // nextdefsym
     s = s + hexDword(2)                             // iundefsym
-    s = s + hexDword(1)                             // nundefsym
+    s = s + hexDword(0)                             // nundefsym
     s = s + hexDword(0)                             // tocoff
     s = s + hexDword(0)                             // ntoc
     s = s + hexDword(0)                             // modtaboff
     s = s + hexDword(0)                             // nmodtab
     s = s + hexDword(0)                             // extrefsymoff
     s = s + hexDword(0)                             // nextrefsyms
-    s = s + hexDword(INDIRECT_SYMTAB_OFF())
-    s = s + hexDword(NINDIRECTSYMS())
+    s = s + hexDword(0)                             // indirectsymoff
+    s = s + hexDword(0)                             // nindirectsyms
     s = s + hexDword(0)                             // extreloff
     s = s + hexDword(0)                             // nextrel
     s = s + hexDword(0)                             // locreloff
@@ -5460,23 +5405,7 @@ func emitLcMain() {
     emit s
 }
 
-// LC_LOAD_DYLIB libSystem (56 B)
-//   header: cmd, cmdsize, name_off=24, timestamp=2, current_ver=1356.0.0, compat_ver=1.0.0
-//   then "/usr/lib/libSystem.B.dylib\0" = 27 B, padded to 32 → 56 total
-// version field encoding: (major<<16) | (minor<<8) | patch
-//   1356.0.0 = 0x054C0000
-//   1.0.0    = 0x00010000
-func emitLcLoadDylib() {
-    let s = ""
-    s = s + hexDword(LC_LOAD_DYLIB()) + hexDword(56)
-    s = s + hexDword(24)                            // name offset
-    s = s + hexDword(2)                             // timestamp
-    s = s + hexDword(0x054c0000)                    // current_version 1356.0.0
-    s = s + hexDword(0x00010000)                    // compat_version 1.0.0
-    s = s + hexStr("/usr/lib/libSystem.B.dylib") + hexByte(0)  // 27 B
-    s = s + hexPad(5)                               // pad to 32 → cmdsize 56
-    emit s
-}
+// (LC_LOAD_DYLIB libSystem removed — the runtime imports no C library.)
 
 // LC_CODE_SIGNATURE (16 B)
 func emitLcCodeSignature() {
@@ -5602,7 +5531,9 @@ just run {
         exit(0)
     }
 
-    // Build all 13 load commands (added __DATA segment for the heap)
+    // Build all 12 load commands. The chained-fixups blob is EMPTY (no
+    // imports), and there is no LC_LOAD_DYLIB: the runtime links no C library
+    // (libSystem/_puts gone). dyld still requires the fixups command present.
     let lcs = ""
     lcs = lcs + emitLcPagezero()
     lcs = lcs + emitLcSegText()
@@ -5615,11 +5546,10 @@ just run {
     lcs = lcs + emitLcLoadDylinker()
     lcs = lcs + emitLcBuildVersion()
     lcs = lcs + emitLcMain()
-    lcs = lcs + emitLcLoadDylib()
     lcs = lcs + emitLcCodeSignature()
 
     let sizeofcmds = hexBytesLen(lcs)
-    let header = emitHeader(13, sizeofcmds)
+    let header = emitHeader(12, sizeofcmds)
 
     // Pre-text padding: from (32 + sizeofcmds) up to TEXT_OFF
     let prefix = header + lcs
@@ -5644,15 +5574,12 @@ just run {
         textCode = emitMainCode()
         cstrData = emitCString()
     }
-    let stubCode = emitStubCode()
-
     // Pad after __cstring up to __DATA_CONST page boundary (file 0x4000)
     let textSegEnd = CSTRING_OFF() + CSTRING_SIZE()
     let postCstringPad = DATA_CONST_FILE_OFF() - textSegEnd
 
-    // __DATA_CONST: __got slot + zero pad to __DATA page boundary (0x8000)
-    let gotData = emitGotSlot()
-    let postGotPad = DATA_FILE_OFF() - DATA_CONST_FILE_OFF() - GOT_SIZE()
+    // __DATA_CONST: empty reserved page — zero fill to the __DATA boundary.
+    let dataConstPad = DATA_FILE_OFF() - DATA_CONST_FILE_OFF()
 
     // __DATA file backing — 16 KB of zeros (no useful initial data; the bump
     // cell lives in the zero-fill region past filesize, where pages are
@@ -5660,10 +5587,9 @@ just run {
     let dataInit = ""
     let postDataPad = LINKEDIT_FILE_OFF() - DATA_FILE_OFF()
 
-    // __LINKEDIT: chained fixups, symtab, indirect symtab, strtab
+    // __LINKEDIT: empty chained fixups + symtab + strtab (no indirect symtab)
     let leChained = emitChainedFixups()
     let leSymtab = emitSymtab()
-    let leIndirect = emitIndirectSymtab()
     let leStrtab = emitStrtab()
     // Pad strtab end to CODESIG_OFF (16-byte align)
     let strtabEnd = STRTAB_OFF() + STRTAB_SIZE()
@@ -5672,18 +5598,18 @@ just run {
     // Build the file body up to (but NOT including) the code signature.
     // This is exactly `codeLimit` bytes — what the kernel hashes.
     let body = prefix + hexPad(preTextPad)
-    body = body + textCode + stubCode + cstrData + hexPad(postCstringPad)
-    body = body + gotData + hexPad(postGotPad)
+    body = body + textCode + cstrData + hexPad(postCstringPad)
+    body = body + hexPad(dataConstPad)
     body = body + dataInit + hexPad(postDataPad)
-    body = body + leChained + leSymtab + leIndirect + leStrtab + hexPad(preCodesigPad)
+    body = body + leChained + leSymtab + leStrtab + hexPad(preCodesigPad)
 
     let codeLimit = hexBytesLen(body)
     if codeLimit != CODESIG_OFF() {
         printErr("macho_arm64_self: BUG: body size " + codeLimit + " != CODESIG_OFF " + CODESIG_OFF())
         printErr("  prefix=" + hexBytesLen(prefix) + " preTextPad=" + preTextPad + " textCode=" + hexBytesLen(textCode))
-        printErr("  stubCode=" + hexBytesLen(stubCode) + " cstrData=" + hexBytesLen(cstrData) + " postCstringPad=" + postCstringPad)
-        printErr("  gotData=" + hexBytesLen(gotData) + " postGotPad=" + postGotPad + " postDataPad=" + postDataPad)
-        printErr("  leChained=" + hexBytesLen(leChained) + " leSymtab=" + hexBytesLen(leSymtab) + " leIndirect=" + hexBytesLen(leIndirect) + " leStrtab=" + hexBytesLen(leStrtab) + " preCodesigPad=" + preCodesigPad)
+        printErr("  cstrData=" + hexBytesLen(cstrData) + " postCstringPad=" + postCstringPad + " dataConstPad=" + dataConstPad)
+        printErr("  postDataPad=" + postDataPad)
+        printErr("  leSymtab=" + hexBytesLen(leSymtab) + " leStrtab=" + hexBytesLen(leStrtab) + " preCodesigPad=" + preCodesigPad)
         printErr("  g_TEXT_SIZE=" + g_TEXT_SIZE + " g_CSTRING_SIZE=" + g_CSTRING_SIZE)
         exit("1")
     }
