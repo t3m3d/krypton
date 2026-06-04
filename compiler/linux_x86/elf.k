@@ -3037,11 +3037,13 @@ func emitStartCode(callDisp, atoiDisp) {
     c = c + hexByte(0x4C) + hexByte(0x8D) + hexByte(0x6C) + hexByte(0x24) + hexByte(0x08)
     c = c + hexByte(0xB8) + hexDword(9)
     c = c + hexByte(0x31) + hexByte(0xFF)
-    // heap: 512 MB (bump-only, no GC; mmap lazy so only touched pages cost RAM).
-    // With the O(n) StringBuilder the full elf.kir self-compile peaks at ~260 MB,
-    // so 512 MB is comfortable headroom. 0x20000000 < the int/pointer threshold,
-    // so it emits cleanly through hexDword. MOV ESI, 0x20000000.
-    c = c + hexByte(0xBE) + hexDword(0x20000000)
+    // heap: ~1.875 GB (bump-only, no GC; mmap lazy so only touched pages cost RAM).
+    // elf.kir self-compile peaks at ~260 MB, but the larger compile.kir
+    // (front-end, ~552 KB output) exhausted the old 512 MB cap and SIGSEGV'd —
+    // the native self-host of the front-end. 0x70000000 stays just under the
+    // int/pointer threshold (0x7F000000) so it still emits cleanly through
+    // hexDword. MOV ESI, 0x70000000.
+    c = c + hexByte(0xBE) + hexDword(0x70000000)
     c = c + hexByte(0xBA) + hexDword(3)
     c = c + hexByte(0x41) + hexByte(0xBA) + hexDword(0x22)
     c = c + hexByte(0x49) + hexByte(0xC7) + hexByte(0xC0) + hexDword(0 - 1)
