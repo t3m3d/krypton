@@ -55,6 +55,7 @@ func e_strb(wt, xn)  { let p = xn * 32 + wt  emit wordHL(14592, p) }            
 func e_ldrbO(wt, xn, xm) { let p = 26624 + xn * 32 + wt  emit wordHL(14432 + xm + p / 65536, p % 65536) }
 func e_ldrb0(wt, xn) { let p = xn * 32 + wt  emit wordHL(14656, p) }                 // ldrb Wt,[Xn]
 func e_strbO(wt, xn, off) { let p = off * 1024 + xn * 32 + wt  emit wordHL(14592 + p / 65536, p % 65536) } // strb Wt,[Xn,#off]
+func e_strbR(wt, xn, xm) { let p = 26624 + xn * 32 + wt  emit wordHL(14368 + xm + p / 65536, p % 65536) } // strb Wt,[Xn,Xm]
 func e_str8(rt, rn, off8) { let p = off8 * 1024 + rn * 32 + rt  emit wordHL(63744 + p / 65536, p % 65536) } // str Xt,[Xn,#off8*8]
 func e_ldr8(rt, rn, off8) { let p = off8 * 1024 + rn * 32 + rt  emit wordHL(63808 + p / 65536, p % 65536) } // ldr Xt,[Xn,#off8*8]
 func e_ret() { emit wordHL(54879, 960) }
@@ -137,6 +138,17 @@ func emitAtoi() {
     c = c + e_mul(0, 0, 4) + e_subi(2, 2, 48) + e_addr(0, 0, 2) // x0 = x0*10 + (c-'0')
     c = c + e_addi(1, 1, 1) + e_b(0 - 24)                      // x1++; -> .loop
     c = c + e_ret()                                            // .done: ret
+    emit c
+}
+// kr_substring: x0=s ptr, x1=start, x2=end -> x0=new heap string s[start:end].
+func emitSubstr(allocOff, thisOff) {
+    let c = e_movr(26, 30)                                     // save x30 (clobbered by bl kr_alloc)
+    c = c + e_subr(3, 2, 1) + e_addr(4, 0, 1)                  // x3=len=end-start, x4=src=s+start
+    c = c + e_movr(10, 3) + e_movr(11, 4) + e_addi(0, 3, 1)    // save len/src, x0=size=len+1
+    c = c + e_bl(allocOff - (thisOff + 24))                    // x0=dst (clobbers x0/x15/x22/x30)
+    c = c + e_movz(5, 0) + e_cmp(5, 10) + e_bhs(20)            // i=0; .cl: i<len? no -> .done
+    c = c + e_ldrbO(6, 11, 5) + e_strbR(6, 0, 5) + e_addi(5, 5, 1) + e_b(0 - 20) // dst[i]=src[i]; i++
+    c = c + e_strbR(31, 0, 10) + e_movr(30, 26) + e_ret()      // .done: dst[len]=0; restore x30; ret
     emit c
 }
 // kr_print: x0=ptr -> write the NUL-terminated string then a newline.
@@ -284,6 +296,7 @@ func opSize(ln) {
         if startsWith(b, "toStr") { emit 32 }
         if startsWith(b, "toInt") { emit 20 }
         if startsWith(b, "fromCharCode") { emit 36 }
+        if startsWith(b, "substring") { emit 36 }
         if startsWith(b, "isTruthy") { emit 24 }
         emit 0
     }
@@ -310,7 +323,8 @@ just run {
     let printOff  = plusOff + 212
     let kpDispOff = printOff + 64
     let atoiOff = kpDispOff + 32
-    let nlOff = atoiOff + 44
+    let substrOff = atoiOff + 44
+    let nlOff = substrOff + 68
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -466,6 +480,17 @@ just run {
                 code = code + sbToString(kc)
                 off = off + 36
             }
+            // substring(s, start, end) -> s[start:end] (kr_substring). 36 bytes.
+            if startsWith(b, "substring") {
+                let kc = sbNew()
+                kc = sbAppend(kc, e_ldr0(2, 20) + e_addi(20, 20, 16))   // pop end -> x2
+                kc = sbAppend(kc, e_ldr0(1, 20) + e_addi(20, 20, 16))   // pop start -> x1
+                kc = sbAppend(kc, e_ldr0(0, 20) + e_addi(20, 20, 16))   // pop s -> x0
+                kc = sbAppend(kc, e_bl(substrOff - (off + 24)))         // x0 = s[start:end]
+                kc = sbAppend(kc, c_push())
+                code = code + sbToString(kc)
+                off = off + 36
+            }
         }
         // RETURN and END: epilogue (free locals, restore x19/x30, ret). For __main__
         // this returns to _start, which then exits(0).
@@ -475,7 +500,19 @@ just run {
     }
 
     // helpers appended after main code, in layout order (alloc, str_int, plus, print)
-    let body = code + emitAlloc() + emitStrInt(allocOff, strIntOff) + emitPlus(strIntOff, allocOff, plusOff) + emitPrint(nlOff) + emitKpDisp(kpDispOff, strIntOff, printOff) + emitAtoi()
+    // built via sbAppend (not one long + chain) — the x86 backend miscompiles
+    // long concat chains in this position and silently drops a term.
+    let bb = sbNew()
+    bb = sbAppend(bb, code)
+    bb = sbAppend(bb, emitAlloc())
+    bb = sbAppend(bb, emitStrInt(allocOff, strIntOff))
+    bb = sbAppend(bb, emitPlus(strIntOff, allocOff, plusOff))
+    bb = sbAppend(bb, emitPrint(nlOff))
+    bb = sbAppend(bb, emitKpDisp(kpDispOff, strIntOff, printOff))
+    bb = sbAppend(bb, emitAtoi())
+    bb = sbAppend(bb, emitSubstr(allocOff, substrOff))
+    bb = sbAppend(bb, "")     // guard: the x86 backend drops the LAST sbAppend here
+    let body = sbToString(bb)
 
     // data region: newline byte (at nlOff) then string literals
     let data = hexByte(10)                                     // newline
