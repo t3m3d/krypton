@@ -1536,6 +1536,7 @@ func resolveBuiltin(name) {
     if name == "gcRestore"      { emit "kr_gc_restore" }
     if name == "gcSlabCount"    { emit "kr_gc_slab_count" }
     if name == "gcSlabBytes"    { emit "kr_gc_slab_bytes" }
+    if name == "deleteFile"     { emit "DeleteFileA" }
     emit name
 }
 
