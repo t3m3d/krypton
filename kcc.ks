@@ -444,6 +444,18 @@ just run {
         exit("0")
     }
 
+    // -e CODE: wrap in `just run { ... }`, compile, run, delete.
+    if first == "-e" {
+        if argCount() < 2 { kp("kcc: -e needs code")  exit("1") }
+        let ek = sh("mktemp /tmp/_kcceval_XXXXXX.ks")
+        writeText(ek, "just run {\n" + arg(1) + "\n}\n")
+        let ebin = sh("mktemp /tmp/_kcceval_XXXXXX")
+        if compileMacos(root, ek, ebin) == "0" { rm(ek)  exit("1") }
+        kp(sh(q(ebin)))
+        rm(ek)  rm(ebin)
+        exit("0")
+    }
+
     // -r <src> [args...]: compile to temp, run, delete.
     if first == "-r" {
         if argCount() < 2 { kp("kcc: -r needs a source file")  exit("1") }
