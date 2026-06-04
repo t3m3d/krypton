@@ -105,47 +105,74 @@ func compileMacos(root, src, out) {
     emit "1"
 }
 
-// Ensure the Linux elf_host backend exists / is current; rebuild once via gcc
-// (gcc here = toolchain bootstrap only, never for user programs). "1" ok / "0" fail.
+// Ensure the Linux elf_host backend exists / is current. NO C compiler:
+//   - user path:        cp the committed native seed (no build)
+//   - backend-edit path: self-host — the seed elf_host compiles the edited
+//                        elf.k's IR into a fresh elf_host (slow FE, but no gcc).
+// "1" ok / "0" fail.
 func ensureElfHost(root) {
     let host = root + "/compiler/linux_x86/elf_host"
     let src  = root + "/compiler/linux_x86/elf.k"
     let fe   = root + "/compiler/linux_x86/kcc-x64"
+    let seed = root + "/bootstrap/elf_host_linux_x86_64"
     let need = "0"
     if exists(host) == "0" { need = "1" }
     else {
         if sh("test " + q(src) + " -nt " + q(host) + " && echo 1 || echo 0") == "1" { need = "1" }
     }
     if need == "0" { emit "1" }
-    if has("gcc") == "0" {
-        kp("kcc: elf_host needs a one-time gcc build, but gcc not found")
+    // Committed seed not older than elf.k → use it as-is (the user path, no build).
+    if exists(seed) == "1" {
+        if sh("test " + q(src) + " -nt " + q(seed) + " && echo 1 || echo 0") == "0" {
+            exec("cp " + q(seed) + " " + q(host))
+            exec("chmod +x " + q(host))
+            emit "1"
+        }
+    }
+    // elf.k edited past the seed → rebuild natively by self-hosting. No gcc.
+    let boot = seed
+    if exists(boot) == "0" { boot = host }
+    if exists(boot) == "0" {
+        kp("kcc: no elf_host seed to self-host from; cannot rebuild backend")
         emit "0"
     }
-    kp("kcc: building elf_host (one-time gcc bootstrap)...")
-    let tmpc = sh("mktemp /tmp/_kccelf_XXXXXX.c")
-    exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " " + q(src) + " > " + q(tmpc))
-    exec("gcc -O2 -w " + q(tmpc) + " -o " + q(host) + " -lm")
-    rm(tmpc)
-    if exists(host) == "0" { kp("kcc: elf_host build failed")  emit "0" }
+    kp("kcc: rebuilding elf_host natively (self-host, no C — slow on elf.k)...")
+    let tmpir = sh("mktemp /tmp/_kccelf_XXXXXX.kir")
+    exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src) + " > " + q(tmpir))
+    exec(q(boot) + " " + q(tmpir) + " " + q(host))
+    rm(tmpir)
+    exec("chmod +x " + q(host))
+    if exists(host) == "0" { kp("kcc: elf_host self-host failed")  emit "0" }
     emit "1"
 }
 
 // Ensure the Linux optimizer host exists / is current. Best-effort: returns
-// "1" if usable, "0" to skip optimization (mirrors kcc.sh's silent skip).
+// "1" if usable, "0" to skip optimization. NO C compiler: cp the seed, else
+// the native elf_host compiles optimize.k.
 func ensureOptHost(root) {
     let host = root + "/compiler/linux_x86/optimize_host"
     let src  = root + "/compiler/optimize.k"
     let fe   = root + "/compiler/linux_x86/kcc-x64"
+    let elf  = root + "/compiler/linux_x86/elf_host"
+    let seed = root + "/bootstrap/optimize_host_linux_x86_64"
     let need = "1"
     if exists(host) == "1" {
         if sh("test " + q(src) + " -nt " + q(host) + " && echo 1 || echo 0") == "0" { need = "0" }
     }
     if need == "0" { emit "1" }
-    if has("gcc") == "0" { emit "0" }
-    let tmpc = sh("mktemp /tmp/_kccopt_XXXXXX.c")
-    exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " " + q(src) + " > " + q(tmpc))
-    exec("gcc -O2 -w " + q(tmpc) + " -o " + q(host) + " -lm")
-    rm(tmpc)
+    if exists(seed) == "1" {
+        if sh("test " + q(src) + " -nt " + q(seed) + " && echo 1 || echo 0") == "0" {
+            exec("cp " + q(seed) + " " + q(host))
+            exec("chmod +x " + q(host))
+            emit "1"
+        }
+    }
+    // Native rebuild: elf_host compiles optimize.k's IR. No gcc.
+    if exists(elf) == "0" { emit "0" }
+    let tmpir = sh("mktemp /tmp/_kccopt_XXXXXX.kir")
+    exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src) + " > " + q(tmpir))
+    exec(q(elf) + " " + q(tmpir) + " " + q(host))
+    rm(tmpir)
     if exists(host) == "1" { emit "1" }
     emit "0"
 }
@@ -295,21 +322,9 @@ just run {
             else { exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " " + q(s) + " > " + q(cout)) }
             exit("0")
         }
-        // --gcc: deprecated C+gcc fallback (native is the default and goal). Kept
-        // for drop-in parity; do not build new workflows on it.
+        // --gcc is REMOVED — Krypton is C-free; native is the only path.
         if hasFlag("--gcc") {
-            let s = linuxSrc()
-            if s == "" { kp("kcc: --gcc needs a source file")  exit("1") }
-            if has("gcc") == "0" { kp("kcc: --gcc needs gcc")  exit("1") }
-            kp("kcc: warning: --gcc is deprecated; native is the default and goal.")
-            let gout = optValue("-o", baseName(s))
-            let gtmp = sh("mktemp /tmp/_kccgcc_XXXXXX.c")
-            exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " " + q(s) + " > " + q(gtmp))
-            exec("gcc " + q(gtmp) + " -o " + q(gout) + " -O2 -lm -w")
-            rm(gtmp)
-            if exists(gout) == "0" { kp("kcc: gcc compile failed")  exit("1") }
-            exec("chmod +x " + q(gout))
-            exit("0")
+            kp("kcc: --gcc was removed (Krypton compiles natively, no C). Building native.")
         }
         // --llvm / --wasm: non-functional upstream (kcc.sh's --llvm emits C; --wasm
         // is an unimplemented stub). Be honest instead of mimicking the bug.
