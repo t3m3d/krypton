@@ -2545,7 +2545,11 @@ just run {
     // The new `k:` / `c:` import prefixes resolve under those.
     // 2.0-alpha-3: --port-1to2 is a diagnostic-only mode that scans
     // source for patterns needing attention before a 2.0 upgrade.
-    let irMode = 0
+    // Default to IR mode — Krypton is now native-pipeline-only. The C-emit
+    // path was removed 2026-06-04; the `irMode = 0` branches that still
+    // exist in this file are dead code waiting on a final pass. Programs
+    // invoked as `kcc foo.k` (no flags) should still emit IR, not nothing.
+    let irMode = 1
     let portMode = 0
     // Install root resolution order (2.1.1):
     //   1. $KRYPTON_ROOT env var (set by kcc.sh wrapper from $SCRIPT_DIR).
