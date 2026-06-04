@@ -2795,9 +2795,9 @@ just run {
                                     ijxtHasCHeader = 1
                                     let ijIncLine = ""
                                     if contains(ijPath, "/") || contains(ijPath, "\\") {
-                                        ijIncLine = "#include \"" + ijPath + "\"\n"
+                                        ijIncLine = ""
                                     } else {
-                                        ijIncLine = "#include <" + ijPath + ">\n"
+                                        ijIncLine = ""
                                     }
                                     // c: prepend (foundation headers first), t: append (depends on c headers)
                                     if ijLang == "c" {
@@ -3083,9 +3083,9 @@ just run {
                     jxtHasCHeader = 1
                     let jIncLine = ""
                     if contains(jxtPath, "/") || contains(jxtPath, "\\") {
-                        jIncLine = "#include \"" + jxtPath + "\"\n"
+                        jIncLine = ""
                     } else {
-                        jIncLine = "#include <" + jxtPath + ">\n"
+                        jIncLine = ""
                     }
                     if lang == "c" {
                         importFwdDecls = jIncLine + importFwdDecls
