@@ -466,36 +466,11 @@ if [[ -z "$OUTFILE" ]]; then
     fi
 fi
 
-if [[ "$GCC_MODE" -ne 1 ]]; then
-    NATIVE_MODE=1
-    # Re-exec by absolute path, NOT "$0": when invoked as a bare `bash kcc.sh`,
-    # `$0` is "kcc.sh" and exec would do a PATH lookup, re-dispatching to a
-    # DIFFERENT installed copy (e.g. /usr/local/krypton/kcc.sh) with the wrong
-    # SCRIPT_DIR/KRYPTON_ROOT — so imports resolve against the wrong stdlib.
-    exec "$SCRIPT_DIR/kcc.sh" --native -o "$OUTFILE" "$SRCFILE"
+# --gcc / the C path is REMOVED — Krypton is C-free; native is the only path.
+# Always re-exec as --native (by absolute path, not "$0": a bare `bash kcc.sh`
+# would PATH-lookup a different installed copy with the wrong SCRIPT_DIR).
+if [[ "$GCC_MODE" -eq 1 ]]; then
+    echo "kcc: --gcc was removed (Krypton compiles natively, no C); building --native." >&2
 fi
-
-# ─── C+gcc/clang path — DEPRECATED ─────────────────────────────────────────
-# Reached only when --gcc was passed explicitly. The goal is to remove this
-# block entirely once all platforms' native pipelines are verified stable:
-#   - Linux:   elf.k self-host bug at >66 funcs (bootstrap/REBUILD_SEED.md)
-#   - Windows: x64.k self-host parity unverified
-#   - macOS:   macho_arm64_self.k covers only the core surface
-# Do NOT introduce new callers of this path. If native fails, fix native.
-if [[ "$GCC_EXPLICIT" -eq 1 ]]; then
-    echo "kcc: warning: --gcc is deprecated; native is the default and goal." >&2
-    echo "kcc: see bootstrap/REBUILD_SEED.md for the path to gcc-free." >&2
-fi
-TMPFILE="${OUTFILE}__kcc_tmp.c"
-"$KCC_EXE" $HEADERS_FLAG "$SRCFILE" > "$TMPFILE"
-if [[ $? -ne 0 ]]; then
-    rm -f "$TMPFILE"
-    echo "kcc: Krypton compilation failed" >&2
-    exit 1
-fi
-
-"$GCC_EXE" "$TMPFILE" -o "$OUTFILE" $LIBS
-GCC_RET=$?
-rm -f "$TMPFILE"
-if [[ $GCC_RET -ne 0 ]]; then echo "kcc: C compilation failed" >&2; exit 1; fi
-exit 0
+NATIVE_MODE=1
+exec "$SCRIPT_DIR/kcc.sh" --native -o "$OUTFILE" "$SRCFILE"
