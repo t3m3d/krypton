@@ -71,10 +71,13 @@ just run {
         let p = 0
         while p < perCluster {
             // Each dot in the cluster gets an evenly-spaced phase offset
-            // (0°, 72°, 144°, 216°, 288° around the orbit).
+            // (0°, 72°, 144°, 216°, 288° around the orbit). The z-axis
+            // phase is offset further so x/y/z cycle independently —
+            // each dot reads as moving in 3D space, not on a flat ring.
             let phaseShift = (p * period) / perCluster
             let tp = (t + phaseShift) % period
             let ty = (tp + quarter) % period
+            let tz = (tp + period / 8) % period   // 45° z lead
 
             // Triangle waves for x and y offset, 90° (quarter-period) apart.
             // Subtracting orbitR centres the [0, 2*orbitR] range onto the
@@ -83,11 +86,20 @@ just run {
             let dx = tri(tp, period, orbitR) - orbitR
             let dy = tri(ty, period, orbitR) - orbitR
 
+            // Z-axis (depth) triangle wave drives the dot RADIUS. Each
+            // dot cycles front-to-back-to-front independently, so within
+            // a cluster you always see some dots near (bigger) and some
+            // far (smaller) — reads as a tumbling 3D blob, not a flat ring.
+            // dz ∈ [-orbitR, +orbitR]. Maps to scale ∈ [50, 150] (% of 160
+            // base), so radius ∈ [80, 240] fine units = 1.25 px..3.75 px.
+            let dz = tri(tz, period, orbitR) - orbitR
+            let scale = 100 + (dz * 50) / orbitR
+            let r = (160 * scale) / 100
+
             let xf = (xcf + dx + wf) % wf
             let yf = (ycf + dy + hf) % hf
 
-            // 2.5 px diameter (160 / 64).
-            canvasCircle(xf, yf, 160)
+            canvasCircle(xf, yf, r)
             p = p + 1
         }
         c = c + 1
