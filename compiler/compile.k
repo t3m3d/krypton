@@ -2693,10 +2693,10 @@ just run {
                 // Build signature with explicit params only
                 let lsig = "char* _krlam" + lsi + "(void)"
                 if lpc2 > 0 {
-                    lsig = "char* _krlam" + lsi + "(char* " + cIdent(getNthParam(lparams2, 0))
+                    lsig = "char* _krlam" + lsi + "(char* " + getNthParam(lparams2, 0)
                     let lpi2 = 1
                     while lpi2 < lpc2 {
-                        lsig = lsig + ", char* " + cIdent(getNthParam(lparams2, lpi2))
+                        lsig = lsig + ", char* " + getNthParam(lparams2, lpi2)
                         lpi2 += 1
                     }
                     lsig = lsig + ")"
@@ -2710,8 +2710,7 @@ just run {
                 let lcapInits = ""
                 let lfvi2 = 0
                 while lfvi2 < lfvc {
-                    let fvn2 = cIdent(split(lfreeVars, lfvi2))
-                    lcapInits = lcapInits + "    char* " + fvn2 + " = _krlam" + lsi + "_" + fvn2 + ";\n"
+                    let fvn2 = split(lfreeVars, lfvi2)
                     lfvi2 += 1
                 }
             }
@@ -2868,10 +2867,6 @@ just run {
                                         }
                                     }
                                     structTable = structTable + isEntry + "\n"
-                                    sAcc = sAcc + isName + "* s=(" + isName + "*)p;\n" + getBody
-                                    sAcc = sAcc + "    return _K_EMPTY;}\n"
-                                    sAcc = sAcc + isName + "* s=(" + isName + "*)p;\n" + setBody
-                                    sAcc = sAcc + "    return _K_EMPTY;}\n"
                                     ijxtPos = isfPos + 1
                                 } else if ijLang == "func" {
                                     let ijfName = tokVal(tokAt(iToks, ijxtPos + 1))
@@ -2883,11 +2878,8 @@ just run {
                                     }
                                     // only emit char* forward declaration if no C header (avoids conflicts)
                                     if ijxtHasCHeader == 0 {
-                                        let ijfDecl = "char* " + cIdent(ijfName) + "(char*"
-                                        if ijfPc == 0 { ijfDecl = "char* " + cIdent(ijfName) + "(" }
+                                        if ijfPc == 0 { ijfDecl = "char* " + ijfName + "(" }
                                         let ijfPi = 1
-                                        while ijfPi < ijfPc { ijfDecl = ijfDecl + ", char*"  ijfPi += 1 }
-                                        ijfDecl = ijfDecl + ");\n"
                                     }
                                     // Add to ftable
                                     let ijfInfo = ijfName + ":" + ijfPc + ":0"
@@ -2900,7 +2892,7 @@ just run {
                                         ijfRetType = tokVal(tokAt(iToks, ijfPos + 1))
                                         ijfPos += 2
                                     }
-                                    let ijfCName = cIdent(ijfName)
+                                    let ijfCName = ijfName
                                     // Skip wrapper if the new Win32 marshalling table covers this name.
                                     let _iHasMarshal = "0"
                                     if len(compileWin32IntReturn(ijfCName)) > 0 { _iHasMarshal = "1" }
@@ -2908,53 +2900,32 @@ just run {
                                     if (ijfRetType == "INT" || ijfRetType == "UINT" || ijfRetType == "DWORD" || ijfRetType == "LONG" || ijfRetType == "BOOL") && _iHasMarshal == "0" {
                                         let iwpi = 0
                                         while iwpi < ijfPc {
-                                            if iwpi > 0 { iwd = iwd + "," }
-                                            iwd = iwd + "char* _a" + iwpi
                                             iwpi += 1
                                         }
-                                        if ijfPc == 0 { iwd = iwd + "void" }
-                                        iwd = iwd + "){return kr_itoa((int)" + ijfCName + "("
                                         iwpi = 0
                                         while iwpi < ijfPc {
-                                            if iwpi > 0 { iwd = iwd + "," }
-                                            iwd = iwd + "_a" + iwpi
                                             iwpi += 1
                                         }
-                                        iwd = iwd + "));}\n#define " + ijfCName + " _krw_" + ijfCName + "\n"
                                     }
                                     if (ijfRetType == "UINT64" || ijfRetType == "ULONGLONG") && _iHasMarshal == "0" {
                                         let iwpi = 0
                                         while iwpi < ijfPc {
-                                            if iwpi > 0 { iwd = iwd + "," }
-                                            iwd = iwd + "char* _a" + iwpi
                                             iwpi += 1
                                         }
-                                        if ijfPc == 0 { iwd = iwd + "void" }
-                                        iwd = iwd + "){char _b[32];snprintf(_b,32,\"%llu\",(unsigned long long)" + ijfCName + "("
                                         iwpi = 0
                                         while iwpi < ijfPc {
-                                            if iwpi > 0 { iwd = iwd + "," }
-                                            iwd = iwd + "_a" + iwpi
                                             iwpi += 1
                                         }
-                                        iwd = iwd + "));return kr_str(_b);}\n#define " + ijfCName + " _krw_" + ijfCName + "\n"
                                     }
                                     if ijfRetType == "zero" && _iHasMarshal == "0" {
                                         let iwpi = 0
                                         while iwpi < ijfPc {
-                                            if iwpi > 0 { iwd = iwd + "," }
-                                            iwd = iwd + "char* _a" + iwpi
                                             iwpi += 1
                                         }
-                                        if ijfPc == 0 { iwd = iwd + "void" }
-                                        iwd = iwd + "){"  + ijfCName + "("
                                         iwpi = 0
                                         while iwpi < ijfPc {
-                                            if iwpi > 0 { iwd = iwd + "," }
-                                            iwd = iwd + "_a" + iwpi
                                             iwpi += 1
                                         }
-                                        iwd = iwd + ");return _K_EMPTY;}\n#define " + ijfCName + " _krw_" + ijfCName + "\n"
                                     }
                                     ijxtPos = ijfPos
                                 } else {
@@ -2970,16 +2941,13 @@ just run {
                             if len(iname) > 0 {
                                 let iinfo = funcLookup(iFtable, iname)
                                 let ipc = funcParamCount(iinfo)
-                                let idecl = "char* " + cIdent(iname) + "(char*"
                                 let ipj = 1
                                 while toInt(ipj) < toInt(ipc) {
-                                    idecl = idecl + ", char*"
                                     ipj += 1
                                 }
                                 if toInt(ipc) == 0 {
-                                    idecl = "char* " + cIdent(iname) + "("
+                                    idecl = "char* " + iname + "("
                                 }
-                                idecl = idecl + ");\n"
                             }
                         } else if tokType(itk) == "CBLOCK" {
                             // Top-level cfunc { } in imported module: emit the raw
@@ -3147,7 +3115,7 @@ just run {
                     // jxt func declaration: func name(p1, p2) -> type
                     // jxtPos is at ID:func, jxtPos+1 is ID:name
                     let jfName = tokVal(tokAt(tokens, jxtPos + 1))
-                    let jfCName = cIdent(jfName)
+                    let jfCName = jfName
                     // collect params: scan from LPAREN to RPAREN
                     let jfPos = jxtPos + 3
                     let jfParams = ""
@@ -3193,53 +3161,32 @@ just run {
                     if (jfRetType == "INT" || jfRetType == "UINT" || jfRetType == "DWORD" || jfRetType == "LONG" || jfRetType == "BOOL") && len(_hasNewMarshal) == 0 && len(compileWin32IntArgs(jfCName)) == 0 {
                         let wpi = 0
                         while wpi < jfPc {
-                            if wpi > 0 { wd = wd + "," }
-                            wd = wd + "char* _a" + wpi
                             wpi += 1
                         }
-                        if jfPc == 0 { wd = wd + "void" }
-                        wd = wd + "){return kr_itoa((int)" + jfCName + "("
                         wpi = 0
                         while wpi < jfPc {
-                            if wpi > 0 { wd = wd + "," }
-                            wd = wd + "_a" + wpi
                             wpi += 1
                         }
-                        wd = wd + ");}\n#define " + jfCName + " _krw_" + jfCName + "\n"
                     }
                     if (jfRetType == "UINT64" || jfRetType == "ULONGLONG") && len(_hasNewMarshal) == 0 && len(compileWin32IntArgs(jfCName)) == 0 {
                         let wpi = 0
                         while wpi < jfPc {
-                            if wpi > 0 { wd = wd + "," }
-                            wd = wd + "char* _a" + wpi
                             wpi += 1
                         }
-                        if jfPc == 0 { wd = wd + "void" }
-                        wd = wd + "){char _b[32];snprintf(_b,32,\"%llu\",(unsigned long long)" + jfCName + "("
                         wpi = 0
                         while wpi < jfPc {
-                            if wpi > 0 { wd = wd + "," }
-                            wd = wd + "_a" + wpi
                             wpi += 1
                         }
-                        wd = wd + "));return kr_str(_b);}\n#define " + jfCName + " _krw_" + jfCName + "\n"
                     }
                     if jfRetType == "zero" && len(_hasNewMarshal) == 0 && len(compileWin32IntArgs(jfCName)) == 0 {
                         let wpi = 0
                         while wpi < jfPc {
-                            if wpi > 0 { wd = wd + "," }
-                            wd = wd + "char* _a" + wpi
                             wpi += 1
                         }
-                        if jfPc == 0 { wd = wd + "void" }
-                        wd = wd + "){" + jfCName + "("
                         wpi = 0
                         while wpi < jfPc {
-                            if wpi > 0 { wd = wd + "," }
-                            wd = wd + "_a" + wpi
                             wpi += 1
                         }
-                        wd = wd + ");return _K_EMPTY;}\n#define " + jfCName + " _krw_" + jfCName + "\n"
                     }
                     jxtPos = jfPos
                 } else {
@@ -3287,16 +3234,13 @@ just run {
             let info = funcLookup(ftable, fname)
             let pc = funcParamCount(info)
             // Forward decl always uses char* — void/int funcs have char* wrappers
-            let decl = "char* " + cIdent(fname) + "(char*"
             let pi = 1
             while toInt(pi) < toInt(pc) {
-                decl = decl + ", char*"
                 pi += 1
             }
             if toInt(pc) == 0 {
-                decl = "char* " + cIdent(fname) + "("
+                decl = "char* " + fname + "("
             }
-            decl = decl + ");\n"
             sb = sbAppend(sb, decl)
             }
         } else if tok == "KW:callback" {
@@ -3350,7 +3294,7 @@ just run {
         if tok == "RBRACE" { glDepth -= 1 }
         if tok == "KW:let" && glDepth == 0 {
             // Top-level global variable declaration
-            let gname = cIdent(tokVal(tokAt(tokens, i + 1)))
+            let gname = tokVal(tokAt(tokens, i + 1))
             let gp = i + 2
             // skip optional type annotation
             let gtype = "str"
@@ -3414,7 +3358,7 @@ just run {
         } else if tok == "KW:struct" || tok == "KW:class" || tok == "KW:type" {
             // Inline struct compilation to avoid pairPos issues
             let sname = tokVal(tokAt(tokens, i + 1))
-            let scname = cIdent(sname)
+            let scname = sname
             let sp2 = i + 3
             // collect fields
             let sfields = ""
@@ -3440,17 +3384,13 @@ just run {
             let si = 0
             while si < sfc {
                 let sfn = getNthParam(sfields, si)
-                sout = sout + "    char* " + cIdent(sfn) + ";\n"
                 si += 1
             }
-            sout = sout + "} " + scname + "_t;\n\n"
             let si2 = 0
             while si2 < sfc {
                 let sfn2 = getNthParam(sfields, si2)
-                sout = sout + "    _s->" + cIdent(sfn2) + " = _K_EMPTY;\n"
                 si2 += 1
             }
-            sout = sout + "    return (char*)_s;\n}\n\n"
             sb = sbAppend(sb, sout)
             // advance past struct body
             i = sp2
