@@ -3283,8 +3283,8 @@ just run {
                 let codeCmd2 = compilerDir + "\\x64_host_new.exe " + tmpOpt + " " + outFile
                 shellRun(optCmd2)
                 shellRun(codeCmd2)
-                deleteFile(tmpIR)
-                deleteFile(tmpOpt)
+                DeleteFileA(tmpIR)
+                DeleteFileA(tmpOpt)
                 emit 0
             }
             print(irLibText)
@@ -3455,8 +3455,8 @@ just run {
             let codeCmd = compilerDir + "\\x64_host_new.exe " + tmpOpt + " " + outFile
             shellRun(optCmd)
             shellRun(codeCmd)
-            deleteFile(tmpIR)
-            deleteFile(tmpOpt)
+            DeleteFileA(tmpIR)
+            DeleteFileA(tmpOpt)
             emit 0
         }
 
