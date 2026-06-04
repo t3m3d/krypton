@@ -50,10 +50,8 @@ Usage: kcc <source.k|source.ks> [flags]
   Same compiler, same syntax — purely a naming convention.
 
   --native     (default) emit native binary at ./<basename>
-  --c          emit C source to stdout
-  --llvm       emit LLVM IR to stdout
   --ir         emit Krypton IR to stdout
-  -o FILE      output path (with --native or --c)
+  -o FILE      output path
   -r FILE      compile, run, delete (like python file.py)
   -e CODE      compile + run an inline snippet (like python -c)
   --version    print version
@@ -129,10 +127,6 @@ OUTFILE=""
 LIBS="-O2 -lm -w"
 IRFLAG=""
 NATIVE_MODE=0
-LLVM_MODE=0
-GCC_MODE=0
-GCC_EXPLICIT=0  # --gcc explicitly passed (vs implicit macOS fallback)
-C_MODE=0
 EVAL_CODE=""
 RUN_MODE=0
 WASM_MODE=0
@@ -141,9 +135,9 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --ir)      IRFLAG="--ir"; shift ;;
         --native)  NATIVE_MODE=1; shift ;;
-        --llvm)    LLVM_MODE=1; shift ;;
-        --gcc)     GCC_MODE=1; GCC_EXPLICIT=1; shift ;;
-        --c)       C_MODE=1; shift ;;
+        --llvm|--gcc|--c)
+                   echo "kcc: $1 was removed (Krypton is C-free; native pipeline only)." >&2
+                   exit 1 ;;
         --wasm)    WASM_MODE=1; shift ;;
         -o)        OUTFILE="$2"; shift 2 ;;
         -e)        EVAL_CODE="$2"; shift 2 ;;
@@ -417,41 +411,8 @@ if [[ $NATIVE_MODE -eq 1 ]]; then
     exit 0
 fi
 
-# --llvm: .k → kir → optimize → LLVM IR
-if [[ $LLVM_MODE -eq 1 ]]; then
-    TMPIR="/tmp/_kcc_llvm_$$.kir"
-    TMPOPT="/tmp/_kcc_llvm_opt_$$.kir"
-
-    "$KCC_EXE" --ir $HEADERS_FLAG "$SRCFILE" > "$TMPIR"
-    if [[ $? -ne 0 ]]; then echo "kcc --llvm: IR emission failed" >&2; rm -f "$TMPIR"; exit 1; fi
-
-    "$KCC_EXE" "$SCRIPT_DIR/compiler/optimize.k" "$TMPIR" > "$TMPOPT"
-    if [[ $? -ne 0 ]]; then echo "kcc --llvm: optimizer failed" >&2; rm -f "$TMPIR" "$TMPOPT"; exit 1; fi
-
-    if [[ -n "$OUTFILE" ]]; then
-        "$KCC_EXE" "$SCRIPT_DIR/compiler/llvm.k" "$TMPOPT" > "$OUTFILE"
-    else
-        "$KCC_EXE" "$SCRIPT_DIR/compiler/llvm.k" "$TMPOPT"
-    fi
-    RET=$?
-    rm -f "$TMPIR" "$TMPOPT"
-    exit $RET
-fi
-
-# --c (legacy): emit C source. Kept for porting/debugging only; native is the
-# goal everywhere. Don't add new code paths that rely on this.
-if [[ $C_MODE -eq 1 ]]; then
-    if [[ -z "$OUTFILE" ]]; then
-        "$KCC_EXE" $HEADERS_FLAG "$SRCFILE"
-        exit $?
-    else
-        "$KCC_EXE" $HEADERS_FLAG "$SRCFILE" > "$OUTFILE"
-        exit $?
-    fi
-fi
-
-# Default path: derive output name, then re-exec as --native. Falls through
-# to the gcc block below only when --gcc was passed explicitly.
+# --llvm / --c blocks deleted 2026-06-04 — Krypton is C-free; --llvm and --c
+# were removed as flags above. Default path: derive output name, exec --native.
 if [[ -z "$OUTFILE" ]]; then
     # 2.2: strip .ks before .k (same rationale as the --native block above).
     case "$SRCFILE" in
@@ -466,11 +427,8 @@ if [[ -z "$OUTFILE" ]]; then
     fi
 fi
 
-# --gcc / the C path is REMOVED — Krypton is C-free; native is the only path.
-# Always re-exec as --native (by absolute path, not "$0": a bare `bash kcc.sh`
-# would PATH-lookup a different installed copy with the wrong SCRIPT_DIR).
-if [[ "$GCC_MODE" -eq 1 ]]; then
-    echo "kcc: --gcc was removed (Krypton compiles natively, no C); building --native." >&2
-fi
+# Krypton is C-free; --gcc was removed at flag-parse time. Always re-exec as
+# --native (by absolute path, not "$0": a bare `bash kcc.sh` would PATH-lookup
+# a different installed copy with the wrong SCRIPT_DIR).
 NATIVE_MODE=1
 exec "$SCRIPT_DIR/kcc.sh" --native -o "$OUTFILE" "$SRCFILE"
