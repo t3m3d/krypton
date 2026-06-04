@@ -2895,8 +2895,8 @@ just run {
                                     let ijfCName = ijfName
                                     // Skip wrapper if the new Win32 marshalling table covers this name.
                                     let _iHasMarshal = "0"
-                                    if len(compileWin32IntReturn(ijfCName)) > 0 { _iHasMarshal = "1" }
-                                    if len(compileWin32IntArgs(ijfCName)) > 0 { _iHasMarshal = "1" }
+                                    if len("") > 0 { _iHasMarshal = "1" }
+                                    if len("") > 0 { _iHasMarshal = "1" }
                                     if (ijfRetType == "INT" || ijfRetType == "UINT" || ijfRetType == "DWORD" || ijfRetType == "LONG" || ijfRetType == "BOOL") && _iHasMarshal == "0" {
                                         let iwpi = 0
                                         while iwpi < ijfPc {
@@ -3150,14 +3150,14 @@ just run {
                     // Win32 marshalling table — the inline marshalling at the
                     // call site (compileCall) does the right thing for both
                     // 32-bit and 64-bit returns and for atoi'd int args.
-                    let _hasNewMarshal = compileWin32IntReturn(jfCName)
-                    if len(_hasNewMarshal) > 0 || len(compileWin32IntArgs(jfCName)) > 0 {
+                    let _hasNewMarshal = ""
+                    if len(_hasNewMarshal) > 0 || len("") > 0 {
                         // No wrapper needed — fall through.
                     }
                     // Generate static wrapper + #define for integer-returning APIs.
                     // Args passed as char* (no int cast) — C handles implicit conversion,
                     // which is safe for both pointer args and toHandle() integer args.
-                    if (jfRetType == "INT" || jfRetType == "UINT" || jfRetType == "DWORD" || jfRetType == "LONG" || jfRetType == "BOOL") && len(_hasNewMarshal) == 0 && len(compileWin32IntArgs(jfCName)) == 0 {
+                    if (jfRetType == "INT" || jfRetType == "UINT" || jfRetType == "DWORD" || jfRetType == "LONG" || jfRetType == "BOOL") && len(_hasNewMarshal) == 0 && len("") == 0 {
                         let wpi = 0
                         while wpi < jfPc {
                             wpi += 1
@@ -3167,7 +3167,7 @@ just run {
                             wpi += 1
                         }
                     }
-                    if (jfRetType == "UINT64" || jfRetType == "ULONGLONG") && len(_hasNewMarshal) == 0 && len(compileWin32IntArgs(jfCName)) == 0 {
+                    if (jfRetType == "UINT64" || jfRetType == "ULONGLONG") && len(_hasNewMarshal) == 0 && len("") == 0 {
                         let wpi = 0
                         while wpi < jfPc {
                             wpi += 1
@@ -3177,7 +3177,7 @@ just run {
                             wpi += 1
                         }
                     }
-                    if jfRetType == "zero" && len(_hasNewMarshal) == 0 && len(compileWin32IntArgs(jfCName)) == 0 {
+                    if jfRetType == "zero" && len(_hasNewMarshal) == 0 && len("") == 0 {
                         let wpi = 0
                         while wpi < jfPc {
                             wpi += 1
@@ -3253,12 +3253,26 @@ just run {
         } else if tokType(tok) == "CBLOCK" {
             // cfunc { } — skip in forward-decl pass, emitted in body pass
         } else if tok == "KW:let" {
-            // top-level global let — skip in forward-decl pass, handled in body pass
+            // top-level global let — skip the rest of the line. compileExpr
+            // was deleted with the C-emit code; for the forward-decl pass we
+            // just need to advance past the expression, not evaluate it.
+            // Tokenizer emits one expression per logical line, so scan to the
+            // next KW-level token.
             let gfp = i + 2
             if tokAt(tokens, gfp) == "COLON" { gfp += 2 }
             if tokAt(tokens, gfp) == "ASSIGN" {
-                let gfv = compileExpr(tokens, gfp + 1, ntoks)
-                i = pairPos(gfv) - 1
+                let gscan = gfp + 1
+                let gdepth = 0
+                while gscan < ntoks {
+                    let gstk = tokAt(tokens, gscan)
+                    if gdepth == 0 {
+                        if gstk == "KW:let" || gstk == "KW:func" || gstk == "KW:fn" || gstk == "KW:import" || gstk == "KW:struct" || gstk == "KW:type" || gstk == "KW:jxt" || gstk == "KW:export" || gstk == "RBRACE" { gscan = gscan - 1  break }
+                    }
+                    if gstk == "LPAREN" || gstk == "LBRACE" || gstk == "LBRACK" { gdepth += 1 }
+                    if gstk == "RPAREN" || gstk == "RBRACK" { gdepth -= 1 }
+                    gscan += 1
+                }
+                i = gscan
             } else {
                 i = gfp - 1
             }
