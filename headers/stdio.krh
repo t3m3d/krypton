@@ -2,7 +2,6 @@
 // Usage: import "headers/stdio.krh"
 
 jxt {
-    c "stdio.h"
 
     func printf(fmt)
     func fprintf(stream, fmt)

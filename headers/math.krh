@@ -3,7 +3,6 @@
 // Link with: -lm
 
 jxt {
-    c "math.h"
 
     func sin(x)
     func cos(x)

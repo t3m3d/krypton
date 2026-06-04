@@ -3,8 +3,6 @@
 // Linux/macOS. Windows users want winsock.krh.
 
 jxt {
-    c "sys/socket.h"
-    c "sys/types.h"
 
     struct sockaddr {
         field sa_family USHORT

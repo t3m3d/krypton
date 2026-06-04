@@ -16,9 +16,6 @@
 // docs/cocoa_design.md for the dispatch plan.
 
 jxt {
-    c "objc/objc.h"
-    c "objc/runtime.h"
-    c "objc/message.h"
 
     // ── Class + selector lookup ────────────────────────────────────────
     // Both return opaque pointers that callers treat as handles.

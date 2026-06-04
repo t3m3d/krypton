@@ -7,7 +7,6 @@
 // what user code wants — this header is for FFI interop only.
 
 jxt {
-    c "assert.h"
 
     func __assert_fail(expr, file, line, func)
 }

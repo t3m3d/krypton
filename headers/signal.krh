@@ -2,7 +2,6 @@
 // Usage: import "headers/signal.krh"
 
 jxt {
-    c "signal.h"
 
     func signal(signum, handler)
     func raise(sig)
