@@ -3270,10 +3270,11 @@ just run {
                 while gscan < ntoks {
                     let gstk = tokAt(tokens, gscan)
                     if gdepth == 0 {
-                        if gstk == "KW:let" || gstk == "KW:func" || gstk == "KW:fn" || gstk == "KW:import" || gstk == "KW:struct" || gstk == "KW:type" || gstk == "KW:jxt" || gstk == "KW:export" || gstk == "RBRACE" { gscan = gscan - 1  break }
+                        if gstk == "KW:let" || gstk == "KW:func" || gstk == "KW:fn" || gstk == "KW:import" || gstk == "KW:struct" || gstk == "KW:type" || gstk == "KW:jxt" || gstk == "KW:export" { gscan = gscan - 1  break }
+                        if gstk == "RBRACE" { gscan = gscan - 1  break }   // exiting outer block
                     }
                     if gstk == "LPAREN" || gstk == "LBRACE" || gstk == "LBRACK" { gdepth += 1 }
-                    if gstk == "RPAREN" || gstk == "RBRACK" { gdepth -= 1 }
+                    else if gstk == "RPAREN" || gstk == "RBRACK" || gstk == "RBRACE" { gdepth -= 1 }
                     gscan += 1
                 }
                 i = gscan
@@ -3329,10 +3330,11 @@ just run {
                 while gscan2 < ntoks {
                     let gstk2 = tokAt(tokens, gscan2)
                     if gdepth2 == 0 {
-                        if gstk2 == "KW:let" || gstk2 == "KW:func" || gstk2 == "KW:fn" || gstk2 == "KW:import" || gstk2 == "KW:struct" || gstk2 == "KW:type" || gstk2 == "KW:jxt" || gstk2 == "KW:export" || gstk2 == "RBRACE" { break }
+                        if gstk2 == "KW:let" || gstk2 == "KW:func" || gstk2 == "KW:fn" || gstk2 == "KW:import" || gstk2 == "KW:struct" || gstk2 == "KW:type" || gstk2 == "KW:jxt" || gstk2 == "KW:export" { break }
+                        if gstk2 == "RBRACE" { break }
                     }
                     if gstk2 == "LPAREN" || gstk2 == "LBRACE" || gstk2 == "LBRACK" { gdepth2 += 1 }
-                    if gstk2 == "RPAREN" || gstk2 == "RBRACK" { gdepth2 -= 1 }
+                    else if gstk2 == "RPAREN" || gstk2 == "RBRACK" || gstk2 == "RBRACE" { gdepth2 -= 1 }
                     gscan2 += 1
                 }
                 i = gscan2
