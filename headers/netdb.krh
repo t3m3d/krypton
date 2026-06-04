@@ -3,8 +3,6 @@
 // Linux/macOS.
 
 jxt {
-    c "netdb.h"
-    c "sys/socket.h"
 
     struct addrinfo {
         field ai_flags     INT

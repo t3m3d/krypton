@@ -3,7 +3,6 @@
 // Linux/macOS. Windows users want fileio.krh's FindFirstFileA / FindNextFileA.
 
 jxt {
-    c "dirent.h"
 
     struct dirent {
         field d_ino    ULONG

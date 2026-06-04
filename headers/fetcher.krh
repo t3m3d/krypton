@@ -2,7 +2,6 @@
 // These require C structs/loops that can't yet be expressed in pure Krypton.
 
 jxt {
-    c "kfetch_api.h"
 
     func exec(cmd)
     func kfinit()

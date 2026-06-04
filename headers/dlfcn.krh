@@ -9,7 +9,6 @@
 //   RTLD_GLOBAL=256, RTLD_LOCAL=0
 
 jxt {
-    c "dlfcn.h"
 
     func dlopen(filename, flags)
     func dlsym(handle, symbol)

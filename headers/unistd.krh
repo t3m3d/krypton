@@ -3,7 +3,6 @@
 // Linux/macOS only. Windows users want process.krh / fileio.krh.
 
 jxt {
-    c "unistd.h"
 
     // File descriptor I/O
     func read(fd, buf, count)

@@ -3,7 +3,6 @@
 // Link with: -lpcap (Linux) or -lwpcap (Windows with Npcap/WinPcap)
 
 jxt {
-    c "pcap.h"
 
     func pcap_open_live(device, snaplen, promisc, to_ms, errbuf)
     func pcap_open_dead(linktype, snaplen)
