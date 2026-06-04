@@ -322,21 +322,9 @@ just run {
             else { exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " " + q(s) + " > " + q(cout)) }
             exit("0")
         }
-        // --gcc: deprecated C+gcc fallback (native is the default and goal). Kept
-        // for drop-in parity; do not build new workflows on it.
+        // --gcc is REMOVED — Krypton is C-free; native is the only path.
         if hasFlag("--gcc") {
-            let s = linuxSrc()
-            if s == "" { kp("kcc: --gcc needs a source file")  exit("1") }
-            if has("gcc") == "0" { kp("kcc: --gcc needs gcc")  exit("1") }
-            kp("kcc: warning: --gcc is deprecated; native is the default and goal.")
-            let gout = optValue("-o", baseName(s))
-            let gtmp = sh("mktemp /tmp/_kccgcc_XXXXXX.c")
-            exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " " + q(s) + " > " + q(gtmp))
-            exec("gcc " + q(gtmp) + " -o " + q(gout) + " -O2 -lm -w")
-            rm(gtmp)
-            if exists(gout) == "0" { kp("kcc: gcc compile failed")  exit("1") }
-            exec("chmod +x " + q(gout))
-            exit("0")
+            kp("kcc: --gcc was removed (Krypton compiles natively, no C). Building native.")
         }
         // --llvm / --wasm: non-functional upstream (kcc.sh's --llvm emits C; --wasm
         // is an unimplemented stub). Be honest instead of mimicking the bug.
