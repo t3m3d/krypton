@@ -82,23 +82,60 @@ Both: `git pull --rebase` before pushing (macOS/Windows agents share `main`).
 
 ## agent-w — greenfield (NEW files only)
 
-- [ ] **`stdlib/x11.k` — pure-Krypton X11 client over a socket.** Speak the X11 wire protocol
-      (handshake, `CreateWindow`, `MapWindow`, `PolyFillRectangle`/`ImageText8`) using the
-      existing `sockMake`/`sockConnect`/`sockSend`/`sockRecv` builtins — no dynamic linking.
-      This is the route to a Linux GUI frontend that mirrors how the macOS HTTP server was
-      built C-free over sockets. **Transport dependency:** local display is `AF_UNIX`; start
-      against TCP (`127.0.0.1:6000+N`) if the X server `-listen tcp`, else wait on agent-l's
-      `AF_UNIX` connect. Wayland (`$XDG_RUNTIME_DIR/wayland-*`) is `AF_UNIX`-only → needs it.
-- [ ] **App repo Linux ports** (sibling repos, fully owned by agent-w):
-      - `kryofetch` standalone repo: add `run_linux.k` + `build_linux.sh` (adapt from
-        `krypton/contrib/linguist/samples/kryofetch/run_linux.k`, which works).
-      - `terk` (C++/Qt6 terminal): build on WSL Arch — `platform/linux/PTYPlatform.cpp`
-        already exists; needs `qt6-base`, `cmake`. New build script / docs only.
-      - `yubikrypt`: already runs on Linux — just verify + (optionally) `usbipd-win` USB test.
-- [ ] **`tests/run_linux.sh` — a real test runner.** The current harness masks segfaults /
-      ignores exit codes. New runner: compile+run each `tests/*.k`, check exit code, grep
-      `[FAIL]`. Optional `.github/workflows/linux.yml` (WSL/CI). New files only.
-- [ ] **Arch packaging:** `PKGBUILD`(s) for the apps.
+**STATUS 2026-06-03: greenfield closed.** Every item below shipped; remaining
+agent-w work is queued under `kryoterm` phases 1-3 in its own repo, all of
+which are blocked waiting on agent-l (x11.k Phase B/C + forkpty).
+
+- [x] **`stdlib/x11.k` Phase A1 + A2** — connect, 12-byte handshake, full
+      server-info parse on top of agent-l's `bufNew`/`bufSetByte`/`bufGet*At`.
+      Verified end-to-end against Xvfb on Arch/WSL2. Commits `635958b4` +
+      `fad4a878`. **Phase B+ reassigned to agent-l** (deeper Linux syscall
+      surface lives there).
+- [x] **App repo Linux ports** — all three sibling repos shipped:
+      - `kryofetch` — `run_linux.k` + `build_linux.sh` + Arch `PKGBUILD`
+        (commits `4fb897f`, `36d40c7` in `t3m3d/kryofetch`)
+      - `terk` — `build_linux.sh` + `BUILD_LINUX.md` + Arch `PKGBUILD`
+        (commits `a26e8e5`, `f4f3eca` in `t3m3d/terk`)
+      - `yubikrypt` — Arch `PKGBUILD`; macOS frontend reused verbatim on Linux
+        (commits `edfc5c9`, `e98a534` in `t3m3d/yubikrypt`)
+      - **(new)** `kryoterm` — pure-Krypton terminal sibling repo, phase 0
+        stub (spawn child + echo stdout) shipped as 4126 B static ELF.
+        Phases 1-3 blocked on x11.k Phase B/C + forkpty (agent-l).
+- [x] **`tests/run_linux.sh`** — real test runner. Iterates `tests/*.k`,
+      classifies PASS / FAIL (timeout, signal-death, non-zero exit, `[FAIL]`
+      markers) / SKIP. Exits non-zero on any failure.
+- [x] **`.github/workflows/linux.yml`** — CI on `ubuntu-latest`, bootstraps
+      via `build.sh`, runs `tests/run_linux.sh`. Commit `b4a1b71e`.
+- [x] **Arch packaging** — all four PKGBUILDs above. `.gitattributes` pinning
+      `*.sh`/`*.k`/`*.ks`/`PKGBUILD` to LF in every sibling repo so Windows
+      tooling can't CRLF-break shebang lines on Linux.
+
+## agent-w — bonus stdlib shipped (NEW files, beyond the original TODO)
+
+- [x] **`stdlib/arch.k`** — host CPU detection (`x86_64`/`arm64`/`x86`/
+      `armv7`/`unknown`), `isArm/isX86/is64Bit`. Layered detection via
+      `/proc/sys/kernel/arch` → `PROCESSOR_ARCHITECTURE` → `HOSTTYPE` →
+      `CPUTYPE`. Skips `shellRun` (inherits stdio on Linux, doesn't capture).
+- [x] **`kcc.ks --print-arch`** + arch-aware backend auto-routing in the
+      KryptScript driver. Commit `77ce6f62`. `--arm64` / `--x64` flags
+      override auto-detection.
+- [x] **`stdlib/color.k`** — hex ↔ rgb ↔ hsl + lighten/darken/mix.
+- [x] **`stdlib/mime.k`** — ~50-entry MIME lookup by ext or path.
+- [x] **`stdlib/cookie.k`** — `Cookie:` parse + `Set-Cookie:` build with attrs.
+- [x] **`tests/smoke_new_stdlib.k`** — 21/21 PASS for color/mime/cookie.
+- [x] **`examples/arch_info.k`** — `k:arch` demo example. Commit `7dd1413b`.
+- [x] **Site updates** — programs page (kryofetch / yubikrypt / kryoterm
+      cards), system-following light/dark theme, hero typing-anim fix,
+      WASM particle theming via `themedRGB()`, sponsor slot stub for
+      thepeoplewire.com, `PAGES.md` rendering-layer inventory.
+
+## agent-w — deferred (filed for future)
+
+- **`stdlib/uuid.k`** — attempted, deferred. Krypton's `random()` returns 0
+  on Linux (no entropy primitive wired through); `rdtsc`/`timestamp` exceed
+  the 0x7F000000 smart-int ceiling and get re-tagged as pointers, breaking
+  the modulo math. Coming back once agent-l ships a small-int entropy
+  primitive (or once the int ceiling is raised again).
 
 ## Needed from agent-l (filed by agent-w as it hits walls)
 
