@@ -3315,14 +3315,23 @@ just run {
                 gtype = tokVal(tokAt(tokens, gp + 1))
                 gp += 2
             }
-            // global variables are always char* to stay in the Krypton string world
-            // compile initializer
+            // Body-pass global initializer — compileExpr was deleted with the
+            // C-emit code; sbGlobals feeds the legacy C main(), which is also
+            // guarded out in --ir mode. Just advance past the expression.
             if tokAt(tokens, gp) == "ASSIGN" {
                 gp += 1
-                let gval = compileExpr(tokens, gp, ntoks)
-                let gvalCode = pairVal(gval)
-                sbGlobals = sbAppend(sbGlobals, "    " + gname + " = " + gvalCode + ";\n")
-                i = pairPos(gval)
+                let gscan2 = gp
+                let gdepth2 = 0
+                while gscan2 < ntoks {
+                    let gstk2 = tokAt(tokens, gscan2)
+                    if gdepth2 == 0 {
+                        if gstk2 == "KW:let" || gstk2 == "KW:func" || gstk2 == "KW:fn" || gstk2 == "KW:import" || gstk2 == "KW:struct" || gstk2 == "KW:type" || gstk2 == "KW:jxt" || gstk2 == "KW:export" || gstk2 == "RBRACE" { break }
+                    }
+                    if gstk2 == "LPAREN" || gstk2 == "LBRACE" || gstk2 == "LBRACK" { gdepth2 += 1 }
+                    if gstk2 == "RPAREN" || gstk2 == "RBRACK" { gdepth2 -= 1 }
+                    gscan2 += 1
+                }
+                i = gscan2
             } else {
                 i = gp
             }
