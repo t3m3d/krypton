@@ -2586,6 +2586,16 @@ just run {
         emit 1
     }
 
+    // Hard-reject deprecated C-emit / external-toolchain flags.
+    let _aRej = 0
+    while _aRej < argCount() {
+        let _aFlag = arg(_aRej + "")
+        if _aFlag == "--c"    { printErr("kcc: --c was removed (Krypton is C-free; native pipeline only).")    emit 1 }
+        if _aFlag == "--gcc"  { printErr("kcc: --gcc was removed (Krypton is C-free; native pipeline only).")  emit 1 }
+        if _aFlag == "--llvm" { printErr("kcc: --llvm was removed (Krypton is C-free; native pipeline only).") emit 1 }
+        _aRej += 1
+    }
+
     while file == "--ir" || file == "-o" || file == "--port-1to2" {
         if file == "--ir" {
             irMode = 1
@@ -3161,10 +3171,21 @@ just run {
                     sp2 = sp2 + 2
                     // skip optional type annotation
                     if tokAt(tokens, sp2) == "COLON" { sp2 = sp2 + 2 }
-                    // skip optional default value
+                    // skip optional default value (walk past expr to next statement)
                     if tokAt(tokens, sp2) == "ASSIGN" {
-                        let sep = compileExpr(tokens, sp2 + 1, ntoks)
-                        sp2 = pairPos(sep)
+                        sp2 = sp2 + 1
+                        let sedepth = 0
+                        while sp2 < ntoks {
+                            let setk = tokAt(tokens, sp2)
+                            if sedepth == 0 {
+                                if setk == "KW:let" { break }
+                                if setk == "RBRACE" { break }
+                            }
+                            if setk == "LPAREN" || setk == "LBRACE" || setk == "LBRACK" { sedepth += 1 }
+                            else if setk == "RPAREN" || setk == "RBRACK" { sedepth -= 1 }
+                            else if setk == "RBRACE" { sedepth -= 1 }
+                            sp2 += 1
+                        }
                     }
                 } else { sp2 += 1 }
             }
