@@ -2958,9 +2958,8 @@ just run {
                         }
                         ij += 1
                     }
-                    // function bodies
-                    let iBodies = compileImportedFunctions(iToks, iNtoks, iFtable)
-                    // in --ir mode, also collect IR for imported functions (skip jxt blocks)
+                    // (legacy --c path's compileImportedFunctions removed —
+                    // IR-mode below handles function-body import via irFuncIR)
                     if irMode == 1 {
                         let iIRi = 0
                         let iIRinJxt = 0
