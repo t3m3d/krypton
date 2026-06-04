@@ -3,7 +3,6 @@
 // Linux/macOS.
 
 jxt {
-    c "arpa/inet.h"
 
     // Address conversion
     func inet_aton(cp, in_addr)

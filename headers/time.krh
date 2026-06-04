@@ -2,7 +2,6 @@
 // Usage: import "headers/time.krh"
 
 jxt {
-    c "time.h"
 
     struct tm {
         field tm_sec   INT

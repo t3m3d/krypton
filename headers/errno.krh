@@ -6,9 +6,6 @@
 // platform; some implementations expose `__errno_location()` or `_errno()`).
 
 jxt {
-    c "errno.h"
-    c "string.h"
-    c "stdio.h"
 
     // Diagnostic helpers
     func strerror(errnum)

@@ -2,7 +2,6 @@
 // Usage: import "headers/stdlib.krh"
 
 jxt {
-    c "stdlib.h"
 
     // Memory
     func malloc(size)

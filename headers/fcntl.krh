@@ -5,7 +5,6 @@
 // O_EXCL=128, O_TRUNC=512, O_APPEND=1024 on Linux glibc).
 
 jxt {
-    c "fcntl.h"
 
     func open(path, flags, mode)
     func openat(dirfd, path, flags, mode)
