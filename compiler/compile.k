@@ -2711,11 +2711,9 @@ just run {
                 let lfvi2 = 0
                 while lfvi2 < lfvc {
                     let fvn2 = cIdent(split(lfreeVars, lfvi2))
-                    lcapDecls = lcapDecls + "static char* _krlam" + lsi + "_" + fvn2 + ";\n"
                     lcapInits = lcapInits + "    char* " + fvn2 + " = _krlam" + lsi + "_" + fvn2 + ";\n"
                     lfvi2 += 1
                 }
-                lambdaBank = lambdaBank + lcapDecls + "static " + lsig + " {\n" + lbcode + "return _K_EMPTY;\n}\n\n"
             }
         }
         lsi += 1
@@ -2803,7 +2801,6 @@ just run {
                                     if ijLang == "c" {
                                         iDecls = ijIncLine + iDecls
                                     } else {
-                                        iDecls = iDecls + ijIncLine
                                     }
                                     ijxtPos += 2
                                 } else if ijLang == "struct" {
@@ -2871,17 +2868,10 @@ just run {
                                         }
                                     }
                                     structTable = structTable + isEntry + "\n"
-                                    let sAcc = "static char* structnew_" + isName + "(void){"
-                                    sAcc = sAcc + isName + "* s=(" + isName + "*)_alloc(sizeof(" + isName + "));"
-                                    sAcc = sAcc + "memset(s,0,sizeof(" + isName + ")); return (char*)s;}\n"
-                                    sAcc = sAcc + "static char* structget_" + isName + "(char* p,char* f){"
                                     sAcc = sAcc + isName + "* s=(" + isName + "*)p;\n" + getBody
                                     sAcc = sAcc + "    return _K_EMPTY;}\n"
-                                    sAcc = sAcc + "static char* structset_" + isName + "(char* p,char* f,char* v){"
                                     sAcc = sAcc + isName + "* s=(" + isName + "*)p;\n" + setBody
                                     sAcc = sAcc + "    return _K_EMPTY;}\n"
-                                    sAcc = sAcc + "static char* structsizeof_" + isName + "(void){return kr_itoa(sizeof(" + isName + "));}\n"
-                                    iDecls = iDecls + sAcc
                                     ijxtPos = isfPos + 1
                                 } else if ijLang == "func" {
                                     let ijfName = tokVal(tokAt(iToks, ijxtPos + 1))
@@ -2898,7 +2888,6 @@ just run {
                                         let ijfPi = 1
                                         while ijfPi < ijfPc { ijfDecl = ijfDecl + ", char*"  ijfPi += 1 }
                                         ijfDecl = ijfDecl + ");\n"
-                                        iDecls = iDecls + ijfDecl
                                     }
                                     // Add to ftable
                                     let ijfInfo = ijfName + ":" + ijfPc + ":0"
@@ -2917,7 +2906,6 @@ just run {
                                     if len(compileWin32IntReturn(ijfCName)) > 0 { _iHasMarshal = "1" }
                                     if len(compileWin32IntArgs(ijfCName)) > 0 { _iHasMarshal = "1" }
                                     if (ijfRetType == "INT" || ijfRetType == "UINT" || ijfRetType == "DWORD" || ijfRetType == "LONG" || ijfRetType == "BOOL") && _iHasMarshal == "0" {
-                                        let iwd = "static char* _krw_" + ijfCName + "("
                                         let iwpi = 0
                                         while iwpi < ijfPc {
                                             if iwpi > 0 { iwd = iwd + "," }
@@ -2933,10 +2921,8 @@ just run {
                                             iwpi += 1
                                         }
                                         iwd = iwd + "));}\n#define " + ijfCName + " _krw_" + ijfCName + "\n"
-                                        iDecls = iDecls + iwd
                                     }
                                     if (ijfRetType == "UINT64" || ijfRetType == "ULONGLONG") && _iHasMarshal == "0" {
-                                        let iwd = "static char* _krw_" + ijfCName + "("
                                         let iwpi = 0
                                         while iwpi < ijfPc {
                                             if iwpi > 0 { iwd = iwd + "," }
@@ -2952,10 +2938,8 @@ just run {
                                             iwpi += 1
                                         }
                                         iwd = iwd + "));return kr_str(_b);}\n#define " + ijfCName + " _krw_" + ijfCName + "\n"
-                                        iDecls = iDecls + iwd
                                     }
                                     if ijfRetType == "zero" && _iHasMarshal == "0" {
-                                        let iwd = "static char* _krw_" + ijfCName + "("
                                         let iwpi = 0
                                         while iwpi < ijfPc {
                                             if iwpi > 0 { iwd = iwd + "," }
@@ -2971,7 +2955,6 @@ just run {
                                             iwpi += 1
                                         }
                                         iwd = iwd + ");return _K_EMPTY;}\n#define " + ijfCName + " _krw_" + ijfCName + "\n"
-                                        iDecls = iDecls + iwd
                                     }
                                     ijxtPos = ijfPos
                                 } else {
@@ -2997,7 +2980,6 @@ just run {
                                     idecl = "char* " + cIdent(iname) + "("
                                 }
                                 idecl = idecl + ");\n"
-                                iDecls = iDecls + idecl
                             }
                         } else if tokType(itk) == "CBLOCK" {
                             // Top-level cfunc { } in imported module: emit the raw
@@ -3005,15 +2987,11 @@ just run {
                             // statics/globals/helpers it defines are reachable from
                             // jxt-declared functions in the same imported file.
                             let icraw = replace(tokVal(itk), "\x01", "\n")
-                            iDecls = iDecls + icraw + "\n"
                         }
                         ij += 1
                     }
-                    importFwdDecls = importFwdDecls + "// --- imported: " + fullPath + " ---\n"
-                    importFwdDecls = importFwdDecls + iDecls
                     // function bodies
                     let iBodies = compileImportedFunctions(iToks, iNtoks, iFtable)
-                    importBodies = importBodies + iBodies
                     // in --ir mode, also collect IR for imported functions (skip jxt blocks)
                     if irMode == 1 {
                         let iIRi = 0
@@ -3067,8 +3045,6 @@ just run {
                             let jToks = tokenize(jSrc)
                             let jNt = lineCount(jToks)
                             let jFt = scanFunctions(jToks, jNt)
-                            importFwdDecls = importFwdDecls + "// --- jxt: " + jFullPath + " ---\n"
-                            importBodies = importBodies + compileImportedFunctions(jToks, jNt, jFt)
                             if len(jFt) > 0 {
                                 if len(ftable) > 0 { ftable = ftable + "\n" + jFt }
                                 else { ftable = jFt }
@@ -3090,7 +3066,6 @@ just run {
                     if lang == "c" {
                         importFwdDecls = jIncLine + importFwdDecls
                     } else {
-                        importFwdDecls = importFwdDecls + jIncLine
                     }
                     jxtPos += 2
                 } else if lang == "struct" {
@@ -3166,11 +3141,6 @@ just run {
                     // is available for IR generation. Legacy --c path's C accessors
                     // need a Krypton replacement (TODO: emit IR-side struct accessors).
                     if irMode == 0 {
-                        let sAccessors = "static char* structnew_" + sName + "(void){}\n"
-                        sAccessors = sAccessors + "static char* structget_" + sName + "(char* p,char* f){return _K_EMPTY;}\n"
-                        sAccessors = sAccessors + "static char* structset_" + sName + "(char* p,char* f,char* v){return _K_EMPTY;}\n"
-                        sAccessors = sAccessors + "static char* structsizeof_" + sName + "(void){return _K_EMPTY;}\n"
-                        importFwdDecls = importFwdDecls + sAccessors
                     }
                     jxtPos = sfPos + 1
                 } else if lang == "func" {
@@ -3197,7 +3167,6 @@ just run {
                         while jfPi < jfPc { jfDecl = jfDecl + ", char*"  jfPi += 1 }
                         if jfPc == 0 { jfDecl = "char* " + jfCName + "(" }
                         jfDecl = jfDecl + ");\n"
-                        importFwdDecls = importFwdDecls + jfDecl
                     }
                     // add to function table
                     let jfInfo = jfName + ":" + jfPc + ":0"
@@ -3222,7 +3191,6 @@ just run {
                     // Args passed as char* (no int cast) — C handles implicit conversion,
                     // which is safe for both pointer args and toHandle() integer args.
                     if (jfRetType == "INT" || jfRetType == "UINT" || jfRetType == "DWORD" || jfRetType == "LONG" || jfRetType == "BOOL") && len(_hasNewMarshal) == 0 && len(compileWin32IntArgs(jfCName)) == 0 {
-                        let wd = "static char* _krw_" + jfCName + "("
                         let wpi = 0
                         while wpi < jfPc {
                             if wpi > 0 { wd = wd + "," }
@@ -3238,10 +3206,8 @@ just run {
                             wpi += 1
                         }
                         wd = wd + ");}\n#define " + jfCName + " _krw_" + jfCName + "\n"
-                        importFwdDecls = importFwdDecls + wd
                     }
                     if (jfRetType == "UINT64" || jfRetType == "ULONGLONG") && len(_hasNewMarshal) == 0 && len(compileWin32IntArgs(jfCName)) == 0 {
-                        let wd = "static char* _krw_" + jfCName + "("
                         let wpi = 0
                         while wpi < jfPc {
                             if wpi > 0 { wd = wd + "," }
@@ -3257,10 +3223,8 @@ just run {
                             wpi += 1
                         }
                         wd = wd + "));return kr_str(_b);}\n#define " + jfCName + " _krw_" + jfCName + "\n"
-                        importFwdDecls = importFwdDecls + wd
                     }
                     if jfRetType == "zero" && len(_hasNewMarshal) == 0 && len(compileWin32IntArgs(jfCName)) == 0 {
-                        let wd = "static char* _krw_" + jfCName + "("
                         let wpi = 0
                         while wpi < jfPc {
                             if wpi > 0 { wd = wd + "," }
@@ -3276,7 +3240,6 @@ just run {
                             wpi += 1
                         }
                         wd = wd + ");return _K_EMPTY;}\n#define " + jfCName + " _krw_" + jfCName + "\n"
-                        importFwdDecls = importFwdDecls + wd
                     }
                     jxtPos = jfPos
                 } else {
@@ -3368,7 +3331,6 @@ just run {
             // emit forward decl for struct constructor
             let sn = tokVal(tokAt(tokens, i + 1))
             if len(sn) > 0 {
-                sb = sbAppend(sb, "static char* " + cIdent(sn) + "();\n")
             }
             // skip struct body - skipBlock returns pos after RBRACE
             // subtract 1 because outer loop does i += 1
@@ -3397,7 +3359,6 @@ just run {
                 gp += 2
             }
             // global variables are always char* to stay in the Krypton string world
-            sb = sbAppend(sb, "static char* " + gname + " = NULL;\n")
             // compile initializer
             if tokAt(tokens, gp) == "ASSIGN" {
                 gp += 1
@@ -3483,8 +3444,6 @@ just run {
                 si += 1
             }
             sout = sout + "} " + scname + "_t;\n\n"
-            sout = sout + "static char* " + scname + "() {\n"
-            sout = sout + "    " + scname + "_t* _s = (" + scname + "_t*)_alloc(sizeof(" + scname + "_t));\n"
             let si2 = 0
             while si2 < sfc {
                 let sfn2 = getNthParam(sfields, si2)
