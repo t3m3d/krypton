@@ -29,6 +29,21 @@ while [ -L "$SOURCE" ]; do
 done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 
+# 2.2: the driver IS kcc.ks (KryptScript), compiled to a C-free native binary.
+# On Linux x86-64, hand off to it directly — kcc.sh remains only as a thin
+# launcher (and the not-yet-migrated other-platform paths below).
+if [[ "$(uname -s 2>/dev/null)" == "Linux" ]]; then
+    case "$(uname -m 2>/dev/null)" in
+        x86_64|amd64)
+            _KCC_KS_DRV="$SCRIPT_DIR/bootstrap/kcc_driver_linux_x86_64"
+            if [[ -x "$_KCC_KS_DRV" ]]; then
+                export KRYPTON_ROOT="${KRYPTON_ROOT:-$SCRIPT_DIR}"
+                exec "$_KCC_KS_DRV" "$@"
+            fi
+            ;;
+    esac
+fi
+
 # 2.1.1: short-circuit --version / -v / -h / --help BEFORE we route to
 # the native pipeline. Without this, --version becomes SRCFILE="--version"
 # and the wrapper kicks off the full compile, which hangs on a file that
