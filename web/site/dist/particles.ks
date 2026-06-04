@@ -36,8 +36,8 @@ just run {
     let wf = w * 64
     let hf = h * 64
 
-    // 15 source particles -> 60 visible via 4-pass mirror in wasm_runner.js.
-    let n = 15
+    // 20 source particles -> 80 visible via 4-pass mirror in wasm_runner.js.
+    let n = 20
 
     let i = 0
     while i < n {
