@@ -203,15 +203,17 @@ func ensureArm64Host(root) {
         if sh("test " + q(bsrc) + " -nt " + q(host) + " && echo 1 || echo 0") == "0" { need = "0" }
     }
     if need == "0" { emit "1" }
-    if has("gcc") == "0" {
-        kp("kcc: arm64 backend needs a one-time gcc build, but gcc not found")
-        emit "0"
-    }
-    kp("kcc: building arm64 backend host (one-time gcc bootstrap)...")
-    let tmpc = sh("mktemp /tmp/_kccarm_XXXXXX.c")
-    exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " " + q(bsrc) + " > " + q(tmpc))
-    exec("gcc -O2 -w " + q(tmpc) + " -o " + q(host) + " -lm")
-    rm(tmpc)
+    // The arm64 backend host is an x86 binary that EMITS arm64, so the x86
+    // NATIVE pipeline builds it — no gcc. Ensure the x86 elf_host exists, then
+    // it compiles linux_arm64/elf.k's IR into the arm64-emitter host.
+    if ensureElfHost(root) == "0" { emit "0" }
+    let elf = root + "/compiler/linux_x86/elf_host"
+    kp("kcc: building arm64 backend host natively (self-host, no C)...")
+    let tmpir = sh("mktemp /tmp/_kccarm_XXXXXX.kir")
+    exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(bsrc) + " > " + q(tmpir))
+    exec(q(elf) + " " + q(tmpir) + " " + q(host))
+    rm(tmpir)
+    exec("chmod +x " + q(host))
     if exists(host) == "1" { emit "1" }
     emit "0"
 }
