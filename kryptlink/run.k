@@ -31,37 +31,34 @@ import "k:datetime"
 import "k:string_utils"
 import "k:cookie"
 import "k:validate"
+import "k:env"
 
 // ── Config (read once at startup) ────────────────────────────────────
 
-func cfgPassword() {
-    let buf = bufNew(256)
-    let n = GetEnvironmentVariableA("KRYPTLINK_PASSWORD", buf, "256")
-    if n == "0" { emit "" }
-    emit bufStr(buf)
-}
-
-func cfgDbPath() {
+// Cross-platform env read. macOS/Linux read via the C-free `k:env` printenv
+// shellout; Windows uses the Win32 API. We key off `uname -s`: only "Darwin"
+// or "Linux" take the POSIX path, so a Windows box with Git Bash on PATH
+// (uname reports "MINGW…"/"MSYS…") still correctly uses the Win32 reader.
+// Crucially, GetEnvironmentVariableA is NEVER called on macOS/Linux, where
+// that symbol is undefined and would crash (SIGILL). `dflt` when unset/empty.
+func cfgEnv(name, dflt) {
+    let u = exec("uname -s")
+    if contains(u, "Darwin") || contains(u, "Linux") {
+        let v = env(name)
+        if len(v) == 0 { emit dflt }
+        emit v
+    }
     let buf = bufNew(512)
-    let n = GetEnvironmentVariableA("KRYPTLINK_DB", buf, "512")
-    if n == "0" { emit "kryptlink.db" }
+    let n = GetEnvironmentVariableA(name, buf, "512")
+    if n == "0" { emit dflt }
     emit bufStr(buf)
 }
 
-func cfgPublicHost() {
-    let buf = bufNew(256)
-    let n = GetEnvironmentVariableA("KRYPTLINK_PUBLIC_HOST", buf, "256")
-    if n == "0" { emit "http://localhost:8080" }
-    emit bufStr(buf)
-}
-
+func cfgPassword()   { emit cfgEnv("KRYPTLINK_PASSWORD", "") }
+func cfgDbPath()     { emit cfgEnv("KRYPTLINK_DB", "kryptlink.db") }
+func cfgPublicHost() { emit cfgEnv("KRYPTLINK_PUBLIC_HOST", "http://localhost:8080") }
 // Dir holding static files served at /. Defaults to ./public.
-func cfgPublicDir() {
-    let buf = bufNew(512)
-    let n = GetEnvironmentVariableA("KRYPTLINK_PUBLIC_DIR", buf, "512")
-    if n == "0" { emit "public" }
-    emit bufStr(buf)
-}
+func cfgPublicDir()  { emit cfgEnv("KRYPTLINK_PUBLIC_DIR", "public") }
 
 // ── SQLite shellout helpers ──────────────────────────────────────────
 
