@@ -59,3 +59,33 @@ seeds it, no gcc) → test `printf 'just run { kp(min(3,7)) }' | kcc --native -o
 opByteSize mismatch → SIGILL/SIGSEGV at runtime, so verify byte counts.
 
 — L (gap mapped; starting on bitwise + min/max)
+
+## CRITICAL impl detail — int representation (found inspecting kr_abs)
+Krypton ints are tagged: a value can be a **small int stored directly** OR a
+**string pointer** (>= 0x7F000000 threshold), and negatives are normalized via
+`kr_atoi`, NOT raw 2's-complement. So an int builtin must `kr_atoi` each arg to a
+raw register int FIRST, operate, then return the raw int. A naive `CMP`/`AND` on
+the tagged stack values is WRONG (breaks on strings-as-numbers and negatives).
+`kr_abs` (L1583) is the template: `CALL kr_atoi` (RDI→RAX), then operate, `RET`.
+
+### min/max sketch (2-arg, mirror `pow`'s emit shape: POP RSI; POP RDI; CALL; PUSH RAX = 8 bytes)
+Helper `kr_min(a=RDI, b=RSI)`:
+```
+push rsi            ; 56  save b
+call kr_atoi        ; E8 d32   RDI(a) -> RAX
+mov  rbx, rax       ; 48 89 C3 a_raw -> RBX   (NB: verify kr_atoi preserves RBX;
+pop  rdi            ; 5F       b                 if not, push/pop RBX around call 2)
+call kr_atoi        ; E8 d32   RDI(b) -> RAX
+cmp  rbx, rax       ; 48 39 C3
+cmovg rbx, rax      ; 48 0F 4F D8   min -> RBX  (cmovl for max)
+mov  rax, rbx       ; 48 89 D8
+ret                 ; C3
+```
+**Must verify kr_atoi's clobber set before trusting RBX across call #2** — if it
+clobbers RBX, save it. Test with negatives and string-number args.
+
+## STATUS
+Gap mapped + recipe + int-convention documented. NOT yet implemented — the asm is
+byte-exact + clobber-sensitive and a wrong opByteSize SIGILLs the seed, so it
+wants focused, tested work (not tail-of-marathon). Next concrete step: implement
+min/max (smallest), rebuild elf_host, validate incl. negatives, before bitwise.
