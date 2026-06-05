@@ -124,9 +124,10 @@ func sessionCookie() {
     // Cheap derivation: just use the password's char codes summed mod
     // a large prime. Two users with the same password → same cookie.
     let h = 5381
+    let bound = toInt("2147483647")
     let i = 0
     while i < len(pw) {
-        h = ((h * 33) + toInt(charCode(pw[i]))) % 2147483647
+        h = ((h * 33) + toInt(charCode(pw[i]))) % bound
         i = i + 1
     }
     emit "kl_" + h
