@@ -52,6 +52,11 @@ esac
 SEED_BIN="bootstrap/kcc_seed_${OSNAME}_${ARCH}"
 [[ "$OSNAME" == "windows" ]] && SEED_BIN="${SEED_BIN}.exe"
 
+# The driver is the compiled kcc.ks (KryptScript) native binary, per platform.
+# kcc.sh was removed (commit 0c0dc57b); compiles/tests go through this driver.
+KCC_DRIVER="$SCRIPT_DIR/bootstrap/kcc_driver_${OSNAME}_${ARCH}"
+[[ "$OSNAME" == "windows" ]] && KCC_DRIVER="${KCC_DRIVER}.exe"
+
 # Platform-specific binary path (kcc itself is a dispatcher).
 # Binaries live under compiler/<arch>/ since the 2026-05-11 cleanup;
 # matches the dispatcher's case in ./kcc.
@@ -85,7 +90,7 @@ native_pipeline_available() {
 native_compile_and_run() {
     local src="$1"
     local out="/tmp/_kr_native_$$"
-    "$SCRIPT_DIR/kcc.sh" --native "$src" -o "$out" >/dev/null 2>&1 || { rm -f "$out"; return 1; }
+    "$KCC_DRIVER" --native "$src" -o "$out" >/dev/null 2>&1 || { rm -f "$out"; return 1; }
     "$out"; local rc=$?
     rm -f "$out"
     return $rc
@@ -142,7 +147,7 @@ if [[ "$MODE" == "test" ]]; then
             # code. Tests that print [PASS]/[FAIL] markers per assertion
             # would otherwise silently green when the process exit happens
             # to be 0 by luck — the grep filter is what catches bad results.
-            if ! "$SCRIPT_DIR/kcc.sh" --native "$TEST" -o "$OUT" >/dev/null 2>&1; then
+            if ! "$KCC_DRIVER" --native "$TEST" -o "$OUT" >/dev/null 2>&1; then
                 echo -e "${RED}FAIL${RESET}  $NAME (compile)"
                 FAILED=$((FAILED + 1))
             else
