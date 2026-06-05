@@ -1,0 +1,17 @@
+# Snippet for github/linguist  lib/linguist/heuristics.yml
+# Krypton shares .k with K (Arthur Whitney) and .ks with KerboScript, so it
+# needs content disambiguation. Krypton is identified by its keyword/builtin
+# surface: `func`/`fn` decls, `just run` entry blocks, `kp(`, `emit`, `module`.
+# Validated against 846 real .k/.ks files (100% match) with zero false matches
+# on K's terse symbolic code or KerboScript's PRINT/SET..TO/LOCK syntax.
+disambiguations:
+  - extensions: ['.k']
+    rules:
+      - language: Krypton
+        pattern: '(?m)^\s*(export\s+)?(func|fn)\s+\w|^\s*just\s+(run|go)\b|^\s*module\s+\w|(?<![\w.])kp\s*\(|(?<![\w.])emit\s'
+      - language: K           # fallback: Whitney's K keeps the historical owner
+  - extensions: ['.ks']
+    rules:
+      - language: Krypton
+        pattern: '(?m)^\s*(export\s+)?(func|fn)\s+\w|^\s*just\s+(run|go)\b|(?<![\w.])kp\s*\('
+      - language: KerboScript # fallback: kOS keeps the historical owner

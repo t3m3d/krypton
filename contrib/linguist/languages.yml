@@ -1,9 +1,16 @@
+# Snippet for github/linguist  lib/linguist/languages.yml
+# NOTE: ace_mode must be a valid Ace mode (no "krypton" mode exists) → "text".
+#       language_id is assigned by Linguist maintainers on merge.
 Krypton:
   type: programming
   color: "#4F5AA8"
-  tm_scope: source.krypton
-  ace_mode: krypton
   extensions:
-    - .k
+    - ".k"
+    - ".ks"
+    - ".krh"
+  tm_scope: source.krypton
+  ace_mode: text
   filenames: []
-  interpreters: []
+  interpreters:
+    - kr
+    - kcc
