@@ -115,3 +115,83 @@ func triangularNums(n) {
     }
     emit result
 }
+
+// rangeIncl(start, end) — inclusive of `end`, unlike rangeList which is
+// half-open.  rangeIncl(1, 5) → "1,2,3,4,5"
+func rangeIncl(start, end) {
+    let result = ""
+    let i = start
+    while i <= end {
+        if result == "" { result = "" + i }
+        else            { result = result + "," + i }
+        i += 1
+    }
+    emit result
+}
+
+// First n even non-negative numbers: 0, 2, 4, ...
+func evens(n) {
+    let result = ""
+    let i = 0
+    while i < n {
+        let v = i * 2
+        if result == "" { result = "" + v }
+        else            { result = result + "," + v }
+        i += 1
+    }
+    emit result
+}
+
+// First n odd positive numbers: 1, 3, 5, ...
+func odds(n) {
+    let result = ""
+    let i = 0
+    while i < n {
+        let v = (i * 2) + 1
+        if result == "" { result = "" + v }
+        else            { result = result + "," + v }
+        i += 1
+    }
+    emit result
+}
+
+// First n Fibonacci numbers starting with 0, 1.
+func fibs(n) {
+    if n <= 0 { emit "" }
+    let result = "0"
+    if n == 1 { emit result }
+    let a = 0
+    let b = 1
+    let i = 1
+    while i < n {
+        result = result + "," + b
+        let next = a + b
+        a = b
+        b = next
+        i += 1
+    }
+    emit result
+}
+
+// First n primes by simple trial division.
+func primes(n) {
+    if n <= 0 { emit "" }
+    let result = ""
+    let candidate = 2
+    let found = 0
+    while found < n {
+        let isPrime = 1
+        let d = 2
+        while d * d <= candidate {
+            if candidate % d == 0 { isPrime = 0  d = candidate }
+            d = d + 1
+        }
+        if isPrime == 1 {
+            if result == "" { result = "" + candidate }
+            else            { result = result + "," + candidate }
+            found = found + 1
+        }
+        candidate = candidate + 1
+    }
+    emit result
+}
