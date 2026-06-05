@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>kry.li — short links</title>
+  <meta name="description" content="kry.li shortens URLs and tracks clicks. Powered by Krypton, no JavaScript framework, no third-party trackers.">
+  <style>
+    :root {
+      --bg: #fafafa;
+      --fg: #1f1f2e;
+      --accent: #4F5AA8;
+      --accent-dim: #7b85c4;
+      --muted: #6b6b80;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #15151c;
+        --fg: #e8e8f0;
+        --accent: #8b95d7;
+        --accent-dim: #5b65a4;
+        --muted: #9090a8;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.6;
+    }
+    main {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 4em 1.5em 6em;
+    }
+    h1 {
+      font-size: 3.5em;
+      letter-spacing: -0.04em;
+      margin: 0 0 0.2em;
+      font-weight: 800;
+      color: var(--accent);
+    }
+    h1 .dot { color: var(--accent-dim); }
+    .tagline {
+      font-size: 1.2em;
+      color: var(--muted);
+      margin-bottom: 2.5em;
+    }
+    .features {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5em;
+      margin: 2.5em 0;
+    }
+    @media (max-width: 540px) {
+      .features { grid-template-columns: 1fr; }
+    }
+    .feature {
+      padding: 1em 0;
+    }
+    .feature h3 {
+      margin: 0 0 0.3em;
+      font-size: 1em;
+      color: var(--accent);
+    }
+    .feature p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.95em;
+    }
+    .footer {
+      margin-top: 4em;
+      padding-top: 2em;
+      border-top: 1px solid color-mix(in srgb, var(--muted) 30%, transparent);
+      font-size: 0.85em;
+      color: var(--muted);
+    }
+    .footer a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .footer a:hover { text-decoration: underline; }
+    code {
+      background: color-mix(in srgb, var(--accent) 10%, transparent);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      font-size: 0.9em;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>kry<span class="dot">.</span>li</h1>
+    <p class="tagline">Short links with click tracking. Built in Krypton.</p>
+
+    <section class="features">
+      <div class="feature">
+        <h3>Custom or random</h3>
+        <p>Pick your own code (<code>kry.li/launch</code>) or auto-generate a 6-character base62.</p>
+      </div>
+      <div class="feature">
+        <h3>Click analytics</h3>
+        <p>Every visit logged with timestamp, referrer, IP, and user agent.</p>
+      </div>
+      <div class="feature">
+        <h3>Server-side QR</h3>
+        <p>Each link gets a scannable QR code — pure-Krypton SVG, no third-party API.</p>
+      </div>
+      <div class="feature">
+        <h3>No JavaScript</h3>
+        <p>The whole app is HTML forms and standard cookies. Works without JS enabled.</p>
+      </div>
+    </section>
+
+    <div class="footer">
+      <p>Hosted on krypton-native infrastructure. Source on <a href="https://github.com/t3m3d/krypton/tree/main/kryptlink">GitHub</a>. Admin at <a href="/admin">/admin</a>.</p>
+    </div>
+  </main>
+</body>
+</html>
