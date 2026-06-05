@@ -22,8 +22,8 @@ cd "$SCRIPT_DIR"
 # ── Config ──────────────────────────────────────────────────────────────────
 COMPILE_K="compiler/compile.k"
 # KCC is the platform-specific binary (compiler/<arch>/kcc-<arch>, kcc.exe on Windows).
-# ./kcc itself is a symlink to ./kcc.sh, the driver that detects OS/arch and
-# invokes the right platform binary at runtime.
+# ./kcc is a symlink to the kcc.ks driver seed (bootstrap/kcc_driver_<os>_<arch>),
+# which detects OS/arch and invokes the right platform binary at runtime.
 # Set after platform detection below.
 # Default C compiler: $CC env var, then gcc, then clang (macOS default).
 if [[ -n "${CC:-}" ]]; then
@@ -73,7 +73,7 @@ MODE="${1:-build}"
 
 # ── Native-pipeline availability ────────────────────────────────────────────
 # Linux/Windows x86_64 ship native codegen hosts (elf_host / x64_host) so
-# `kcc.sh --native` produces a binary directly — no gcc, no clang. macOS uses
+# `kcc --native` produces a binary directly — no gcc, no clang. macOS uses
 # macho_arm64_self.k (Krypton-only) on arm64. We treat the native pipeline as
 # available whenever the dispatcher will pick a Krypton-only backend.
 native_pipeline_available() {
@@ -242,11 +242,12 @@ if [[ -f "$SEED_BIN" ]]; then
         echo "    ./build.sh test               run the test suite (needs $CC)"
     fi
     if [[ "$OSNAME" == "linux" ]]; then
-        echo "    ./kcc.sh --native hello.k -o hello   gcc-free native ELF"
+        echo "    ./kcc --native hello.k -o hello      gcc-free native ELF (x86_64)"
+        echo "    ./kcc --arm64  hello.k -o hello      cross-compile to aarch64 ELF"
     elif [[ "$OSNAME" == "macos" ]]; then
-        echo "    ./kcc.sh --native hello.k -o hello   gcc-free native Mach-O (arm64)"
+        echo "    ./kcc --native hello.k -o hello      gcc-free native Mach-O (arm64)"
     elif [[ "$OSNAME" == "windows" ]]; then
-        echo "    ./kcc.sh --native hello.k -o hello   gcc-free native PE/COFF"
+        echo "    ./kcc --native hello.k -o hello      gcc-free native PE/COFF"
     fi
     echo ""
     exit 0
