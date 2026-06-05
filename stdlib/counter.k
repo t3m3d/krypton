@@ -152,3 +152,70 @@ func listFrequency(list) {
     }
     emit result
 }
+
+// Most-common item in a list. Returns "" on empty input.
+func listMostCommon(list) {
+    let size = count(list)
+    if size == 0 { emit "" }
+    let bestItem = ""
+    let bestCnt = 0
+    let i = 0
+    while i < size {
+        let item = split(list, i)
+        let cnt = 0
+        let k = 0
+        while k < size {
+            if split(list, k) == item { cnt = cnt + 1 }
+            k = k + 1
+        }
+        if cnt > bestCnt {
+            bestCnt = cnt
+            bestItem = item
+        }
+        i = i + 1
+    }
+    emit bestItem
+}
+
+// True iff list contains each of its items only once.
+func isAllUnique(list) {
+    let size = count(list)
+    let i = 0
+    while i < size {
+        let item = split(list, i)
+        let j = i + 1
+        while j < size {
+            if split(list, j) == item { emit 0 }
+            j = j + 1
+        }
+        i = i + 1
+    }
+    emit 1
+}
+
+// Number of distinct items in a list.
+func distinctCount(list) {
+    let size = count(list)
+    let seen = ""
+    let n = 0
+    let i = 0
+    while i < size {
+        let item = split(list, i)
+        let already = 0
+        if seen != "" {
+            let s = count(seen)
+            let j = 0
+            while j < s {
+                if split(seen, j) == item { already = 1  j = s }
+                j = j + 1
+            }
+        }
+        if already == 0 {
+            if seen == "" { seen = item }
+            else          { seen = seen + "," + item }
+            n = n + 1
+        }
+        i = i + 1
+    }
+    emit n
+}
