@@ -130,3 +130,74 @@ func formatTable(text) {
     }
     emit sbToString(sb)
 }
+
+// ── RFC-4180 escape / write ──────────────────────────────────────────
+
+// Escape a single CSV field. Quotes the field iff it contains comma,
+// quote, newline, or carriage-return. Embedded quotes are doubled.
+//
+//   csvEscapeField("hi,mom")     → "\"hi,mom\""
+//   csvEscapeField("she \"said\"") → "\"she \"\"said\"\"\""
+//   csvEscapeField("plain")      → "plain"
+func csvEscapeField(s) {
+    let DQ = fromCharCode(34)
+    let needsQuote = 0
+    let i = 0
+    while i < len(s) {
+        let c = s[i]
+        if c == "," || c == DQ || c == "\n" || c == "\r" { needsQuote = 1 }
+        i = i + 1
+    }
+    if needsQuote == 0 { emit s }
+    let out = sbNew()
+    out = sbAppend(out, DQ)
+    let j = 0
+    while j < len(s) {
+        let c = s[j]
+        if c == DQ { out = sbAppend(out, DQ)  out = sbAppend(out, DQ) }
+        else       { out = sbAppend(out, c) }
+        j = j + 1
+    }
+    out = sbAppend(out, DQ)
+    emit sbToString(out)
+}
+
+// Build a CSV line from a comma-CSV of unescaped values. Each value
+// is escaped via csvEscapeField. (This shadows the comma-CSV input
+// shape by joining with literal commas + properly quoting any field
+// that contains one.)
+//
+//   csvLine("brian,hi,mom") → "brian,hi,mom"
+//   csvLine("brian,\"hi,there\",ok") parsing tricky — pass values
+//     separately via split if they contain commas, or use this helper
+//     only for already-clean fields.
+func csvLine(valuesCsv) {
+    let n = count(valuesCsv)
+    let out = sbNew()
+    let i = 0
+    while i < n {
+        if i > 0 { out = sbAppend(out, ",") }
+        out = sbAppend(out, csvEscapeField(split(valuesCsv, i)))
+        i = i + 1
+    }
+    emit sbToString(out)
+}
+
+// Build a CSV document from a list of rows (each row is itself a CSV
+// of fields joined by ";" inside the outer CSV — Krypton's only
+// nested-list shape). Rows separated by "\r\n" per RFC 4180.
+//
+//   writeCSV("name;age,brian;42,alice;7")
+//     → "name,age\r\nbrian,42\r\nalice,7\r\n"
+func writeCSV(rowsCsv) {
+    let n = count(rowsCsv)
+    let out = sbNew()
+    let i = 0
+    while i < n {
+        let row = replace(split(rowsCsv, i), ";", ",")
+        out = sbAppend(out, csvLine(row))
+        out = sbAppend(out, "\r\n")
+        i = i + 1
+    }
+    emit sbToString(out)
+}
