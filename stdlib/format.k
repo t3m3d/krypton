@@ -4,11 +4,19 @@
 module format
 
 
-// Format a number with leading zeros
+// Format a number with leading zeros.
+//
+// Krypton bug: `"0" + s` auto-coerces to integer addition (so "0" + "5"
+// returns 5, not "05"). Build via sbAppend to keep the leading zero.
+// Without this, the original implementation looped forever on any
+// single-digit input because the string never lengthened.
 func zeroPad(n, width) {
     let s = "" + n
     while len(s) < width {
-        s = "0" + s
+        let b = sbNew()
+        b = sbAppend(b, "0")
+        b = sbAppend(b, s)
+        s = sbToString(b)
     }
     emit s
 }
@@ -145,5 +153,133 @@ func formatBytes(bytes) {
         emit "" + kb + " KB"
     }
     let mb = kb / 1024
-    emit "" + mb + " MB"
+    if mb < 1024 {
+        emit "" + mb + " MB"
+    }
+    let gb = mb / 1024
+    if gb < 1024 {
+        emit "" + gb + " GB"
+    }
+    let tb = gb / 1024
+    emit "" + tb + " TB"
+}
+
+// ── Template formatting (sprintf-like) ───────────────────────────────
+
+// Substitute "{}" placeholders left-to-right with comma-separated args.
+// To get a literal "{}" in the output, use "{{}}".
+//
+//   fmt("hello {}, you have {} new", "brian,3") → "hello brian, you have 3 new"
+func fmt(template, args) {
+    let out = sbNew()
+    let i = 0
+    let argIdx = 0
+    while i < len(template) {
+        // Literal "{{}}" → emit "{}", skip placeholder consumption.
+        if i + 3 < len(template) && template[i] == "{" && template[i + 1] == "{" && template[i + 2] == "}" && template[i + 3] == "}" {
+            out = sbAppend(out, "{}")
+            i = i + 4
+        } else if i + 1 < len(template) && template[i] == "{" && template[i + 1] == "}" {
+            if argIdx < count(args) {
+                out = sbAppend(out, split(args, argIdx))
+                argIdx = argIdx + 1
+            }
+            i = i + 2
+        } else {
+            out = sbAppend(out, template[i])
+            i = i + 1
+        }
+    }
+    emit sbToString(out)
+}
+
+// ── Plural / ordinal ─────────────────────────────────────────────────
+
+// pluralize("file", 1) → "file"; pluralize("file", 3) → "files".
+// Two-arg form uses the "+s" rule. Use pluralizeN for irregulars.
+func pluralize(word, count) {
+    if toInt(count) == 1 { emit word }
+    let b = sbNew()
+    b = sbAppend(b, word)
+    b = sbAppend(b, "s")
+    emit sbToString(b)
+}
+
+// pluralizeN("mouse", "mice", 3) → "mice".
+func pluralizeN(singular, plural, count) {
+    if toInt(count) == 1 { emit singular }
+    emit plural
+}
+
+// "1st", "2nd", "3rd", "11th", "21st", ...
+func ordinal(n) {
+    let v = toInt(n)
+    let mod100 = v % 100
+    let mod10 = v % 10
+    let suf = "th"
+    if mod100 < 11 || mod100 > 13 {
+        if mod10 == 1 { suf = "st" }
+        else if mod10 == 2 { suf = "nd" }
+        else if mod10 == 3 { suf = "rd" }
+    }
+    let b = sbNew()
+    b = sbAppend(b, v + "")
+    b = sbAppend(b, suf)
+    emit sbToString(b)
+}
+
+// ── Duration formatting ──────────────────────────────────────────────
+
+// Format a duration in seconds as a compact "H:MM:SS" or "MM:SS".
+func formatDuration(seconds) {
+    let s = toInt(seconds)
+    if s < 0 { s = 0 - s }
+    let hours = s / 3600
+    let mins = (s % 3600) / 60
+    let secs = s % 60
+    let b = sbNew()
+    if hours > 0 {
+        b = sbAppend(b, hours + "")
+        b = sbAppend(b, ":")
+        b = sbAppend(b, zeroPad(mins + "", 2))
+    } else {
+        b = sbAppend(b, mins + "")
+    }
+    b = sbAppend(b, ":")
+    b = sbAppend(b, zeroPad(secs + "", 2))
+    emit sbToString(b)
+}
+
+// Long-form duration: "1h 23m 45s", "45s", "5m 0s".
+func formatDurationLong(seconds) {
+    let s = toInt(seconds)
+    if s < 0 { s = 0 - s }
+    if s < 60 { emit s + "s" }
+    let hours = s / 3600
+    let mins = (s % 3600) / 60
+    let secs = s % 60
+    let b = sbNew()
+    if hours > 0 {
+        b = sbAppend(b, hours + "h ")
+    }
+    if hours > 0 || mins > 0 {
+        b = sbAppend(b, mins + "m ")
+    }
+    b = sbAppend(b, secs + "s")
+    emit sbToString(b)
+}
+
+// ── Hex / binary helpers ─────────────────────────────────────────────
+
+// Format an int as a hex string with at least `width` digits, lowercase,
+// no "0x" prefix. Use Krypton's `hex` builtin for raw conversion.
+func formatHex(n, width) {
+    let h = hex(toInt(n))
+    while len(h) < width {
+        let b = sbNew()
+        b = sbAppend(b, "0")
+        b = sbAppend(b, h)
+        h = sbToString(b)
+    }
+    emit h
 }
