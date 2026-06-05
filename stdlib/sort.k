@@ -150,3 +150,80 @@ func listMax(list) {
     }
     emit maxVal
 }
+
+// ── Descending + string sorts ────────────────────────────────────────
+
+// Sort numeric list in descending order. Bubble — fine for small lists.
+func sortNumDesc(list) {
+    let size = count(list)
+    let sorted = list
+    let i = 0
+    while i < size - 1 {
+        let j = 0
+        while j < size - 1 - i {
+            let a = toInt(split(sorted, j))
+            let b = toInt(split(sorted, j + 1))
+            if a < b {
+                sorted = listSwap(sorted, j, j + 1)
+            }
+            j += 1
+        }
+        i += 1
+    }
+    emit sorted
+}
+
+// Sort string list lexicographically (ascending). Bubble.
+func sortStrings(list) {
+    let size = count(list)
+    let sorted = list
+    let i = 0
+    while i < size - 1 {
+        let j = 0
+        while j < size - 1 - i {
+            let a = split(sorted, j)
+            let b = split(sorted, j + 1)
+            if a > b {
+                sorted = listSwap(sorted, j, j + 1)
+            }
+            j += 1
+        }
+        i += 1
+    }
+    emit sorted
+}
+
+// Sort string list lexicographically (descending).
+func sortStringsDesc(list) {
+    let size = count(list)
+    let sorted = list
+    let i = 0
+    while i < size - 1 {
+        let j = 0
+        while j < size - 1 - i {
+            let a = split(sorted, j)
+            let b = split(sorted, j + 1)
+            if a < b {
+                sorted = listSwap(sorted, j, j + 1)
+            }
+            j += 1
+        }
+        i += 1
+    }
+    emit sorted
+}
+
+// Reverse a comma-separated list (any element type).
+func listReverseAny(list) {
+    let size = count(list)
+    let out = sbNew()
+    let i = size - 1
+    let any = 0
+    while i >= 0 {
+        if any == 1 { out = sbAppend(out, ",") }
+        out = sbAppend(out, split(list, i))
+        any = 1
+        i = i - 1
+    }
+    emit sbToString(out)
+}
