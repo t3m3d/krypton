@@ -17,42 +17,67 @@ func _hexDigit(v) {
 }
 
 // toHex(n) -> lowercase hex of a non-negative int, no leading zeros.
+//
+// Built via sb + reverse because `digit + out` int-coalesces when both
+// are digit chars ("3" + "2" → 5, not "32"). Same fix pattern as the
+// other format helpers.
 func toHex(n) {
     if n == 0 { emit "0" }
     let x = n
-    let out = ""
+    let buf = sbNew()
     while x > 0 {
-        let d = x % 16
-        out = _hexDigit(d) + out
+        buf = sbAppend(buf, _hexDigit(x % 16))
         x = x / 16
     }
-    emit out
+    let raw = sbToString(buf)
+    let out = sbNew()
+    let j = len(raw) - 1
+    while j >= 0 {
+        out = sbAppend(out, raw[j])
+        j = j - 1
+    }
+    emit sbToString(out)
 }
 
 // toHexByte(n) -> exactly 2 hex digits (low byte of n).
+//
+// Builds the two-digit pair via sbAppend because `_hexDigit(hi) +
+// _hexDigit(lo)` int-coalesces when both digits are 0-9 (e.g. 0x32
+// would render as 5).
 func toHexByte(n) {
     let b = n % 256
     let hi = b / 16
     let lo = b % 16
-    emit _hexDigit(hi) + _hexDigit(lo)
+    let out = sbNew()
+    out = sbAppend(out, _hexDigit(hi))
+    out = sbAppend(out, _hexDigit(lo))
+    emit sbToString(out)
 }
 
 // toHexPad(n, width) -> hex left-padded with '0' to width digits.
+// `"0" + s` int-coalesces single-digit input — use sbAppend.
 func toHexPad(n, width) {
     let s = toHex(n)
-    while len(s) < width { s = "0" + s }
+    while len(s) < width {
+        let b = sbNew()
+        b = sbAppend(b, "0")
+        b = sbAppend(b, s)
+        s = sbToString(b)
+    }
     emit s
 }
 
 // strToHex(s) -> hex of every byte of the string ("AB" -> "4142").
+// Built via sbAppend — two 2-digit pairs concatenated via `+` also
+// int-coalesce when the resulting strings are pure digits.
 func strToHex(s) {
-    let out = ""
+    let out = sbNew()
     let i = 0
     while i < len(s) {
-        out = out + toHexByte(toInt(charCode(s[i])))
+        out = sbAppend(out, toHexByte(toInt(charCode(s[i]))))
         i += 1
     }
-    emit out
+    emit sbToString(out)
 }
 
 func _hexVal(c) {
@@ -75,12 +100,13 @@ func fromHex(s) {
 }
 
 // hexToStr(s) -> decode hex pairs back into a string ("4142" -> "AB").
+// Built via sbAppend (output chars may be digits).
 func hexToStr(s) {
-    let out = ""
+    let out = sbNew()
     let i = 0
     while i + 1 < len(s) {
-        out = out + fromCharCode(_hexVal(s[i]) * 16 + _hexVal(s[i+1]))
+        out = sbAppend(out, fromCharCode(_hexVal(s[i]) * 16 + _hexVal(s[i+1])))
         i += 2
     }
-    emit out
+    emit sbToString(out)
 }
