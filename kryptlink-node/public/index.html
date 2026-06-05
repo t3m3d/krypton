@@ -39,28 +39,37 @@
       inset: 0;
       z-index: -4;
       overflow: hidden;
-      background: var(--bg);
       pointer-events: none;
+      /* Multi-stop radial gradient base — three nebula blooms baked into
+         the background plus a deep navy fall-off. */
+      background:
+        radial-gradient(ellipse 60% 55% at 30% 25%, rgba(120, 60, 220, 0.55), transparent 70%),
+        radial-gradient(ellipse 50% 60% at 70% 70%, rgba(60, 130, 255, 0.55), transparent 70%),
+        radial-gradient(ellipse 40% 50% at 80% 30%, rgba(200, 80, 220, 0.45), transparent 70%),
+        radial-gradient(ellipse 70% 60% at 20% 80%, rgba(40, 80, 200, 0.45), transparent 75%),
+        var(--bg);
     }
+    /* Drifting orbs ON TOP of the static nebula for movement. */
     .mesh::before, .mesh::after {
       content: '';
       position: absolute;
-      width: 60vw;
-      height: 60vw;
+      width: 70vw;
+      height: 70vw;
       border-radius: 50%;
-      filter: blur(120px);
-      opacity: 0.45;
+      filter: blur(100px);
+      opacity: 0.7;
       animation: drift 24s ease-in-out infinite;
+      mix-blend-mode: screen;
     }
     .mesh::before {
-      background: radial-gradient(circle, rgba(93,109,255,0.55), transparent 65%);
-      top: -15%;
-      left: -10%;
+      background: radial-gradient(circle, rgba(150, 70, 240, 0.8), transparent 60%);
+      top: -20%;
+      left: -15%;
     }
     .mesh::after {
-      background: radial-gradient(circle, rgba(77,156,255,0.55), transparent 65%);
-      bottom: -20%;
-      right: -10%;
+      background: radial-gradient(circle, rgba(80, 160, 255, 0.7), transparent 60%);
+      bottom: -25%;
+      right: -15%;
       animation-delay: -12s;
     }
     @keyframes drift {
@@ -80,20 +89,20 @@
     }
     .stars-far {
       z-index: -3;
-      opacity: 0.55;
-      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='600'><g fill='%23b4d9ff'><circle cx='34' cy='123' r='1.0'/><circle cx='178' cy='45' r='0.9'/><circle cx='402' cy='280' r='1.1'/><circle cx='540' cy='460' r='0.8'/><circle cx='280' cy='560' r='1.0'/><circle cx='90' cy='320' r='1.2'/><circle cx='495' cy='110' r='0.9'/><circle cx='245' cy='180' r='0.8'/><circle cx='110' cy='510' r='1.1'/><circle cx='370' cy='420' r='0.9'/><circle cx='460' cy='350' r='0.7'/><circle cx='160' cy='230' r='1.0'/></g></svg>");
+      opacity: 0.85;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='600'><defs><radialGradient id='g'><stop offset='0' stop-color='%23ffffff' stop-opacity='1'/><stop offset='1' stop-color='%23ffffff' stop-opacity='0'/></radialGradient></defs><g fill='url(%23g)'><circle cx='34' cy='123' r='3'/><circle cx='178' cy='45' r='2.5'/><circle cx='402' cy='280' r='3.5'/><circle cx='540' cy='460' r='2.5'/><circle cx='280' cy='560' r='3'/><circle cx='90' cy='320' r='4'/><circle cx='495' cy='110' r='2.5'/><circle cx='245' cy='180' r='2'/><circle cx='110' cy='510' r='3.5'/><circle cx='370' cy='420' r='2.5'/><circle cx='460' cy='350' r='2'/><circle cx='160' cy='230' r='3'/></g><g fill='%23ffffff'><circle cx='34' cy='123' r='1.2'/><circle cx='178' cy='45' r='1.0'/><circle cx='402' cy='280' r='1.4'/><circle cx='540' cy='460' r='1.0'/><circle cx='280' cy='560' r='1.2'/><circle cx='90' cy='320' r='1.5'/><circle cx='495' cy='110' r='1.0'/><circle cx='245' cy='180' r='0.9'/><circle cx='110' cy='510' r='1.4'/><circle cx='370' cy='420' r='1.0'/><circle cx='460' cy='350' r='0.9'/><circle cx='160' cy='230' r='1.2'/></g></svg>");
       transform: translate(calc(var(--mx, 0) * 6px), calc(var(--my, 0) * 6px));
     }
     .stars-mid {
       z-index: -2;
-      opacity: 0.7;
-      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='600'><g fill='%23ffffff'><circle cx='62' cy='40' r='0.6'/><circle cx='150' cy='110' r='0.5'/><circle cx='220' cy='35' r='0.7'/><circle cx='310' cy='190' r='0.6'/><circle cx='430' cy='55' r='0.5'/><circle cx='510' cy='200' r='0.7'/><circle cx='580' cy='90' r='0.6'/><circle cx='30' cy='250' r='0.5'/><circle cx='120' cy='370' r='0.7'/><circle cx='195' cy='455' r='0.6'/><circle cx='265' cy='320' r='0.5'/><circle cx='335' cy='495' r='0.7'/><circle cx='405' cy='265' r='0.6'/><circle cx='475' cy='400' r='0.5'/><circle cx='545' cy='540' r='0.7'/><circle cx='75' cy='580' r='0.6'/><circle cx='400' cy='580' r='0.5'/><circle cx='250' cy='260' r='0.6'/><circle cx='150' cy='180' r='0.5'/><circle cx='370' cy='130' r='0.6'/><circle cx='465' cy='480' r='0.5'/><circle cx='565' cy='320' r='0.7'/><circle cx='25' cy='170' r='0.5'/><circle cx='205' cy='235' r='0.6'/></g></svg>");
+      opacity: 0.95;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='600'><g fill='%23ffffff'><circle cx='62' cy='40' r='0.9'/><circle cx='150' cy='110' r='0.7'/><circle cx='220' cy='35' r='1.0'/><circle cx='310' cy='190' r='0.8'/><circle cx='430' cy='55' r='0.7'/><circle cx='510' cy='200' r='1.0'/><circle cx='580' cy='90' r='0.8'/><circle cx='30' cy='250' r='0.7'/><circle cx='120' cy='370' r='1.0'/><circle cx='195' cy='455' r='0.8'/><circle cx='265' cy='320' r='0.7'/><circle cx='335' cy='495' r='1.0'/><circle cx='405' cy='265' r='0.8'/><circle cx='475' cy='400' r='0.7'/><circle cx='545' cy='540' r='1.0'/><circle cx='75' cy='580' r='0.8'/><circle cx='400' cy='580' r='0.7'/><circle cx='250' cy='260' r='0.8'/><circle cx='150' cy='180' r='0.7'/><circle cx='370' cy='130' r='0.9'/><circle cx='465' cy='480' r='0.7'/><circle cx='565' cy='320' r='1.0'/><circle cx='25' cy='170' r='0.7'/><circle cx='205' cy='235' r='0.8'/><circle cx='95' cy='80' r='0.8'/><circle cx='350' cy='75' r='0.7'/><circle cx='280' cy='400' r='0.9'/><circle cx='180' cy='550' r='0.8'/><circle cx='450' cy='150' r='0.7'/><circle cx='520' cy='280' r='0.9'/><circle cx='100' cy='420' r='0.7'/><circle cx='420' cy='340' r='0.8'/><circle cx='320' cy='90' r='0.7'/><circle cx='480' cy='560' r='0.9'/><circle cx='60' cy='480' r='0.8'/><circle cx='235' cy='370' r='0.7'/></g></svg>");
       transform: translate(calc(var(--mx, 0) * 16px), calc(var(--my, 0) * 16px));
     }
     .stars-near {
       z-index: -1;
-      opacity: 0.85;
-      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='800' height='800'><g fill='%23ffffff'><circle cx='53' cy='71' r='0.35'/><circle cx='128' cy='42' r='0.4'/><circle cx='210' cy='105' r='0.3'/><circle cx='285' cy='62' r='0.4'/><circle cx='342' cy='148' r='0.35'/><circle cx='418' cy='95' r='0.3'/><circle cx='505' cy='180' r='0.4'/><circle cx='572' cy='52' r='0.35'/><circle cx='635' cy='145' r='0.3'/><circle cx='725' cy='90' r='0.4'/><circle cx='25' cy='225' r='0.35'/><circle cx='98' cy='280' r='0.3'/><circle cx='170' cy='195' r='0.4'/><circle cx='248' cy='310' r='0.35'/><circle cx='325' cy='245' r='0.3'/><circle cx='402' cy='328' r='0.4'/><circle cx='485' cy='278' r='0.35'/><circle cx='552' cy='362' r='0.3'/><circle cx='615' cy='250' r='0.4'/><circle cx='695' cy='322' r='0.35'/><circle cx='770' cy='280' r='0.3'/><circle cx='42' cy='405' r='0.4'/><circle cx='118' cy='462' r='0.35'/><circle cx='195' cy='385' r='0.3'/><circle cx='275' cy='498' r='0.4'/><circle cx='358' cy='440' r='0.35'/><circle cx='435' cy='525' r='0.3'/><circle cx='508' cy='455' r='0.4'/><circle cx='585' cy='548' r='0.35'/><circle cx='660' cy='480' r='0.3'/><circle cx='745' cy='540' r='0.4'/><circle cx='38' cy='615' r='0.35'/><circle cx='115' cy='672' r='0.3'/><circle cx='198' cy='590' r='0.4'/><circle cx='278' cy='715' r='0.35'/><circle cx='355' cy='645' r='0.3'/><circle cx='438' cy='735' r='0.4'/><circle cx='515' cy='672' r='0.35'/><circle cx='592' cy='765' r='0.3'/><circle cx='668' cy='695' r='0.4'/><circle cx='755' cy='760' r='0.35'/><circle cx='80' cy='745' r='0.3'/><circle cx='168' cy='818' r='0.4'/></g></svg>");
+      opacity: 1;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='800' height='800'><g fill='%23ffffff'><circle cx='53' cy='71' r='0.5'/><circle cx='128' cy='42' r='0.6'/><circle cx='210' cy='105' r='0.4'/><circle cx='285' cy='62' r='0.6'/><circle cx='342' cy='148' r='0.5'/><circle cx='418' cy='95' r='0.4'/><circle cx='505' cy='180' r='0.6'/><circle cx='572' cy='52' r='0.5'/><circle cx='635' cy='145' r='0.4'/><circle cx='725' cy='90' r='0.6'/><circle cx='25' cy='225' r='0.5'/><circle cx='98' cy='280' r='0.4'/><circle cx='170' cy='195' r='0.6'/><circle cx='248' cy='310' r='0.5'/><circle cx='325' cy='245' r='0.4'/><circle cx='402' cy='328' r='0.6'/><circle cx='485' cy='278' r='0.5'/><circle cx='552' cy='362' r='0.4'/><circle cx='615' cy='250' r='0.6'/><circle cx='695' cy='322' r='0.5'/><circle cx='770' cy='280' r='0.4'/><circle cx='42' cy='405' r='0.6'/><circle cx='118' cy='462' r='0.5'/><circle cx='195' cy='385' r='0.4'/><circle cx='275' cy='498' r='0.6'/><circle cx='358' cy='440' r='0.5'/><circle cx='435' cy='525' r='0.4'/><circle cx='508' cy='455' r='0.6'/><circle cx='585' cy='548' r='0.5'/><circle cx='660' cy='480' r='0.4'/><circle cx='745' cy='540' r='0.6'/><circle cx='38' cy='615' r='0.5'/><circle cx='115' cy='672' r='0.4'/><circle cx='198' cy='590' r='0.6'/><circle cx='278' cy='715' r='0.5'/><circle cx='355' cy='645' r='0.4'/><circle cx='438' cy='735' r='0.6'/><circle cx='515' cy='672' r='0.5'/><circle cx='592' cy='765' r='0.4'/><circle cx='668' cy='695' r='0.6'/><circle cx='755' cy='760' r='0.5'/><circle cx='80' cy='745' r='0.4'/><circle cx='168' cy='818' r='0.6'/><circle cx='305' cy='195' r='0.5'/><circle cx='458' cy='205' r='0.4'/><circle cx='608' cy='400' r='0.6'/><circle cx='185' cy='118' r='0.5'/><circle cx='372' cy='28' r='0.5'/><circle cx='90' cy='150' r='0.4'/><circle cx='540' cy='115' r='0.6'/><circle cx='225' cy='280' r='0.5'/><circle cx='380' cy='285' r='0.4'/><circle cx='460' cy='75' r='0.5'/><circle cx='660' cy='190' r='0.6'/><circle cx='745' cy='225' r='0.5'/><circle cx='70' cy='340' r='0.4'/><circle cx='148' cy='338' r='0.5'/><circle cx='225' cy='420' r='0.6'/></g></svg>");
       transform: translate(calc(var(--mx, 0) * 28px), calc(var(--my, 0) * 28px));
     }
     @media (prefers-reduced-motion: reduce) {
