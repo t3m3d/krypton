@@ -91,10 +91,20 @@ clobbers RBX, save it. Test with negatives and string-number args.
       Gotcha hit & fixed: a size-var NAME collision (krShlSz vs strlen's krSlSz)
       corrupted the vaddr chain → SIGILL on every helper. **Grep existing size-var
       names before adding to the ~L5475 block.**
-- [ ] **hex/bin** — NEXT. int→string; needs a base-N digit-format helper (mirror
-      kr_str_int ~L3065, a 91-byte base-10 formatter). Front-end already emits
-      BUILTIN hex/bin (category A) → no CALL interceptor, just name→op + helper.
-- [ ] padLeft/padRight (3-arg string), then struct get/set, then ptr/raw FFI.
+- [x] **hex/bin** — DONE (ba07ced6). kr_hex(107B base-16 a-f, 24B buf),
+      kr_bin(99B base-2, 72B buf); both fold kr_atoi + call kr_alloc, sign+magnitude.
+      Category A (FE emits BUILTIN) → name→op entry + helper, no interceptor.
+      Validated hex(255)=ff hex(4096)=1000; bin(255)=11111111; 58/0.
+- [x] **padLeft/padRight** — DONE (this commit). 3-arg (s, width, padStr)→string;
+      kr_padleft(119B)/kr_padright(122B), SysV port of x64.k. Args saved in
+      callee-saved regs (RBX/R12/R13/R14) across atoi/strlen/alloc; width<=len
+      returns s directly (no strdup). FE pops 3 args POP RDX/RSI/RDI →
+      RDI=s,RSI=width,RDX=pad. Validated 00007 / ...hi / 70000 / hi... / passthru;
+      concat after pad confirms nul-term; 58/0.
+- [ ] **NEXT: struct get/set** (structGet/structSet), then ptr/raw FFI (advanced).
+      Or buffer dword/word/qword ops (bufGet/SetDword etc.) — also category gaps.
+
+All int+string scalar builtins now at parity (min/max/bitwise/hex/bin/pad*).
 
 Recipe lesson learned: the consistency check must include a **name-collision grep**,
 not just an occurrence count — a reused `let krXxSz` silently shadows another size.
