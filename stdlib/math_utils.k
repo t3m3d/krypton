@@ -175,3 +175,102 @@ func sign(n) {
 func sumTo(n) {
     emit n * (n + 1) / 2
 }
+
+// ── Modular arithmetic + extended GCD ────────────────────────────────
+
+// Modular exponentiation: (base ^ exp) mod m. exp is non-negative.
+func modPow(base, exp, m) {
+    if m == 1 { emit 0 }
+    let result = 1
+    let b = base % m
+    let e = exp
+    while e > 0 {
+        if e % 2 == 1 { result = (result * b) % m }
+        e = e / 2
+        b = (b * b) % m
+    }
+    emit result
+}
+
+// Modular inverse via extended Euclidean. Returns -1 if gcd(a, m) > 1.
+func modInverse(a, m) {
+    let g = a
+    let x = 1
+    let y = 0
+    let g2 = m
+    let x2 = 0
+    let y2 = 1
+    while g2 != 0 {
+        let q = g / g2
+        let tg = g - q * g2
+        let tx = x - q * x2
+        let ty = y - q * y2
+        g = g2  x = x2  y = y2
+        g2 = tg  x2 = tx  y2 = ty
+    }
+    if g != 1 { emit 0 - 1 }
+    let r = x % m
+    if r < 0 { r = r + m }
+    emit r
+}
+
+// Binomial coefficient C(n, k). Iterative, integer-only.
+func choose(n, k) {
+    if k < 0 || k > n { emit 0 }
+    let kk = k
+    if kk > n - kk { kk = n - kk }
+    let result = 1
+    let i = 0
+    while i < kk {
+        result = result * (n - i)
+        result = result / (i + 1)
+        i = i + 1
+    }
+    emit result
+}
+
+// Greatest common divisor returning the larger of two when both are 0.
+func ceilDiv(a, b) {
+    if b == 0 { emit 0 }
+    emit (a + b - 1) / b
+}
+
+// Integer logarithm: largest k such that base^k <= n. Returns -1 for
+// n <= 0 or base <= 1.
+func ilog(n, base) {
+    if n <= 0 { emit 0 - 1 }
+    if base <= 1 { emit 0 - 1 }
+    let k = 0
+    let v = 1
+    while v * base <= n {
+        v = v * base
+        k = k + 1
+    }
+    emit k
+}
+
+// Integer power: base^exp. Negative exp returns 0 (no fractions).
+func ipow(base, exp) {
+    if exp < 0 { emit 0 }
+    let result = 1
+    let b = base
+    let e = exp
+    while e > 0 {
+        if e % 2 == 1 { result = result * b }
+        e = e / 2
+        b = b * b
+    }
+    emit result
+}
+
+// True iff n is even.
+func isEven(n) {
+    if n % 2 == 0 { emit 1 }
+    emit 0
+}
+
+// True iff n is odd.
+func isOdd(n) {
+    if n % 2 == 0 { emit 0 }
+    emit 1
+}
