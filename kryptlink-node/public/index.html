@@ -48,14 +48,51 @@
       color: var(--muted);
       margin-bottom: 2.5em;
     }
-    .features {
+    .hero {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1.5em;
+      grid-template-areas:
+        "feat1 feat2 login"
+        "feat3 feat4 feat5";
+      grid-template-columns: 1fr 1fr 240px;
+      gap: 1.5em 1.8em;
       margin: 2.5em 0;
+      align-items: start;
     }
-    @media (max-width: 540px) {
-      .features { grid-template-columns: 1fr; }
+    .hero > .feature:nth-of-type(1) { grid-area: feat1; }
+    .hero > .feature:nth-of-type(2) { grid-area: feat2; }
+    .hero > .feature:nth-of-type(3) { grid-area: feat3; }
+    .hero > .feature:nth-of-type(4) { grid-area: feat4; }
+    .hero > .feature:nth-of-type(5) { grid-area: feat5; }
+    .hero > .login { grid-area: login; margin: 0; }
+    @media (max-width: 720px) {
+      .hero {
+        grid-template-areas:
+          "login login"
+          "feat1 feat2"
+          "feat3 feat4"
+          "feat5 feat5";
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+    @media (max-width: 480px) {
+      .hero {
+        grid-template-areas:
+          "login"
+          "feat1"
+          "feat2"
+          "feat3"
+          "feat4"
+          "feat5";
+        grid-template-columns: 1fr;
+      }
+    }
+    .feat-icon {
+      display: block;
+      width: 56px;
+      height: 56px;
+      margin-bottom: 0.6em;
+      border-radius: 8px;
+      object-fit: cover;
     }
     .feature {
       padding: 1em 0;
@@ -89,27 +126,30 @@
       font-size: 0.9em;
     }
     .login {
-      margin: 1.5em 0;
       font-size: .9em;
+      padding: 1.2em 1.1em;
+      border: 1px solid color-mix(in srgb, var(--muted) 25%, transparent);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--accent) 4%, transparent);
     }
     .login form {
       display: flex;
-      flex-wrap: wrap;
-      gap: .4em;
-      align-items: center;
+      flex-direction: column;
+      gap: .5em;
     }
     .login input {
       font: inherit;
-      padding: .35em .6em;
+      padding: .4em .6em;
       border: 1px solid color-mix(in srgb, var(--muted) 40%, transparent);
       border-radius: 4px;
       background: var(--bg);
       color: var(--fg);
-      width: 9em;
+      width: 100%;
+      box-sizing: border-box;
     }
     .login button {
       font: inherit;
-      padding: .35em .9em;
+      padding: .45em .9em;
       border: none;
       border-radius: 4px;
       color: white;
@@ -122,12 +162,12 @@
       color: var(--muted);
       border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
       cursor: not-allowed;
+      font-size: .85em;
     }
     .login .err {
-      width: 100%;
       color: #c44;
       font-size: .85em;
-      margin: 0 0 .3em;
+      margin: 0;
     }
   </style>
 </head>
@@ -136,32 +176,40 @@
     <h1>kry<span class="dot">.</span>li</h1>
     <p class="tagline">Short links with click tracking. Built in Krypton.</p>
 
-    <div class="login">
-      <form method="POST" action="/login" autocomplete="on">
-        <p class="err" id="err" style="display:none"></p>
-        <input type="text" name="username" placeholder="username" autocomplete="username" required>
-        <input type="password" name="password" placeholder="password" autocomplete="current-password" required>
-        <button type="submit">Log in</button>
-        <button type="button" class="ghost" disabled title="signups are closed">Create account</button>
-      </form>
-    </div>
-
-    <section class="features">
+    <section class="hero">
       <div class="feature">
+        <img src="/icons/code.png" alt="" class="feat-icon">
         <h3>Custom or random</h3>
         <p>Pick your own code (<code>kry.li/launch</code>) or auto-generate a 6-character base62.</p>
       </div>
       <div class="feature">
+        <img src="/icons/analytics.png" alt="" class="feat-icon">
         <h3>Click analytics</h3>
         <p>Every visit logged with timestamp, referrer, IP, and user agent.</p>
       </div>
       <div class="feature">
+        <img src="/icons/qr.png" alt="" class="feat-icon">
         <h3>Server-side QR</h3>
-        <p>Each link gets a scannable QR code — pure-Krypton SVG, no third-party API.</p>
+        <p>Each link gets a scannable QR code, rendered on the server, no third-party API.</p>
       </div>
       <div class="feature">
-        <h3>No JavaScript</h3>
-        <p>The whole app is HTML forms and standard cookies. Works without JS enabled.</p>
+        <img src="/icons/fast.png" alt="" class="feat-icon">
+        <h3>Lightning fast</h3>
+        <p>No JavaScript framework, no client-side bloat — every page paints instantly.</p>
+      </div>
+      <div class="feature">
+        <img src="/icons/privacy.png" alt="" class="feat-icon">
+        <h3>Privacy</h3>
+        <p>Self-hosted on our own infrastructure. No third-party trackers, no analytics SDKs.</p>
+      </div>
+      <div class="login">
+        <form method="POST" action="/login" autocomplete="on">
+          <p class="err" id="err" style="display:none"></p>
+          <input type="text" name="username" placeholder="username" autocomplete="username" required>
+          <input type="password" name="password" placeholder="password" autocomplete="current-password" required>
+          <button type="submit">Log in</button>
+          <button type="button" class="ghost" disabled title="signups are closed">Create account</button>
+        </form>
       </div>
     </section>
     <script>

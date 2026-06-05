@@ -292,6 +292,10 @@ function pageStats(user, code) {
 
 // ── Routes ───────────────────────────────────────────────────────────
 
+// Static assets (icons, favicon, etc.) under PUBLIC_DIR — cached 1h.
+// MUST come before the bit.ly-style /:code catch-all.
+app.use("/icons", express.static(path.join(PUBLIC_DIR, "icons"), { maxAge: "1h" }));
+
 // Static landing page (with a login form). Auth required only for /admin.
 app.get(["/", "/index.html"], (req, res) => {
   const indexPath = path.join(PUBLIC_DIR, "index.html");
