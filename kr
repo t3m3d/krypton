@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
-# kr — run a Krypton script.
+# kr — run a Krypton script (KryptScript).
 #
-# Thin shebang-friendly wrapper around `kcc -r`. Lets you write:
+# Shebang-friendly wrapper around `kcc -r`. Write:
 #
 #   #!/usr/bin/env kr
-#   just run { kp("hi") }
+#   kp("hi")
 #
-# in a .k or .ks file, `chmod +x` it, and run it like any other script.
-# (Convention: prefer .ks for run-as-script files; same compiler either way.)
+# in a .ks (or .k) file, `chmod +x` it, and run it like any other script.
 #
-# All args after the script are passed through to it (visible via
-# `arg(0)`, `arg(1)`, ... and `argCount()`).
+# SWIFT-LIKE TOP-LEVEL CODE: if the script has no `just run { }` block, kr
+# auto-wraps its whole body in one — so you can write statements at the top
+# of the file with no boilerplate. `import` and `func` work inside the wrap
+# too, so a script can mix imports, helper funcs, and top-level statements
+# freely. Scripts that already contain `just run` (or declare a `module`)
+# are passed through untouched.
+#
+# All args after the script are forwarded to it (visible via `arg(0)`,
+# `arg(1)`, ... and `argCount()`).
 
 SCRIPT_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -24,4 +30,39 @@ if [ -z "$KCC" ]; then
     exit 127
 fi
 
-exec "$KCC" -r "$@"
+SCRIPT="$1"
+if [ -z "$SCRIPT" ]; then
+    echo "kr: usage: kr <script.ks> [args...]" >&2
+    exit 64
+fi
+
+# Decide whether to auto-wrap top-level code. Skip wrapping (run as-is) when
+# the file already has an explicit `just run` entry point, or declares a
+# `module` (a library, not a runnable script), or isn't a readable file.
+# Strip `//` line comments before checking so the words "just run" / "module"
+# inside a comment don't fool the detector.
+needs_wrap=0
+if [ -f "$SCRIPT" ]; then
+    code="$(sed 's,//.*$,,' "$SCRIPT")"
+    if ! printf '%s\n' "$code" | grep -qE '(^|[^[:alnum:]_])just[[:space:]]+run([^[:alnum:]_]|$)' \
+       && ! printf '%s\n' "$code" | grep -qE '^[[:space:]]*module[[:space:]]'; then
+        needs_wrap=1
+    fi
+fi
+
+if [ "$needs_wrap" -eq 0 ]; then
+    exec "$KCC" -r "$@"
+fi
+
+# Auto-wrap: strip a leading shebang line, wrap the rest in `just run { }`.
+shift  # remaining args ($@) are the script's own args
+TMP="${TMPDIR:-/tmp}/kr_wrap_$$_${RANDOM}.ks"
+trap 'rm -f "$TMP"' EXIT
+{
+    echo "just run {"
+    sed '1{/^#!/d;}' "$SCRIPT"
+    echo "}"
+} > "$TMP"
+
+"$KCC" -r "$TMP" "$@"
+exit $?
