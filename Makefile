@@ -72,6 +72,6 @@ help:
 	@echo "    gcc source.c -o prog -lm     link"
 	@echo ""
 	@echo "  Native pipelines (Windows only):"
-	@echo "    ./kcc.sh --native source.k -o source.exe   PE backend, no gcc"
-	@echo "    ./kcc.sh --llvm source.k -o source.ll      LLVM IR backend"
+	@echo "    ./kcc --native source.k -o source.exe   PE backend, no gcc"
+	@echo "    ./kcc --llvm source.k -o source.ll      LLVM IR backend"
 	@echo ""
