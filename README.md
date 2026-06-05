@@ -44,7 +44,7 @@ The web framework adds a third extension for templates:
 ## What's new in 2.2
 
 - **KryptScript** — `.ks` everywhere the toolchain accepts `.k`. Installer +
-  VS Code extension associate both. `kcc.sh` derives output basenames
+  VS Code extension associate both. `kcc` derives output basenames
   correctly for either extension.
 - **WASM playground** — every tutorial lesson compiles to `.wasm` via the
   Krypton-side emitter (`compiler/wasm32/wasm_self.k`) and ships into
@@ -159,7 +159,7 @@ just run {
 | Linux x86_64 | `kcc_seed_linux_x86_64`, `elf_host_linux_x86_64`, `optimize_host_linux_x86_64` | none (pure copy) |
 | Windows x86_64 | `kcc_seed_windows_x86_64.exe`, `x64_host_windows_x86_64.exe`, `optimize_host_windows_x86_64.exe` | none (pure copy) |
 | macOS arm64 | `kcc_seed_macos_aarch64` | none (pure copy); macho_host built on first `--native` call via clang |
-| Linux ARM64 | `kcc_seed_linux_aarch64` | none (pure copy); **C path only** — no native ELF aarch64 backend yet, `kcc.sh --native` falls back to gcc/clang |
+| Linux ARM64 | `kcc_seed_linux_aarch64` | none (pure copy); **C path only** — no native ELF aarch64 backend yet, `kcc --native` falls back to gcc/clang |
 
 **Optional, for development only:**
 - **gcc** — one-time bootstrap if you edit `compiler/linux_x86/elf.k` or `compiler/windows_x86/x64.k` and need to rebuild a seed binary. End users never need it.
@@ -179,7 +179,7 @@ git clone https://github.com/t3m3d/krypton && cd krypton && ./install.sh
 `./build.sh` copies `bootstrap/kcc_seed_linux_x86_64` directly as `./kcc-x64`. No compiler invoked. Smoke test runs `examples/fibonacci.k` through the native ELF pipeline:
 
 ```bash
-kcc.sh hello.k                          # default native pipeline (no gcc)
+kcc hello.k                          # default native pipeline (no gcc)
 ./hello                                  # static ELF, direct syscalls, no libc
 ```
 
@@ -206,7 +206,7 @@ bootstrap.bat
 `bootstrap.bat` copies `kcc_seed_windows_x86_64.exe`, `x64_host_windows_x86_64.exe`, and `optimize_host_windows_x86_64.exe` from `bootstrap/` into place. No compiler required.
 
 ```
-kcc.sh hello.k                          # default native pipeline (no gcc)
+kcc hello.k                          # default native pipeline (no gcc)
 hello.exe                                # PE/COFF, kernel32-only
 ```
 
@@ -234,7 +234,7 @@ git clone https://github.com/t3m3d/krypton && cd krypton && ./build.sh
 The macOS pipeline is `compile.k → .kir → compiler/macos_arm64/macho_arm64_self.k → Mach-O`. The Krypton-side emitter writes the entire Mach-O — load commands, `__TEXT`/`__DATA`/`__LINKEDIT`, chained fixups — and the SHA-256 ad-hoc code signature, all in Krypton. **No clang, no `as`, no `ld`, no external `codesign` invocation.**
 
 ```bash
-kcc.sh hello.k -o hello                  # default: native arm64 Mach-O
+kcc hello.k -o hello                  # default: native arm64 Mach-O
 ./hello
 ```
 
@@ -269,7 +269,7 @@ myproject/
 ### Compile to a native binary (default)
 
 ```bash
-kcc.sh hello.k                # produces ./hello (Linux/macOS) or ./hello.exe (Windows)
+kcc hello.k                # produces ./hello (Linux/macOS) or ./hello.exe (Windows)
 ./hello
 ```
 
@@ -282,14 +282,14 @@ Per-platform pipeline (chosen automatically):
 ### Other compilation modes (opt-in)
 
 ```bash
-kcc.sh --c hello.k                       # emit C source to stdout (debug/porting aid)
-kcc.sh --c hello.k -o hello.c            # emit C source to a file
-kcc.sh --llvm hello.k -o hello.ll        # emit LLVM IR; pair with `clang hello.ll -o hello`
-kcc.sh --ir hello.k                      # emit Krypton IR (.kir) to stdout
+kcc --c hello.k                       # emit C source to stdout (debug/porting aid)
+kcc --c hello.k -o hello.c            # emit C source to a file
+kcc --llvm hello.k -o hello.ll        # emit LLVM IR; pair with `clang hello.ll -o hello`
+kcc --ir hello.k                      # emit Krypton IR (.kir) to stdout
 
 # DEPRECATED — emits a deprecation warning. Removed once each platform's
 # native rebuild fully replaces gcc in the lazy-rebuild fallback.
-kcc.sh --gcc hello.k                     # route through C+gcc internally
+kcc --gcc hello.k                     # route through C+gcc internally
 ```
 
 ---
@@ -468,7 +468,7 @@ Float builtins: `fadd`, `fsub`, `fmul`, `fdiv`, `fsqrt`, `ffloor`, `fceil`, `fro
 
 ## Compilation Pipeline
 
-The default `kcc.sh source.k` invocation produces a native binary using a Krypton-only emitter. No C compiler or linker is invoked at user-call time on any of the three supported platforms:
+The default `kcc source.k` invocation produces a native binary using a Krypton-only emitter. No C compiler or linker is invoked at user-call time on any of the three supported platforms:
 
 ```
 source.k
@@ -558,7 +558,7 @@ STORE/LOAD elimination, empty jump removal, unused local removal.
 ## Ecosystem
 
 Sibling repos under the same GitHub org. Each is its own program/repo,
-built against this Krypton checkout via `KRYPTON_ROOT/kcc.sh`.
+built against this Krypton checkout via `KRYPTON_ROOT/kcc`.
 
 | Repo | Language | Platforms | What it is |
 |---|---|---|---|
@@ -622,7 +622,7 @@ krypton/
 ├── bootstrap.bat          # Windows install (copies prebuilt binaries from bootstrap/)
 ├── build_v141.bat         # Windows from-source rebuild (requires TDM-GCC, dev only)
 ├── install.sh             # Linux install (build + symlink to /usr/local/bin)
-├── kcc.sh                 # Compiler driver (dispatches to per-platform native emitter)
+├── kcc                 # Compiler driver (dispatches to per-platform native emitter)
 ├── Makefile               # Cross-platform make wrapper around build scripts
 ├── CHANGELOG.md           # Full version history
 └── LICENSE                # Apache 2.0
@@ -642,7 +642,7 @@ Krypton solves the self-hosting chicken-and-egg problem by shipping prebuilt see
 | Windows x86_64 | `bootstrap.bat` | copies `kcc_seed_*.exe`, `x64_host_*.exe`, `optimize_host_*.exe` |
 | macOS arm64 | `./build.sh` | `cp bootstrap/kcc_seed_macos_aarch64 ./kcc-arm64` (M1/M2/M3) |
 
-Pure `cp` — no compiler invoked at install. After that, `kcc.sh source.k` runs the platform's native emitter end-to-end with no C tools.
+Pure `cp` — no compiler invoked at install. After that, `kcc source.k` runs the platform's native emitter end-to-end with no C tools.
 
 **Re-seeding (developer-only, one-time gcc bootstrap):**
 
