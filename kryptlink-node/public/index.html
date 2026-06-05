@@ -160,7 +160,10 @@
       max-width: 100%;
       height: auto;
       margin: 0 0 2em;
-      border-radius: 12px;
+      /* Screen blend: dark navy backdrop in the PNG drops away; only
+         the bright cyan/teal lettering survives and shows through to
+         the page's own starfield/nebula background. */
+      mix-blend-mode: screen;
     }
     .hero {
       display: grid;
