@@ -84,3 +84,16 @@ func log(counter, msg) {
     kp("[LOG " + counter + "] " + msg)
     emit counter + 1
 }
+
+// ── Quick cycle-stamp helpers (closure-free, since callPtr is fragile) ──
+
+// Stamp now; pair with elapsedCycles(stamp) below.
+func stampCycles() { emit rdtsc() }
+
+// Cycles since `stamp`. Use around any code:
+//   let t = stampCycles()
+//   ... work ...
+//   kp("ran in " + elapsedCycles(t) + " cycles")
+func elapsedCycles(stamp) {
+    emit rdtsc() - toInt(stamp + "")
+}
