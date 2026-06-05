@@ -88,12 +88,74 @@
       border-radius: 4px;
       font-size: 0.9em;
     }
+    .login {
+      margin: 2em 0;
+      padding: 1.5em;
+      border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--accent) 4%, transparent);
+    }
+    .login h2 {
+      margin: 0 0 .8em;
+      font-size: 1em;
+      color: var(--accent);
+    }
+    .login input {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      font: inherit;
+      padding: .55em .7em;
+      margin-bottom: .6em;
+      border: 1px solid color-mix(in srgb, var(--muted) 40%, transparent);
+      border-radius: 5px;
+      background: var(--bg);
+      color: var(--fg);
+    }
+    .login .row {
+      display: flex;
+      gap: .6em;
+    }
+    .login button {
+      font: inherit;
+      padding: .55em 1.1em;
+      border: none;
+      border-radius: 5px;
+      color: white;
+      background: var(--accent);
+      cursor: pointer;
+      flex: 1;
+    }
+    .login button:hover { background: var(--accent-dim); }
+    .login button[disabled] {
+      background: color-mix(in srgb, var(--muted) 30%, transparent);
+      color: var(--muted);
+      cursor: not-allowed;
+    }
+    .login .err {
+      color: #c44;
+      font-size: .85em;
+      margin: 0 0 .5em;
+    }
   </style>
 </head>
 <body>
   <main>
     <h1>kry<span class="dot">.</span>li</h1>
     <p class="tagline">Short links with click tracking. Built in Krypton.</p>
+
+    <div class="login">
+      <h2>Log in</h2>
+      <p class="err" id="err" style="display:none"></p>
+      <form method="POST" action="/login" autocomplete="on">
+        <input type="text" name="username" placeholder="username" autocomplete="username" required>
+        <input type="password" name="password" placeholder="password" autocomplete="current-password" required>
+        <div class="row">
+          <button type="submit">Log in</button>
+          <button type="button" disabled title="signups are closed">Create an account</button>
+        </div>
+      </form>
+    </div>
 
     <section class="features">
       <div class="feature">
@@ -113,9 +175,19 @@
         <p>The whole app is HTML forms and standard cookies. Works without JS enabled.</p>
       </div>
     </section>
+    <script>
+      // Show an inline error if the URL has ?err=...
+      const p = new URLSearchParams(location.search);
+      const e = p.get("err");
+      if (e) {
+        const el = document.getElementById("err");
+        el.style.display = "block";
+        el.textContent = e === "bad" ? "Wrong username or password." : "Missing fields.";
+      }
+    </script>
 
     <div class="footer">
-      <p>Hosted on krypton-native infrastructure. Source on <a href="https://github.com/t3m3d/krypton/tree/main/kryptlink-node">GitHub</a>.</p>
+      <p>Hosted on krypton-native infrastructure.</p>
     </div>
   </main>
 </body>
