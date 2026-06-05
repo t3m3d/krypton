@@ -7,22 +7,18 @@ kr      text eol=lf
 *.ks    text eol=lf
 
 # ── Krypton language tagging for GitHub Linguist ──────────────────────
-# Krypton isn't (yet) in github-linguist/linguist's languages.yml, so
-# `linguist-language=Lisp` is currently IGNORED by GitHub — the
-# attribute is harmless but invisible until we land an upstream PR
-# adding Krypton (`name`, `extensions`, `type`, `ace_mode`, etc.).
-# Leaving the attribute in place so the day Linguist accepts the PR,
-# the bar updates automatically with no further repo edits.
+# Krypton isn't yet in github-linguist/linguist's languages.yml — an
+# upstream PR adding it is in flight (Agent M, 2026-06-04). Until that
+# merges, we paint .k/.ks/.krh as Go: it's the closest real syntax
+# match (`func name(args) { body }`, `let`, no semicolons, curly blocks)
+# so GitHub's Go highlighter renders Krypton sensibly. Once the Linguist
+# PR lands, swap "Go" → "Krypton" in this file and the bar updates.
 #
-# Meanwhile GitHub will auto-detect:
-#   .k   → "K" (Arthur Whitney's K — registered owner of this ext)
-#   .ks  → "KerboScript"
-#   .krh → unknown (won't appear in the bar)
-#   .htk → mapped to HTML (they're HTML templates with embedded {{k}})
-#   .kir → generated IR text, hidden
-*.k    linguist-language=Lisp
-*.ks   linguist-language=Lisp
-*.krh  linguist-language=Lisp
+# .htk → KryptonWeb HTML template — paint as HTML (it IS HTML).
+# .kir → generated IR text, hidden.
+*.k    linguist-language=Go
+*.ks   linguist-language=Go
+*.krh  linguist-language=Go
 *.htk  linguist-language=HTML
 *.kir  linguist-generated=true
 
