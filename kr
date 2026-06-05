@@ -1,22 +1,18 @@
 #!/usr/bin/env bash
-# kr — run a Krypton script (KryptScript).
+# kr — run a Krypton script (KryptScript), or start a REPL.
 #
-# Shebang-friendly wrapper around `kcc -r`. Write:
+#   kr                      start the interactive REPL
+#   kr script.ks [args...]  run a script (args forwarded to it)
 #
-#   #!/usr/bin/env kr
-#   kp("hi")
+# Shebang-friendly: put `#!/usr/bin/env kr` atop a .ks (or .k) file,
+# `chmod +x` it, and run it like any other script.
 #
-# in a .ks (or .k) file, `chmod +x` it, and run it like any other script.
+# SWIFT-LIKE TOP-LEVEL CODE: if a script has no `just run { }` block, kr
+# auto-wraps its whole body in one — write statements at the top of the
+# file with no boilerplate. `import` and `func` work inside the wrap too.
+# Scripts that already contain `just run` (or declare a `module`) run as-is.
 #
-# SWIFT-LIKE TOP-LEVEL CODE: if the script has no `just run { }` block, kr
-# auto-wraps its whole body in one — so you can write statements at the top
-# of the file with no boilerplate. `import` and `func` work inside the wrap
-# too, so a script can mix imports, helper funcs, and top-level statements
-# freely. Scripts that already contain `just run` (or declare a `module`)
-# are passed through untouched.
-#
-# All args after the script are forwarded to it (visible via `arg(0)`,
-# `arg(1)`, ... and `argCount()`).
+# Script args are forwarded and visible via `arg(0)`, `arg(1)`, `argCount()`.
 
 SCRIPT_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -30,11 +26,84 @@ if [ -z "$KCC" ]; then
     exit 127
 fi
 
-SCRIPT="$1"
-if [ -z "$SCRIPT" ]; then
-    echo "kr: usage: kr <script.ks> [args...]" >&2
-    exit 64
+# ── REPL ──────────────────────────────────────────────────────────────
+# No real interpreter exists (Krypton compiles to native), so this is an
+# accumulating REPL: `import`/`func`/`struct`/`let` entries are remembered
+# and re-emitted around each new line, which is then compiled + run. Bare
+# expressions run once (type `kp(expr)` to see a value). Multi-line blocks
+# continue until braces balance.
+
+_brace_delta() {  # echo (count of '{') - (count of '}') in $1
+    local s="$1" o c
+    o=$(printf '%s' "$s" | tr -cd '{' | wc -c | tr -d ' ')
+    c=$(printf '%s' "$s" | tr -cd '}' | wc -c | tr -d ' ')
+    echo $(( o - c ))
+}
+
+_repl() {
+    local ver imports="" defs="" line more depth tmp err
+    ver=$("$KCC" --version 2>/dev/null | awk '{print $NF}')
+    echo "KryptScript REPL — Krypton ${ver:-?}  (:help, :q to quit)"
+    err="${TMPDIR:-/tmp}/kr_repl_err_$$"
+    while true; do
+        printf 'ks> '
+        IFS= read -r line || { echo; break; }   # EOF / Ctrl-D
+        case "$line" in
+            '') continue ;;
+            ':q'|':quit'|':exit') break ;;
+            ':help')
+                echo "  Krypton expressions/statements run immediately."
+                echo "  import/func/struct/let are remembered for later lines."
+                echo "  :list  show remembered defs   :reset  clear them"
+                echo "  :q     quit                   (Ctrl-D also quits)"
+                continue ;;
+            ':reset') imports=""; defs=""; echo "(state cleared)"; continue ;;
+            ':list')
+                [ -n "$imports" ] && printf '%s\n' "$imports"
+                [ -n "$defs" ] && printf '%s\n' "$defs"
+                [ -z "$imports$defs" ] && echo "(nothing remembered yet)"
+                continue ;;
+        esac
+        # Multi-line continuation until braces balance.
+        depth=$(_brace_delta "$line")
+        while [ "$depth" -gt 0 ]; do
+            printf '..> '
+            IFS= read -r more || break
+            line="$line"$'\n'"$more"
+            depth=$(( depth + $(_brace_delta "$more") ))
+        done
+        # Build: imports (top) + just run { remembered defs; this line }.
+        tmp="${TMPDIR:-/tmp}/kr_repl_$$.ks"
+        {
+            [ -n "$imports" ] && printf '%s\n' "$imports"
+            echo "just run {"
+            [ -n "$defs" ] && printf '%s\n' "$defs"
+            printf '%s\n' "$line"
+            echo "}"
+        } > "$tmp"
+        if "$KCC" -r "$tmp" 2>"$err"; then
+            # Remember definitions/bindings so later lines can use them.
+            case "$line" in
+                import\ *)               imports="${imports:+$imports$'\n'}$line" ;;
+                func\ *|struct\ *|let\ *) defs="${defs:+$defs$'\n'}$line" ;;
+            esac
+        else
+            sed 's/^/  /' "$err" >&2
+        fi
+        rm -f "$tmp"
+    done
+    rm -f "$err"
+    echo "bye"
+}
+
+# No args → REPL.
+if [ "$#" -eq 0 ]; then
+    _repl
+    exit $?
 fi
+
+# ── Script run ────────────────────────────────────────────────────────
+SCRIPT="$1"
 
 # Decide whether to auto-wrap top-level code. Skip wrapping (run as-is) when
 # the file already has an explicit `just run` entry point, or declares a
