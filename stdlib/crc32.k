@@ -31,9 +31,14 @@ func _xor32(a, b) {
 }
 
 // crc32(s) -> CRC-32 as an unsigned 32-bit integer.
+//
+// 0xFFFFFFFF and 0xEDB88320 both exceed Krypton's smart-int literal
+// ceiling (0x7F000000), so they're built via toInt(...) of decimal
+// string literals. The runtime handles the big values fine — only the
+// source literal form is bounded.
 func crc32(s) {
-    let crc = 4294967295            // 0xFFFFFFFF
-    let poly = 3988292384           // 0xEDB88320 (reflected)
+    let crc = toInt("4294967295")   // 0xFFFFFFFF
+    let poly = toInt("3988292384")  // 0xEDB88320 (reflected)
     let n = len(s)
     let i = 0
     while i < n {
@@ -50,7 +55,7 @@ func crc32(s) {
         }
         i += 1
     }
-    emit _xor32(crc, 4294967295)    // final XOR 0xFFFFFFFF
+    emit _xor32(crc, toInt("4294967295"))    // final XOR 0xFFFFFFFF
 }
 
 func _hd(v) {
@@ -59,14 +64,24 @@ func _hd(v) {
 }
 
 // crc32Hex(s) -> 8-digit lowercase hex string of the checksum.
+//
+// Builds hex digits via sbAppend then reverses, because two digit-only
+// chars int-coalesce via Krypton's `+` ("3" + "2" → 5, not "32").
 func crc32Hex(s) {
     let v = crc32(s)
-    let out = ""
+    let buf = sbNew()
     let i = 0
     while i < 8 {
-        out = _hd(v % 16) + out
+        buf = sbAppend(buf, _hd(v % 16))
         v = v / 16
         i += 1
     }
-    emit out
+    let raw = sbToString(buf)
+    let out = sbNew()
+    let j = len(raw) - 1
+    while j >= 0 {
+        out = sbAppend(out, raw[j])
+        j = j - 1
+    }
+    emit sbToString(out)
 }
