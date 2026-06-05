@@ -1966,6 +1966,44 @@ func emitKrPowCode(thisVAddr, atoiVAddr) {
 }
 func krPowSize() { emit 54 }
 
+// kr_min / kr_max: RDI = a, RSI = b (string-or-int via kr_atoi). Returns the
+// smaller / larger raw signed int in RAX. kr_atoi clobbers RAX/RDI/RCX/RDX/R8
+// only — RBX/RSI survive, so a_raw is held in RBX across the 2nd atoi. (27 bytes)
+//   [0-4]   E8 d32        CALL kr_atoi    RDI(a) -> RAX
+//   [5-7]   48 89 C3      MOV RBX, RAX    a_raw
+//   [8-10]  48 89 F7      MOV RDI, RSI    b
+//   [11-15] E8 d32        CALL kr_atoi    RDI(b) -> RAX (b_raw)
+//   [16-18] 48 39 C3      CMP RBX, RAX
+//   [19-22] 48 0F 4F D8   CMOVG RBX, RAX  (min: if a>b, RBX=b)   [CMOVL=max]
+//   [23-25] 48 89 D8      MOV RAX, RBX
+//   [26]    C3            RET
+func emitKrMinCode(thisVAddr, atoiVAddr) {
+    let c = ""
+    c = c + hexByte(0xE8) + hexDword(atoiVAddr - (thisVAddr + 5))
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC3)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xF7)
+    c = c + hexByte(0xE8) + hexDword(atoiVAddr - (thisVAddr + 16))
+    c = c + hexByte(0x48) + hexByte(0x39) + hexByte(0xC3)
+    c = c + hexByte(0x48) + hexByte(0x0F) + hexByte(0x4F) + hexByte(0xD8)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xD8)
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krMinSize() { emit 27 }
+func emitKrMaxCode(thisVAddr, atoiVAddr) {
+    let c = ""
+    c = c + hexByte(0xE8) + hexDword(atoiVAddr - (thisVAddr + 5))
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC3)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xF7)
+    c = c + hexByte(0xE8) + hexDword(atoiVAddr - (thisVAddr + 16))
+    c = c + hexByte(0x48) + hexByte(0x39) + hexByte(0xC3)
+    c = c + hexByte(0x48) + hexByte(0x0F) + hexByte(0x4C) + hexByte(0xD8)
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xD8)
+    c = c + hexByte(0xC3)
+    emit c
+}
+func krMaxSize() { emit 27 }
+
 // kr_repeat: build a string formed by concatenating s n times.
 //   In:  RDI = s (string ptr), RSI = n (small int OR string via kr_atoi)
 //   Out: RAX = pointer to fresh "ssss...s\0" of length slen*n
@@ -3178,6 +3216,8 @@ func opByteSize(op) {
     if op == "BUILTIN_TOLOWER"   { emit 7 }  // POP RDI + CALL + PUSH RAX
     if op == "BUILTIN_REVERSE"   { emit 7 }  // POP RDI + CALL + PUSH RAX
     if op == "BUILTIN_POW"       { emit 8 }  // POP RSI + POP RDI + CALL + PUSH RAX
+    if op == "BUILTIN_MIN"       { emit 8 }  // POP RSI + POP RDI + CALL kr_min + PUSH RAX
+    if op == "BUILTIN_MAX"       { emit 8 }  // POP RSI + POP RDI + CALL kr_max + PUSH RAX
     if op == "BUILTIN_REPEAT"    { emit 8 }  // POP RSI + POP RDI + CALL + PUSH RAX
     if op == "BUILTIN_CONTAINS"  { emit 8 }  // POP RSI + POP RDI + CALL + PUSH RAX
     if op == "BUILTIN_INDEXOF"   { emit 8 }
@@ -3509,6 +3549,10 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_REVERSE")
                 } else if bname == "pow" {
                     opSb = sbAppend(opSb, "BUILTIN_POW")
+                } else if bname == "min" {
+                    opSb = sbAppend(opSb, "BUILTIN_MIN")
+                } else if bname == "max" {
+                    opSb = sbAppend(opSb, "BUILTIN_MAX")
                 } else if bname == "repeat" {
                     opSb = sbAppend(opSb, "BUILTIN_REPEAT")
                 } else if bname == "contains" {
@@ -3694,7 +3738,7 @@ func computeLayout(opList, localCount) {
 // funcStartVAddr: virtual address of THIS function's first byte (for CALL disp calc)
 // krPrintVAddr/krStrIntVAddr: vaddrs of runtime helpers, used by BUILTIN_KP/BUILTIN_TOSTR
 
-func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr, krStrcmpVAddr, krReverseVAddr, krSbnewVAddr, krSbappendVAddr, krSbtostringVAddr) {
+func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr, krStrcmpVAddr, krReverseVAddr, krSbnewVAddr, krSbappendVAddr, krSbtostringVAddr, krMinVAddr, krMaxVAddr) {
     let c = sbNew()
     c = sbAppend(c, hexByte(0x55))  // [+0] PUSH RBP
     c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xE5))  // [+1] MOV RBP, RSP
@@ -4715,6 +4759,20 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             let pwDisp = krPowVAddr - (funcStartVAddr + off + 7)
             c = sbAppend(c, hexByte(0xE8) + hexDword(pwDisp))
             c = sbAppend(c, hexByte(0x50))
+        } else if op == "BUILTIN_MIN" {
+            // POP RSI (b) ; POP RDI (a) ; CALL kr_min ; PUSH RAX (8 bytes)
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5F))
+            let mnDisp = krMinVAddr - (funcStartVAddr + off + 7)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(mnDisp))
+            c = sbAppend(c, hexByte(0x50))
+        } else if op == "BUILTIN_MAX" {
+            // POP RSI (b) ; POP RDI (a) ; CALL kr_max ; PUSH RAX (8 bytes)
+            c = sbAppend(c, hexByte(0x5E))
+            c = sbAppend(c, hexByte(0x5F))
+            let mxDisp = krMaxVAddr - (funcStartVAddr + off + 7)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(mxDisp))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_REPEAT" {
             // POP RSI (n) ; POP RDI (s) ; CALL kr_repeat ; PUSH RAX (8 bytes)
             c = sbAppend(c, hexByte(0x5E))
@@ -5340,6 +5398,8 @@ just run {
     let krEwSz = krEndswithSize()
     let krRpSz2 = krReplaceSize()
     let krRvSz = krReverseSize()
+    let krMinSz = krMinSize()
+    let krMaxSz = krMaxSize()
 
     let fIdx = 0
     while fIdx < funcCount {
@@ -5462,9 +5522,11 @@ just run {
     let krEndswithVAddr   = krIndexofVAddr + krIoSz
     let krReplaceVAddr    = krEndswithVAddr + krEwSz
     let krReverseVAddr    = krReplaceVAddr + krRpSz2
+    let krMinVAddr        = krReverseVAddr + krRvSz
+    let krMaxVAddr        = krMinVAddr + krMinSz
 
     // String virtual addresses (after all runtime helpers)
-    let stringsBase = krReverseVAddr + krRvSz
+    let stringsBase = krMaxVAddr + krMaxSz
     let strVAddrs = ""
     let strData = ""
     let curOff = 0
@@ -5507,7 +5569,7 @@ just run {
         let nm2 = substring(hh, ss1 + 1, ss2)
         let funcStartV2 = toInt(funcVAddr(funcVAddrs, nm2))
 
-        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr, krStrcmpVAddr, krReverseVAddr, krSbnewVAddr, krSbappendVAddr, krSbtostringVAddr)
+        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr, krStrcmpVAddr, krReverseVAddr, krSbnewVAddr, krSbappendVAddr, krSbtostringVAddr, krMinVAddr, krMaxVAddr)
         allFuncCode = allFuncCode + codeI
         oIdx2 += 1
     }
@@ -5571,8 +5633,10 @@ just run {
     let krEndswithCode   = emitKrEndswithCode(krEndswithVAddr, krStrlenVAddr)
     let krReplaceCode2   = emitKrReplaceCode(krReplaceVAddr, krStrlenVAddr, krAllocVAddr)
     let krReverseCode    = emitKrReverseCode(krReverseVAddr, krStrlenVAddr, krAllocVAddr)
+    let krMinCode        = emitKrMinCode(krMinVAddr, krAtoiVAddr)
+    let krMaxCode        = emitKrMaxCode(krMaxVAddr, krAtoiVAddr)
 
-    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + krSubstringCode + krReadfileCode + krWritefileCode + krWritebytesCode + krSbnewCode + krSbappendCode + krSbtostringCode + krPrinterrCode + krCharcodeCode + krFromcharcodeCode + krExitCode + krIsdigitCode + krIsalphaCode + krAbsCode + krStartswithCode + krIstruthyCode + krLinecountCode + krGetlineCode + krTrimCode + krToupperCode + krTolowerCode + krPowCode + krRepeatCode + krIsnumCode + krPlusCode + krAtoi2Code + krSubiCode + krMuliCode + krDiviCode + krModiCode + krStrcmpCode + krCmpiCode + krStrstrCode + krContainsCode + krIndexofCode + krEndswithCode + krReplaceCode2 + krReverseCode + strData
+    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + krSubstringCode + krReadfileCode + krWritefileCode + krWritebytesCode + krSbnewCode + krSbappendCode + krSbtostringCode + krPrinterrCode + krCharcodeCode + krFromcharcodeCode + krExitCode + krIsdigitCode + krIsalphaCode + krAbsCode + krStartswithCode + krIstruthyCode + krLinecountCode + krGetlineCode + krTrimCode + krToupperCode + krTolowerCode + krPowCode + krRepeatCode + krIsnumCode + krPlusCode + krAtoi2Code + krSubiCode + krMuliCode + krDiviCode + krModiCode + krStrcmpCode + krCmpiCode + krStrstrCode + krContainsCode + krIndexofCode + krEndswithCode + krReplaceCode2 + krReverseCode + krMinCode + krMaxCode + strData
     let segSize = hexBytesLen(segment)
     let fileSize = HDR_SIZE + segSize
 
