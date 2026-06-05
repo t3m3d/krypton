@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>kry.li — short links</title>
-  <meta name="description" content="kry.li shortens URLs and tracks clicks. Powered by Krypton, no JavaScript framework, no third-party trackers.">
+  <title>kry.li — freeze your links</title>
+  <meta name="description" content="kry.li shortens URLs and tracks clicks. Self-hosted, no JavaScript framework, no third-party trackers.">
   <style>
     :root {
       --bg: #fafafa;
@@ -31,22 +31,17 @@
       line-height: 1.6;
     }
     main {
-      max-width: 640px;
+      max-width: 880px;
       margin: 0 auto;
-      padding: 4em 1.5em 6em;
+      padding: 2em 1.5em 6em;
     }
-    h1 {
-      font-size: 3.5em;
-      letter-spacing: -0.04em;
-      margin: 0 0 0.2em;
-      font-weight: 800;
-      color: var(--accent);
-    }
-    h1 .dot { color: var(--accent-dim); }
-    .tagline {
-      font-size: 1.2em;
-      color: var(--muted);
-      margin-bottom: 2.5em;
+    .banner {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      height: auto;
+      margin: 0 0 2em;
+      border-radius: 12px;
     }
     .hero {
       display: grid;
@@ -173,8 +168,7 @@
 </head>
 <body>
   <main>
-    <h1>kry<span class="dot">.</span>li</h1>
-    <p class="tagline">Short links with click tracking. Built in Krypton.</p>
+    <img src="/banner/kryli.png" alt="Kry.li — Freeze your links." class="banner">
 
     <section class="hero">
       <div class="feature">
