@@ -11,13 +11,19 @@
 //     kryptlink.exe [PORT]                    (default 8080)
 //
 //   Routes:
-//     GET  /                  → admin page (login form OR control panel)
+//     GET  /                  → static landing page from $KRYPTLINK_PUBLIC_DIR/index.html
+//                                (falls back to a tiny built-in page)
+//     GET  /admin             → admin page (login form OR control panel)
 //     POST /login             → cookie session if password matches
 //     POST /logout            → drop session
 //     POST /create            → create a link (auth required)
-//     GET  /r/<code>          → log click + 302 to destination
 //     GET  /stats/<code>      → HTML stats page (auth required)
-//     GET  /qr/<code>.svg     → QR for the short URL (placeholder for now)
+//     GET  /qr/<code>.svg     → QR for the short URL
+//     GET  /<code>            → log click + 302 to destination (bit.ly-style)
+//
+//   Reserved short codes (must not collide with route paths):
+//     login, logout, create, stats, qr, admin, index.html, favicon.ico,
+//     robots.txt, sitemap.xml, humans.txt, .well-known/...
 
 import "k:server_native"
 import "k:random"
@@ -46,6 +52,14 @@ func cfgPublicHost() {
     let buf = bufNew(256)
     let n = GetEnvironmentVariableA("KRYPTLINK_PUBLIC_HOST", buf, "256")
     if n == "0" { emit "http://localhost:8080" }
+    emit bufStr(buf)
+}
+
+// Dir holding static files served at /. Defaults to ./public.
+func cfgPublicDir() {
+    let buf = bufNew(512)
+    let n = GetEnvironmentVariableA("KRYPTLINK_PUBLIC_DIR", buf, "512")
+    if n == "0" { emit "public" }
     emit bufStr(buf)
 }
 
@@ -221,7 +235,7 @@ func pageAdmin(msg) {
                 let url = _col(row, 1)
                 let ts = _col(row, 2)
                 let note = _col(row, 3)
-                let short = cfgPublicHost() + "/r/" + code
+                let short = cfgPublicHost() + "/" + code
                 body = sbAppend(body, "<tr><td><a href='")
                 body = sbAppend(body, short)
                 body = sbAppend(body, "'>")
@@ -395,29 +409,38 @@ func redirect302(cl, to) {
 
 // ── Request handlers ─────────────────────────────────────────────────
 
+// Reserved single-segment paths that must NOT be interpreted as
+// short codes. New routes must add themselves here.
+//
+// Includes the common web-server files crawlers/browsers probe so they
+// don't accidentally claim a code:
+//   index.html  index.htm   index.php   default.htm
+//   favicon.ico robots.txt  sitemap.xml humans.txt   .well-known
+func _isReservedPath(seg) {
+    if seg == "" { emit "1" }
+    if seg == "login" { emit "1" }
+    if seg == "logout" { emit "1" }
+    if seg == "create" { emit "1" }
+    if seg == "stats" { emit "1" }
+    if seg == "qr" { emit "1" }
+    if seg == "admin" { emit "1" }
+    if seg == "favicon.ico" { emit "1" }
+    if seg == "robots.txt" { emit "1" }
+    if seg == "sitemap.xml" { emit "1" }
+    if seg == "humans.txt" { emit "1" }
+    if seg == "index.html" { emit "1" }
+    if seg == "index.htm" { emit "1" }
+    if seg == "index.php" { emit "1" }
+    if seg == "default.htm" { emit "1" }
+    if seg == "default.html" { emit "1" }
+    if seg == ".well-known" { emit "1" }
+    if startsWith(seg, ".well-known/") == "1" { emit "1" }
+    emit "0"
+}
+
 func handleRequest(req, cl, seed) {
     let method = reqMethod(req)
     let path = reqPath(req)
-
-    // ── Public redirect ──
-    if startsWith(path, "/r/") == "1" {
-        let code = substring(path, 3, len(path))
-        let safe = sqlEscape(code)
-        let rows = sqlQuery("SELECT url FROM links WHERE code='" + safe + "'")
-        if len(rows) == 0 {
-            respond(cl, "404 Not Found", "text/html", "<h1>link not found</h1>", "")
-            emit seed
-        }
-        let url = trim(getLine(rows, 0))
-
-        // log the click
-        let now = dtNowEpoch()
-        let ua = sqlEscape(reqHeader(req, "User-Agent"))
-        let ref = sqlEscape(reqHeader(req, "Referer"))
-        sqlExec("INSERT INTO clicks(code,clicked_at,ip,user_agent,referrer) VALUES('" + safe + "'," + now + ",'','" + ua + "','" + ref + "')")
-        redirect302(cl, url)
-        emit seed
-    }
 
     // ── QR ──
     if startsWith(path, "/qr/") == "1" {
@@ -425,7 +448,7 @@ func handleRequest(req, cl, seed) {
         let dot = indexOf(rest, ".")
         let code = rest
         if dot > 0 { code = substring(rest, 0, dot) }
-        let short = cfgPublicHost() + "/r/" + code
+        let short = cfgPublicHost() + "/" + code
         respond(cl, "200 OK", "image/svg+xml", renderQr(short), "")
         emit seed
     }
@@ -460,6 +483,35 @@ func handleRequest(req, cl, seed) {
     if path == "/logout" && method == "POST" {
         respond(cl, "302 Found", "text/html", "", "kryptlink=; Path=/; Max-Age=0")
         emit seed
+    }
+
+    // ── Public landing: serve index.html (file or built-in) ─────────
+    if path == "/" || path == "/index.html" {
+        let indexPath = cfgPublicDir() + "/index.html"
+        let html = readFile(indexPath)
+        if len(html) == 0 {
+            html = "<!doctype html><html><head><title>kryptlink</title>" + CSS + "</head><body><h1>kry.li</h1><p>Short links + click tracking.</p><p><a href='/admin'>admin</a></p></body></html>"
+        }
+        respond(cl, "200 OK", "text/html", html, "")
+        emit seed
+    }
+
+    // ── Public short-code redirect: /<code> ─────────────────────────
+    if startsWith(path, "/") == "1" {
+        let rest = substring(path, 1, len(path))
+        if indexOf(rest, "/") < 0 && _isReservedPath(rest) == "0" {
+            let safe = sqlEscape(rest)
+            let rows = sqlQuery("SELECT url FROM links WHERE code='" + safe + "'")
+            if len(rows) > 0 {
+                let url = trim(getLine(rows, 0))
+                let now = dtNowEpoch()
+                let ua = sqlEscape(reqHeader(req, "User-Agent"))
+                let ref = sqlEscape(reqHeader(req, "Referer"))
+                sqlExec("INSERT INTO clicks(code,clicked_at,ip,user_agent,referrer) VALUES('" + safe + "'," + now + ",'','" + ua + "','" + ref + "')")
+                redirect302(cl, url)
+                emit seed
+            }
+        }
     }
 
     // ── Everything else needs auth ──
@@ -500,7 +552,7 @@ func handleRequest(req, cl, seed) {
         let safeNote = sqlEscape(note)
         let now = dtNowEpoch()
         sqlExec("INSERT INTO links(code,url,created_at,note) VALUES('" + safeCode + "','" + safeUrl + "'," + now + ",'" + safeNote + "')")
-        let short = cfgPublicHost() + "/r/" + code
+        let short = cfgPublicHost() + "/" + code
         respond(cl, "200 OK", "text/html", pageAdmin("Created: <a href='" + short + "'>" + htmlEscape(short) + "</a>"), "")
         emit newSeed
     }
@@ -512,8 +564,8 @@ func handleRequest(req, cl, seed) {
         emit seed
     }
 
-    // ── Admin home ──
-    if path == "/" {
+    // ── Admin home (auth-gated) ──
+    if path == "/admin" {
         respond(cl, "200 OK", "text/html", pageAdmin(""), "")
         emit seed
     }
