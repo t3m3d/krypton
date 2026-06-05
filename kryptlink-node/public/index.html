@@ -77,6 +77,46 @@
       33%      { transform: translate(8vw, 5vh) scale(1.15); }
       66%      { transform: translate(-6vw, 4vh) scale(0.95); }
     }
+    /* Wispy nebula ribbons — slow curved blurred bands of color that
+       drift across the viewport. Two layers, different colors/speeds. */
+    .ribbon {
+      position: fixed;
+      inset: -10%;
+      z-index: -3;
+      pointer-events: none;
+      mix-blend-mode: screen;
+      filter: blur(40px);
+      opacity: 0.45;
+    }
+    .ribbon-1 {
+      background:
+        radial-gradient(ellipse 50% 12% at 35% 40%, rgba(140, 220, 255, 0.7), transparent 70%),
+        radial-gradient(ellipse 60% 8%  at 60% 65%, rgba(180, 130, 255, 0.55), transparent 75%);
+      animation: ribbon-drift-a 38s ease-in-out infinite;
+    }
+    .ribbon-2 {
+      background:
+        radial-gradient(ellipse 65% 10% at 70% 30%, rgba(120, 180, 255, 0.55), transparent 75%),
+        radial-gradient(ellipse 55% 14% at 25% 75%, rgba(220, 130, 255, 0.5), transparent 70%);
+      animation: ribbon-drift-b 46s ease-in-out infinite;
+      animation-delay: -10s;
+    }
+    @keyframes ribbon-drift-a {
+      0%, 100% { transform: translate(0, 0) rotate(-4deg); }
+      50%      { transform: translate(-4vw, 3vh) rotate(2deg); }
+    }
+    @keyframes ribbon-drift-b {
+      0%, 100% { transform: translate(0, 0) rotate(3deg); }
+      50%      { transform: translate(5vw, -2vh) rotate(-3deg); }
+    }
+    /* Subtle async twinkle on the star layers. */
+    .stars-far  { animation: twinkle 5.5s ease-in-out infinite; }
+    .stars-mid  { animation: twinkle 4.2s ease-in-out infinite; animation-delay: -1.3s; }
+    .stars-near { animation: twinkle 3.1s ease-in-out infinite; animation-delay: -2.1s; }
+    @keyframes twinkle {
+      0%, 100% { filter: brightness(1); }
+      50%      { filter: brightness(0.7); }
+    }
     /* Star layers — each is a fixed div with an SVG starfield as
        background, translated by a different factor per cursor offset. */
     .stars {
@@ -107,7 +147,7 @@
     }
     @media (prefers-reduced-motion: reduce) {
       .mesh::before, .mesh::after { animation: none; }
-      .stars { transition: none; }
+      .ribbon, .stars { animation: none; transition: none; }
     }
     main {
       max-width: 880px;
@@ -203,11 +243,15 @@
     .login {
       font-size: .9em;
       padding: 1.2em 1.1em;
-      border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
-      border-radius: 8px;
-      background: color-mix(in srgb, var(--bg-soft) 80%, transparent);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(180, 217, 255, 0.35);
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--bg-soft) 75%, transparent);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      box-shadow:
+        0 0 0 1px rgba(125, 184, 255, 0.08) inset,
+        0 8px 32px rgba(0, 0, 0, 0.35),
+        0 0 40px rgba(125, 184, 255, 0.12);
     }
     .login form {
       display: flex;
@@ -250,6 +294,8 @@
 </head>
 <body>
   <div class="mesh"></div>
+  <div class="ribbon ribbon-1"></div>
+  <div class="ribbon ribbon-2"></div>
   <div class="stars stars-far"></div>
   <div class="stars stars-mid"></div>
   <div class="stars stars-near"></div>
