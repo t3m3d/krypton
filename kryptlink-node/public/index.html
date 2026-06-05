@@ -89,53 +89,45 @@
       font-size: 0.9em;
     }
     .login {
-      margin: 2em 0;
-      padding: 1.5em;
-      border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent);
-      border-radius: 8px;
-      background: color-mix(in srgb, var(--accent) 4%, transparent);
+      margin: 1.5em 0;
+      font-size: .9em;
     }
-    .login h2 {
-      margin: 0 0 .8em;
-      font-size: 1em;
-      color: var(--accent);
+    .login form {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .4em;
+      align-items: center;
     }
     .login input {
-      display: block;
-      width: 100%;
-      box-sizing: border-box;
       font: inherit;
-      padding: .55em .7em;
-      margin-bottom: .6em;
+      padding: .35em .6em;
       border: 1px solid color-mix(in srgb, var(--muted) 40%, transparent);
-      border-radius: 5px;
+      border-radius: 4px;
       background: var(--bg);
       color: var(--fg);
-    }
-    .login .row {
-      display: flex;
-      gap: .6em;
+      width: 9em;
     }
     .login button {
       font: inherit;
-      padding: .55em 1.1em;
+      padding: .35em .9em;
       border: none;
-      border-radius: 5px;
+      border-radius: 4px;
       color: white;
       background: var(--accent);
       cursor: pointer;
-      flex: 1;
     }
     .login button:hover { background: var(--accent-dim); }
-    .login button[disabled] {
-      background: color-mix(in srgb, var(--muted) 30%, transparent);
+    .login button.ghost {
+      background: transparent;
       color: var(--muted);
+      border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
       cursor: not-allowed;
     }
     .login .err {
+      width: 100%;
       color: #c44;
       font-size: .85em;
-      margin: 0 0 .5em;
+      margin: 0 0 .3em;
     }
   </style>
 </head>
@@ -145,15 +137,12 @@
     <p class="tagline">Short links with click tracking. Built in Krypton.</p>
 
     <div class="login">
-      <h2>Log in</h2>
-      <p class="err" id="err" style="display:none"></p>
       <form method="POST" action="/login" autocomplete="on">
+        <p class="err" id="err" style="display:none"></p>
         <input type="text" name="username" placeholder="username" autocomplete="username" required>
         <input type="password" name="password" placeholder="password" autocomplete="current-password" required>
-        <div class="row">
-          <button type="submit">Log in</button>
-          <button type="button" disabled title="signups are closed">Create an account</button>
-        </div>
+        <button type="submit">Log in</button>
+        <button type="button" class="ghost" disabled title="signups are closed">Create account</button>
       </form>
     </div>
 
