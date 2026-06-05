@@ -8,7 +8,7 @@ kr      text eol=lf
 
 # ── Krypton language tagging for GitHub Linguist ──────────────────────
 # Krypton isn't (yet) in github-linguist/linguist's languages.yml, so
-# `linguist-language=Krypton` is currently IGNORED by GitHub — the
+# `linguist-language=Lisp` is currently IGNORED by GitHub — the
 # attribute is harmless but invisible until we land an upstream PR
 # adding Krypton (`name`, `extensions`, `type`, `ace_mode`, etc.).
 # Leaving the attribute in place so the day Linguist accepts the PR,
@@ -20,9 +20,9 @@ kr      text eol=lf
 #   .krh → unknown (won't appear in the bar)
 #   .htk → mapped to HTML (they're HTML templates with embedded {{k}})
 #   .kir → generated IR text, hidden
-*.k    linguist-language=Krypton
-*.ks   linguist-language=Krypton
-*.krh  linguist-language=Krypton
+*.k    linguist-language=Lisp
+*.ks   linguist-language=Lisp
+*.krh  linguist-language=Lisp
 *.htk  linguist-language=HTML
 *.kir  linguist-generated=true
 
