@@ -85,3 +85,66 @@ func finalReport(totalPassed, totalFailed) {
     }
     kp("########################################")
 }
+
+// ── More assertion helpers ───────────────────────────────────────────
+
+func assertContains(name, haystack, needle) {
+    if indexOf(haystack, needle) >= 0 {
+        kp("[PASS] " + name)
+        emit 1
+    }
+    kp("[FAIL] " + name)
+    kp("       haystack: " + haystack)
+    kp("       needle:   " + needle)
+    emit 0
+}
+
+func assertGreater(name, a, b) {
+    if toInt(a) > toInt(b) {
+        kp("[PASS] " + name)
+        emit 1
+    }
+    kp("[FAIL] " + name)
+    kp("       " + a + " not > " + b)
+    emit 0
+}
+
+func assertLess(name, a, b) {
+    if toInt(a) < toInt(b) {
+        kp("[PASS] " + name)
+        emit 1
+    }
+    kp("[FAIL] " + name)
+    kp("       " + a + " not < " + b)
+    emit 0
+}
+
+func assertTruthy(name, val) {
+    if isTruthy(val) {
+        kp("[PASS] " + name)
+        emit 1
+    }
+    kp("[FAIL] " + name + " — expected truthy, got: " + val)
+    emit 0
+}
+
+func assertFalsy(name, val) {
+    if isTruthy(val) {
+        kp("[FAIL] " + name + " — expected falsy, got: " + val)
+        emit 0
+    }
+    kp("[PASS] " + name)
+    emit 1
+}
+
+// Skip a test (logged, not counted as fail).
+func skipTest(name, reason) {
+    kp("[SKIP] " + name + " — " + reason)
+    emit 1
+}
+
+// Mark a test pending (visible in output).
+func todoTest(name) {
+    kp("[TODO] " + name)
+    emit 1
+}
