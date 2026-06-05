@@ -146,3 +146,85 @@ func urlBuild(base, queryCsv) {
     }
     emit out
 }
+
+// urlScheme("https://x.com/p")  → "https"; "" if no scheme.
+func urlScheme(url) {
+    let i = indexOf(url, "://")
+    if i < 0 { emit "" }
+    emit substring(url, 0, i)
+}
+
+// urlHost("https://x.com:8080/p") → "x.com:8080". "" on bad input.
+func urlHost(url) {
+    let i = indexOf(url, "://")
+    if i < 0 { emit "" }
+    let rest = substring(url, i + 3, len(url))
+    let n = len(rest)
+    let j = 0
+    while j < n {
+        let c = rest[j]
+        if c == "/" || c == "?" || c == "#" { emit substring(rest, 0, j) }
+        j = j + 1
+    }
+    emit rest
+}
+
+// urlPath("https://x.com/a/b?q=1") → "/a/b". "/" if no path.
+func urlPath(url) {
+    let i = indexOf(url, "://")
+    let start = 0
+    if i >= 0 {
+        let rest = substring(url, i + 3, len(url))
+        let h = 0
+        while h < len(rest) && rest[h] != "/" && rest[h] != "?" && rest[h] != "#" {
+            h = h + 1
+        }
+        if h >= len(rest) { emit "/" }
+        if rest[h] == "?" || rest[h] == "#" { emit "/" }
+        // path = from h up to ? or # or end
+        let p = h
+        while p < len(rest) && rest[p] != "?" && rest[p] != "#" { p = p + 1 }
+        emit substring(rest, h, p)
+    }
+    emit url
+}
+
+// urlQuery("https://x/p?a=1&b=2") → "a=1&b=2". "" if none.
+func urlQuery(url) {
+    let q = indexOf(url, "?")
+    if q < 0 { emit "" }
+    let h = indexOf(url, "#")
+    if h > q { emit substring(url, q + 1, h) }
+    emit substring(url, q + 1, len(url))
+}
+
+// Parse a "k=v&k=v" query string into Krypton's comma-CSV flat-map
+// shape ("k=v,k=v"). Values are urlDecodeQuery-d, keys urlDecode-d.
+//
+//   urlParseQuery("name=brian&note=hi+mom") → "name=brian,note=hi mom"
+func urlParseQuery(qs) {
+    if len(qs) == 0 { emit "" }
+    let out = sbNew()
+    let any = 0
+    let start = 0
+    let n = len(qs)
+    let i = 0
+    while i <= n {
+        if i == n || qs[i] == "&" {
+            let pair = substring(qs, start, i)
+            let eq = indexOf(pair, "=")
+            if eq > 0 {
+                let k = urlDecode(substring(pair, 0, eq))
+                let v = urlDecodeQuery(substring(pair, eq + 1, len(pair)))
+                if any == 1 { out = sbAppend(out, ",") }
+                out = sbAppend(out, k)
+                out = sbAppend(out, "=")
+                out = sbAppend(out, v)
+                any = 1
+            }
+            start = i + 1
+        }
+        i = i + 1
+    }
+    emit sbToString(out)
+}
