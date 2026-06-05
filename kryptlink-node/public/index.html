@@ -164,6 +164,19 @@
          the bright cyan/teal lettering survives and shows through to
          the page's own starfield/nebula background. */
       mix-blend-mode: screen;
+      /* Soft vignette mask: outer ~10% on all four sides fades to
+         transparent so the rectangular edges of the PNG don't draw
+         a visible box. Intersect of horizontal + vertical linear
+         gradients gives a clean per-side feather without cutting the
+         lettering off. */
+      -webkit-mask-image:
+        linear-gradient(to right,  transparent 0%, black 10%, black 90%, transparent 100%),
+        linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
+      -webkit-mask-composite: source-in;
+      mask-image:
+        linear-gradient(to right,  transparent 0%, black 10%, black 90%, transparent 100%),
+        linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
+      mask-composite: intersect;
     }
     .hero {
       display: grid;
