@@ -103,3 +103,43 @@ func b64Decode(s) {
     }
     emit sbToString(out)
 }
+
+// ── URL-safe variant (RFC 4648 §5) ───────────────────────────────────
+// Replaces `+` → `-`, `/` → `_`, and drops trailing `=` padding. Common
+// for JWT, signed cookies, anywhere base64 lives in a URL path or query.
+
+func b64EncodeUrl(s) {
+    let std = b64Encode(s)
+    let out = sbNew()
+    let i = 0
+    while i < len(std) {
+        let c = std[i]
+        if c == "+" { out = sbAppend(out, "-") }
+        else if c == "/" { out = sbAppend(out, "_") }
+        else if c == "=" { }
+        else { out = sbAppend(out, c) }
+        i = i + 1
+    }
+    emit sbToString(out)
+}
+
+func b64DecodeUrl(s) {
+    // Re-pad to a multiple of 4 and flip URL chars back to standard.
+    let buf = sbNew()
+    let i = 0
+    while i < len(s) {
+        let c = s[i]
+        if c == "-" { buf = sbAppend(buf, "+") }
+        else if c == "_" { buf = sbAppend(buf, "/") }
+        else { buf = sbAppend(buf, c) }
+        i = i + 1
+    }
+    let mid = sbToString(buf)
+    let need = 4 - (len(mid) % 4)
+    if need == 4 { need = 0 }
+    let pad = sbNew()
+    pad = sbAppend(pad, mid)
+    let p = 0
+    while p < need { pad = sbAppend(pad, "=")  p = p + 1 }
+    emit b64Decode(sbToString(pad))
+}
