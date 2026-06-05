@@ -29,7 +29,7 @@ link() {
     fi
 }
 # The driver is the compiled kcc.ks (KryptScript) native binary, per platform.
-# Prefer it; fall back to kcc.sh only during the transition (kcc.sh is leaving).
+# No C, no bash — kcc.sh was removed (commit 0c0dc57b).
 case "$(uname -s 2>/dev/null)" in
     Linux*)  _OS=linux ;;
     Darwin*) _OS=macos ;;
@@ -45,21 +45,20 @@ KCC_DRIVER="$SCRIPT_DIR/bootstrap/kcc_driver_${_OS}_${_ARCH}"
 if [[ -x "$KCC_DRIVER" ]]; then
     link "$KCC_DRIVER" "$BIN_DIR/kcc"          # kcc → compiled kcc.ks driver (no C, no bash)
     KCC_TARGET="$KCC_DRIVER"
-elif [[ -f "$SCRIPT_DIR/kcc.sh" ]]; then
-    link "$SCRIPT_DIR/kcc.sh" "$BIN_DIR/kcc"   # transition fallback until the driver seed lands
-    KCC_TARGET="$SCRIPT_DIR/kcc.sh"
 else
-    fail() { echo "install: no kcc.ks driver for ${_OS}_${_ARCH} and no kcc.sh fallback" >&2; exit 1; }
-    fail
+    echo "install: no native kcc driver for ${_OS}_${_ARCH} (expected $KCC_DRIVER)." >&2
+    if [[ "$_OS" == "linux" && "$_ARCH" == "aarch64" ]]; then
+        echo "  Linux aarch64 is supported via cross-compile from an x86_64 host:" >&2
+        echo "    on x86_64:  ./kcc --arm64 prog.k -o prog   # produces an aarch64 ELF" >&2
+        echo "  A native aarch64-hosted driver seed is not yet shipped." >&2
+    fi
+    exit 1
 fi
-# kcc.sh is deprecated; only symlink it while it still exists.
-[[ -f "$SCRIPT_DIR/kcc.sh" ]] && link "$SCRIPT_DIR/kcc.sh" "$BIN_DIR/kcc.sh"
 [[ -f "$SCRIPT_DIR/kls" ]] && link "$SCRIPT_DIR/kls" "$BIN_DIR/kls"  # LSP server (if built)
 
 echo ""
 echo "installed:"
 echo "  $BIN_DIR/kcc     -> $KCC_TARGET"
-[[ -f "$SCRIPT_DIR/kcc.sh" ]] && echo "  $BIN_DIR/kcc.sh  -> $SCRIPT_DIR/kcc.sh    (deprecated, leaving)"
 [[ -f "$SCRIPT_DIR/kls" ]] && echo "  $BIN_DIR/kls     -> $SCRIPT_DIR/kls       (LSP server)"
 echo ""
 echo "verify: kcc --version"
