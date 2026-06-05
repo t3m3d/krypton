@@ -4,24 +4,56 @@
 # Shell scripts MUST stay LF — kernel exec rejects CRLF in shebang lines.
 kr      text eol=lf
 *.sh    text eol=lf
+*.ks    text eol=lf
 
-# ── Krypton (.k libraries / .ks scripts) is the primary language ──
-# Override detection so GitHub paints both .k and .ks (KryptScript, 2.2+)
-# as Krypton instead of KCL or shell.
-*.k   linguist-language=Krypton
-*.ks  linguist-language=Krypton
-*.htk linguist-language=Krypton
+# ── Krypton language tagging for GitHub Linguist ──────────────────────
+# Krypton isn't (yet) in Linguist's languages.yml, so a literal
+# `linguist-language=Krypton` would be ignored. We map our extensions
+# to the closest-syntax real languages so GitHub paints something
+# instead of dropping our source out of the bar entirely.
+#
+# .k  / .ks / .krh  → Krypton source. Treat as "Lisp" — closest in
+#                     surface look (paren-leaning, function-heavy,
+#                     no curly C blocks at top level). Better than
+#                     unidentified or auto-detected "K" (Whitney's K).
+# .htk             → KryptonWeb template (HTML with embedded {{k}})
+#                     — paint as HTML for accurate visualisation.
+# .kir             → IR text — generated, hide.
+*.k    linguist-language=Lisp
+*.ks   linguist-language=Lisp
+*.krh  linguist-language=Lisp
+*.htk  linguist-language=HTML
+*.kir  linguist-generated=true
 
-# C++ bootstrap compiler
-compiler/** linguist-language=C++
+# Force the .k / .ks / .krh tree to count even though Lisp isn't a
+# "default-prominent" language.
+*.k    linguist-detectable=true
+*.ks   linguist-detectable=true
+*.krh  linguist-detectable=true
 
-# Generated C output from the Krypton compiler
-*.c linguist-generated=true
+# Pre-built bootstrap seed binaries (no source in repo, treat as vendored).
+bootstrap/** linguist-vendored=true
 
-# Build system files
-CMakeLists.txt linguist-vendored
-build/** linguist-generated=true
+# Compiled host binaries scattered through compiler/ (kcc-*, *_host,
+# *.exe, *.dll) — vendored, not source.
+compiler/**/*.exe linguist-vendored=true
+compiler/**/*.dll linguist-vendored=true
+compiler/**/kcc-* linguist-vendored=true
+compiler/**/*_host linguist-vendored=true
 
-# Resource files
-*.rc linguist-vendored
+# WASM artefacts under web/.
+web/**/*.wasm linguist-generated=true
+
+# Generated docs / trace blobs.
+trace.txt          linguist-generated=true
+*.bak              linguist-generated=true
+*.bak_*            linguist-generated=true
+
+# Resource files (Windows).
+*.rc  linguist-vendored
 *.res linguist-generated=true
+
+# Anything still containing C source would land here if revived
+# (currently zero C in tree).
+*.c linguist-generated=true
+*.h linguist-generated=true
