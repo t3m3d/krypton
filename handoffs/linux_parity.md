@@ -85,7 +85,16 @@ ret                 ; C3
 clobbers RBX, save it. Test with negatives and string-number args.
 
 ## STATUS
-Gap mapped + recipe + int-convention documented. NOT yet implemented — the asm is
-byte-exact + clobber-sensitive and a wrong opByteSize SIGILLs the seed, so it
-wants focused, tested work (not tail-of-marathon). Next concrete step: implement
-min/max (smallest), rebuild elf_host, validate incl. negatives, before bitwise.
+- [x] **min/max** — DONE (625783b7). Inline-ish helpers, validated incl. negatives.
+- [x] **bitwise** bitAnd/Or/Xor/Not/shl/shr — DONE (4031a0b1). CALL-resolved in the
+      op-rewriting pass; each kr_atoi's args first. Validated 2/7/5/-7/16/64; 58/0.
+      Gotcha hit & fixed: a size-var NAME collision (krShlSz vs strlen's krSlSz)
+      corrupted the vaddr chain → SIGILL on every helper. **Grep existing size-var
+      names before adding to the ~L5475 block.**
+- [ ] **hex/bin** — NEXT. int→string; needs a base-N digit-format helper (mirror
+      kr_str_int ~L3065, a 91-byte base-10 formatter). Front-end already emits
+      BUILTIN hex/bin (category A) → no CALL interceptor, just name→op + helper.
+- [ ] padLeft/padRight (3-arg string), then struct get/set, then ptr/raw FFI.
+
+Recipe lesson learned: the consistency check must include a **name-collision grep**,
+not just an occurrence count — a reused `let krXxSz` silently shadows another size.
