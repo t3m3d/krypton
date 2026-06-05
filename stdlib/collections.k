@@ -188,3 +188,173 @@ func zip(a, b) {
     }
     emit result
 }
+
+// ── Slicing / chunking ───────────────────────────────────────────────
+
+// listSlice(list, lo, hi) — return items at indices [lo, hi). Half-open.
+func listSlice(list, lo, hi) {
+    let n = count(list)
+    if lo < 0 { lo = 0 }
+    if hi > n { hi = n }
+    if lo >= hi { emit "" }
+    let out = ""
+    let i = lo
+    while i < hi {
+        if out == "" { out = split(list, i) }
+        else         { out = out + "," + split(list, i) }
+        i = i + 1
+    }
+    emit out
+}
+
+// listChunk(list, n) — return a list of chunks, each as a `;`-joined
+// sub-list, the chunks themselves comma-joined. (Krypton has no real
+// nested lists, so we encode by delimiter level.)
+//
+//   listChunk("1,2,3,4,5", 2) → "1;2,3;4,5"
+func listChunk(list, n) {
+    if n <= 0 { emit "" }
+    let total = count(list)
+    let out = sbNew()
+    let i = 0
+    let chunkFirst = 1
+    let any = 0
+    while i < total {
+        let inner = sbNew()
+        let added = 0
+        while added < n && i < total {
+            if added > 0 { inner = sbAppend(inner, ";") }
+            inner = sbAppend(inner, split(list, i))
+            added = added + 1
+            i = i + 1
+        }
+        if any == 1 { out = sbAppend(out, ",") }
+        out = sbAppend(out, sbToString(inner))
+        any = 1
+    }
+    emit sbToString(out)
+}
+
+// ── Set operations on lists ──────────────────────────────────────────
+
+// True ("1") iff `list` contains the exact string `item`. Linear scan.
+func _co_has(list, item) {
+    let n = count(list)
+    let i = 0
+    while i < n {
+        if split(list, i) == item { emit "1" }
+        i = i + 1
+    }
+    emit "0"
+}
+
+// Items present in BOTH a and b, in a's order, with a-side duplicates kept.
+func listIntersect(a, b) {
+    let out = ""
+    let n = count(a)
+    let i = 0
+    while i < n {
+        let it = split(a, i)
+        if _co_has(b, it) == "1" {
+            if out == "" { out = it }
+            else         { out = out + "," + it }
+        }
+        i = i + 1
+    }
+    emit out
+}
+
+// Items in a followed by items in b that aren't already present
+// (preserves order, drops duplicates).
+func listUnion(a, b) {
+    let out = a
+    let n = count(b)
+    let i = 0
+    while i < n {
+        let it = split(b, i)
+        if _co_has(out, it) == "0" {
+            if out == "" { out = it }
+            else         { out = out + "," + it }
+        }
+        i = i + 1
+    }
+    emit out
+}
+
+// Items in a that are NOT in b, in a's order.
+func listDifference(a, b) {
+    let out = ""
+    let n = count(a)
+    let i = 0
+    while i < n {
+        let it = split(a, i)
+        if _co_has(b, it) == "0" {
+            if out == "" { out = it }
+            else         { out = out + "," + it }
+        }
+        i = i + 1
+    }
+    emit out
+}
+
+// ── Statistics ───────────────────────────────────────────────────────
+
+// Integer mean (floored). Returns 0 on empty list.
+func listMean(list) {
+    let n = count(list)
+    if n == 0 { emit 0 }
+    let sum = 0
+    let i = 0
+    while i < n {
+        sum = sum + toInt(split(list, i))
+        i = i + 1
+    }
+    emit sum / n
+}
+
+// Median of an integer list (assumes list is already sorted). For
+// even-length lists returns the lower of the two middle elements
+// (integer floor — no floats in Krypton).
+func listMedian(list) {
+    let n = count(list)
+    if n == 0 { emit 0 }
+    let mid = n / 2
+    if (n % 2) == 1 { emit toInt(split(list, mid)) }
+    // even: average the two middles (floored)
+    let a = toInt(split(list, mid - 1))
+    let b = toInt(split(list, mid))
+    emit (a + b) / 2
+}
+
+// Most common item in a list (string equality). Ties broken by first-seen.
+func listMode(list) {
+    let n = count(list)
+    if n == 0 { emit "" }
+    let bestItem = ""
+    let bestCnt = 0
+    let i = 0
+    while i < n {
+        let it = split(list, i)
+        let cnt = 0
+        let j = 0
+        while j < n {
+            if split(list, j) == it { cnt = cnt + 1 }
+            j = j + 1
+        }
+        if cnt > bestCnt { bestCnt = cnt  bestItem = it }
+        i = i + 1
+    }
+    emit bestItem
+}
+
+// Count occurrences of `item` (string equality).
+func listFrequency(list, item) {
+    let n = count(list)
+    let cnt = 0
+    let i = 0
+    while i < n {
+        if split(list, i) == item { cnt = cnt + 1 }
+        i = i + 1
+    }
+    emit cnt
+}
