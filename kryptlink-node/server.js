@@ -117,6 +117,7 @@ const nanoid = customAlphabet(CODE_ALPHABET, 6);
 
 const RESERVED = new Set([
   "", "admin", "login", "logout", "create", "stats", "qr", "users",
+  "icons", "banner",
   "index.html", "index.htm", "favicon.ico", "robots.txt",
   "sitemap.xml", "humans.txt", "default.htm", "default.html",
   ".well-known",
@@ -292,9 +293,11 @@ function pageStats(user, code) {
 
 // ── Routes ───────────────────────────────────────────────────────────
 
-// Static assets (icons, favicon, etc.) under PUBLIC_DIR — cached 1h.
-// MUST come before the bit.ly-style /:code catch-all.
-app.use("/icons", express.static(path.join(PUBLIC_DIR, "icons"), { maxAge: "1h" }));
+// Static assets under PUBLIC_DIR — cached 1h.
+// MUST come before the bit.ly-style /:code catch-all so paths like
+// /icons/code.png and /banner/kryli.png don't get treated as short codes.
+app.use("/icons",  express.static(path.join(PUBLIC_DIR, "icons"),  { maxAge: "1h" }));
+app.use("/banner", express.static(path.join(PUBLIC_DIR, "banner"), { maxAge: "1h" }));
 
 // Static landing page (with a login form). Auth required only for /admin.
 app.get(["/", "/index.html"], (req, res) => {
