@@ -2078,6 +2078,100 @@ func emitKrShrCode(thisVAddr, atoiVAddr) {
 }
 func krShrSize() { emit 26 }
 
+// kr_hex: convert int to lowercase hex string (sign + magnitude). 107 bytes.
+//   In: RDI = tagged arg (atoi'd internally). Out: RAX = ptr to NUL-term string.
+//   Prefix: CALL kr_atoi; MOV RDI,RAX. Then base-16 digit loop with a-f fixup.
+//   24-byte buffer (<=16 hex digits + sign + nul), built backward from buf+23.
+func emitKrHexCode(thisVAddr, allocVAddr, atoiVAddr) {
+    let c = ""
+    c = c + hexByte(0xE8) + hexDword(atoiVAddr - (thisVAddr + 5))  // [0]   CALL kr_atoi
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)          // [5]   MOV RDI, RAX
+    c = c + hexByte(0x53)                                          // [8]   PUSH RBX
+    c = c + hexByte(0x41) + hexByte(0x54)                          // [9]   PUSH R12
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xFC)          // [11]  MOV R12, RDI
+    c = c + hexByte(0xBF) + hexDword(24)                           // [14]  MOV EDI, 24
+    c = c + hexByte(0xE8) + hexDword(allocVAddr - (thisVAddr + 24))// [19]  CALL kr_alloc
+    c = c + hexByte(0x48) + hexByte(0x8D) + hexByte(0x58) + hexByte(0x17)  // [24] LEA RBX,[RAX+23]
+    c = c + hexByte(0xC6) + hexByte(0x03) + hexByte(0x00)          // [28]  MOV byte [RBX], 0
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE0)          // [31]  MOV RAX, R12
+    c = c + hexByte(0x31) + hexByte(0xC9)                          // [34]  XOR ECX, ECX
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)          // [36]  TEST RAX, RAX
+    c = c + hexByte(0x79) + hexByte(0x05)                          // [39]  JNS +5 -> 46
+    c = c + hexByte(0x48) + hexByte(0xF7) + hexByte(0xD8)          // [41]  NEG RAX
+    c = c + hexByte(0xFF) + hexByte(0xC1)                          // [44]  INC ECX
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)          // [46]  TEST RAX, RAX (.pos)
+    c = c + hexByte(0x75) + hexByte(0x08)                          // [49]  JNZ +8 -> 59
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xCB)          // [51]  DEC RBX
+    c = c + hexByte(0xC6) + hexByte(0x03) + hexByte(0x30)          // [54]  MOV [RBX], '0'
+    c = c + hexByte(0xEB) + hexByte(0x29)                          // [57]  JMP +41 -> 100 (.done)
+    c = c + hexByte(0x31) + hexByte(0xD2)                          // [59]  XOR EDX, EDX (.loop)
+    c = c + hexByte(0xBE) + hexDword(16)                           // [61]  MOV ESI, 16
+    c = c + hexByte(0x48) + hexByte(0xF7) + hexByte(0xF6)          // [66]  DIV RSI
+    c = c + hexByte(0x80) + hexByte(0xC2) + hexByte(0x30)          // [69]  ADD DL, '0'
+    c = c + hexByte(0x80) + hexByte(0xFA) + hexByte(0x39)          // [72]  CMP DL, '9'
+    c = c + hexByte(0x76) + hexByte(0x03)                          // [75]  JBE +3 -> 80
+    c = c + hexByte(0x80) + hexByte(0xC2) + hexByte(0x27)          // [77]  ADD DL, 0x27 (a-f)
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xCB)          // [80]  DEC RBX (.store)
+    c = c + hexByte(0x88) + hexByte(0x13)                          // [83]  MOV [RBX], DL
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)          // [85]  TEST RAX, RAX
+    c = c + hexByte(0x75) + hexByte(256 - 31)                      // [88]  JNZ -31 -> 59
+    c = c + hexByte(0x85) + hexByte(0xC9)                          // [90]  TEST ECX, ECX
+    c = c + hexByte(0x74) + hexByte(0x06)                          // [92]  JZ +6 -> 100
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xCB)          // [94]  DEC RBX
+    c = c + hexByte(0xC6) + hexByte(0x03) + hexByte(0x2D)          // [97]  MOV [RBX], '-'
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xD8)          // [100] MOV RAX, RBX (.done)
+    c = c + hexByte(0x41) + hexByte(0x5C)                          // [103] POP R12
+    c = c + hexByte(0x5B)                                          // [105] POP RBX
+    c = c + hexByte(0xC3)                                          // [106] RET
+    emit c
+}
+func krHexSize() { emit 107 }
+
+// kr_bin: convert int to binary string (sign + magnitude). 99 bytes.
+//   Same shape as kr_str_int but base 2 and a 72-byte buffer (<=64 bits + sign +
+//   nul). Prefix CALL kr_atoi; MOV RDI,RAX folds the tag conversion in.
+func emitKrBinCode(thisVAddr, allocVAddr, atoiVAddr) {
+    let c = ""
+    c = c + hexByte(0xE8) + hexDword(atoiVAddr - (thisVAddr + 5))  // [0]   CALL kr_atoi
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xC7)          // [5]   MOV RDI, RAX
+    c = c + hexByte(0x53)                                          // [8]   PUSH RBX
+    c = c + hexByte(0x41) + hexByte(0x54)                          // [9]   PUSH R12
+    c = c + hexByte(0x49) + hexByte(0x89) + hexByte(0xFC)          // [11]  MOV R12, RDI
+    c = c + hexByte(0xBF) + hexDword(72)                           // [14]  MOV EDI, 72
+    c = c + hexByte(0xE8) + hexDword(allocVAddr - (thisVAddr + 24))// [19]  CALL kr_alloc
+    c = c + hexByte(0x48) + hexByte(0x8D) + hexByte(0x58) + hexByte(0x47)  // [24] LEA RBX,[RAX+71]
+    c = c + hexByte(0xC6) + hexByte(0x03) + hexByte(0x00)          // [28]  MOV byte [RBX], 0
+    c = c + hexByte(0x4C) + hexByte(0x89) + hexByte(0xE0)          // [31]  MOV RAX, R12
+    c = c + hexByte(0x31) + hexByte(0xC9)                          // [34]  XOR ECX, ECX
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)          // [36]  TEST RAX, RAX
+    c = c + hexByte(0x79) + hexByte(0x05)                          // [39]  JNS +5 -> 46
+    c = c + hexByte(0x48) + hexByte(0xF7) + hexByte(0xD8)          // [41]  NEG RAX
+    c = c + hexByte(0xFF) + hexByte(0xC1)                          // [44]  INC ECX
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)          // [46]  TEST RAX, RAX (.pos)
+    c = c + hexByte(0x75) + hexByte(0x08)                          // [49]  JNZ +8 -> 59
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xCB)          // [51]  DEC RBX
+    c = c + hexByte(0xC6) + hexByte(0x03) + hexByte(0x30)          // [54]  MOV [RBX], '0'
+    c = c + hexByte(0xEB) + hexByte(0x21)                          // [57]  JMP +33 -> 92 (.done)
+    c = c + hexByte(0x31) + hexByte(0xD2)                          // [59]  XOR EDX, EDX (.loop)
+    c = c + hexByte(0xBE) + hexDword(2)                            // [61]  MOV ESI, 2
+    c = c + hexByte(0x48) + hexByte(0xF7) + hexByte(0xF6)          // [66]  DIV RSI
+    c = c + hexByte(0x80) + hexByte(0xC2) + hexByte(0x30)          // [69]  ADD DL, '0'
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xCB)          // [72]  DEC RBX
+    c = c + hexByte(0x88) + hexByte(0x13)                          // [75]  MOV [RBX], DL
+    c = c + hexByte(0x48) + hexByte(0x85) + hexByte(0xC0)          // [77]  TEST RAX, RAX
+    c = c + hexByte(0x75) + hexByte(256 - 23)                      // [80]  JNZ -23 -> 59
+    c = c + hexByte(0x85) + hexByte(0xC9)                          // [82]  TEST ECX, ECX
+    c = c + hexByte(0x74) + hexByte(0x06)                          // [84]  JZ +6 -> 92
+    c = c + hexByte(0x48) + hexByte(0xFF) + hexByte(0xCB)          // [86]  DEC RBX
+    c = c + hexByte(0xC6) + hexByte(0x03) + hexByte(0x2D)          // [89]  MOV [RBX], '-'
+    c = c + hexByte(0x48) + hexByte(0x89) + hexByte(0xD8)          // [92]  MOV RAX, RBX (.done)
+    c = c + hexByte(0x41) + hexByte(0x5C)                          // [95]  POP R12
+    c = c + hexByte(0x5B)                                          // [97]  POP RBX
+    c = c + hexByte(0xC3)                                          // [98]  RET
+    emit c
+}
+func krBinSize() { emit 99 }
+
 // kr_repeat: build a string formed by concatenating s n times.
 //   In:  RDI = s (string ptr), RSI = n (small int OR string via kr_atoi)
 //   Out: RAX = pointer to fresh "ssss...s\0" of length slen*n
@@ -3297,6 +3391,8 @@ func opByteSize(op) {
     if op == "BUILTIN_BITXOR"    { emit 8 }
     if op == "BUILTIN_SHL"       { emit 8 }
     if op == "BUILTIN_SHR"       { emit 8 }
+    if op == "BUILTIN_HX"        { emit 7 }  // POP RDI + CALL kr_hex + PUSH RAX
+    if op == "BUILTIN_BN"        { emit 7 }  // POP RDI + CALL kr_bin + PUSH RAX
     if op == "BUILTIN_BITNOT"    { emit 7 }  // POP RDI + CALL + PUSH RAX (1-arg)
     if op == "BUILTIN_REPEAT"    { emit 8 }  // POP RSI + POP RDI + CALL + PUSH RAX
     if op == "BUILTIN_CONTAINS"  { emit 8 }  // POP RSI + POP RDI + CALL + PUSH RAX
@@ -3645,6 +3741,10 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_MIN")
                 } else if bname == "max" {
                     opSb = sbAppend(opSb, "BUILTIN_MAX")
+                } else if bname == "hex" {
+                    opSb = sbAppend(opSb, "BUILTIN_HX")
+                } else if bname == "bin" {
+                    opSb = sbAppend(opSb, "BUILTIN_BN")
                 } else if bname == "repeat" {
                     opSb = sbAppend(opSb, "BUILTIN_REPEAT")
                 } else if bname == "contains" {
@@ -3830,7 +3930,7 @@ func computeLayout(opList, localCount) {
 // funcStartVAddr: virtual address of THIS function's first byte (for CALL disp calc)
 // krPrintVAddr/krStrIntVAddr: vaddrs of runtime helpers, used by BUILTIN_KP/BUILTIN_TOSTR
 
-func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr, krStrcmpVAddr, krReverseVAddr, krSbnewVAddr, krSbappendVAddr, krSbtostringVAddr, krMinVAddr, krMaxVAddr, krBitandVAddr, krBitorVAddr, krBitxorVAddr, krBitnotVAddr, krShlVAddr, krShrVAddr) {
+func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, funcStartVAddr, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr, krStrcmpVAddr, krReverseVAddr, krSbnewVAddr, krSbappendVAddr, krSbtostringVAddr, krMinVAddr, krMaxVAddr, krBitandVAddr, krBitorVAddr, krBitxorVAddr, krBitnotVAddr, krShlVAddr, krShrVAddr, krHexVAddr, krBinVAddr) {
     let c = sbNew()
     c = sbAppend(c, hexByte(0x55))  // [+0] PUSH RBP
     c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xE5))  // [+1] MOV RBP, RSP
@@ -4894,6 +4994,16 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             c = sbAppend(c, hexByte(0x5F))
             c = sbAppend(c, hexByte(0xE8) + hexDword(krBitnotVAddr - (funcStartVAddr + off + 6)))
             c = sbAppend(c, hexByte(0x50))
+        } else if op == "BUILTIN_HX" {
+            // POP RDI ; CALL kr_hex ; PUSH RAX (7 bytes)
+            c = sbAppend(c, hexByte(0x5F))
+            c = sbAppend(c, hexByte(0xE8) + hexDword(krHexVAddr - (funcStartVAddr + off + 6)))
+            c = sbAppend(c, hexByte(0x50))
+        } else if op == "BUILTIN_BN" {
+            // POP RDI ; CALL kr_bin ; PUSH RAX (7 bytes)
+            c = sbAppend(c, hexByte(0x5F))
+            c = sbAppend(c, hexByte(0xE8) + hexDword(krBinVAddr - (funcStartVAddr + off + 6)))
+            c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_REPEAT" {
             // POP RSI (n) ; POP RDI (s) ; CALL kr_repeat ; PUSH RAX (8 bytes)
             c = sbAppend(c, hexByte(0x5E))
@@ -5527,6 +5637,8 @@ just run {
     let krBnSz = krBitnotSize()
     let krShlSz = krShlSize()
     let krSrSz = krShrSize()
+    let krHxSz = krHexSize()
+    let krBiSz = krBinSize()
 
     let fIdx = 0
     while fIdx < funcCount {
@@ -5657,9 +5769,11 @@ just run {
     let krBitnotVAddr     = krBitxorVAddr + krBxSz
     let krShlVAddr        = krBitnotVAddr + krBnSz
     let krShrVAddr        = krShlVAddr + krShlSz
+    let krHexVAddr        = krShrVAddr + krSrSz
+    let krBinVAddr        = krHexVAddr + krHxSz
 
     // String virtual addresses (after all runtime helpers)
-    let stringsBase = krShrVAddr + krSrSz
+    let stringsBase = krBinVAddr + krBiSz
     let strVAddrs = ""
     let strData = ""
     let curOff = 0
@@ -5702,7 +5816,7 @@ just run {
         let nm2 = substring(hh, ss1 + 1, ss2)
         let funcStartV2 = toInt(funcVAddr(funcVAddrs, nm2))
 
-        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr, krStrcmpVAddr, krReverseVAddr, krSbnewVAddr, krSbappendVAddr, krSbtostringVAddr, krMinVAddr, krMaxVAddr, krBitandVAddr, krBitorVAddr, krBitxorVAddr, krBitnotVAddr, krShlVAddr, krShrVAddr)
+        let codeI = emitFuncCode(opStr2, strVAddrs, argc2, lcCount2, lab2, funcVAddrs, funcStartV2, krPrintVAddr, krStrIntVAddr, krConcatVAddr, krAtoiVAddr, krLengthVAddr, krStrlenVAddr, krSplitVAddr, krRangeVAddr, krIndexVAddr, krArgVAddr, krArgcountVAddr, krSubstringVAddr, krAllocVAddr, krReadfileVAddr, krWritefileVAddr, krPrinterrVAddr, krCharcodeVAddr, krFromcharcodeVAddr, krExitVAddr, krIsdigitVAddr, krIsalphaVAddr, krAbsVAddr, krStartswithVAddr, krIstruthyVAddr, krLinecountVAddr, krGetlineVAddr, krTrimVAddr, krToupperVAddr, krTolowerVAddr, krPowVAddr, krRepeatVAddr, krPlusVAddr, krSubiVAddr, krMuliVAddr, krDiviVAddr, krModiVAddr, krCmpiVAddr, krContainsVAddr, krIndexofVAddr, krEndswithVAddr, krReplaceVAddr, krStrcmpVAddr, krReverseVAddr, krSbnewVAddr, krSbappendVAddr, krSbtostringVAddr, krMinVAddr, krMaxVAddr, krBitandVAddr, krBitorVAddr, krBitxorVAddr, krBitnotVAddr, krShlVAddr, krShrVAddr, krHexVAddr, krBinVAddr)
         allFuncCode = allFuncCode + codeI
         oIdx2 += 1
     }
@@ -5774,8 +5888,10 @@ just run {
     let krBitnotCode     = emitKrBitnotCode(krBitnotVAddr, krAtoiVAddr)
     let krShlCode        = emitKrShlCode(krShlVAddr, krAtoiVAddr)
     let krShrCode        = emitKrShrCode(krShrVAddr, krAtoiVAddr)
+    let krHexCode        = emitKrHexCode(krHexVAddr, krAllocVAddr, krAtoiVAddr)
+    let krBinCode        = emitKrBinCode(krBinVAddr, krAllocVAddr, krAtoiVAddr)
 
-    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + krSubstringCode + krReadfileCode + krWritefileCode + krWritebytesCode + krSbnewCode + krSbappendCode + krSbtostringCode + krPrinterrCode + krCharcodeCode + krFromcharcodeCode + krExitCode + krIsdigitCode + krIsalphaCode + krAbsCode + krStartswithCode + krIstruthyCode + krLinecountCode + krGetlineCode + krTrimCode + krToupperCode + krTolowerCode + krPowCode + krRepeatCode + krIsnumCode + krPlusCode + krAtoi2Code + krSubiCode + krMuliCode + krDiviCode + krModiCode + krStrcmpCode + krCmpiCode + krStrstrCode + krContainsCode + krIndexofCode + krEndswithCode + krReplaceCode2 + krReverseCode + krMinCode + krMaxCode + krBitandCode + krBitorCode + krBitxorCode + krBitnotCode + krShlCode + krShrCode + strData
+    let segment = startCode + allFuncCode + krPrintCode + krStrIntCode + krAllocCode + krStrlenCode + krConcatCode + krAtoiCode + krLengthCode + krSplitCode + krRangeCode + krIndexCode + krArgCode + krArgcountCode + krSubstringCode + krReadfileCode + krWritefileCode + krWritebytesCode + krSbnewCode + krSbappendCode + krSbtostringCode + krPrinterrCode + krCharcodeCode + krFromcharcodeCode + krExitCode + krIsdigitCode + krIsalphaCode + krAbsCode + krStartswithCode + krIstruthyCode + krLinecountCode + krGetlineCode + krTrimCode + krToupperCode + krTolowerCode + krPowCode + krRepeatCode + krIsnumCode + krPlusCode + krAtoi2Code + krSubiCode + krMuliCode + krDiviCode + krModiCode + krStrcmpCode + krCmpiCode + krStrstrCode + krContainsCode + krIndexofCode + krEndswithCode + krReplaceCode2 + krReverseCode + krMinCode + krMaxCode + krBitandCode + krBitorCode + krBitxorCode + krBitnotCode + krShlCode + krShrCode + krHexCode + krBinCode + strData
     let segSize = hexBytesLen(segment)
     let fileSize = HDR_SIZE + segSize
 
