@@ -93,3 +93,35 @@ func mimeFromPath(path) {
     if dot < 0 { emit "application/octet-stream" }
     emit mimeFromExt(substring(path, dot, len(path)))
 }
+
+// ── Category predicates (return "1" / "0") ───────────────────────────
+
+func _mimeStarts(mime, pfx) {
+    if len(mime) < len(pfx) { emit "0" }
+    if substring(mime, 0, len(pfx)) == pfx { emit "1" }
+    emit "0"
+}
+
+func isImage(mime) { emit _mimeStarts(mime, "image/") }
+func isAudio(mime) { emit _mimeStarts(mime, "audio/") }
+func isVideo(mime) { emit _mimeStarts(mime, "video/") }
+func isText(mime)  { emit _mimeStarts(mime, "text/") }
+func isApp(mime)   { emit _mimeStarts(mime, "application/") }
+func isFont(mime)  { emit _mimeStarts(mime, "font/") }
+
+// True iff mime is one of the common JSON/JSONP variants.
+func isJson(mime) {
+    if mime == "application/json" { emit "1" }
+    if mime == "application/javascript" { emit "1" }
+    if mime == "application/x-json" { emit "1" }
+    emit "0"
+}
+
+// True iff mime is binary in the loose sense (not text/* and not json).
+func isBinary(mime) {
+    if _mimeStarts(mime, "text/") == "1" { emit "0" }
+    if isJson(mime) == "1" { emit "0" }
+    if mime == "application/xml" { emit "0" }
+    if mime == "application/x-yaml" { emit "0" }
+    emit "1"
+}
