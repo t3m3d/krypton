@@ -138,3 +138,71 @@ func isAlphabetic(s) {
     }
     emit 1
 }
+
+// ── Additional per-character predicates ──────────────────────────────
+
+// ASCII printable: space (32) through tilde (126).
+func isPrintable(ch) {
+    if len(ch) == 0 { emit 0 }
+    let c = toInt(charCode(ch))
+    if c >= 32 && c <= 126 { emit 1 }
+    emit 0
+}
+
+// ASCII control: 0..31 or 127 (DEL).
+func isControl(ch) {
+    if len(ch) == 0 { emit 0 }
+    let c = toInt(charCode(ch))
+    if c < 32 { emit 1 }
+    if c == 127 { emit 1 }
+    emit 0
+}
+
+// 7-bit ASCII (0..127).
+func isAscii(ch) {
+    if len(ch) == 0 { emit 0 }
+    let c = toInt(charCode(ch))
+    if c >= 0 && c <= 127 { emit 1 }
+    emit 0
+}
+
+// English vowel (a, e, i, o, u — case-insensitive).
+func isVowel(ch) {
+    if len(ch) != 1 { emit 0 }
+    let c = ch
+    if c == "a" || c == "e" || c == "i" || c == "o" || c == "u" { emit 1 }
+    if c == "A" || c == "E" || c == "I" || c == "O" || c == "U" { emit 1 }
+    emit 0
+}
+
+// English consonant (alpha and not a vowel).
+func isConsonant(ch) {
+    if isAlpha(ch) == 0 { emit 0 }
+    if isVowel(ch) == 1 { emit 0 }
+    emit 1
+}
+
+// True iff ASCII digit OR underscore (typical identifier-cont char).
+func isIdentCont(ch) {
+    if len(ch) != 1 { emit 0 }
+    if isAlphaNum(ch) == 1 { emit 1 }
+    if ch == "_" { emit 1 }
+    emit 0
+}
+
+// True iff char is a single-quote, double-quote, or backtick.
+func isQuote(ch) {
+    if len(ch) != 1 { emit 0 }
+    if ch == "\"" || ch == "'" { emit 1 }
+    if toInt(charCode(ch)) == 96 { emit 1 }   // backtick
+    emit 0
+}
+
+// True iff char is a bracket: ( ) [ ] { }
+func isBracket(ch) {
+    if len(ch) != 1 { emit 0 }
+    if ch == "(" || ch == ")" { emit 1 }
+    if ch == "[" || ch == "]" { emit 1 }
+    if ch == "{" || ch == "}" { emit 1 }
+    emit 0
+}
