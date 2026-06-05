@@ -9,24 +9,22 @@ kr      text eol=lf
 # ── Krypton language tagging for GitHub Linguist ──────────────────────
 # Krypton isn't yet in github-linguist/linguist's languages.yml — an
 # upstream PR adding it is in flight (Agent M, 2026-06-04). Until that
-# merges, we paint .k/.ks/.krh as Lisp. `Lisp` is a valid Linguist alias
-# of "Common Lisp" (gitattributes can't take the space in "Common Lisp",
-# so the alias is how we get the conventional-Lisp badge). Once the
-# Linguist PR lands, swap "Lisp" → "Krypton" in this file and the bar updates.
+# merges, github.com has no "Krypton" language. Rather than mislabel our
+# source as Go/Lisp/KCL (all wrong), we exclude .k/.ks/.krh from the
+# language bar entirely (linguist-detectable=false). The bar then reflects
+# only genuinely-typed files. Once the Linguist PR lands, replace this
+# block with `*.k linguist-language=Krypton` (etc.) and the bar updates.
 #
 # .htk → KryptonWeb HTML template — paint as HTML (it IS HTML).
 # .kir → generated IR text, hidden.
-*.k    linguist-language=Lisp
-*.ks   linguist-language=Lisp
-*.krh  linguist-language=Lisp
 *.htk  linguist-language=HTML
 *.kir  linguist-generated=true
 
-# Force the .k / .ks / .krh tree to be counted in the language stats
-# even though their painted languages aren't "default-prominent".
-*.k    linguist-detectable=true
-*.ks   linguist-detectable=true
-*.krh  linguist-detectable=true
+# Krypton source — no real Linguist language yet, so don't claim a wrong
+# one; keep it out of the language stats until "Krypton" exists upstream.
+*.k    linguist-detectable=false
+*.ks   linguist-detectable=false
+*.krh  linguist-detectable=false
 
 # Pre-built bootstrap seed binaries (no source in repo, treat as vendored).
 bootstrap/** linguist-vendored=true
