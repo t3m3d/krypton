@@ -50,6 +50,13 @@ func e_msub(rd, rn, rm, ra) { let p = 32768 + ra * 1024 + rn * 32 + rd  emit wor
 func e_cmp(rn, rm)   { let p = rn * 32 + 31  emit wordHL(60160 + rm + p / 65536, p % 65536) } // subs xzr,Xn,Xm
 func e_cmpi0(rn) { let p = rn * 32 + 31  emit wordHL(61696 + p / 65536, p % 65536) }          // cmp Xn,#0
 func e_cset(rd, cc) { let p = 2016 + cc * 4096 + rd  emit wordHL(39583 + p / 65536, p % 65536) } // cset Xd (csinc cond=cc)
+func e_and(rd, rn, rm) { emit wordHL(35328 + rm, rn * 32 + rd) }                     // and Xd,Xn,Xm (0x8A00)
+func e_orr(rd, rn, rm) { emit wordHL(43520 + rm, rn * 32 + rd) }                     // orr Xd,Xn,Xm (0xAA00)
+func e_eor(rd, rn, rm) { emit wordHL(51712 + rm, rn * 32 + rd) }                     // eor Xd,Xn,Xm (0xCA00)
+func e_orn(rd, rn, rm) { emit wordHL(43552 + rm, rn * 32 + rd) }                     // orn Xd,Xn,Xm (0xAA20); mvn = orn Xd,xzr,Xm
+func e_lslv(rd, rn, rm) { let p = 8192 + rn * 32 + rd  emit wordHL(39616 + rm + p / 65536, p % 65536) } // lslv Xd,Xn,Xm
+func e_lsrv(rd, rn, rm) { let p = 9216 + rn * 32 + rd  emit wordHL(39616 + rm + p / 65536, p % 65536) } // lsrv Xd,Xn,Xm
+func e_csel(rd, rn, rm, cond) { let p = cond * 4096 + rn * 32 + rd  emit wordHL(39552 + rm + p / 65536, p % 65536) } // csel Xd,Xn,Xm,cond
 func e_movr(rd, rm)  { let p = 992 + rd  emit wordHL(43520 + rm + p / 65536, p % 65536) }     // mov Xd,Xm
 func e_strb(wt, xn)  { let p = xn * 32 + wt  emit wordHL(14592, p) }                 // strb Wt,[Xn]
 func e_ldrbO(wt, xn, xm) { let p = 26624 + xn * 32 + wt  emit wordHL(14432 + xm + p / 65536, p % 65536) }
@@ -235,7 +242,16 @@ func opBytes(ir, i) {
     if op == "LOCAL"  { emit "0" }
     if op == "RETURN" { emit "20" }                                    // epilogue
     if op == "END"    { emit "20" }                                    // epilogue
-    if op == "CALL"   { emit "4" }                                     // bl
+    if op == "CALL" {                                                  // bl, or inlined bitwise builtin
+        let cn = headName(ln)
+        if cn == "bitAnd" { emit "28" }
+        if cn == "bitOr"  { emit "28" }
+        if cn == "bitXor" { emit "28" }
+        if cn == "bitNot" { emit "20" }
+        if cn == "shl"    { emit "28" }
+        if cn == "shr"    { emit "28" }
+        emit "4"
+    }
     emit toInt(opSize(ln)) + ""
 }
 // absolute byte offset of LABEL `name` (walks _start + all function code).
@@ -298,6 +314,8 @@ func opSize(ln) {
         if startsWith(b, "fromCharCode") { emit 36 }
         if startsWith(b, "substring") { emit 36 }
         if startsWith(b, "isTruthy") { emit 24 }
+        if startsWith(b, "min") { emit 32 }   // pop0+pop1+cmp+csel+push
+        if startsWith(b, "max") { emit 32 }
         emit 0
     }
     emit 0
@@ -408,10 +426,26 @@ just run {
         if op == "GTE" { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 11) + c_push()  off = off + 32 }
         if op == "JUMP" { code = code + e_b(toInt(labelAbsOffset(ir, operand(ln))) - off)  off = off + 4 }
         if op == "JUMPIFNOT" { code = code + c_pop0() + e_cbz(0, toInt(labelAbsOffset(ir, operand(ln))) - (off + 8))  off = off + 12 }
-        if op == "CALL" { code = code + e_bl(toInt(funcVaddrOf(ir, headName(ln))) - off)  off = off + 4 }
+        if op == "CALL" {
+            let cn = headName(ln)
+            // bitwise builtins arrive as generic CALLs (front-end emits CALL, not BUILTIN).
+            if cn == "bitAnd" { code = code + c_pop0() + c_pop1() + e_and(0, 1, 0) + c_push()  off = off + 28 }
+            if cn == "bitOr"  { code = code + c_pop0() + c_pop1() + e_orr(0, 1, 0) + c_push()  off = off + 28 }
+            if cn == "bitXor" { code = code + c_pop0() + c_pop1() + e_eor(0, 1, 0) + c_push()  off = off + 28 }
+            if cn == "bitNot" { code = code + c_pop0() + e_orn(0, 31, 0) + c_push()  off = off + 20 }
+            if cn == "shl" { code = code + c_pop0() + c_pop1() + e_lslv(0, 1, 0) + c_push()  off = off + 28 }
+            if cn == "shr" { code = code + c_pop0() + c_pop1() + e_lsrv(0, 1, 0) + c_push()  off = off + 28 }
+            if cn != "bitAnd" && cn != "bitOr" && cn != "bitXor" && cn != "bitNot" && cn != "shl" && cn != "shr" {
+                code = code + e_bl(toInt(funcVaddrOf(ir, cn)) - off)  off = off + 4
+            }
+        }
         if op == "BUILTIN" {
             let b = operand(ln)
             if startsWith(b, "isTruthy") { code = code + c_pop0() + e_cmpi0(0) + e_cset(0, 0) + c_push()  off = off + 24 }
+            // min/max(a,b): pop b->x0, a->x1; cmp a,b; csel. cond LT=11 (min), GT=12 (max). 32 bytes.
+            // (bitwise builtins arrive as CALL, handled in the CALL branch below.)
+            if startsWith(b, "min") { code = code + c_pop0() + c_pop1() + e_cmp(1, 0) + e_csel(0, 1, 0, 11) + c_push()  off = off + 32 }
+            if startsWith(b, "max") { code = code + c_pop0() + c_pop1() + e_cmp(1, 0) + e_csel(0, 1, 0, 12) + c_push()  off = off + 32 }
             if startsWith(b, "kp") {
                 let kc = sbNew()
                 kc = sbAppend(kc, c_pop0())                         // pop arg -> x0
