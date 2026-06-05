@@ -9,16 +9,16 @@ kr      text eol=lf
 # ── Krypton language tagging for GitHub Linguist ──────────────────────
 # Krypton isn't yet in github-linguist/linguist's languages.yml — an
 # upstream PR adding it is in flight (Agent M, 2026-06-04). Until that
-# merges, we paint .k/.ks/.krh as Go: it's the closest real syntax
-# match (`func name(args) { body }`, `let`, no semicolons, curly blocks)
-# so GitHub's Go highlighter renders Krypton sensibly. Once the Linguist
-# PR lands, swap "Go" → "Krypton" in this file and the bar updates.
+# merges, we paint .k/.ks/.krh as Lisp. `Lisp` is a valid Linguist alias
+# of "Common Lisp" (gitattributes can't take the space in "Common Lisp",
+# so the alias is how we get the conventional-Lisp badge). Once the
+# Linguist PR lands, swap "Lisp" → "Krypton" in this file and the bar updates.
 #
 # .htk → KryptonWeb HTML template — paint as HTML (it IS HTML).
 # .kir → generated IR text, hidden.
-*.k    linguist-language=Go
-*.ks   linguist-language=Go
-*.krh  linguist-language=Go
+*.k    linguist-language=Lisp
+*.ks   linguist-language=Lisp
+*.krh  linguist-language=Lisp
 *.htk  linguist-language=HTML
 *.kir  linguist-generated=true
 
