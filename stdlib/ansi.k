@@ -92,3 +92,49 @@ func strip(s) {
     }
     emit out
 }
+
+// ── Cursor save/restore + clear variants not in the base set ─────────
+
+func cursorSave()     { emit _esc() + "s" }
+func cursorRestore()  { emit _esc() + "u" }
+func clearScrollback(){ emit _esc() + "3J" }
+func clearLineLeft()  { emit _esc() + "1K" }
+func clearLineRight() { emit _esc() + "0K" }
+func clearBelow()     { emit _esc() + "0J" }
+func clearAbove()     { emit _esc() + "1J" }
+
+// Background truecolor (foreground rgb() already exists).
+func bgRgb(r, g, b, s) {
+    let prefix = sbNew()
+    prefix = sbAppend(prefix, _esc())
+    prefix = sbAppend(prefix, "48;2;")
+    prefix = sbAppend(prefix, r + "")
+    prefix = sbAppend(prefix, ";")
+    prefix = sbAppend(prefix, g + "")
+    prefix = sbAppend(prefix, ";")
+    prefix = sbAppend(prefix, b + "")
+    prefix = sbAppend(prefix, "m")
+    let b2 = sbNew()
+    b2 = sbAppend(b2, sbToString(prefix))
+    b2 = sbAppend(b2, s)
+    b2 = sbAppend(b2, _sgr("0"))
+    emit sbToString(b2)
+}
+
+// OSC-8 clickable hyperlink. Renders in modern terminals (Windows
+// Terminal, iTerm2, kitty, recent VTE) as underlined clickable text.
+func hyperlink(url, text) {
+    let ESC = fromCharCode(27)
+    let b = sbNew()
+    b = sbAppend(b, ESC)
+    b = sbAppend(b, "]8;;")
+    b = sbAppend(b, url)
+    b = sbAppend(b, ESC)
+    b = sbAppend(b, "\\")
+    b = sbAppend(b, text)
+    b = sbAppend(b, ESC)
+    b = sbAppend(b, "]8;;")
+    b = sbAppend(b, ESC)
+    b = sbAppend(b, "\\")
+    emit sbToString(b)
+}
