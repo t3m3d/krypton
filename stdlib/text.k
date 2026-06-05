@@ -170,3 +170,82 @@ func grepPrefix(text, prefix) {
     }
     emit sbToString(sb)
 }
+
+// Split into paragraphs — separated by one or more blank lines.
+// Returns "\x01"-joined paragraphs (Krypton has no nested lists);
+// callers can split on chr(1) to iterate.
+func paragraphs(text) {
+    let out = sbNew()
+    let lines = lineCount(text)
+    let current = sbNew()
+    let any = 0
+    let inPara = 0
+    let i = 0
+    while i < lines {
+        let line = getLine(text, i)
+        if len(trim(line)) == 0 {
+            if inPara == 1 {
+                if any == 1 { out = sbAppend(out, fromCharCode(1)) }
+                out = sbAppend(out, sbToString(current))
+                any = 1
+                current = sbNew()
+                inPara = 0
+            }
+        } else {
+            if inPara == 1 { current = sbAppend(current, "\n") }
+            current = sbAppend(current, line)
+            inPara = 1
+        }
+        i = i + 1
+    }
+    if inPara == 1 {
+        if any == 1 { out = sbAppend(out, fromCharCode(1)) }
+        out = sbAppend(out, sbToString(current))
+    }
+    emit sbToString(out)
+}
+
+// Number of paragraphs in `text` (treats blank lines as separators).
+func paragraphCount(text) {
+    let ps = paragraphs(text)
+    if len(ps) == 0 { emit 0 }
+    let n = 1
+    let i = 0
+    while i < len(ps) {
+        if toInt(charCode(ps[i])) == 1 { n = n + 1 }
+        i = i + 1
+    }
+    emit n
+}
+
+// Reverse word order in a sentence (delim = single space).
+//   reverseWords("the quick brown fox") → "fox brown quick the"
+func reverseWords(text) {
+    let ws = words(text)
+    let n = count(ws)
+    let out = sbNew()
+    let i = n - 1
+    let any = 0
+    while i >= 0 {
+        if any == 1 { out = sbAppend(out, " ") }
+        out = sbAppend(out, split(ws, i))
+        any = 1
+        i = i - 1
+    }
+    emit sbToString(out)
+}
+
+// Count characters that are letters (ASCII a-z + A-Z).
+func letterCount(text) {
+    let n = len(text)
+    let i = 0
+    let cnt = 0
+    while i < n {
+        let c = text[i]
+        if (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") {
+            cnt = cnt + 1
+        }
+        i = i + 1
+    }
+    emit cnt
+}
