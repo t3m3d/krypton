@@ -17,14 +17,27 @@ Krypton recognises two sibling source extensions. **Same compiler, same
 syntax** — the split is purely a naming convention.
 
 - **`.k`** — library or compiled program. `module foo`, exports, no shebang.
-- **`.ks`** — KryptScript (new in 2.2). A script meant to run directly:
-  `just run { ... }` body, optional `#!/usr/bin/env kr` shebang, `chmod +x`
-  to make it executable on POSIX. On Windows the installer associates
-  `.ks` with `kr.exe` so double-click + `myscript.ks foo bar` from any
-  shell Just Works — the Windows-native equivalent of a `.bat`. Use `.ks`
-  for one-off tools and build glue you'd otherwise reach for bash or
-  Python for. Read more at
+- **`.ks`** — KryptScript (new in 2.2). A script meant to run directly.
+  Write it **top-to-bottom with no boilerplate** — `kr` auto-wraps the body
+  in `just run { }` when there's no explicit one, so `import`s, `func`s, and
+  statements just go at the top of the file (Swift-style). An explicit
+  `just run { }` still works if you want it. Add `#!/usr/bin/env kr` and
+  `chmod +x` to make it executable on POSIX. On Windows the installer
+  associates `.ks` with `kr.exe` so double-click + `myscript.ks foo bar`
+  from any shell Just Works — the Windows-native equivalent of a `.bat`.
+  Use `.ks` for one-off tools and build glue you'd otherwise reach for bash
+  or Python for. Read more at
   [`krypton-lang.org/kryptscript`](https://krypton-lang.org/kryptscript.html).
+
+  ```bash
+  # hello.ks — no `just run` wrapper needed
+  import "k:ansi"
+  func greet(w) { emit "Hello, " + w + "!" }
+  kp(bold(cyan(greet("world"))))
+
+  kr hello.ks            # run it
+  kr                     # start the interactive REPL
+  ```
 
 ```bash
 kcc -r examples/hello.ks             # POSIX: compile + run + clean up
@@ -94,12 +107,17 @@ The web framework adds a third extension for templates:
 
 - `kcc` / `krypton` — compiler.
 - `kr` (POSIX) / `kr.exe` (Windows) — KryptScript runner. POSIX is a
-  shebang-friendly bash shim over `kcc -r`. Windows is a tiny native PE
+  shebang-friendly bash shim over `kcc -r` that also (a) **auto-wraps**
+  top-level code in `just run { }` so `.ks` files need no boilerplate, and
+  (b) starts an **interactive REPL** when run with no arguments (`kr` →
+  `ks>` prompt; remembers `import`/`func`/`let`, multi-line blocks, `:help`
+  / `:list` / `:reset` / `:q`). Windows is a tiny native PE
   (`tools/kr/run.k` → `kr.exe`, ~16 KB) that compiles a `.k`/`.ks` script
   to a temp file, runs it inheriting stdio, propagates the script's exit
   code, then cleans up. The installer associates `.ks` with `kr.exe` so
   Explorer double-click + cmd.exe `myscript.ks args` both Just Work — the
-  Windows-native equivalent of a `.bat` file.
+  Windows-native equivalent of a `.bat` file. _(Top-level wrap + REPL are
+  POSIX-only so far; Windows `kr.exe` parity is a TODO.)_
 - `kweb` — web framework CLI (`kweb init <name>`, `kweb build`, `kweb serve`,
   `kweb deploy <host> <user>`). **Windows-only in 2.1.1**; macOS port targets
   2.1.2 once `stdlib/fs.k` finishes its POSIX rewrite.
