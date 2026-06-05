@@ -97,3 +97,94 @@ func reportResults(passed, failed) {
     }
     kp("========================")
 }
+
+// ── Inequality / containment / emptiness ─────────────────────────────
+
+func assertNotEqual(actual, expected, msg) {
+    if actual == expected {
+        kp("FAIL: " + msg)
+        kp("  expected NOT: " + expected)
+        kp("  got:          " + actual)
+        emit 0
+    }
+    kp("PASS: " + msg)
+    emit 1
+}
+
+func assertContains(s, sub, msg) {
+    if indexOf(s, sub) < 0 {
+        kp("FAIL: " + msg)
+        kp("  haystack: " + s)
+        kp("  needle:   " + sub)
+        emit 0
+    }
+    kp("PASS: " + msg)
+    emit 1
+}
+
+func assertEndsWith(s, suffix, msg) {
+    if endsWith(s, suffix) == "0" {
+        kp("FAIL: " + msg)
+        kp("  string:   " + s)
+        kp("  expected suffix: " + suffix)
+        emit 0
+    }
+    kp("PASS: " + msg)
+    emit 1
+}
+
+func assertEmpty(s, msg) {
+    if len(s) != 0 {
+        kp("FAIL: " + msg)
+        kp("  expected empty, got: " + s)
+        emit 0
+    }
+    kp("PASS: " + msg)
+    emit 1
+}
+
+func assertNotEmpty(s, msg) {
+    if len(s) == 0 {
+        kp("FAIL: " + msg)
+        kp("  expected non-empty")
+        emit 0
+    }
+    kp("PASS: " + msg)
+    emit 1
+}
+
+// ── Numeric ranges ───────────────────────────────────────────────────
+
+func assertInRange(n, lo, hi, msg) {
+    let v = toInt(n)
+    if v < lo || v > hi {
+        kp("FAIL: " + msg)
+        kp("  value: " + n)
+        kp("  range: [" + lo + ", " + hi + "]")
+        emit 0
+    }
+    kp("PASS: " + msg)
+    emit 1
+}
+
+func assertGreaterEqual(actual, expected, msg) {
+    if toInt(actual) < toInt(expected) {
+        kp("FAIL: " + msg)
+        kp("  actual:   " + actual)
+        kp("  expected >= " + expected)
+        emit 0
+    }
+    kp("PASS: " + msg)
+    emit 1
+}
+
+func assertLessEqual(actual, expected, msg) {
+    if toInt(actual) > toInt(expected) {
+        kp("FAIL: " + msg)
+        kp("  actual:   " + actual)
+        kp("  expected <= " + expected)
+        emit 0
+    }
+    kp("PASS: " + msg)
+    emit 1
+}
