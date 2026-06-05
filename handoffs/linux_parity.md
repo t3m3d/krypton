@@ -106,5 +106,24 @@ clobbers RBX, save it. Test with negatives and string-number args.
 
 All int+string scalar builtins now at parity (min/max/bitwise/hex/bin/pad*).
 
+## aarch64 (cross-compile from x86) — 2026-06-05
+The `--arm64` path cross-compiles via the x86 front-end IR + an x86 host that
+EMITS aarch64 (`compiler/linux_arm64/elf_host`), run under qemu-aarch64-static.
+- [x] **min/max + bitwise** ported to `compiler/linux_arm64/elf.k`:
+      min/max (CSEL, cond LT/GT), bitAnd/Or/Xor (AND/ORR/EOR), shl/shr (LSLV/LSRV),
+      bitNot (MVN). Added e_and/e_orr/e_eor/e_orn/e_lslv/e_lsrv/e_csel encoders.
+      min/max arrive as BUILTIN; bitwise arrive as CALL → intercepted in the CALL
+      branch (opBytes + emit). Validated under qemu: min/max=3/7/0/99, bitwise
+      AND/OR/XOR/shl/shr=2/7/5/16/64, nested+vars OK.
+- **LIMITATION**: the arm64 backend does NOT support negative numbers yet — a
+      negative value's high bit exceeds the 0x7F000000 int/string tag, so kp
+      derefs it as a pointer → SIGSEGV. This is pre-existing (`kp(2-9)` also
+      crashes), not from these builtins. So bitNot (always negative) and min/max
+      with negative args are blocked until the backend gains negative support.
+      The builtin asm is correct + forward-compatible (works once negatives land).
+- aarch64 still lacks hex/bin/pad and most other builtins (young backend: it had
+      only kp/len before this). Native aarch64-HOST (driver+host running ON arm64)
+      is unbuilt — cross-from-x86 is the supported path.
+
 Recipe lesson learned: the consistency check must include a **name-collision grep**,
 not just an occurrence count — a reused `let krXxSz` silently shadows another size.
