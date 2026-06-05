@@ -13,4 +13,15 @@
 # `arg(0)`, `arg(1)`, ... and `argCount()`).
 
 SCRIPT_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "$SCRIPT_DIR/kcc.sh" -r "$@"
+
+# kcc.sh was removed in 0c0dc57b; the `kcc` driver owns `-r` now. Prefer a
+# kcc next to this script (installed/tarball layout), else fall back to kcc
+# on PATH (dev checkout, where kcc is installed via Homebrew).
+KCC="$SCRIPT_DIR/kcc"
+if [ ! -x "$KCC" ]; then KCC="$(command -v kcc)"; fi
+if [ -z "$KCC" ]; then
+    echo "kr: cannot find 'kcc' (not next to this script, not on PATH)" >&2
+    exit 127
+fi
+
+exec "$KCC" -r "$@"
