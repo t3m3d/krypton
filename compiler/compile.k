@@ -3000,14 +3000,12 @@ just run {
             if len(fname) > 0 {
             let info = funcLookup(ftable, fname)
             let pc = funcParamCount(info)
-            // Forward decl always uses char* — void/int funcs have char* wrappers
-            let pi = 1
-            while toInt(pi) < toInt(pc) {
-                pi += 1
-            }
-            if toInt(pc) == 0 {
-                decl = "char* " + fname + "("
-            }
+            // Forward decl always uses char*. decl MUST be initialized
+            // unconditionally — the old `if pc==0` left it NULL for funcs WITH
+            // params, and sbAppend(sb, NULL) below strlen-crashes the FE (the
+            // param-func SIGSEGV). (found by agent M; this builds the discarded
+            // C-output sb, but the concat runs before sb is dropped in --ir mode.)
+            let decl = "char* " + fname + "("
             sb = sbAppend(sb, decl)
             }
         } else if tok == "KW:callback" {
