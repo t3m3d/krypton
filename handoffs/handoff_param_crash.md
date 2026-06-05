@@ -80,3 +80,44 @@ This one test is the fastest way to bound the bug. (~minutes.)
   crash); `/tmp/fe_55`, `/tmp/fe_ba` (55363d65/ba8fb9f6, work). Compare.
 - Proof harness: `/tmp/ccguard/` (C-toolchain failing stubs).
 - Repro file: `printf 'func f(x){ emit x }\njust run { kp(f(9)) }\n'`.
+
+---
+
+# Agent L — deep investigation (2026-06-04, post-W)
+
+Confirmed W: Windows FE on the same compile.k is clean → Linux `elf.k`. **HEAD
+`d6f36c6b` Linux FE still SIGSEGVs on `func f(x)`; `elf.k` unchanged since
+90c57d4f** — so `elf_host` miscompiles HEAD's compile.k.
+
+## RULED OUT (don't re-chase)
+1. **String-table size** — padded current compile.k +600 string literals
+   (533→1043) → still crashes. (W's rec #2 = dead end.)
+2. **Label numbers** — only IR diff in `irFuncIR` is the global label counter
+   (`_wloop_29659`→`_13559`, purge dropped it ~16,100). Renumbered every label in
+   HEAD's IR +20000 and re-ran `elf_host` → still crashes. Labels are opaque to
+   elf.k. (W's rec #1/#3 string-vaddr-via-labels = dead end.)
+3. **Missing strings** — `"PARAM "`,`"LOAD "`,`gcShadowPush`,`"FUNC "` all present
+   in the broken FE (same counts as working). Not dropped.
+4. **Frame size/localCount** — `irFuncIR` IR byte-identical modulo labels → same
+   LOCAL count → same frame.
+
+## What it IS
+- NULL in `irFuncIR`'s **param path** (`params + "PARAM " + pname` or `FUNC … +
+  pc`). gdb: `strlen(rdi=0)` in the concat runtime, caller `0x7f03c353`. Only
+  with ≥1 param.
+- **Heisenbug:** instrumenting `irFuncIR` moves the fault before any marker →
+  `elf_host` emits a wrong **immediate** (string-load vaddr or a LOAD/STORE_LOCAL
+  slot) in irFuncIR that only goes bad at HEAD's layout. Layout-sensitive elf.k
+  codegen bug, triggered by `fd3c735e`.
+
+## Remaining (elf.k disasm — L+W)
+Disasm `irFuncIR`'s param path in `/tmp/fe_hd` (broken) vs `/tmp/fe_55` (working,
+same 0x7f000000 base) → find the instruction loading **0** where a string vaddr
+should be (or a LOAD_LOCAL wrong slot). Fix the matching computation in
+`compiler/linux_x86/elf.k` (suspects: `labelOffset`/`funcVAddr` string-vaddr
+lookup; LOAD_LOCAL/STORE_LOCAL slot emit ~L3365-3392 / L3730-3735).
+
+Binaries: `/tmp/fe_55`,`/tmp/fe_ba` work · `/tmp/fe_hd`,`/tmp/fe_fd`,`/tmp/fe_renum`
+crash. Repro: `printf 'func f(x){ emit x }\n' | kcc --ir`.
+
+— L
