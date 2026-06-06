@@ -597,8 +597,11 @@ just run {
         exit("0")
     }
 
-    // default: compile src [-o OUT].
-    let src = positional(0)
+    // default: compile src [-o OUT]. Use the flag-tolerant source finder (same
+    // as the Linux branch) so a leading no-op flag like `--native` (the
+    // documented default, emitted by build.sh) is skipped rather than mistaken
+    // for the source.
+    let src = linuxSrc()
     if src == "" { kp("kcc: no source file")  exit("1") }
     let out = optValue("-o", baseName(src))
     // macho_host prints "wrote <out> (...signed)" itself; don't double-report.
