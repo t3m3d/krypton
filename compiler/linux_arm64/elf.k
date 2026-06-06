@@ -732,6 +732,10 @@ func opSize(ln) {
         if startsWith(b, "bufGetByte ") { emit 28 } // buf[off]: 2 pops + ldrb + push
         if startsWith(b, "readFile")   { emit 20 }  // 1-arg (path)
         if startsWith(b, "writeFile")  { emit 28 }  // 2-arg (path, content)
+        if startsWith(b, "gcCollect")    { emit 12 }  // no-op (bump allocator): push 0
+        if startsWith(b, "gcAllocCount") { emit 12 }  // stub: push 0
+        if startsWith(b, "gcWalkAllocs") { emit 12 }  // stub: push 0
+        if startsWith(b, "rdtsc")        { emit 24 }  // mrs cntvct_el0 + mask low 30 bits + push
         emit 0
     }
     emit 0
@@ -944,6 +948,12 @@ just run {
             if startsWith(b, "gcShadowCount") { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
             if startsWith(b, "gcShadowPush") { code = code + e_addi(20, 20, 16) + e_movz(0, 0) + c_push()  off = off + 16 }
             if startsWith(b, "gcShadowPop") { code = code + e_addi(20, 20, 16) + e_movz(0, 0) + c_push()  off = off + 16 }
+            // GC builtins: no-op for a bump allocator (no GC). Push 0.
+            if startsWith(b, "gcCollect")    { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
+            if startsWith(b, "gcAllocCount") { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
+            if startsWith(b, "gcWalkAllocs") { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
+            // rdtsc: mrs x0,cntvct_el0; keep low 30 bits (<<34>>34) so it fits the int tag. +push.
+            if startsWith(b, "rdtsc")        { code = code + wordHL(54587, 57408) + e_movz(1, 34) + e_lslv(0, 0, 1) + e_lsrv(0, 0, 1) + c_push()  off = off + 24 }
             // charCode(s) -> first byte of s (int). 20 bytes.
             if startsWith(b, "charCode") {
                 let kc = sbNew()
