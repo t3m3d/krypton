@@ -78,6 +78,7 @@ func e_blt(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 +
 func e_ble(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 13 emit wordHL(21504 + p / 65536, p % 65536) } // b.le (signed <=, cond LE=13)
 func e_bne(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 1  emit wordHL(21504 + p / 65536, p % 65536) } // b.ne (cond NE=1)
 func e_bgt(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 12 emit wordHL(21504 + p / 65536, p % 65536) } // b.gt (signed >, cond GT=12)
+func e_movn(rd, imm) { let p = imm * 32 + rd  emit wordHL(37504 + p / 65536, p % 65536) } // movn Xd,#imm (NOT imm); movn Xd,#0 = -1
 
 // composites
 func c_push() { emit e_subi(20, 20, 16) + e_str0(0, 20) }      // push x0
@@ -264,6 +265,60 @@ func emitRepeat(allocOff, thisOff) {
     c = c + e_ldrbO(4, 10, 3) + e_strb(4, 1) + e_addi(1, 1, 1) + e_addi(3, 3, 1) + e_b(0 - 24)  // [76] copy s[j]
     c = c + e_addi(12, 12, 1) + e_b(0 - 44)                         // [96] .nextk: k++; -> .outer (56)
     c = c + e_strb(31, 1) + e_movr(0, 14) + e_movr(30, 26) + e_ret()  // [104] .term: *x1=0; return buf
+    emit c
+}
+// kr_contains(x1=s, x0=sub) -> x0=1/0. 120 bytes. Naive substring search.
+func emitContains() {
+    let c = e_movz(6, 0)                                            // [0] slen=0
+    c = c + e_ldrbO(3, 1, 6) + e_cbz(3, 12) + e_addi(6, 6, 1) + e_b(0 - 12)  // [4] strlen(s)->x6
+    c = c + e_movz(7, 0)                                            // [20] sublen=0
+    c = c + e_ldrbO(3, 0, 7) + e_cbz(3, 12) + e_addi(7, 7, 1) + e_b(0 - 12)  // [24] strlen(sub)->x7
+    c = c + e_movz(8, 0)                                            // [40] start=0
+    c = c + e_addr(9, 8, 7) + e_cmp(9, 6) + e_bgt(60)               // [44] .outer: start+sublen>slen -> .no (112)
+    c = c + e_movz(3, 0)                                            // [56] j=0
+    c = c + e_cmp(3, 7) + e_bge(40)                                 // [60] .inner: j>=sublen -> .yes (104)
+    c = c + e_addr(5, 8, 3) + e_ldrbO(4, 1, 5) + e_ldrbO(9, 0, 3) + e_cmp(4, 9) + e_bne(12)  // [68] s[start+j]!=sub[j] -> .nextstart (96)
+    c = c + e_addi(3, 3, 1) + e_b(0 - 32)                           // [88] j++; -> .inner (60)
+    c = c + e_addi(8, 8, 1) + e_b(0 - 56)                           // [96] .nextstart: start++; -> .outer (44)
+    c = c + e_movz(0, 1) + e_ret()                                  // [104] .yes
+    c = c + e_movz(0, 0) + e_ret()                                  // [112] .no
+    emit c
+}
+// kr_indexof(x1=s, x0=sub) -> x0=position or -1. 120 bytes. Same search; returns start/-1.
+func emitIndexOf() {
+    let c = e_movz(6, 0)                                            // [0] slen=0
+    c = c + e_ldrbO(3, 1, 6) + e_cbz(3, 12) + e_addi(6, 6, 1) + e_b(0 - 12)  // [4] strlen(s)->x6
+    c = c + e_movz(7, 0)                                            // [20] sublen=0
+    c = c + e_ldrbO(3, 0, 7) + e_cbz(3, 12) + e_addi(7, 7, 1) + e_b(0 - 12)  // [24] strlen(sub)->x7
+    c = c + e_movz(8, 0)                                            // [40] start=0
+    c = c + e_addr(9, 8, 7) + e_cmp(9, 6) + e_bgt(60)               // [44] .outer: start+sublen>slen -> .notfound (112)
+    c = c + e_movz(3, 0)                                            // [56] j=0
+    c = c + e_cmp(3, 7) + e_bge(40)                                 // [60] .inner: j>=sublen -> .found (104)
+    c = c + e_addr(5, 8, 3) + e_ldrbO(4, 1, 5) + e_ldrbO(9, 0, 3) + e_cmp(4, 9) + e_bne(12)  // [68] mismatch -> .nextstart (96)
+    c = c + e_addi(3, 3, 1) + e_b(0 - 32)                           // [88] j++; -> .inner (60)
+    c = c + e_addi(8, 8, 1) + e_b(0 - 56)                           // [96] .nextstart: start++; -> .outer (44)
+    c = c + e_movr(0, 8) + e_ret()                                  // [104] .found: return start
+    c = c + e_movn(0, 0) + e_ret()                                  // [112] .notfound: return -1
+    emit c
+}
+// kr_trim(x0=s) -> new heap string with leading/trailing chars <=32 stripped. 168 bytes.
+func emitTrim(allocOff, thisOff) {
+    let c = e_movr(26, 30) + e_movr(10, 0) + e_movz(6, 0)           // [0] lr; x10=s; len=0
+    c = c + e_ldrbO(3, 10, 6) + e_cbz(3, 12) + e_addi(6, 6, 1) + e_b(0 - 12)  // [12] strlen->x6
+    c = c + e_movz(3, 0)                                            // [28] start=0
+    c = c + e_cmp(3, 6) + e_bge(28)                                 // [32] .ls: start>=len -> .startdone (64)
+    c = c + e_ldrbO(4, 10, 3) + e_subi(5, 4, 33) + e_cmpi0(5) + e_bge(12)  // [40] c>=33 -> .startdone (64)
+    c = c + e_addi(3, 3, 1) + e_b(0 - 28)                           // [56] start++; -> .ls (32)
+    c = c + e_movr(4, 6)                                            // [64] .startdone: end=len
+    c = c + e_cmp(4, 3) + e_ble(32)                                 // [68] .le: end<=start -> .enddone (104)
+    c = c + e_subi(5, 4, 1) + e_ldrbO(9, 10, 5) + e_subi(5, 9, 33) + e_cmpi0(5) + e_bge(12)  // [76] s[end-1]>=33 -> .enddone (104)
+    c = c + e_subi(4, 4, 1) + e_b(0 - 32)                           // [96] end--; -> .le (68)
+    c = c + e_subr(7, 4, 3) + e_addi(0, 7, 1)                       // [104] .enddone: newlen=end-start; x0=newlen+1
+    c = c + e_bl(allocOff - (thisOff + 112)) + e_movr(14, 0)        // [112] alloc -> x14=buf
+    c = c + e_movz(5, 0)                                            // [120] i=0
+    c = c + e_cmp(5, 7) + e_bge(24)                                 // [124] .cp: i>=newlen -> .done (152)
+    c = c + e_addr(9, 3, 5) + e_ldrbO(4, 10, 9) + e_strbR(4, 14, 5) + e_addi(5, 5, 1) + e_b(0 - 24)  // [132] buf[i]=s[start+i]
+    c = c + e_strbR(31, 14, 7) + e_movr(0, 14) + e_movr(30, 26) + e_ret()  // [152] .done: buf[newlen]=0; return
     emit c
 }
 // kr_plus(a=x0, b=x1) -> x0. Polymorphic +: both ints -> a+b; else convert each
@@ -491,6 +546,9 @@ func opSize(ln) {
         if startsWith(b, "startsWith") { emit 28 }  // pop0+pop1 + bl + push
         if startsWith(b, "endsWith")   { emit 28 }
         if startsWith(b, "repeat")     { emit 28 }
+        if startsWith(b, "contains")   { emit 28 }
+        if startsWith(b, "indexOf")    { emit 28 }
+        if startsWith(b, "trim")       { emit 20 }  // 1-arg: pop0 + bl + push
         emit 0
     }
     emit 0
@@ -527,7 +585,10 @@ just run {
     let startswithOff = reverseOff + 92 // kr_reverse is 92 bytes
     let endswithOff = startswithOff + 48  // kr_startswith is 48 bytes
     let repeatOff = endswithOff + 104   // kr_endswith is 104 bytes
-    let nlOff = repeatOff + 120          // kr_repeat is 120 bytes
+    let containsOff = repeatOff + 120   // kr_repeat is 120 bytes
+    let indexofOff = containsOff + 120  // kr_contains is 120 bytes
+    let trimOff = indexofOff + 120      // kr_indexof is 120 bytes
+    let nlOff = trimOff + 168            // kr_trim is 168 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -645,6 +706,9 @@ just run {
             if startsWith(b, "startsWith") { code = code + c_pop0() + c_pop1() + e_bl(startswithOff - (off + 16)) + c_push()  off = off + 28 }
             if startsWith(b, "endsWith")   { code = code + c_pop0() + c_pop1() + e_bl(endswithOff - (off + 16)) + c_push()  off = off + 28 }
             if startsWith(b, "repeat")     { code = code + c_pop0() + c_pop1() + e_bl(repeatOff - (off + 16)) + c_push()  off = off + 28 }
+            if startsWith(b, "contains")   { code = code + c_pop0() + c_pop1() + e_bl(containsOff - (off + 16)) + c_push()  off = off + 28 }
+            if startsWith(b, "indexOf")    { code = code + c_pop0() + c_pop1() + e_bl(indexofOff - (off + 16)) + c_push()  off = off + 28 }
+            if startsWith(b, "trim")       { code = code + c_pop0() + e_bl(trimOff - (off + 8)) + c_push()  off = off + 20 }
             if startsWith(b, "kp") {
                 let kc = sbNew()
                 kc = sbAppend(kc, c_pop0())                         // pop arg -> x0
@@ -754,6 +818,9 @@ just run {
     bb = sbAppend(bb, emitStartsWith())
     bb = sbAppend(bb, emitEndsWith())
     bb = sbAppend(bb, emitRepeat(allocOff, repeatOff))
+    bb = sbAppend(bb, emitContains())
+    bb = sbAppend(bb, emitIndexOf())
+    bb = sbAppend(bb, emitTrim(allocOff, trimOff))
     bb = sbAppend(bb, "")     // guard: the x86 backend drops the LAST sbAppend here
     let body = sbToString(bb)
 
