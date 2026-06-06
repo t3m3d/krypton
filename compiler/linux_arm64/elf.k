@@ -485,6 +485,47 @@ func emitWriteFile() {
     c = c + e_ret()                                            // [92]
     emit c
 }
+// Structs = a linked list of 24-byte nodes [name:8][val:8][prev:8]; env head is
+// the most-recent node (NULL = empty). setField prepends; getField walks+strcmps.
+// kr_setfield(x0=env, x1=name, x2=val) -> x0=new node. 44 bytes.
+func emitSetField(allocOff, thisOff) {
+    let c = e_movr(26, 30) + e_movr(10, 0)                        // [0,4] lr; env
+    c = c + e_movr(11, 1) + e_movr(12, 2)                         // [8,12] name; val
+    c = c + e_movz(0, 24) + e_bl(allocOff - (thisOff + 20))       // [16,20] node=alloc(24)
+    c = c + e_str0(11, 0) + e_str8(12, 0, 1)                      // [24,28] node[0]=name; node[8]=val
+    c = c + e_str8(10, 0, 2) + e_movr(30, 26)                     // [32,36] node[16]=prev=env
+    c = c + e_ret()                                              // [40]
+    emit c
+}
+// kr_getfield(x1=env, x0=name) -> x0=val, or fresh "" if not found. 92 bytes.
+func emitGetField(allocOff, thisOff) {
+    let c = e_movr(26, 30) + e_movr(11, 0) + e_movr(10, 1)        // [0,4,8] lr; name; cur=env
+    c = c + e_cbz(10, 60)                                         // [12] .loop: cur==0 -> .notfound (72)
+    c = c + e_ldr0(0, 10) + e_movz(2, 0)                          // [16,20] x0=cur.name; i=0
+    c = c + e_ldrbO(3, 0, 2) + e_ldrbO(4, 11, 2)                  // [24,28] .sc: curname[i]; name[i]
+    c = c + e_cmp(3, 4) + e_bne(16)                               // [32,36] differ -> .nomatch (52)
+    c = c + e_cbz(3, 20) + e_addi(2, 2, 1)                        // [40,44] both 0 -> .match (60); i++
+    c = c + e_b(0 - 24)                                           // [48] -> .sc (24)
+    c = c + e_ldr8(10, 10, 2) + e_b(0 - 44)                       // [52,56] .nomatch: cur=prev; -> .loop (12)
+    c = c + e_ldr8(0, 10, 1) + e_movr(30, 26) + e_ret()          // [60,64,68] .match: x0=cur.val; ret
+    c = c + e_movz(0, 1) + e_bl(allocOff - (thisOff + 76))        // [72,76] .notfound: x0=alloc(1)
+    c = c + e_strb(31, 0) + e_movr(30, 26) + e_ret()            // [80,84,88] *x0=0 (""); ret
+    emit c
+}
+// kr_hasfield(x1=env, x0=name) -> x0=1/0. 72 bytes. No alloc.
+func emitHasField() {
+    let c = e_movr(11, 0) + e_movr(10, 1)                         // [0,4] name; cur=env
+    c = c + e_cbz(10, 56)                                         // [8] .loop: cur==0 -> .no (64)
+    c = c + e_ldr0(0, 10) + e_movz(2, 0)                          // [12,16] cur.name; i=0
+    c = c + e_ldrbO(3, 0, 2) + e_ldrbO(4, 11, 2)                  // [20,24] .sc
+    c = c + e_cmp(3, 4) + e_bne(16)                               // [28,32] differ -> .nomatch (48)
+    c = c + e_cbz(3, 20) + e_addi(2, 2, 1)                        // [36,40] both 0 -> .yes (56); i++
+    c = c + e_b(0 - 24)                                           // [44] -> .sc (20)
+    c = c + e_ldr8(10, 10, 2) + e_b(0 - 44)                       // [48,52] .nomatch: cur=prev; -> .loop (8)
+    c = c + e_movz(0, 1) + e_ret()                                // [56,60] .yes
+    c = c + e_movz(0, 0) + e_ret()                                // [64,68] .no
+    emit c
+}
 // kr_plus(a=x0, b=x1) -> x0. Polymorphic +: both ints -> a+b; else convert each
 // to a string (kr_str_int for the int side) and concat into a fresh heap buffer.
 // Saves lr in x23; VBASE in x9; sa=x11 sb=x12 b=x13 lenA=x14 lenB=x16 dst=x17.
@@ -736,6 +777,13 @@ func opSize(ln) {
         if startsWith(b, "gcAllocCount") { emit 12 }  // stub: push 0
         if startsWith(b, "gcWalkAllocs") { emit 12 }  // stub: push 0
         if startsWith(b, "rdtsc")        { emit 24 }  // mrs cntvct_el0 + mask low 30 bits + push
+        if startsWith(b, "structNew")  { emit 12 }  // push 0 (empty env)
+        if startsWith(b, "envNew")     { emit 12 }
+        if startsWith(b, "setField")   { emit 36 }  // 3-arg (env, name, val) -> kr_setfield
+        if startsWith(b, "envSet")     { emit 36 }
+        if startsWith(b, "getField")   { emit 28 }  // 2-arg (env, name) -> kr_getfield
+        if startsWith(b, "envGet")     { emit 28 }
+        if startsWith(b, "hasField")   { emit 28 }  // 2-arg -> kr_hasfield (1/0)
         emit 0
     }
     emit 0
@@ -786,7 +834,10 @@ just run {
     let indexOff = eqOff + 76            // kr_eq is 76 bytes
     let readfileOff = indexOff + 36      // kr_index is 36 bytes
     let writefileOff = readfileOff + 120 // kr_readfile is 120 bytes
-    let nlOff = writefileOff + 96         // kr_writefile is 96 bytes
+    let setfieldOff = writefileOff + 96  // kr_writefile is 96 bytes
+    let getfieldOff = setfieldOff + 44   // kr_setfield is 44 bytes
+    let hasfieldOff = getfieldOff + 92   // kr_getfield is 92 bytes
+    let nlOff = hasfieldOff + 72          // kr_hasfield is 72 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -954,6 +1005,17 @@ just run {
             if startsWith(b, "gcWalkAllocs") { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
             // rdtsc: mrs x0,cntvct_el0; keep low 30 bits (<<34>>34) so it fits the int tag. +push.
             if startsWith(b, "rdtsc")        { code = code + wordHL(54587, 57408) + e_movz(1, 34) + e_lslv(0, 0, 1) + e_lsrv(0, 0, 1) + c_push()  off = off + 24 }
+            // structs (env linked list). structNew/envNew -> empty env (0).
+            if startsWith(b, "structNew")  { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
+            if startsWith(b, "envNew")     { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
+            // setField(env,name,val): 3-arg pop val->x2,name->x1,env->x0; kr_setfield. 36 bytes.
+            if startsWith(b, "setField")   { code = code + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_bl(setfieldOff - (off + 24)) + c_push()  off = off + 36 }
+            if startsWith(b, "envSet")     { code = code + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_bl(setfieldOff - (off + 24)) + c_push()  off = off + 36 }
+            // getField(env,name): pop name->x0, env->x1; kr_getfield. 28 bytes.
+            if startsWith(b, "getField")   { code = code + c_pop0() + c_pop1() + e_bl(getfieldOff - (off + 16)) + c_push()  off = off + 28 }
+            if startsWith(b, "envGet")     { code = code + c_pop0() + c_pop1() + e_bl(getfieldOff - (off + 16)) + c_push()  off = off + 28 }
+            // hasField(env,name): pop name->x0, env->x1; kr_hasfield -> 1/0. 28 bytes.
+            if startsWith(b, "hasField")   { code = code + c_pop0() + c_pop1() + e_bl(hasfieldOff - (off + 16)) + c_push()  off = off + 28 }
             // charCode(s) -> first byte of s (int). 20 bytes.
             if startsWith(b, "charCode") {
                 let kc = sbNew()
@@ -1069,7 +1131,14 @@ just run {
     bb = sbAppend(bb, emitIndex(allocOff, indexOff))
     bb = sbAppend(bb, emitReadFile(allocOff, readfileOff))
     bb = sbAppend(bb, emitWriteFile())
+    bb = sbAppend(bb, emitSetField(allocOff, setfieldOff))
+    bb = sbAppend(bb, emitGetField(allocOff, getfieldOff))
+    bb = sbAppend(bb, emitHasField())
     bb = sbAppend(bb, "")     // guards: the x86 backend drops trailing sbAppends here
+    bb = sbAppend(bb, "")
+    bb = sbAppend(bb, "")
+    bb = sbAppend(bb, "")
+    bb = sbAppend(bb, "")
     bb = sbAppend(bb, "")
     bb = sbAppend(bb, "")
     bb = sbAppend(bb, "")
