@@ -317,43 +317,7 @@
   <div class="stars stars-near"></div>
   <main>
     <img src="/banner/kryli.png" alt="Kry.li — Freeze your links." class="banner">
-
-    <section class="hero">
-      <div class="feature">
-        <img src="/icons/code.png" alt="" class="feat-icon">
-        <h3>Custom or random</h3>
-        <p>Pick your own code (<code>kry.li/launch</code>) or auto-generate a 6-character base62.</p>
-      </div>
-      <div class="feature">
-        <img src="/icons/analytics.png" alt="" class="feat-icon">
-        <h3>Click analytics</h3>
-        <p>Every visit logged with timestamp, referrer, IP, and user agent.</p>
-      </div>
-      <div class="feature">
-        <img src="/icons/qr.png" alt="" class="feat-icon">
-        <h3>Server-side QR</h3>
-        <p>Each link gets a scannable QR code, rendered on the server, no third-party API.</p>
-      </div>
-      <div class="feature">
-        <img src="/icons/fast.png" alt="" class="feat-icon">
-        <h3>Lightning fast</h3>
-        <p>No JavaScript framework, no client-side bloat — every page paints instantly.</p>
-      </div>
-      <div class="feature">
-        <img src="/icons/privacy.png" alt="" class="feat-icon">
-        <h3>Privacy</h3>
-        <p>Self-hosted on our own infrastructure. No third-party trackers, no analytics SDKs.</p>
-      </div>
-      <div class="login">
-        <form method="POST" action="/login" autocomplete="on">
-          <p class="err" id="err" style="display:none"></p>
-          <input type="text" name="username" placeholder="username" autocomplete="username" required>
-          <input type="password" name="password" placeholder="password" autocomplete="current-password" required>
-          <button type="submit">Log in</button>
-          <button type="button" class="ghost" disabled title="signups are closed">Create account</button>
-        </form>
-      </div>
-    </section>
+    <!-- BODY -->
     <script>
       // Show an inline error if the URL has ?err=...
       const p = new URLSearchParams(location.search);
