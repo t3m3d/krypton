@@ -159,6 +159,10 @@ EMITS aarch64 (`compiler/linux_arm64/elf_host`), run under qemu-aarch64-static.
       Remaining: file/proc/socket/env builtins, struct/FFI (lower priority, shared
       with x86); arm64-specific: native aarch64-HOST unbuilt (cross-from-x86 only),
       kr_atoi non-negative-only.
+- [x] **readFile/writeFile** (commit aded26ce): file I/O via aarch64 syscalls
+      (openat/read/write/close/fstat). GOTCHA: x86 backend drops TRAILING sbAppend
+      terms — last helpers got eaten; fixed with extra empty guards. ADD GUARDS when
+      appending helpers at the end of the emission.
 - [x] **byte buffers** (commit b7ec4c21): bufNew/bufSetByte/bufGetByte, all inline
       (buffer = raw byte array). Validated set/get incl. 255/0 + fromCharCode.
 
