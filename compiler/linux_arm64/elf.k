@@ -384,6 +384,43 @@ func emitRange(allocOff, strIntOff, thisOff) {
     c = c + e_movz(0, 1) + e_bl(allocOff - (thisOff + 140)) + e_strb(31, 0) + e_movr(30, 26) + e_ret()  // [136] .empty: ""
     emit c
 }
+// kr_sbnew() -> handle block [cap:8][len:8][data]. cap=256, len=0. 36 bytes.
+func emitSbNew(allocOff, thisOff) {
+    let c = e_movr(26, 30) + e_movz(0, 272)                       // [0] lr; size=16+256
+    c = c + e_bl(allocOff - (thisOff + 8))                        // [8] x0=handle
+    c = c + e_movz(1, 256) + e_str0(1, 0)                         // [12] [handle]=cap=256
+    c = c + e_str8(31, 0, 1) + e_strbO(31, 0, 16)                 // [20] [handle+8]=len=0; data[0]=0
+    c = c + e_movr(30, 26) + e_ret()                             // [28] return handle (x0)
+    emit c
+}
+// kr_sbappend(x1=handle, x0=s) -> handle (possibly relocated). 176 bytes.
+// x10=handle x11=s x12=slen x13=len (all survive the alloc in the grow path).
+func emitSbAppend(allocOff, thisOff) {
+    let c = e_movr(26, 30) + e_movr(10, 1) + e_movr(11, 0)        // [0] lr; handle; s
+    c = c + e_movz(12, 0)                                         // [12] slen=0
+    c = c + e_ldrbO(3, 11, 12) + e_cbz(3, 12) + e_addi(12, 12, 1) + e_b(0 - 12)  // [16] strlen(s)->x12
+    c = c + e_ldr8(13, 10, 1)                                     // [32] len=[handle+8]
+    c = c + e_addr(4, 13, 12) + e_addi(4, 4, 1)                   // [36] need=len+slen+1
+    c = c + e_ldr0(5, 10) + e_cmp(4, 5) + e_ble(64)               // [44] cap=[handle]; need<=cap -> .nogrow (116)
+    c = c + e_movz(6, 2) + e_mul(6, 4, 6)                         // [56] newcap=need*2
+    c = c + e_addi(0, 6, 16) + e_bl(allocOff - (thisOff + 68))    // [64] x0=alloc(newcap+16)=nb
+    c = c + e_movr(7, 0) + e_movz(8, 0) + e_addi(14, 13, 16)      // [72] nb; i=0; count=len+16
+    c = c + e_cmp(8, 14) + e_bge(20)                              // [84] .cpold: i>=count -> .cpolddone (108)
+    c = c + e_ldrbO(3, 10, 8) + e_strbR(3, 7, 8) + e_addi(8, 8, 1) + e_b(0 - 20)  // [92] nb[i]=handle[i]
+    c = c + e_str0(6, 7) + e_movr(10, 7)                          // [108] .cpolddone: [nb]=newcap; handle=nb
+    c = c + e_addi(4, 10, 16) + e_addr(4, 4, 13)                  // [116] .nogrow: x4=handle+16+len (dst)
+    c = c + e_movz(8, 0)                                          // [124] i=0
+    c = c + e_cmp(8, 12) + e_bge(20)                              // [128] .cpapp: i>=slen -> .cpappdone (152)
+    c = c + e_ldrbO(3, 11, 8) + e_strbR(3, 4, 8) + e_addi(8, 8, 1) + e_b(0 - 20)  // [136] dst[i]=s[i]
+    c = c + e_addr(5, 13, 12) + e_str8(5, 10, 1)                  // [152] .cpappdone: newlen=len+slen; [handle+8]=newlen
+    c = c + e_strbR(31, 4, 12)                                    // [160] dst[slen]=0
+    c = c + e_movr(0, 10) + e_movr(30, 26) + e_ret()             // [164] return handle
+    emit c
+}
+// kr_sbtostring(x0=handle) -> data ptr = handle+16. 8 bytes.
+func emitSbToString() {
+    emit e_addi(0, 0, 16) + e_ret()
+}
 // kr_plus(a=x0, b=x1) -> x0. Polymorphic +: both ints -> a+b; else convert each
 // to a string (kr_str_int for the int side) and concat into a fresh heap buffer.
 // Saves lr in x23; VBASE in x9; sa=x11 sb=x12 b=x13 lenA=x14 lenB=x16 dst=x17.
@@ -620,6 +657,10 @@ func opSize(ln) {
         if startsWith(b, "pow")        { emit 28 }  // 2-arg -> kr_pow
         if startsWith(b, "range 1")    { emit 24 }  // range(n): pop+movz x1,0+bl+push
         if startsWith(b, "range 2")    { emit 28 }  // range(start,end): pop0+pop1+bl+push
+        if startsWith(b, "sbNew")      { emit 12 }  // 0-arg: bl + push
+        if startsWith(b, "sbAppend")   { emit 28 }  // 2-arg (handle, s)
+        if startsWith(b, "sbToString") { emit 20 }  // 1-arg (handle)
+        if startsWith(b, "exit")       { emit 24 }  // inline: pop x0 + movz x8,93 + svc + push
         emit 0
     }
     emit 0
@@ -663,7 +704,10 @@ just run {
     let countOff = splitOff + 160       // kr_split is 160 bytes
     let powOff = countOff + 64          // kr_count is 64 bytes
     let rangeOff = powOff + 32          // kr_pow is 32 bytes
-    let nlOff = rangeOff + 156           // kr_range is 156 bytes
+    let sbnewOff = rangeOff + 156       // kr_range is 156 bytes
+    let sbappendOff = sbnewOff + 36     // kr_sbnew is 36 bytes
+    let sbtostringOff = sbappendOff + 176  // kr_sbappend is 176 bytes
+    let nlOff = sbtostringOff + 8        // kr_sbtostring is 8 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -796,6 +840,12 @@ just run {
             if startsWith(b, "range 1")    { code = code + c_pop0() + e_movz(1, 0) + e_bl(rangeOff - (off + 12)) + c_push()  off = off + 24 }
             // range(start,end): pop end->x0, start->x1; kr_range. 28 bytes.
             if startsWith(b, "range 2")    { code = code + c_pop0() + c_pop1() + e_bl(rangeOff - (off + 16)) + c_push()  off = off + 28 }
+            // StringBuilder: sbNew (0-arg), sbAppend (handle,s -> x1=handle,x0=s), sbToString (handle).
+            if startsWith(b, "sbNew")      { code = code + e_bl(sbnewOff - off) + c_push()  off = off + 12 }
+            if startsWith(b, "sbAppend")   { code = code + c_pop0() + c_pop1() + e_bl(sbappendOff - (off + 16)) + c_push()  off = off + 28 }
+            if startsWith(b, "sbToString") { code = code + c_pop0() + e_bl(sbtostringOff - (off + 8)) + c_push()  off = off + 20 }
+            // exit(code): pop x0; SYS_exit(93); (push is dead, never reached). 24 bytes.
+            if startsWith(b, "exit")       { code = code + c_pop0() + e_movz(8, 93) + e_svc() + c_push()  off = off + 24 }
             if startsWith(b, "kp") {
                 let kc = sbNew()
                 kc = sbAppend(kc, c_pop0())                         // pop arg -> x0
@@ -915,6 +965,9 @@ just run {
     bb = sbAppend(bb, emitCount())
     bb = sbAppend(bb, emitPow())
     bb = sbAppend(bb, emitRange(allocOff, strIntOff, rangeOff))
+    bb = sbAppend(bb, emitSbNew(allocOff, sbnewOff))
+    bb = sbAppend(bb, emitSbAppend(allocOff, sbappendOff))
+    bb = sbAppend(bb, emitSbToString())
     bb = sbAppend(bb, "")     // guard: the x86 backend drops the LAST sbAppend here
     let body = sbToString(bb)
 
