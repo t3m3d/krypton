@@ -40,7 +40,7 @@ func hasFrontend(root) {
     // <root>/kcc.exe and the backends at <root>/bin/x64_host_new.exe.
     // The dev repo doesn't ship a kcc.exe of its own; rely on the
     // installed copy when running from there.
-    if exists(root + "/kcc.exe") == "1" { emit "1" }
+    if exists(root + "/kcc-bin.exe") == "1" { emit "1" }
     if exists(root + "/bin/x64_host_new.exe") == "1" { emit "1" }
     emit "0"
 }
@@ -79,15 +79,15 @@ func findRoot() {
     if contains(osh, "MINGW") == "1" || contains(osh, "MSYS") == "1" || contains(osh, "CYGWIN") == "1" {
         let kr = _winEnv("KRYPTON_ROOT")
         if kr != "" {
-            if _winExists(kr + "/kcc.exe") == "1" { emit kr }
+            if _winExists(kr + "/kcc-bin.exe") == "1" { emit kr }
         }
         // Dev repo via %USERPROFILE%, then default install at C:\krypton.
         let up = _winEnv("USERPROFILE")
         if up != "" {
             let dev = up + "/Documents/GitHub/krypton"
-            if _winExists(dev + "/kcc.exe") == "1" { emit dev }
+            if _winExists(dev + "/kcc-bin.exe") == "1" { emit dev }
         }
-        if _winExists("C:/krypton/kcc.exe") == "1" { emit "C:/krypton" }
+        if _winExists("C:/krypton/kcc-bin.exe") == "1" { emit "C:/krypton" }
         emit ""
     }
 
@@ -444,10 +444,12 @@ just run {
         if hasFlag("--wasm") { kp("kcc: --wasm is not wired into the Krypton-native driver yet.")        exit("1") }
 
         // Try install root, then C:\krypton, then PATH-installed.
-        let kccExe = root + "/kcc.exe"
-        if _winExists(kccExe) == "0" { kccExe = "C:/krypton/kcc.exe" }
+        // kcc-bin.exe is the compile.k-built backend. kcc.exe is this
+        // driver (kcc.ks compiled).
+        let kccExe = root + "/kcc-bin.exe"
+        if _winExists(kccExe) == "0" { kccExe = "C:/krypton/kcc-bin.exe" }
         if _winExists(kccExe) == "0" {
-            kp("kcc-native: cannot find kcc.exe (looked in $KRYPTON_ROOT and C:/krypton).")
+            kp("kcc-native: cannot find kcc-bin.exe (looked in $KRYPTON_ROOT and C:/krypton).")
             exit("1")
         }
 
