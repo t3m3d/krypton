@@ -145,6 +145,29 @@ const stmtSetUserLimit    = db.prepare("UPDATE users SET link_limit = ? WHERE id
 const stmtInsertAudit     = db.prepare("INSERT INTO audit_log(ts, actor_id, actor_name, action, detail, ip) VALUES (?, ?, ?, ?, ?, ?)");
 const stmtRecentAudit     = db.prepare("SELECT * FROM audit_log ORDER BY ts DESC LIMIT ?");
 
+// Admin analytics queries — only run when an admin loads /admin.
+const stmtAnTotalLinks    = db.prepare("SELECT COUNT(*) AS n FROM links");
+const stmtAnTotalClicks   = db.prepare("SELECT COUNT(*) AS n FROM clicks");
+const stmtAnActiveUsers   = db.prepare("SELECT COUNT(*) AS n FROM users WHERE disabled = 0");
+const stmtAnClicksSince   = db.prepare("SELECT COUNT(*) AS n FROM clicks WHERE clicked_at >= ?");
+const stmtAnLinksSince    = db.prepare("SELECT COUNT(*) AS n FROM links WHERE created_at >= ?");
+const stmtAnTopLinks      = db.prepare(`
+  SELECT l.code, l.url, COUNT(c.id) AS clicks, u.username AS owner
+  FROM links l
+  LEFT JOIN clicks c ON c.code = l.code
+  LEFT JOIN users u ON u.id = l.user_id
+  GROUP BY l.code
+  ORDER BY clicks DESC, l.created_at DESC
+  LIMIT 5`);
+const stmtAnTopReferrers  = db.prepare(`
+  SELECT referrer, COUNT(*) AS n FROM clicks
+  WHERE referrer IS NOT NULL AND referrer != ''
+  GROUP BY referrer ORDER BY n DESC LIMIT 5`);
+const stmtAnDailyClicks   = db.prepare(`
+  SELECT DATE(clicked_at, 'unixepoch') AS day, COUNT(*) AS n
+  FROM clicks WHERE clicked_at >= ?
+  GROUP BY day ORDER BY day DESC LIMIT 14`);
+
 // Append an audit entry. actor may be null for failed-login events
 // (the user doesn't have a session yet). detail is a free-form string.
 function logAudit(actor, action, detail, req) {
@@ -294,6 +317,16 @@ code{background:color-mix(in srgb,var(--accent) 15%,transparent);padding:.1em .3
 .ok{color:#7fdc8e}
 .bad{color:#ff8585}
 .pill{display:inline-block;padding:.1em .55em;border-radius:1em;background:var(--accent);color:white;font-size:.7em;vertical-align:middle;letter-spacing:.03em}
+.anal-section{margin:1.5em 0 2em;padding:1.2em 1.4em;border:1px solid rgba(125,184,255,0.25);border-radius:10px;background:color-mix(in srgb,var(--bg-soft) 60%,transparent);backdrop-filter:blur(8px)}
+.anal-section h2{margin-top:0}
+.anal-section h3{color:var(--frost);font-size:.95em;text-transform:uppercase;letter-spacing:.04em;margin:1.4em 0 .3em}
+.anal-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(8em,1fr));gap:.7em;margin:.5em 0 1em}
+.anal-card{padding:.7em .9em;border-radius:7px;background:color-mix(in srgb,var(--bg-soft) 85%,transparent);border:1px solid color-mix(in srgb,var(--muted) 25%,transparent)}
+.anal-n{font-size:1.6em;font-weight:700;color:var(--accent);line-height:1.1}
+.anal-l{font-size:.75em;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-top:.15em}
+.anal-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(22em,1fr));gap:1.2em}
+.anal-daily td{padding:.3em .5em}
+.anal-bar{height:.8em;background:linear-gradient(90deg,var(--accent),var(--frost));border-radius:3px;min-width:2px}
 .pageform{margin-bottom:1em}
 .created{display:flex;gap:1.2em;align-items:center;padding:1.1em;margin:.5em 0 1.5em;border:1px solid rgba(125,184,255,0.3);border-radius:10px;background:color-mix(in srgb,var(--bg-soft) 75%,transparent);backdrop-filter:blur(10px);box-shadow:0 0 30px rgba(125,184,255,0.1)}
 .created-qr{width:128px;height:128px;background:white;padding:.4em;border-radius:6px;flex-shrink:0}
@@ -331,6 +364,88 @@ loadShell();
 
 function renderShell(content) {
   return SHELL_PRE + PAGE_CSS + content + SHELL_POST;
+}
+
+// Admin-only analytics block. Returns HTML to drop into pageAdminBody;
+// callers gate with user.is_admin so the queries don't run for non-admins.
+function renderAdminAnalytics() {
+  const now = Math.floor(Date.now() / 1000);
+  const day = 86400;
+  const totalLinks   = stmtAnTotalLinks.get().n;
+  const totalClicks  = stmtAnTotalClicks.get().n;
+  const activeUsers  = stmtAnActiveUsers.get().n;
+  const clicksToday  = stmtAnClicksSince.get(now - day).n;
+  const clicks7d     = stmtAnClicksSince.get(now - 7  * day).n;
+  const clicks30d    = stmtAnClicksSince.get(now - 30 * day).n;
+  const linksNew7d   = stmtAnLinksSince.get(now - 7  * day).n;
+  const topLinks     = stmtAnTopLinks.all();
+  const topReferrers = stmtAnTopReferrers.all();
+  const daily        = stmtAnDailyClicks.all(now - 14 * day);
+
+  const card = (label, n) =>
+    `<div class="anal-card"><div class="anal-n">${n}</div><div class="anal-l">${label}</div></div>`;
+
+  const topLinkRows = topLinks.length
+    ? topLinks.map(l => `<tr>
+        <td><a href="${escapeHtml(PUBLIC_HOST)}/${escapeHtml(l.code)}">${escapeHtml(l.code)}</a></td>
+        <td>${escapeHtml(l.owner || "—")}</td>
+        <td>${l.clicks}</td>
+        <td class="muted" style="max-width:24em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><a href="${escapeHtml(l.url)}">${escapeHtml(l.url)}</a></td>
+      </tr>`).join("")
+    : `<tr><td colspan="4" class="muted">no clicks recorded yet</td></tr>`;
+
+  const topRefRows = topReferrers.length
+    ? topReferrers.map(r => `<tr><td class="muted" style="max-width:30em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(r.referrer)}</td><td>${r.n}</td></tr>`).join("")
+    : `<tr><td colspan="2" class="muted">no referrers recorded yet</td></tr>`;
+
+  // Daily breakdown — render as a horizontal bar chart in pure CSS.
+  // Bars are scaled to the busiest day (max). Days with zero clicks
+  // still render a row so the gap is visible.
+  const peak = daily.reduce((m, d) => Math.max(m, d.n), 0) || 1;
+  const dailyRows = daily.length
+    ? daily.map(d => {
+        const pct = Math.round((d.n / peak) * 100);
+        return `<tr>
+          <td class="muted" style="white-space:nowrap">${d.day}</td>
+          <td style="width:100%"><div class="anal-bar" style="width:${pct}%"></div></td>
+          <td style="text-align:right">${d.n}</td>
+        </tr>`;
+      }).join("")
+    : `<tr><td colspan="3" class="muted">no clicks in the last 14 days</td></tr>`;
+
+  return `
+    <section class="anal-section">
+      <h2>Analytics</h2>
+      <div class="anal-cards">
+        ${card("total links", totalLinks)}
+        ${card("total clicks", totalClicks)}
+        ${card("active users", activeUsers)}
+        ${card("clicks 24h", clicksToday)}
+        ${card("clicks 7d", clicks7d)}
+        ${card("clicks 30d", clicks30d)}
+        ${card("new links 7d", linksNew7d)}
+      </div>
+      <div class="anal-grid">
+        <div>
+          <h3>Top links</h3>
+          <table>
+            <tr><th>Code</th><th>Owner</th><th>Clicks</th><th>URL</th></tr>
+            ${topLinkRows}
+          </table>
+        </div>
+        <div>
+          <h3>Top referrers</h3>
+          <table>
+            <tr><th>Referrer</th><th>Clicks</th></tr>
+            ${topRefRows}
+          </table>
+        </div>
+      </div>
+      <h3>Clicks per day (last 14)</h3>
+      <table class="anal-daily">
+        ${dailyRows}
+      </table>
+    </section>`;
 }
 
 function pageAdminBody(user, msg) {
@@ -451,6 +566,7 @@ function pageAdminBody(user, msg) {
     <h1>${user.is_admin ? "Admin" : "Dashboard"} <span class="userbadge">${escapeHtml(user.username)}${user.is_admin ? " · admin" : ""}</span></h1>
     ${msg ? `<div>${msg}</div>` : ""}
     <p style="margin-top:.4em">${quotaBadge}</p>
+    ${user.is_admin ? renderAdminAnalytics() : ""}
     <h2>Shorten a URL</h2>
     <form method="POST" action="/create" class="pageform">
       <input type="hidden" name="_csrf" value="${csrf}">
