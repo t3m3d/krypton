@@ -45,6 +45,16 @@ literals shift the string table / function offsets, nudging a late helper off a
 last) get miscompiled at certain layouts. Untested next step: move a helper's
 DEFINITION earlier in the source and see if it survives with fewer guards.
 
+## Second manifestation (commit 354d8679)
+The same bug also drops a TERM from a `code = code + A + ... + e_bl(...) + ...`
+expression in `__main__` (a 5-term chain with a `bl` mid-chain emitted wrong
+bytes -> dispatch desync -> crash). Fix: one append per line. BUT a minimal repro
+(`s = "a" + g() + "b"` etc., user fn mid-chain) compiles CORRECTLY — so again
+it's context-dependent on the full arm64 elf.k, not reproducible in isolation.
+So the bug hits BOTH the `sbAppend` emission chain AND `code = code +` chains;
+common thread = a non-trailing term (often a call/`bl`) silently dropped, only
+when embedded in the large real program. Workarounds: short lines + guards.
+
 ## Recommended fix path
 This is the elf_host (backend) analog of the FE self-host crash. It wants the
 same kind of deep codegen bisection W did for compile.k — likely a buffer/offset/
