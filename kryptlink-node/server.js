@@ -168,33 +168,70 @@ app.use(express.urlencoded({ extended: false }));
 const escapeHtml = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
 
-const CSS = `<style>
-body{font-family:system-ui,sans-serif;max-width:720px;margin:2em auto;padding:0 1em;color:#222;background:#fafafa}
-h1{color:#4F5AA8}
-input,button{font:inherit;padding:.5em;margin:.25em 0;border:1px solid #ccc;border-radius:4px}
-input[type=text],input[type=url],input[type=password]{width:100%;box-sizing:border-box}
-button{background:#4F5AA8;color:white;border:none;cursor:pointer}
-button:hover{background:#3a448a}
-button[disabled]{background:#999;cursor:not-allowed;opacity:.7}
-table{border-collapse:collapse;width:100%;margin-top:1em;font-size:.9em}
-th,td{padding:.4em .5em;text-align:left;border-bottom:1px solid #ddd;vertical-align:top}
-th{background:#eee}
-code{background:#eee;padding:.1em .3em;border-radius:3px}
-.muted{color:#888;font-size:.9em}
-.ok{color:#283}
-.bad{color:#c44}
-.pill{display:inline-block;padding:.05em .5em;border-radius:1em;background:#4F5AA8;color:white;font-size:.75em;vertical-align:middle}
-form{margin-bottom:1em}
-.created{display:flex;gap:1.2em;align-items:center;padding:1em;margin:.5em 0 1.5em;border:1px solid #2a3e6f;border-radius:8px;background:#1c2540}
+// Per-page CSS injected into every body — covers the form / table /
+// .pill / .created styles that aren't in the shared shell. The shell
+// (public/index.html) handles fonts + cosmic background + banner +
+// parallax + .login + .feature + responsive grid.
+const PAGE_CSS = `<style>
+h1{color:var(--accent);margin:.5em 0 .2em}
+h2{color:var(--fg);margin:1.5em 0 .4em;font-size:1.15em}
+input,button,textarea{font:inherit;padding:.5em;margin:.25em 0;border:1px solid color-mix(in srgb,var(--muted) 40%,transparent);border-radius:5px}
+input[type=text],input[type=url],input[type=password]{width:100%;box-sizing:border-box;background:color-mix(in srgb,var(--bg-soft) 90%,transparent);color:var(--fg)}
+.pageform label{display:block;color:var(--muted);font-size:.85em;margin-top:.6em}
+.pageform button{background:var(--accent);color:white;border:none;cursor:pointer;padding:.55em 1.1em;font-weight:600}
+.pageform button:hover{background:var(--accent-dim)}
+button[disabled]{opacity:.55;cursor:not-allowed}
+table{border-collapse:collapse;width:100%;margin-top:1em;font-size:.9em;background:color-mix(in srgb,var(--bg-soft) 70%,transparent);border-radius:6px;overflow:hidden}
+th,td{padding:.55em .7em;text-align:left;border-bottom:1px solid color-mix(in srgb,var(--muted) 25%,transparent);vertical-align:top}
+th{background:color-mix(in srgb,var(--bg-soft) 95%,transparent);color:var(--accent);font-weight:600;font-size:.85em;text-transform:uppercase;letter-spacing:.04em}
+tr:last-child td{border-bottom:none}
+a{color:var(--accent)}
+a:hover{color:var(--frost)}
+code{background:color-mix(in srgb,var(--accent) 15%,transparent);padding:.1em .3em;border-radius:3px;font-size:.9em}
+.muted{color:var(--muted);font-size:.9em}
+.ok{color:#7fdc8e}
+.bad{color:#ff8585}
+.pill{display:inline-block;padding:.1em .55em;border-radius:1em;background:var(--accent);color:white;font-size:.7em;vertical-align:middle;letter-spacing:.03em}
+.pageform{margin-bottom:1em}
+.created{display:flex;gap:1.2em;align-items:center;padding:1.1em;margin:.5em 0 1.5em;border:1px solid rgba(125,184,255,0.3);border-radius:10px;background:color-mix(in srgb,var(--bg-soft) 75%,transparent);backdrop-filter:blur(10px);box-shadow:0 0 30px rgba(125,184,255,0.1)}
 .created-qr{width:128px;height:128px;background:white;padding:.4em;border-radius:6px;flex-shrink:0}
 .created-body{flex:1;min-width:0}
 .created-body .short{font-size:1.2em;word-break:break-all}
-.created-body .short a{color:#7db8ff}
-.copy-btn{font-size:.85em;padding:.3em .7em;margin-left:.5em;background:#2a3e6f;border:1px solid #4a6ea5}
-@media(prefers-color-scheme:dark){body{background:#15151c;color:#e8e8f0}input{background:#202028;color:inherit;border-color:#33333f}th{background:#1c1c25}td{border-color:#2a2a35}code{background:#2a2a35}}
+.copy-btn{font-size:.8em;padding:.3em .8em;margin-left:.5em;background:color-mix(in srgb,var(--accent) 20%,transparent);color:var(--frost);border:1px solid color-mix(in srgb,var(--accent) 35%,transparent);border-radius:4px;cursor:pointer}
+.copy-btn:hover{background:color-mix(in srgb,var(--accent) 30%,transparent)}
+.userbadge{color:var(--muted);font-size:.55em;font-weight:normal;vertical-align:middle;margin-left:.4em}
+.logout-form{margin-top:2.5em}
+.logout-form button{background:transparent;color:var(--muted);border:1px solid color-mix(in srgb,var(--muted) 30%,transparent);padding:.45em 1em;border-radius:5px;cursor:pointer}
+.logout-form button:hover{color:var(--frost);border-color:var(--accent)}
 </style>`;
 
-function pageAdmin(user, msg) {
+// ── Shared shell template ────────────────────────────────────────────
+// Loaded once at startup. The shell is public/index.html with a
+// "<!-- BODY -->" marker right after the <main>+banner; we split it
+// here into PRE + POST halves and any page renders by sandwiching its
+// content between them. The shell carries: cosmic bg layers, banner,
+// parallax script, font/color shell. Each page adds PAGE_CSS for its
+// own form/table styling.
+let SHELL_PRE = "";
+let SHELL_POST = "";
+function loadShell() {
+  const tpl = fs.readFileSync(path.join(PUBLIC_DIR, "index.html"), "utf8");
+  const marker = "<!-- BODY -->";
+  const idx = tpl.indexOf(marker);
+  if (idx < 0) {
+    console.error("kryptlink: public/index.html missing <!-- BODY --> marker");
+    process.exit(1);
+  }
+  SHELL_PRE = tpl.slice(0, idx);
+  SHELL_POST = tpl.slice(idx + marker.length);
+}
+loadShell();
+
+function renderShell(content) {
+  return SHELL_PRE + PAGE_CSS + content + SHELL_POST;
+}
+
+function pageAdminBody(user, msg) {
   const links = user.is_admin
     ? stmtRecentAllLinks.all(100)
     : stmtRecentUserLinks.all(user.id, 100);
@@ -237,7 +274,7 @@ function pageAdmin(user, msg) {
         <tr><th>Username</th><th>Created</th></tr>
         ${uRows}
       </table>
-      <form method="POST" action="/users/create" style="margin-top:1em">
+      <form method="POST" action="/users/create" class="pageform" style="margin-top:1em">
         <label>New username <input type="text" name="username" pattern="[A-Za-z0-9_-]{2,32}" required></label>
         <label>Password <input type="password" name="password" minlength="8" required></label>
         <label><input type="checkbox" name="is_admin" value="1"> grant admin</label>
@@ -245,11 +282,11 @@ function pageAdmin(user, msg) {
       </form>`;
   }
 
-  return `<!doctype html><html><head><title>kryptlink — admin</title>${CSS}</head><body>
-    <h1>kryptlink <span class="muted" style="font-size:.5em">(${escapeHtml(user.username)}${user.is_admin ? " · admin" : ""})</span></h1>
-    ${msg ? `<p class="ok">${msg}</p>` : ""}
+  return `
+    <h1>Admin <span class="userbadge">${escapeHtml(user.username)}${user.is_admin ? " · admin" : ""}</span></h1>
+    ${msg ? `<div>${msg}</div>` : ""}
     <h2>Shorten a URL</h2>
-    <form method="POST" action="/create">
+    <form method="POST" action="/create" class="pageform">
       <label>URL <input type="url" name="url" placeholder="https://example.com/long/path" required></label>
       <label>Custom code (optional) <input type="text" name="code" placeholder="launch" pattern="[A-Za-z0-9_\\-]{1,32}"></label>
       <label>Note (optional) <input type="text" name="note" placeholder="Q4 launch announcement"></label>
@@ -261,16 +298,14 @@ function pageAdmin(user, msg) {
       ${linkRows}
     </table>
     ${usersSection}
-    <form method="POST" action="/logout" style="margin-top:2em">
+    <form method="POST" action="/logout" class="logout-form">
       <button type="submit">Log out</button>
-    </form>
-  </body></html>`;
+    </form>`;
 }
 
-function pageStats(user, code) {
+function pageStatsBody(user, code) {
   const link = stmtLinkByCode.get(code);
   if (!link) return null;
-  // Non-admin must own the link.
   if (!user.is_admin && link.user_id !== user.id) return "forbidden";
   const total = stmtCountClicksCode.get(code).n;
   const clicks = stmtClicksByCode.all(code, 100);
@@ -280,7 +315,7 @@ function pageStats(user, code) {
         return `<tr><td>${when}</td><td>${escapeHtml(c.ip)}</td><td>${escapeHtml(c.user_agent)}</td><td>${escapeHtml(c.referrer)}</td></tr>`;
       }).join("")
     : `<tr><td colspan="4" class="muted">no clicks yet</td></tr>`;
-  return `<!doctype html><html><head><title>stats — ${escapeHtml(code)}</title>${CSS}</head><body>
+  return `
     <h1>${escapeHtml(code)}</h1>
     <p>
       <strong>Destination:</strong> <a href="${escapeHtml(link.url)}">${escapeHtml(link.url)}</a><br>
@@ -293,8 +328,49 @@ function pageStats(user, code) {
     <table>
       <tr><th>When (UTC)</th><th>IP</th><th>UA</th><th>Referrer</th></tr>
       ${rows}
-    </table>
-  </body></html>`;
+    </table>`;
+}
+
+// Landing body — the features grid + login form. Wrapped by the shared
+// shell at request time so banner + cosmic bg + parallax come along.
+function landingBody() {
+  return `
+    <section class="hero">
+      <div class="feature">
+        <img src="/icons/code.png" alt="" class="feat-icon">
+        <h3>Custom or random</h3>
+        <p>Pick your own code (<code>kry.li/launch</code>) or auto-generate a 6-character base62.</p>
+      </div>
+      <div class="feature">
+        <img src="/icons/analytics.png" alt="" class="feat-icon">
+        <h3>Click analytics</h3>
+        <p>Every visit logged with timestamp, referrer, IP, and user agent.</p>
+      </div>
+      <div class="feature">
+        <img src="/icons/qr.png" alt="" class="feat-icon">
+        <h3>Server-side QR</h3>
+        <p>Each link gets a scannable QR code, rendered on the server, no third-party API.</p>
+      </div>
+      <div class="feature">
+        <img src="/icons/fast.png" alt="" class="feat-icon">
+        <h3>Lightning fast</h3>
+        <p>No JavaScript framework, no client-side bloat — every page paints instantly.</p>
+      </div>
+      <div class="feature">
+        <img src="/icons/privacy.png" alt="" class="feat-icon">
+        <h3>Privacy</h3>
+        <p>Self-hosted on our own infrastructure. No third-party trackers, no analytics SDKs.</p>
+      </div>
+      <div class="login">
+        <form method="POST" action="/login" autocomplete="on">
+          <p class="err" id="err" style="display:none"></p>
+          <input type="text" name="username" placeholder="username" autocomplete="username" required>
+          <input type="password" name="password" placeholder="password" autocomplete="current-password" required>
+          <button type="submit">Log in</button>
+          <button type="button" class="ghost" disabled title="signups are closed">Create account</button>
+        </form>
+      </div>
+    </section>`;
 }
 
 // ── Routes ───────────────────────────────────────────────────────────
@@ -305,23 +381,10 @@ function pageStats(user, code) {
 app.use("/icons",  express.static(path.join(PUBLIC_DIR, "icons"),  { maxAge: "1h" }));
 app.use("/banner", express.static(path.join(PUBLIC_DIR, "banner"), { maxAge: "1h" }));
 
-// Static landing page (with a login form). Auth required only for /admin.
+// Landing — features grid + login form, wrapped in the shared shell.
 app.get(["/", "/index.html"], (req, res) => {
-  const indexPath = path.join(PUBLIC_DIR, "index.html");
-  if (fs.existsSync(indexPath)) {
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    return res.sendFile(indexPath);
-  }
-  // Fallback if no public/index.html present.
-  res.send(`<!doctype html><html><head><title>kryptlink</title>${CSS}</head><body>
-    <h1>kry.li</h1><p>Short links + click tracking.</p>
-    <form method="POST" action="/login">
-      <input type="text" name="username" placeholder="username" required>
-      <input type="password" name="password" placeholder="password" required>
-      <button type="submit">Log in</button>
-      <button type="button" disabled title="signups closed">Create an account</button>
-    </form>
-  </body></html>`);
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(renderShell(landingBody()));
 });
 
 // Auth — username + password
@@ -353,7 +416,7 @@ app.post("/logout", (req, res) => {
 app.get("/admin", (req, res) => {
   const user = getUser(req);
   if (!user) return res.redirect("/");
-  res.send(pageAdmin(user, ""));
+  res.send(renderShell(pageAdminBody(user, "")));
 });
 
 app.post("/create", (req, res) => {
@@ -363,11 +426,11 @@ app.post("/create", (req, res) => {
   let code = (req.body.code || "").trim();
   const note = (req.body.note || "").trim();
   if (!/^https?:\/\/[^\s]+$/i.test(url)) {
-    return res.status(400).send(pageAdmin(user, '<span class="bad">invalid URL</span>'));
+    return res.status(400).send(renderShell(pageAdminBody(user, '<span class="bad">invalid URL</span>')));
   }
   if (code) {
     if (!/^[A-Za-z0-9_-]{1,32}$/.test(code) || RESERVED.has(code) || stmtLinkByCode.get(code)) {
-      return res.status(409).send(pageAdmin(user, '<span class="bad">code unavailable</span>'));
+      return res.status(409).send(renderShell(pageAdminBody(user, '<span class="bad">code unavailable</span>')));
     }
   } else {
     code = genUniqueCode();
@@ -389,37 +452,37 @@ app.post("/create", (req, res) => {
       </div>
     </div>
   </div>`;
-  res.send(pageAdmin(user, banner));
+  res.send(renderShell(pageAdminBody(user, banner)));
 });
 
 // ADMIN ONLY: create a new user account.
 app.post("/users/create", (req, res) => {
   const user = getUser(req);
   if (!user) return res.status(401).redirect("/");
-  if (!user.is_admin) return res.status(403).send(pageAdmin(user, '<span class="bad">admin only</span>'));
+  if (!user.is_admin) return res.status(403).send(renderShell(pageAdminBody(user, '<span class="bad">admin only</span>')));
   const newName = (req.body.username || "").trim();
   const newPw = req.body.password || "";
   const grantAdmin = req.body.is_admin === "1" ? 1 : 0;
   if (!/^[A-Za-z0-9_-]{2,32}$/.test(newName)) {
-    return res.status(400).send(pageAdmin(user, '<span class="bad">invalid username (2-32 chars, [A-Za-z0-9_-])</span>'));
+    return res.status(400).send(renderShell(pageAdminBody(user, '<span class="bad">invalid username (2-32 chars, [A-Za-z0-9_-])</span>')));
   }
   if (newPw.length < 8) {
-    return res.status(400).send(pageAdmin(user, '<span class="bad">password too short (min 8)</span>'));
+    return res.status(400).send(renderShell(pageAdminBody(user, '<span class="bad">password too short (min 8)</span>')));
   }
   if (stmtUserByName.get(newName)) {
-    return res.status(409).send(pageAdmin(user, '<span class="bad">username taken</span>'));
+    return res.status(409).send(renderShell(pageAdminBody(user, '<span class="bad">username taken</span>')));
   }
   stmtInsertUser.run(newName, hashPassword(newPw), grantAdmin, Math.floor(Date.now() / 1000));
-  res.send(pageAdmin(user, `Created user <code>${escapeHtml(newName)}</code>${grantAdmin ? " (admin)" : ""}`));
+  res.send(renderShell(pageAdminBody(user, `Created user <code>${escapeHtml(newName)}</code>${grantAdmin ? " (admin)" : ""}`)));
 });
 
 app.get("/stats/:code", (req, res) => {
   const user = getUser(req);
   if (!user) return res.redirect("/");
-  const html = pageStats(user, req.params.code);
-  if (!html) return res.status(404).send("<h1>not found</h1>");
-  if (html === "forbidden") return res.status(403).send("<h1>403 — that link isn't yours</h1>");
-  res.send(html);
+  const body = pageStatsBody(user, req.params.code);
+  if (!body) return res.status(404).send(renderShell(`<h1>404 — link not found</h1><p><a href="/admin">back to admin</a></p>`));
+  if (body === "forbidden") return res.status(403).send(renderShell(`<h1>403 — that link isn't yours</h1><p><a href="/admin">back to admin</a></p>`));
+  res.send(renderShell(body));
 });
 
 // QR (public)
@@ -439,7 +502,7 @@ app.get("/:code", (req, res, next) => {
   const code = req.params.code;
   if (RESERVED.has(code)) return next();
   const link = stmtLinkByCode.get(code);
-  if (!link) return res.status(404).send("<h1>link not found</h1>");
+  if (!link) return res.status(404).send(renderShell(`<h1>404 — link not found</h1><p><a href="/">home</a></p>`));
   stmtInsertClick.run(
     code,
     Math.floor(Date.now() / 1000),
@@ -451,7 +514,7 @@ app.get("/:code", (req, res, next) => {
 });
 
 // 404
-app.use((req, res) => res.status(404).send("<h1>404</h1>"));
+app.use((req, res) => res.status(404).send(renderShell(`<h1>404</h1><p><a href="/">home</a></p>`)));
 
 // ── Boot ─────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
