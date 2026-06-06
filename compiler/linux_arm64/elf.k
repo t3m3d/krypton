@@ -729,6 +729,8 @@ func opSize(ln) {
     if op == "EQ"  { emit 28 }     // polymorphic kr_eq (numeric OR strcmp)
     if op == "NEQ" { emit 36 }     // kr_eq + invert
     if op == "INDEX" { emit 28 }   // list[idx] -> kr_split (pop0+pop1+bl+push)
+    if op == "SETFIELD" { emit 36 }  // p.x=v: pop val/env, name imm -> kr_setfield
+    if op == "GETFIELD" { emit 28 }  // p.x: pop env, name imm -> kr_getfield
     if op == "BUILTIN" {
         let b = operand(ln)
         if startsWith(b, "kp") { emit 20 }   // pop + bl kpDisp + push (no movz between bl and push)
@@ -851,7 +853,18 @@ just run {
         if isStrPush(l0) == "1" { strBytes = strBytes + (len(quoted(l0)) + 1) }
         i = i + 1
     }
-    let total = dataOff + strBytes
+    // Field-name table (for dot syntax: SETFIELD/GETFIELD names are immediates).
+    // Stored right after the string literals; one entry per op (no dedup).
+    let fieldBase = dataOff + strBytes
+    let fieldBytes = 0
+    i = 0
+    while i < nlines {
+        let lf = getLine(ir, i)
+        let opf = opcode(lf)
+        if opf == "SETFIELD" || opf == "GETFIELD" { fieldBytes = fieldBytes + (len(operand(lf)) + 1) }
+        i = i + 1
+    }
+    let total = fieldBase + fieldBytes
     let heapOff = (total + 15) / 16 * 16            // heap start (offset from load base)
     let opOff = heapOff + 1048576 + 65536           // x20 start = heap + 1 MiB + 64 KiB
 
@@ -867,6 +880,7 @@ just run {
     let curF = 0
     let frame = 0
     let sidx = 0
+    let fieldCursor = fieldBase       // running offset into the field-name table
     i = 0
     while i < nlines {
         let ln = getLine(ir, i)
@@ -915,6 +929,23 @@ just run {
         // s[idx] -> kr_index (i-th CHARACTER). pop0->x0=idx, pop1->x1=s. 28 bytes.
         // (Element access on a comma-collection uses split(coll, i), not [].)
         if op == "INDEX" { code = code + c_pop0() + c_pop1() + e_bl(indexOff - (off + 16)) + c_push()  off = off + 28 }
+        // p.x = v -> kr_setfield(env, name_imm, val). Stack: val(top), env. 36 bytes.
+        if op == "SETFIELD" {
+            code = code + e_ldr0(2, 20) + e_addi(20, 20, 16)              // pop val -> x2
+            code = code + e_ldr0(0, 20) + e_addi(20, 20, 16)              // pop env -> x0
+            code = code + e_movz(1, fieldCursor % 65536) + e_movk16(1, 32512 + fieldCursor / 65536)  // x1 = &name
+            code = code + e_bl(setfieldOff - (off + 24)) + c_push()
+            fieldCursor = fieldCursor + (len(operand(ln)) + 1)
+            off = off + 36
+        }
+        // p.x -> kr_getfield(env, name_imm). Stack: env(top). 28 bytes.
+        if op == "GETFIELD" {
+            code = code + e_ldr0(1, 20) + e_addi(20, 20, 16)              // pop env -> x1
+            code = code + e_movz(0, fieldCursor % 65536) + e_movk16(0, 32512 + fieldCursor / 65536)  // x0 = &name
+            code = code + e_bl(getfieldOff - (off + 16)) + c_push()
+            fieldCursor = fieldCursor + (len(operand(ln)) + 1)
+            off = off + 28
+        }
         if op == "POP" { code = code + e_addi(20, 20, 16)  off = off + 4 }
         if op == "LT"  { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 10) + c_push()  off = off + 32 }
         if op == "GT"  { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 13) + c_push()  off = off + 32 }
@@ -1152,6 +1183,19 @@ just run {
         let ln = getLine(ir, i)
         if isStrPush(ln) == "1" {
             let s = quoted(ln)
+            let c = 0
+            while c < len(s) { data = data + hexByte(charCode(substring(s, c, c + 1)))  c = c + 1 }
+            data = data + hexByte(0)
+        }
+        i = i + 1
+    }
+    // field-name table (dot syntax), in SETFIELD/GETFIELD order — matches fieldCursor
+    i = 0
+    while i < nlines {
+        let ln = getLine(ir, i)
+        let opf = opcode(ln)
+        if opf == "SETFIELD" || opf == "GETFIELD" {
+            let s = operand(ln)
             let c = 0
             while c < len(s) { data = data + hexByte(charCode(substring(s, c, c + 1)))  c = c + 1 }
             data = data + hexByte(0)
