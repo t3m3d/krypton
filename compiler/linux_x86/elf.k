@@ -3903,13 +3903,16 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_HASFIELD")
                 } else if bname == "structFields" {
                     opSb = sbAppend(opSb, "BUILTIN_STRUCTFIELDS")
-                } else if bname == "gcShadowCount" {
-                    // GC root-shadow ops emitted by the 2.x front-end. This
-                    // backend has no precise-GC shadow stack, so stub them — but
-                    // with the CORRECT stack effect or the eval stack desyncs
-                    // (the unsupported no-op left the following STORE popping a
-                    // never-pushed value). gcShadowCount() takes 0 args and
-                    // PUSHES a count → push a dummy 0.
+                } else if bname == "gcShadowCount" || bname == "gcAllocCount"
+                       || bname == "gcFreelistCount" || bname == "gcWalkAllocs"
+                       || bname == "gcCollect" || bname == "gcLiveCount" {
+                    // GC diagnostic ops emitted by the 2.x front-end. This backend
+                    // uses a bump arena (no precise GC), so stub them — but with the
+                    // CORRECT stack effect or the eval stack desyncs (the unsupported
+                    // no-op left the following STORE/POP popping a never-pushed
+                    // value → crash). All take 0 args and PUSH a value → push a
+                    // dummy 0. (Makes counts read 0, fine for a no-op collector;
+                    // fixes v20_long_running.k's gcCollect/gcAllocCount loop.)
                     opSb = sbAppend(opSb, "PUSH_INT 0")
                 } else if bname == "gcShadowPush" || bname == "gcShadowPop" {
                     // 1 arg, returns a value (the arg is the GC root / pop-count,
@@ -6012,6 +6015,11 @@ just run {
     let mainVAddr = toInt(funcVAddr(funcVAddrs, "__main__"))
     // CALL __main__ ends at start-code offset 72 (was 63; +9 for the envp save).
     let startCallDisp = mainVAddr - (startVAddr + 72)
+    // A source file with no `just run` (e.g. a pure library of func defs) has no
+    // __main__. mainVAddr is then garbage and _start would CALL into hyperspace
+    // and SIGSEGV. Make the CALL target the very next instruction (disp 0) so it
+    // falls straight through to SYS_exit(0) — running a library is a clean no-op.
+    if mainIdx < 0 { startCallDisp = 0 }
     // CALL kr_atoi ends at start-code offset 80 (was 71).
     let startAtoiDisp = krAtoiVAddr - (startVAddr + 80)
     let startCode = emitStartCode(startCallDisp, startAtoiDisp)
