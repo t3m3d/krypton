@@ -159,9 +159,17 @@ if [[ "$MODE" == "test" ]]; then
                 # ("ok" string), an int (some computed value), or 0 — all
                 # of which look "non-zero" to the shell. Tests with [PASS]/
                 # [FAIL] assertion lines are the source of truth.
-                "$OUT" > "$OUT_LOG" 2>&1 || true
+                "$OUT" > "$OUT_LOG" 2>&1 && RC=0 || RC=$?
                 if grep -q '\[FAIL\]' "$OUT_LOG"; then
                     echo -e "${RED}FAIL${RESET}  $NAME (assertion)"
+                    FAILED=$((FAILED + 1))
+                # Crash signals (SIGILL/TRAP/ABRT/EMT/FPE/KILL/BUS/SEGV = rc
+                # 132-139) are real failures — a crashed binary produces no
+                # [FAIL] marker, so without this it would score as a false pass.
+                # The range is narrow enough not to collide with Krypton's
+                # last-expression exit-code semantics (tests don't emit 132-139).
+                elif [ "$RC" -ge 132 ] && [ "$RC" -le 139 ]; then
+                    echo -e "${RED}FAIL${RESET}  $NAME (crash: signal $((RC - 128)))"
                     FAILED=$((FAILED + 1))
                 else
                     ok "$NAME"
