@@ -526,6 +526,24 @@ func emitHasField() {
     c = c + e_movz(0, 0) + e_ret()                                // [64,68] .no
     emit c
 }
+// kr_structfields(x0=env) -> "name,name,..." (head-first, trailing comma). 104 bytes.
+// Builds via kr_plus. x24=cur x25=result x10="," x26=lr (survive kr_plus/kr_alloc).
+func emitStructFields(allocOff, plusOff, thisOff) {
+    let c = e_movr(26, 30) + e_movr(24, 0)                        // [0,4] lr; cur=env
+    c = c + e_movz(0, 2) + e_bl(allocOff - (thisOff + 12))        // [8,12] alloc(2) for ","
+    c = c + e_movz(1, 44) + e_strb(1, 0)                          // [16,20] comma[0]=','
+    c = c + e_strbO(31, 0, 1) + e_movr(10, 0)                     // [24,28] comma[1]=0; x10=comma
+    c = c + e_movz(0, 1) + e_bl(allocOff - (thisOff + 36))        // [32,36] alloc(1) empty result
+    c = c + e_strb(31, 0) + e_movr(25, 0)                         // [40,44] result[0]=0; result=""
+    c = c + e_cbz(24, 44)                                         // [48] .loop: cur==0 -> .done (92)
+    c = c + e_movr(0, 25) + e_ldr0(1, 24)                         // [52,56] a=result; b=cur.name
+    c = c + e_bl(plusOff - (thisOff + 60)) + e_movr(25, 0)        // [60,64] result = result+name
+    c = c + e_movr(0, 25) + e_movr(1, 10)                         // [68,72] a=result; b=","
+    c = c + e_bl(plusOff - (thisOff + 76)) + e_movr(25, 0)        // [76,80] result = result+","
+    c = c + e_ldr8(24, 24, 2) + e_b(0 - 40)                       // [84,88] cur=cur.prev; -> .loop (48)
+    c = c + e_movr(0, 25) + e_movr(30, 26) + e_ret()             // [92,96,100] .done: return result
+    emit c
+}
 // kr_plus(a=x0, b=x1) -> x0. Polymorphic +: both ints -> a+b; else convert each
 // to a string (kr_str_int for the int side) and concat into a fresh heap buffer.
 // Saves lr in x23; VBASE in x9; sa=x11 sb=x12 b=x13 lenA=x14 lenB=x16 dst=x17.
@@ -786,6 +804,7 @@ func opSize(ln) {
         if startsWith(b, "getField")   { emit 28 }  // 2-arg (env, name) -> kr_getfield
         if startsWith(b, "envGet")     { emit 28 }
         if startsWith(b, "hasField")   { emit 28 }  // 2-arg -> kr_hasfield (1/0)
+        if startsWith(b, "structFields") { emit 20 }  // 1-arg -> kr_structfields
         emit 0
     }
     emit 0
@@ -839,7 +858,8 @@ just run {
     let setfieldOff = writefileOff + 96  // kr_writefile is 96 bytes
     let getfieldOff = setfieldOff + 44   // kr_setfield is 44 bytes
     let hasfieldOff = getfieldOff + 92   // kr_getfield is 92 bytes
-    let nlOff = hasfieldOff + 72          // kr_hasfield is 72 bytes
+    let structfieldsOff = hasfieldOff + 72  // kr_hasfield is 72 bytes
+    let nlOff = structfieldsOff + 104     // kr_structfields is 104 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -1047,6 +1067,8 @@ just run {
             if startsWith(b, "envGet")     { code = code + c_pop0() + c_pop1() + e_bl(getfieldOff - (off + 16)) + c_push()  off = off + 28 }
             // hasField(env,name): pop name->x0, env->x1; kr_hasfield -> 1/0. 28 bytes.
             if startsWith(b, "hasField")   { code = code + c_pop0() + c_pop1() + e_bl(hasfieldOff - (off + 16)) + c_push()  off = off + 28 }
+            // structFields(env): pop env->x0; kr_structfields. 20 bytes.
+            if startsWith(b, "structFields") { code = code + c_pop0() + e_bl(structfieldsOff - (off + 8)) + c_push()  off = off + 20 }
             // charCode(s) -> first byte of s (int). 20 bytes.
             if startsWith(b, "charCode") {
                 let kc = sbNew()
@@ -1165,7 +1187,16 @@ just run {
     bb = sbAppend(bb, emitSetField(allocOff, setfieldOff))
     bb = sbAppend(bb, emitGetField(allocOff, getfieldOff))
     bb = sbAppend(bb, emitHasField())
-    bb = sbAppend(bb, "")     // guards: the x86 backend drops trailing sbAppends here
+    bb = sbAppend(bb, emitStructFields(allocOff, plusOff, structfieldsOff))
+    bb = sbAppend(bb, "")     // guards: x86 backend drops trailing sbAppends (scales w/ chain len)
+    bb = sbAppend(bb, "")
+    bb = sbAppend(bb, "")
+    bb = sbAppend(bb, "")
+    bb = sbAppend(bb, "")
+    bb = sbAppend(bb, "")
+    bb = sbAppend(bb, "")
+    bb = sbAppend(bb, "")
+    bb = sbAppend(bb, "")
     bb = sbAppend(bb, "")
     bb = sbAppend(bb, "")
     bb = sbAppend(bb, "")
