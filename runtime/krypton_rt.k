@@ -160,17 +160,83 @@ export func kr_range(start, end) {
 }
 
 // ── String builder ────────────────────────────────────────────────
+//
+// Real growing-capacity StringBuilder. Replaces the legacy stub that
+// just called sbNew/sbAppend/sbToString builtins (which resolved to a
+// 1-byte empty alloc and a strcat-based append → O(n²) for any program
+// that accumulates a long sb).
+//
+// Layout (per allocation):
+//   [base + 0 .. base + 7]   length qword  (count of data bytes; not NUL)
+//   [base + 8 .. base + N-1] data buffer (NUL-terminated within capacity)
+// User-facing pointer is `base + 8` — a normal NUL-terminated C-string
+// so len(sb) / kp(sb) / sb + s / etc. all work without changes.
+//
+// Capacity is read from the stage-1.5 alloc header at `base - 8`
+// (size+flags qword, low 2 bits masked off). On overflow, allocate a
+// new buffer 2x the requested size and copy.
+//
+// Amortized O(1) per append; O(n) total for n appends of constant size.
+// This drops compile.k's IR-emit RAM use by orders of magnitude.
 
 export func kr_sbnew() {
-    emit sbNew()
+    let buf = rawAlloc(64)
+    bufSetQwordAt(buf, 0, 0)
+    bufSetByte(buf, 8, 0)
+    emit intToPtr(ptrToInt(buf) + 8)
 }
 
 export func kr_sbappend(sb, s) {
-    emit sbAppend(sb, s)
+    let s_len = len(s)
+    if s_len == 0 { emit sb }
+    let base = intToPtr(ptrToInt(sb) - 8)
+    let cur_len = bufGetQwordAt(base, 0)
+    let needed = cur_len + s_len
+
+    let cap_field = intToPtr(ptrToInt(base) - 8)
+    let raw_cap = bufGetQwordAt(cap_field, 0)
+    let alloc_total = bitAnd(raw_cap, 0 - 4)
+    let data_cap = alloc_total - 24
+
+    if needed + 1 > data_cap {
+        let new_total = 2 * (needed + 1) + 8
+        if new_total < 64 { new_total = 64 }
+        let new_buf = rawAlloc(new_total)
+        let i = 0
+        while i < cur_len {
+            bufSetByte(new_buf, i + 8, bufGetByte(sb, i))
+            i = i + 1
+        }
+        let j = 0
+        while j < s_len {
+            bufSetByte(new_buf, cur_len + 8 + j, bufGetByte(s, j))
+            j = j + 1
+        }
+        bufSetByte(new_buf, needed + 8, 0)
+        bufSetQwordAt(new_buf, 0, needed)
+        emit intToPtr(ptrToInt(new_buf) + 8)
+    }
+
+    let j = 0
+    while j < s_len {
+        bufSetByte(base, cur_len + 8 + j, bufGetByte(s, j))
+        j = j + 1
+    }
+    bufSetByte(base, needed + 8, 0)
+    bufSetQwordAt(base, 0, needed)
+    emit sb
 }
 
 export func kr_sbtostring(sb) {
-    emit sbToString(sb)
+    let cur_len = bufGetQwordAt(intToPtr(ptrToInt(sb) - 8), 0)
+    let dst = rawAlloc(cur_len + 1)
+    let i = 0
+    while i < cur_len {
+        bufSetByte(dst, i, bufGetByte(sb, i))
+        i = i + 1
+    }
+    bufSetByte(dst, cur_len, 0)
+    emit dst
 }
 
 // ── File I/O ──────────────────────────────────────────────────────
