@@ -30,7 +30,7 @@ ops inside them.
 
 ## The candidate fix
 
-Pushed in `<commit hash forthcoming below>`: delete the three dead branches.
+Pushed in `03a2d6ae`: delete the three dead branches.
 
 - `compile.k:2675-2733` — legacy lambda pre-compile loop (already
   guarded by `if irMode == 1 { lsi = ntoks }` which made the loop
