@@ -185,6 +185,12 @@ code{background:#eee;padding:.1em .3em;border-radius:3px}
 .bad{color:#c44}
 .pill{display:inline-block;padding:.05em .5em;border-radius:1em;background:#4F5AA8;color:white;font-size:.75em;vertical-align:middle}
 form{margin-bottom:1em}
+.created{display:flex;gap:1.2em;align-items:center;padding:1em;margin:.5em 0 1.5em;border:1px solid #2a3e6f;border-radius:8px;background:#1c2540}
+.created-qr{width:128px;height:128px;background:white;padding:.4em;border-radius:6px;flex-shrink:0}
+.created-body{flex:1;min-width:0}
+.created-body .short{font-size:1.2em;word-break:break-all}
+.created-body .short a{color:#7db8ff}
+.copy-btn{font-size:.85em;padding:.3em .7em;margin-left:.5em;background:#2a3e6f;border:1px solid #4a6ea5}
 @media(prefers-color-scheme:dark){body{background:#15151c;color:#e8e8f0}input{background:#202028;color:inherit;border-color:#33333f}th{background:#1c1c25}td{border-color:#2a2a35}code{background:#2a2a35}}
 </style>`;
 
@@ -368,7 +374,22 @@ app.post("/create", (req, res) => {
   }
   stmtInsertLink.run(code, url, Math.floor(Date.now() / 1000), note || null, user.id);
   const short = `${PUBLIC_HOST}/${code}`;
-  res.send(pageAdmin(user, `Created <a href="${escapeHtml(short)}">${escapeHtml(short)}</a>`));
+  const banner = `<div class="created">
+    <img class="created-qr" src="/qr/${encodeURIComponent(code)}.svg" alt="QR code for ${escapeHtml(short)}">
+    <div class="created-body">
+      <div class="muted" style="font-size:.85em">Created</div>
+      <div class="short">
+        <a href="${escapeHtml(short)}" target="_blank" rel="noopener">${escapeHtml(short)}</a>
+        <button type="button" class="copy-btn" onclick="navigator.clipboard.writeText('${short.replace(/'/g, "\\'")}').then(()=>{this.textContent='copied'})">copy</button>
+      </div>
+      <div class="muted" style="margin-top:.4em">
+        → ${escapeHtml(url)} &middot;
+        <a href="/qr/${encodeURIComponent(code)}.svg" download="${escapeHtml(code)}.svg">download QR</a> &middot;
+        <a href="/stats/${encodeURIComponent(code)}">stats</a>
+      </div>
+    </div>
+  </div>`;
+  res.send(pageAdmin(user, banner));
 });
 
 // ADMIN ONLY: create a new user account.
