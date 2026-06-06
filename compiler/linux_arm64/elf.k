@@ -444,6 +444,47 @@ func emitIndex(allocOff, thisOff) {
     c = c + e_movr(30, 26) + e_ret()                            // [28] return buf
     emit c
 }
+// kr_readfile(x0=path) -> NUL-terminated contents. 120 bytes. aarch64 syscalls:
+// openat=56(AT_FDCWD=-100), fstat=80(st_size@+48), read=63, close=57. 144B stack statbuf.
+// NB: keep each `c = c +` line <=3 terms — the x86 backend MISCOMPILES long
+// concat chains here (drops terms), so syscall instructions silently vanish.
+func emitReadFile(allocOff, thisOff) {
+    let c = e_movr(26, 30) + e_subi(31, 31, 144)                  // [0,4] lr; sub sp,#144 (statbuf)
+    c = c + e_movr(1, 0) + e_movn(0, 99)                          // [8,12] x1=path; x0=AT_FDCWD
+    c = c + e_movz(2, 0) + e_movz(3, 0)                           // [16,20] O_RDONLY; mode 0
+    c = c + e_movz(8, 56) + e_svc()                              // [24,28] openat
+    c = c + e_movr(10, 0) + e_movr(0, 10)                        // [32,36] fd=x10; x0=fd
+    c = c + e_addi(1, 31, 0) + e_movz(8, 80)                     // [40,44] statbuf=sp; fstat nr
+    c = c + e_svc() + e_ldr8(11, 31, 6)                          // [48,52] fstat; size=[sp+48]
+    c = c + e_addi(0, 11, 1) + e_bl(allocOff - (thisOff + 60))    // [56,60] buf = alloc(size+1)
+    c = c + e_movr(12, 0) + e_movr(0, 10)                        // [64,68] buf; fd
+    c = c + e_movr(1, 12) + e_movr(2, 11)                        // [72,76] buf; size
+    c = c + e_movz(8, 63) + e_svc()                             // [80,84] read
+    c = c + e_strbR(31, 12, 11) + e_movr(0, 10)                 // [88,92] buf[size]=0; fd
+    c = c + e_movz(8, 57) + e_svc()                             // [96,100] close
+    c = c + e_movr(0, 12) + e_addi(31, 31, 144)                 // [104,108] return buf; restore sp
+    c = c + e_movr(30, 26) + e_ret()                           // [112,116]
+    emit c
+}
+// kr_writefile(x1=path, x0=content) -> 0. 96 bytes. openat(WRONLY|CREAT|TRUNC=577,
+// mode 0644=420), write, close.
+// NB: <=3 terms per line (x86-backend miscompile drops terms from long chains).
+func emitWriteFile() {
+    let c = e_movr(26, 30) + e_movr(10, 0)                        // [0,4] lr; content
+    c = c + e_movz(11, 0)                                         // [8] len=0
+    c = c + e_ldrbO(3, 10, 11) + e_cbz(3, 12)                     // [12,16] .sl: content[len]; ==0 -> openat (28)
+    c = c + e_addi(11, 11, 1) + e_b(0 - 12)                       // [20,24] len++; -> .sl (12)
+    c = c + e_movn(0, 99) + e_movz(2, 577)                        // [28,32] x0=AT_FDCWD; flags
+    c = c + e_movz(3, 420) + e_movz(8, 56)                        // [36,40] mode 0644; openat nr
+    c = c + e_svc() + e_movr(12, 0)                              // [44,48] openat; fd=x12
+    c = c + e_movr(0, 12) + e_movr(1, 10)                        // [52,56] fd; content
+    c = c + e_movr(2, 11) + e_movz(8, 64)                        // [60,64] len; write nr
+    c = c + e_svc() + e_movr(0, 12)                             // [68,72] write; fd
+    c = c + e_movz(8, 57) + e_svc()                            // [76,80] close
+    c = c + e_movz(0, 0) + e_movr(30, 26)                      // [84,88] return 0
+    c = c + e_ret()                                            // [92]
+    emit c
+}
 // kr_plus(a=x0, b=x1) -> x0. Polymorphic +: both ints -> a+b; else convert each
 // to a string (kr_str_int for the int side) and concat into a fresh heap buffer.
 // Saves lr in x23; VBASE in x9; sa=x11 sb=x12 b=x13 lenA=x14 lenB=x16 dst=x17.
@@ -689,6 +730,8 @@ func opSize(ln) {
         if startsWith(b, "bufNew ")    { emit 20 }  // alloc(size): pop+bl alloc+push
         if startsWith(b, "bufSetByte ") { emit 36 } // [buf+off]=val: 3 pops + strb + push
         if startsWith(b, "bufGetByte ") { emit 28 } // buf[off]: 2 pops + ldrb + push
+        if startsWith(b, "readFile")   { emit 20 }  // 1-arg (path)
+        if startsWith(b, "writeFile")  { emit 28 }  // 2-arg (path, content)
         emit 0
     }
     emit 0
@@ -737,7 +780,9 @@ just run {
     let sbtostringOff = sbappendOff + 176  // kr_sbappend is 176 bytes
     let eqOff = sbtostringOff + 8        // kr_sbtostring is 8 bytes
     let indexOff = eqOff + 76            // kr_eq is 76 bytes
-    let nlOff = indexOff + 36            // kr_index is 36 bytes
+    let readfileOff = indexOff + 36      // kr_index is 36 bytes
+    let writefileOff = readfileOff + 120 // kr_readfile is 120 bytes
+    let nlOff = writefileOff + 96         // kr_writefile is 96 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -884,6 +929,10 @@ just run {
             if startsWith(b, "bufSetByte ") { code = code + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_strbR(2, 0, 1) + c_push()  off = off + 36 }
             // bufGetByte(buf, off): pop0->x0=off, pop1->x1=buf; ldrb w0,[x1,x0]; push. 28 bytes.
             if startsWith(b, "bufGetByte ") { code = code + c_pop0() + c_pop1() + e_ldrbO(0, 1, 0) + c_push()  off = off + 28 }
+            // readFile(path): pop0->x0=path; kr_readfile. 20 bytes.
+            if startsWith(b, "readFile")   { code = code + c_pop0() + e_bl(readfileOff - (off + 8)) + c_push()  off = off + 20 }
+            // writeFile(path, content): pop0->x0=content, pop1->x1=path; kr_writefile. 28 bytes.
+            if startsWith(b, "writeFile")  { code = code + c_pop0() + c_pop1() + e_bl(writefileOff - (off + 16)) + c_push()  off = off + 28 }
             if startsWith(b, "kp") {
                 let kc = sbNew()
                 kc = sbAppend(kc, c_pop0())                         // pop arg -> x0
@@ -1008,7 +1057,12 @@ just run {
     bb = sbAppend(bb, emitSbToString())
     bb = sbAppend(bb, emitEq())
     bb = sbAppend(bb, emitIndex(allocOff, indexOff))
-    bb = sbAppend(bb, "")     // guard: the x86 backend drops the LAST sbAppend here
+    bb = sbAppend(bb, emitReadFile(allocOff, readfileOff))
+    bb = sbAppend(bb, emitWriteFile())
+    bb = sbAppend(bb, "")     // guards: the x86 backend drops trailing sbAppends here
+    bb = sbAppend(bb, "")
+    bb = sbAppend(bb, "")
+    bb = sbAppend(bb, "")
     let body = sbToString(bb)
 
     // data region: newline byte (at nlOff) then string literals
