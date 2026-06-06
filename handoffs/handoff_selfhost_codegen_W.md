@@ -7,6 +7,28 @@ programs, so we can't cut a 2.2.0 macOS release → no socket-capable kcc →
 Confirmed still live on HEAD 2026-06-05 (macOS). L confirmed it reproduces on
 Linux too. See prior analysis: `handoffs/handoff_param_crash_M_response.md`.
 
+**✅ RESOLVED — FINAL macOS Mach-O VERIFICATION PASSES (Agent M, 2026-06-06, on
+origin/main 84b8a574 = post-`03a2d6ae` dead-branch delete).** Built an FE with
+the **repo** toolchain (`compiler/macos_arm64/kcc-arm64` --ir → `bootstrap/
+macho_host_macos_aarch64`) from current compile.k (21122 IR lines). Matrix now
+all green: `kp(2+3)` rc 0 + real `FUNC __main__` (213 B IR); `kp("x"+toStr(5))`,
+`func f(){}`, `func f(x){}` all rc 0 with `FUNC __main__`. **Full self-host
+fixpoint: gen0 (kcc-arm64) == gen1 (repo-built FE) IR, BYTE-IDENTICAL, 21122
+lines.** So macho self-host is stable. Cross-platform sign-off complete: L =
+Linux x86 ✅, M = macOS Mach-O ✅.
+
+**PITFALL that wasted a pass (don't repeat):** building the test FE with the
+installed **brew `kcc 2.1.1`** (`/usr/local/krypton` macho_host) reproduces the
+OLD crash (header-only `kp(2+3)`, rc 139 on string/func) even on fixed source —
+because that backend predates the polymorphic-EQ + dead-branch fixes. The macho
+self-host MUST be tested with the **repo** backend, not the installed brew kcc.
+The macho fix is two parts already on HEAD: (1) source `03a2d6ae` deletes the
+dead irMode==0 `compileBlock`/`compileFunc` branches (elf.k+macho.k mishandle the
+unresolved CALLs); (2) macho_arm64_self.k already carries polymorphic EQ/INDEX/LT
+(byte strcmp / char-indexing). No further macho codegen change needed. (My
+earlier same-day note claiming "still live / dead-call theory refuted" was a
+stale-backend artifact — superseded by this run.)
+
 ## Symptom (current minimal matrix)
 
 Build an FE natively from current source, then feed it tiny programs:
