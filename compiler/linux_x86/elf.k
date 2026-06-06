@@ -3471,7 +3471,7 @@ func opByteSize(op) {
     if op == "BUILTIN_ARGCOUNT"{ emit 6 } // CALL kr_argcount + PUSH RAX (no args)
     if op == "BUILTIN_SUBSTRING" { emit 9 } // POP RDX + POP RSI + POP RDI + CALL + PUSH RAX
     if op == "BUILTIN_SB_NEW"    { emit 6 }  // CALL kr_sbnew + PUSH RAX
-    if op == "BUILTIN_SB_APPEND" { emit 8 }  // POP RSI + POP RDI + CALL kr_sbappend + PUSH RAX
+    if op == "BUILTIN_SB_APPEND" { emit 30 }  // POP RSI/RDI; stringify int s; CALL kr_sbappend; PUSH RAX
     if op == "BUILTIN_SB_TOSTR"  { emit 7 }  // POP RDI + CALL kr_sbtostring + PUSH RAX
     if op == "BUILTIN_READFILE"  { emit 7 }  // POP RDI + CALL kr_readfile + PUSH RAX
     if op == "BUILTIN_WRITEFILE" { emit 8 }  // POP RSI + POP RDI + CALL kr_writefile + PUSH RAX
@@ -4527,12 +4527,21 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             c = sbAppend(c, hexByte(0xE8) + hexDword(snDisp))
             c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_SB_APPEND" {
-            // POP RSI (s) ; POP RDI (handle) ; CALL kr_sbappend ; PUSH RAX
-            c = sbAppend(c, hexByte(0x5E))
-            c = sbAppend(c, hexByte(0x5F))
-            let saDisp = krSbappendVAddr - (funcStartVAddr + off + 7)
-            c = sbAppend(c, hexByte(0xE8) + hexDword(saDisp))
-            c = sbAppend(c, hexByte(0x50))
+            // POP RSI (s) ; POP RDI (handle) ; if s is an int (<0x7F000000)
+            // stringify via kr_str_int (else kr_sbappend strlen's a small int
+            // and faults, e.g. sbAppend(sb, 1)) — saving RDI across the call
+            // since kr_str_int clobbers RDI ; then CALL kr_sbappend ; PUSH RAX.
+            // 30 bytes.
+            c = sbAppend(c, hexByte(0x5E) + hexByte(0x5F))                                        // POP RSI,RDI [0-1]
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x81) + hexByte(0xFE) + hexDwordVaddr(0))      // CMP RSI,0x7F000000 [2-8]
+            c = sbAppend(c, hexByte(0x73) + hexByte(0x0D))                                        // JAE +13 -> CALL [9-10]
+            c = sbAppend(c, hexByte(0x57))                                                        // PUSH RDI [11]
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xF7))                        // MOV RDI,RSI [12-14]
+            c = sbAppend(c, hexByte(0xE8) + hexDword(krStrIntVAddr - (funcStartVAddr + off + 20))) // CALL kr_str_int [15-19]
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xC6))                        // MOV RSI,RAX [20-22]
+            c = sbAppend(c, hexByte(0x5F))                                                        // POP RDI [23]
+            c = sbAppend(c, hexByte(0xE8) + hexDword(krSbappendVAddr - (funcStartVAddr + off + 29))) // CALL kr_sbappend [24-28]
+            c = sbAppend(c, hexByte(0x50))                                                        // PUSH RAX [29]
         } else if op == "BUILTIN_SB_TOSTR" {
             // POP RDI (handle) ; CALL kr_sbtostring ; PUSH RAX
             c = sbAppend(c, hexByte(0x5F))
