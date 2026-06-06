@@ -79,6 +79,7 @@ func e_ble(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 +
 func e_bne(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 1  emit wordHL(21504 + p / 65536, p % 65536) } // b.ne (cond NE=1)
 func e_bgt(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 12 emit wordHL(21504 + p / 65536, p % 65536) } // b.gt (signed >, cond GT=12)
 func e_movn(rd, imm) { let p = imm * 32 + rd  emit wordHL(37504 + p / 65536, p % 65536) } // movn Xd,#imm (NOT imm); movn Xd,#0 = -1
+func e_beq(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 0  emit wordHL(21504 + p / 65536, p % 65536) } // b.eq (cond EQ=0)
 
 // composites
 func c_push() { emit e_subi(20, 20, 16) + e_str0(0, 20) }      // push x0
@@ -321,6 +322,40 @@ func emitTrim(allocOff, thisOff) {
     c = c + e_strbR(31, 14, 7) + e_movr(0, 14) + e_movr(30, 26) + e_ret()  // [152] .done: buf[newlen]=0; return
     emit c
 }
+// kr_split(x1=list, x0=idx int) -> idx-th comma-separated element (fresh string). 160 bytes.
+// x10=ptr x11=remaining x12=elem-start x13=len x9=',' x26=lr.
+func emitSplit(allocOff, thisOff) {
+    let c = e_movr(26, 30) + e_movr(11, 0) + e_movr(10, 1) + e_movz(9, 44)  // [0] lr; rem=idx; ptr=list; x9=','
+    c = c + e_cmpi0(11) + e_beq(32)                                // [16] .skip: rem==0 -> .scan_setup (48)
+    c = c + e_ldrb0(3, 10) + e_cbz(3, 112)                         // [24] c=[ptr]; c==0 -> .empty (140)
+    c = c + e_addi(10, 10, 1) + e_cmp(3, 9) + e_bne(8)             // [32] ptr++; c!=',' -> .skipcont (48)
+    c = c + e_subi(11, 11, 1)                                      // [44] rem--
+    c = c + e_b(0 - 32)                                            // [48] .skipcont: -> .skip (16)
+    c = c + e_movr(12, 10)                                         // [52] .scan_setup: elem start
+    c = c + e_ldrb0(3, 10) + e_cbz(3, 20)                          // [56] .scan: c=[ptr]; c==0 -> .got_end (80)
+    c = c + e_cmp(3, 9) + e_beq(12)                                // [64] c==',' -> .got_end (80)
+    c = c + e_addi(10, 10, 1) + e_b(0 - 20)                        // [72] ptr++; -> .scan (56)
+    c = c + e_subr(13, 10, 12) + e_addi(0, 13, 1)                  // [80] .got_end: len=ptr-start; x0=len+1
+    c = c + e_bl(allocOff - (thisOff + 88))                        // [88] x0=buf
+    c = c + e_movr(1, 0) + e_movz(5, 0)                            // [92] dst=buf; i=0
+    c = c + e_cmp(5, 13) + e_bge(20)                               // [100] .cp: i>=len -> .cpdone (124)
+    c = c + e_ldrbO(4, 12, 5) + e_strbR(4, 1, 5) + e_addi(5, 5, 1) + e_b(0 - 20)  // [108] dst[i]=start[i]
+    c = c + e_strbR(31, 1, 13) + e_movr(0, 1) + e_movr(30, 26) + e_ret()  // [124] .cpdone: dst[len]=0; return
+    c = c + e_movz(0, 1) + e_bl(allocOff - (thisOff + 144)) + e_strb(31, 0) + e_movr(30, 26) + e_ret()  // [140] .empty: ""
+    emit c
+}
+// kr_count(x0=list) -> number of comma-separated elements (commas+1, or 0 if empty). 64 bytes.
+func emitCount() {
+    let c = e_ldrb0(3, 0) + e_cbz(3, 52)                           // [0] empty -> .zero (56)
+    c = c + e_movz(1, 0) + e_movz(2, 0) + e_movz(9, 44)            // [8] commas=0; i=0; x9=','
+    c = c + e_ldrbO(3, 0, 2) + e_cbz(3, 24)                        // [20] .cl: c=s[i]; c==0 -> .done (48)
+    c = c + e_cmp(3, 9) + e_bne(8)                                 // [28] c!=',' -> .cont (40)
+    c = c + e_addi(1, 1, 1)                                        // [36] commas++
+    c = c + e_addi(2, 2, 1) + e_b(0 - 24)                          // [40] .cont: i++; -> .cl (20)
+    c = c + e_addi(0, 1, 1) + e_ret()                             // [48] .done: x0=commas+1
+    c = c + e_movz(0, 0) + e_ret()                                // [56] .zero: x0=0
+    emit c
+}
 // kr_plus(a=x0, b=x1) -> x0. Polymorphic +: both ints -> a+b; else convert each
 // to a string (kr_str_int for the int side) and concat into a fresh heap buffer.
 // Saves lr in x23; VBASE in x9; sa=x11 sb=x12 b=x13 lenA=x14 lenB=x16 dst=x17.
@@ -549,6 +584,8 @@ func opSize(ln) {
         if startsWith(b, "contains")   { emit 28 }
         if startsWith(b, "indexOf")    { emit 28 }
         if startsWith(b, "trim")       { emit 20 }  // 1-arg: pop0 + bl + push
+        if startsWith(b, "split")      { emit 28 }  // 2-arg (list, idx)
+        if startsWith(b, "count")      { emit 20 }  // 1-arg (list)
         emit 0
     }
     emit 0
@@ -588,7 +625,9 @@ just run {
     let containsOff = repeatOff + 120   // kr_repeat is 120 bytes
     let indexofOff = containsOff + 120  // kr_contains is 120 bytes
     let trimOff = indexofOff + 120      // kr_indexof is 120 bytes
-    let nlOff = trimOff + 168            // kr_trim is 168 bytes
+    let splitOff = trimOff + 168        // kr_trim is 168 bytes
+    let countOff = splitOff + 160       // kr_split is 160 bytes
+    let nlOff = countOff + 64            // kr_count is 64 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -709,6 +748,8 @@ just run {
             if startsWith(b, "contains")   { code = code + c_pop0() + c_pop1() + e_bl(containsOff - (off + 16)) + c_push()  off = off + 28 }
             if startsWith(b, "indexOf")    { code = code + c_pop0() + c_pop1() + e_bl(indexofOff - (off + 16)) + c_push()  off = off + 28 }
             if startsWith(b, "trim")       { code = code + c_pop0() + e_bl(trimOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "split")      { code = code + c_pop0() + c_pop1() + e_bl(splitOff - (off + 16)) + c_push()  off = off + 28 }
+            if startsWith(b, "count")      { code = code + c_pop0() + e_bl(countOff - (off + 8)) + c_push()  off = off + 20 }
             if startsWith(b, "kp") {
                 let kc = sbNew()
                 kc = sbAppend(kc, c_pop0())                         // pop arg -> x0
@@ -821,6 +862,8 @@ just run {
     bb = sbAppend(bb, emitContains())
     bb = sbAppend(bb, emitIndexOf())
     bb = sbAppend(bb, emitTrim(allocOff, trimOff))
+    bb = sbAppend(bb, emitSplit(allocOff, splitOff))
+    bb = sbAppend(bb, emitCount())
     bb = sbAppend(bb, "")     // guard: the x86 backend drops the LAST sbAppend here
     let body = sbToString(bb)
 
