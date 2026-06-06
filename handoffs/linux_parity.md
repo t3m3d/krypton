@@ -115,12 +115,15 @@ EMITS aarch64 (`compiler/linux_arm64/elf_host`), run under qemu-aarch64-static.
       min/max arrive as BUILTIN; bitwise arrive as CALL → intercepted in the CALL
       branch (opBytes + emit). Validated under qemu: min/max=3/7/0/99, bitwise
       AND/OR/XOR/shl/shr=2/7/5/16/64, nested+vars OK.
-- **LIMITATION**: the arm64 backend does NOT support negative numbers yet — a
-      negative value's high bit exceeds the 0x7F000000 int/string tag, so kp
-      derefs it as a pointer → SIGSEGV. This is pre-existing (`kp(2-9)` also
-      crashes), not from these builtins. So bitNot (always negative) and min/max
-      with negative args are blocked until the backend gains negative support.
-      The builtin asm is correct + forward-compatible (works once negatives land).
+- [x] **negative-number support** — DONE (2026-06-05, follow-up commit). The tag
+      check was `bhs` (UNSIGNED >= VBASE) so negatives (high bit set) misclassified
+      as pointers → SIGSEGV. Fix: signed `bge` at all 6 VBASE tag-classification
+      sites (kpDisp, kr_plus x4, toStr) — negatives are signed-<VBASE so they route
+      to the int path; pointers (0x7F000000..0x7FFFFFFF, signed-positive) still
+      classify correctly. Plus str_int grew 100->128B to emit a '-' sign (x6 flag,
+      negate magnitude). Comparisons were already signed (csel/cset). Now working:
+      kp(2-9)=-7, bitNot(6)=-7, min(-5,2)=-5, negative concat/interp/loops/recursion.
+      Validated under qemu; positive domain regression-clean.
 - aarch64 still lacks hex/bin/pad and most other builtins (young backend: it had
       only kp/len before this). Native aarch64-HOST (driver+host running ON arm64)
       is unbuilt — cross-from-x86 is the supported path.
