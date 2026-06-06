@@ -20,9 +20,11 @@ is NOT sustainable — at some point padding won't keep up.
 ## What it is NOT (ruled out by repro — none reproduce the silent drop)
 - **Not the StringBuilder.** A 200KB sb with 20000 appends keeps its 3 tail
   markers intact (`/tmp/sbbig.k`).
-- **Not `__main__` size.** arm64 `__main__` is only **4738 IR ops**; synthetic
-  `__main__`s run clean to 31k+ ops (z280/z300). At ~44k ops the elf_host
-  SEGV-crashes (a different, harder failure) — but arm64 is nowhere near that.
+- **Not `__main__` size.** arm64 `__main__` is only **4738 IR ops**. Synthetic
+  `__main__`s run CLEAN (8/8 trailing markers) through 37787 ops, then SEGV-crash
+  the elf_host at 40007 — i.e. clean → crash with NO silent-truncation zone in
+  between. So the silent drop is definitively not op count, and arm64 is 8x below
+  even the crash cliff. (That ~40k-op compile crash is a separate, harder bug.)
 - **Not total binary size.** A 178KB output (50 bloat funcs) is fine.
 - **Not helper-fn count / sbAppend-chain shape.** 120 funcs + 80 appends + tails
   = all tails survive (`/tmp/mir_120_80.k`).
