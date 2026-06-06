@@ -41,11 +41,17 @@ REPO="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$REPO/tests/.work-linux"
 mkdir -p "$WORK"
 
-if [[ ! -f "$REPO/kcc.sh" ]]; then
-    echo "run_linux.sh: $REPO/kcc.sh not found — wrong checkout?" >&2
-    exit 2
+# kcc.sh was removed (commit 0c0dc57b); the driver is the compiled kcc.ks seed.
+# Prefer the committed repo seed (tests THIS tree), else fall back to `kcc` on PATH.
+KCC="$REPO/bootstrap/kcc_driver_linux_x86_64"
+if [[ ! -x "$KCC" ]]; then
+    if command -v kcc >/dev/null 2>&1; then
+        KCC="$(command -v kcc)"
+    else
+        echo "run_linux.sh: no kcc driver ($REPO/bootstrap/kcc_driver_linux_x86_64) and no kcc on PATH" >&2
+        exit 2
+    fi
 fi
-KCC="$REPO/kcc.sh"
 
 # ── 2. Sanity-check we're actually on Linux ────────────────────────────
 case "$(uname -s)" in
