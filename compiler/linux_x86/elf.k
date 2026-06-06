@@ -3501,8 +3501,8 @@ func opByteSize(op) {
     if op == "BUILTIN_SHR"       { emit 8 }
     if op == "BUILTIN_HX"        { emit 7 }  // POP RDI + CALL kr_hex + PUSH RAX
     if op == "BUILTIN_BN"        { emit 7 }  // POP RDI + CALL kr_bin + PUSH RAX
-    if op == "BUILTIN_PADL"      { emit 9 }  // POP RDX+RSI+RDI + CALL + PUSH RAX
-    if op == "BUILTIN_PADR"      { emit 9 }
+    if op == "BUILTIN_PADL"      { emit 30 }  // 3 pops + (stringify int s via kr_str_int) + CALL + PUSH
+    if op == "BUILTIN_PADR"      { emit 30 }
     if op == "BUILTIN_BITNOT"    { emit 7 }  // POP RDI + CALL + PUSH RAX (1-arg)
     if op == "BUILTIN_REPEAT"    { emit 8 }  // POP RSI + POP RDI + CALL + PUSH RAX
     if op == "BUILTIN_CONTAINS"  { emit 8 }  // POP RSI + POP RDI + CALL + PUSH RAX
@@ -5119,18 +5119,27 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             c = sbAppend(c, hexByte(0xE8) + hexDword(krBinVAddr - (funcStartVAddr + off + 6)))
             c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_PADL" {
-            // POP RDX (pad) ; POP RSI (width) ; POP RDI (s) ; CALL kr_padleft ; PUSH RAX (9 bytes)
-            c = sbAppend(c, hexByte(0x5A))
-            c = sbAppend(c, hexByte(0x5E))
-            c = sbAppend(c, hexByte(0x5F))
-            c = sbAppend(c, hexByte(0xE8) + hexDword(krPadleftVAddr - (funcStartVAddr + off + 8)))
-            c = sbAppend(c, hexByte(0x50))
+            // POP RDX/RSI/RDI; if RDI (s) is an int (<0x7F000000) stringify via
+            // kr_str_int (else strlen(NULL/garbage) faults on e.g. padLeft(0,..));
+            // then CALL kr_padleft; PUSH RAX. 30 bytes.
+            c = sbAppend(c, hexByte(0x5A) + hexByte(0x5E) + hexByte(0x5F))                       // POP RDX,RSI,RDI [0-2]
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDwordVaddr(0)) // CMP RDI,0x7F000000 [3-9]
+            c = sbAppend(c, hexByte(0x73) + hexByte(0x0C))                                        // JAE +12 -> CALL [10-11]
+            c = sbAppend(c, hexByte(0x56) + hexByte(0x52))                                        // PUSH RSI,RDX [12-13]
+            c = sbAppend(c, hexByte(0xE8) + hexDword(krStrIntVAddr - (funcStartVAddr + off + 19))) // CALL kr_str_int [14-18]
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xC7))                        // MOV RDI,RAX [19-21]
+            c = sbAppend(c, hexByte(0x5A) + hexByte(0x5E))                                        // POP RDX,RSI [22-23]
+            c = sbAppend(c, hexByte(0xE8) + hexDword(krPadleftVAddr - (funcStartVAddr + off + 29))) // CALL kr_padleft [24-28]
+            c = sbAppend(c, hexByte(0x50))                                                        // PUSH RAX [29]
         } else if op == "BUILTIN_PADR" {
-            // POP RDX (pad) ; POP RSI (width) ; POP RDI (s) ; CALL kr_padright ; PUSH RAX (9 bytes)
-            c = sbAppend(c, hexByte(0x5A))
-            c = sbAppend(c, hexByte(0x5E))
-            c = sbAppend(c, hexByte(0x5F))
-            c = sbAppend(c, hexByte(0xE8) + hexDword(krPadrightVAddr - (funcStartVAddr + off + 8)))
+            c = sbAppend(c, hexByte(0x5A) + hexByte(0x5E) + hexByte(0x5F))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x81) + hexByte(0xFF) + hexDwordVaddr(0))
+            c = sbAppend(c, hexByte(0x73) + hexByte(0x0C))
+            c = sbAppend(c, hexByte(0x56) + hexByte(0x52))
+            c = sbAppend(c, hexByte(0xE8) + hexDword(krStrIntVAddr - (funcStartVAddr + off + 19)))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xC7))
+            c = sbAppend(c, hexByte(0x5A) + hexByte(0x5E))
+            c = sbAppend(c, hexByte(0xE8) + hexDword(krPadrightVAddr - (funcStartVAddr + off + 29)))
             c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_REPEAT" {
             // POP RSI (n) ; POP RDI (s) ; CALL kr_repeat ; PUSH RAX (8 bytes)
