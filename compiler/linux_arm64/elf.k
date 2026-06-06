@@ -661,6 +661,9 @@ func opSize(ln) {
         if startsWith(b, "sbAppend")   { emit 28 }  // 2-arg (handle, s)
         if startsWith(b, "sbToString") { emit 20 }  // 1-arg (handle)
         if startsWith(b, "exit")       { emit 24 }  // inline: pop x0 + movz x8,93 + svc + push
+        if startsWith(b, "bufNew ")    { emit 20 }  // alloc(size): pop+bl alloc+push
+        if startsWith(b, "bufSetByte ") { emit 36 } // [buf+off]=val: 3 pops + strb + push
+        if startsWith(b, "bufGetByte ") { emit 28 } // buf[off]: 2 pops + ldrb + push
         emit 0
     }
     emit 0
@@ -846,6 +849,12 @@ just run {
             if startsWith(b, "sbToString") { code = code + c_pop0() + e_bl(sbtostringOff - (off + 8)) + c_push()  off = off + 20 }
             // exit(code): pop x0; SYS_exit(93); (push is dead, never reached). 24 bytes.
             if startsWith(b, "exit")       { code = code + c_pop0() + e_movz(8, 93) + e_svc() + c_push()  off = off + 24 }
+            // bufNew(size): alloc(size) -> ptr. pop0->x0=size; bl alloc; push. 20 bytes.
+            if startsWith(b, "bufNew ")    { code = code + c_pop0() + e_bl(allocOff - (off + 8)) + c_push()  off = off + 20 }
+            // bufSetByte(buf, off, val): 3-arg. pop val->x2, off->x1, buf->x0; strb w2,[x0,x1]; push buf. 36 bytes.
+            if startsWith(b, "bufSetByte ") { code = code + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_strbR(2, 0, 1) + c_push()  off = off + 36 }
+            // bufGetByte(buf, off): pop0->x0=off, pop1->x1=buf; ldrb w0,[x1,x0]; push. 28 bytes.
+            if startsWith(b, "bufGetByte ") { code = code + c_pop0() + c_pop1() + e_ldrbO(0, 1, 0) + c_push()  off = off + 28 }
             if startsWith(b, "kp") {
                 let kc = sbNew()
                 kc = sbAppend(kc, c_pop0())                         // pop arg -> x0
