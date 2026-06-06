@@ -3074,7 +3074,7 @@ func emitSectionHeader2(name, virtSize, virtAddr, rawSize, rawOffset, charsHex) 
 //   OFF_ARGP=3407   OFF_ARGC=3607  OFF_ARG=3657
 //   TOTAL=3737
 
-func bsHelperBlockSize() { emit 9376 }   // 2026-05-11 Phase D: +5 kr_inttoptr. Phase C: +145 (kr_set_wndproc 12 + kr_wndtramp 121 + kr_wndproc_addr 12). 1.8.1: +44 kr_bufgetbyte. 1.7.8: kr_gc_checkpoint 52→62 (warmup fix). 1.8.0: +35 kr_gc_slab_count + 21 kr_gc_slab_bytes   // 5681 → 5803 (kr_print/'\n' + kr_environ) → 5845 (+42 kr_count_commas) → 5888 (+43 __rt_truthy_int_v2) → 6037 (+149 kr_split_commas) → 6093 (+56 kr_linecount_smart) → 6210 (+3 kr_envnew + 45 kr_envset + 69 kr_envget) → 6322 (+86 kr_hasfield + 26 kr_structfields stub) → 6775 (+66 kr_reverse + 111 kr_repeat + 137 kr_padleft + 139 kr_padright) → 7025 (+32 kr_abs + 48 kr_min + 48 kr_max + 122 kr_endswith) → 7137 (+112 kr_bin) → 7201 (+64 kr_pow) → 7368 (1.7.5: +76 __rt_alloc_v2 + 21 kr_gc_allocated + 21 kr_gc_limit + 23 kr_gc_set_limit + 26 kr_gc_collect) → 7485 (1.7.6: __rt_alloc_v2 grew 76→172 = +96, +21 kr_arena_reset) → 7666 (1.7.7: __rt_alloc_v2 grew 172→277 = +105, kr_arena_reset grew 21→97 = +76) → 7874 (1.8.0) → 7918 (1.8.1)
+func bsHelperBlockSize() { emit 9445 }   // 2026-05-11 Phase D: +5 kr_inttoptr. Phase C: +145 (kr_set_wndproc 12 + kr_wndtramp 121 + kr_wndproc_addr 12). 1.8.1: +44 kr_bufgetbyte. 1.7.8: kr_gc_checkpoint 52→62 (warmup fix). 1.8.0: +35 kr_gc_slab_count + 21 kr_gc_slab_bytes   // 5681 → 5803 (kr_print/'\n' + kr_environ) → 5845 (+42 kr_count_commas) → 5888 (+43 __rt_truthy_int_v2) → 6037 (+149 kr_split_commas) → 6093 (+56 kr_linecount_smart) → 6210 (+3 kr_envnew + 45 kr_envset + 69 kr_envget) → 6322 (+86 kr_hasfield + 26 kr_structfields stub) → 6775 (+66 kr_reverse + 111 kr_repeat + 137 kr_padleft + 139 kr_padright) → 7025 (+32 kr_abs + 48 kr_min + 48 kr_max + 122 kr_endswith) → 7137 (+112 kr_bin) → 7201 (+64 kr_pow) → 7368 (1.7.5: +76 __rt_alloc_v2 + 21 kr_gc_allocated + 21 kr_gc_limit + 23 kr_gc_set_limit + 26 kr_gc_collect) → 7485 (1.7.6: __rt_alloc_v2 grew 76→172 = +96, +21 kr_arena_reset) → 7666 (1.7.7: __rt_alloc_v2 grew 172→277 = +105, kr_arena_reset grew 21→97 = +76) → 7874 (1.8.0) → 7918 (1.8.1)
 
 // Export offset lookup for bootstrap mode: returns "kr_name:offset\n..." table
 func bootstrapExportOffsets() {
@@ -5016,13 +5016,16 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     // gcAllocsHead clear). 7954 → 7965.
     // 2.0-alpha-3 stage 6: arena_reset grew 108 → 119 (+11 for
     // free_head clear). 7965 → 7976.
-    let bufsetbyte_real_impl = 7976
+    // 2.0-alpha-3 stage 6 phase 2: __rt_alloc_v2 grew 313 → 382 (+69
+    // freelist consumption). 7976 → 8045.
+    let bufsetbyte_real_impl = 8045
     // 2026-05-31: real kr_writebytes impl appended at end of helper block
     // (replaces JMP-to-emp_pos stub which silently returned "" — caused
     // native PE programs using writeBytes() to no-op, e.g. wasm_self.exe
     // claimed "wrote N bytes" but produced no file). 255 bytes; lives at
     // old bsHelperBlockSize (9121). bsHelperBlockSize bumps 9121 → 9376.
-    let writebytes_real_impl = 9121
+    // 2.0-alpha-3 stage 6 phase 2: +69 from __rt_alloc_v2 growth. 9121 → 9190.
+    let writebytes_real_impl = 9190
     let bufgetqword_v2_impl = stub_impl_base + 1183     // 20 bytes — load qword + itoa (string return)
     let sizeof_v2_impl = stub_impl_base + 1203          // 108 bytes — 5 structs supported
     let structnew_v2_impl = stub_impl_base + 1311       // 108 bytes — 5 structs supported
@@ -6689,32 +6692,49 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     //   offsets <  59     unchanged
     //   offsets >= 59     +4
     //   plus 25 bytes of header-write code inserted between INC and .epilogue
+    // 2.0-alpha-3 stage 6 phase 2: 69-byte freelist-consumption block
+    // inserted at offset 76 (after `JA .huge_alloc`). Shifts every
+    // offset >= 76 by +69. Internal JMPs within the original code keep
+    // their disps (both source and target shift the same +69). Only
+    // the JA .huge_alloc disp32 changes (target shifts, source doesn't):
+    // 178 → 247. Function total grows 313 → 382.
     let v2_total_add         = (gcGlobalsRva + 0)  - (textRva + pos + 16)
     let v2_limit_load        = (gcGlobalsRva + 8)  - (textRva + pos + 23)
     let v2_total_load        = (gcGlobalsRva + 0)  - (textRva + pos + 35)
     let v2_exit_disp         = iatK32Rva + 0 * 8   - (textRva + pos + 51)
-    let v2_slab_curr_load    = (gcGlobalsRva + 24) - (textRva + pos + 83)
-    let v2_slab_off_load     = (gcGlobalsRva + 32) - (textRva + pos + 95)
-    let v2_slab_off_update   = (gcGlobalsRva + 32) - (textRva + pos + 118)
-    // .first_slab at 123
-    let v2_gph1_disp         = iatK32Rva + 29 * 8  - (textRva + pos + 129)
-    let v2_ha1_disp          = iatK32Rva + 26 * 8  - (textRva + pos + 146)
-    let v2_slab_first_store  = (gcGlobalsRva + 16) - (textRva + pos + 158)
-    let v2_slab_curr_store_a = (gcGlobalsRva + 24) - (textRva + pos + 165)
-    let v2_slab_off_init_a   = (gcGlobalsRva + 32) - (textRva + pos + 183)
-    // .new_slab at 189
-    let v2_gph2_disp         = iatK32Rva + 29 * 8  - (textRva + pos + 198)
-    let v2_ha2_disp          = iatK32Rva + 26 * 8  - (textRva + pos + 215)
-    let v2_slab_curr_store_b = (gcGlobalsRva + 24) - (textRva + pos + 237)
-    let v2_slab_off_init_b   = (gcGlobalsRva + 32) - (textRva + pos + 248)
-    // .huge_alloc at 254
-    let v2_gph3_disp         = iatK32Rva + 29 * 8  - (textRva + pos + 260)
-    let v2_ha3_disp          = iatK32Rva + 26 * 8  - (textRva + pos + 274)
-    // INC alloc_count moved from offset 270 to 274 (post-inflation).
-    let v2_count_inc         = (gcGlobalsRva + 40) - (textRva + pos + 274 + 7)
-    // Stage 1.5 new disp formulas — header write block at offsets 281+.
-    let v2_allocs_load       = (gcGlobalsRva + 64) - (textRva + pos + 288)
-    let v2_allocs_store      = (gcGlobalsRva + 64) - (textRva + pos + 302)
+    // Stage 6 phase 2 freelist-block disps (insertion offset 76).
+    //   fl_free_load  at [76..82]   RIP-after = 83
+    //   fl_free_store at [103..109] RIP-after = 110
+    //   fl_head_load  at [110..116] RIP-after = 117
+    //   fl_head_store at [120..126] RIP-after = 127
+    //   fl_count_inc  at [127..133] RIP-after = 134
+    let v2_fl_free_load      = (gcGlobalsRva + 72) - (textRva + pos + 83)
+    let v2_fl_free_store     = (gcGlobalsRva + 72) - (textRva + pos + 110)
+    let v2_fl_head_load      = (gcGlobalsRva + 64) - (textRva + pos + 117)
+    let v2_fl_head_store     = (gcGlobalsRva + 64) - (textRva + pos + 127)
+    let v2_fl_count_inc      = (gcGlobalsRva + 40) - (textRva + pos + 134)
+    let v2_slab_curr_load    = (gcGlobalsRva + 24) - (textRva + pos + 152)
+    let v2_slab_off_load     = (gcGlobalsRva + 32) - (textRva + pos + 164)
+    let v2_slab_off_update   = (gcGlobalsRva + 32) - (textRva + pos + 187)
+    // .first_slab at 188
+    let v2_gph1_disp         = iatK32Rva + 29 * 8  - (textRva + pos + 198)
+    let v2_ha1_disp          = iatK32Rva + 26 * 8  - (textRva + pos + 215)
+    let v2_slab_first_store  = (gcGlobalsRva + 16) - (textRva + pos + 227)
+    let v2_slab_curr_store_a = (gcGlobalsRva + 24) - (textRva + pos + 234)
+    let v2_slab_off_init_a   = (gcGlobalsRva + 32) - (textRva + pos + 252)
+    // .new_slab at 254
+    let v2_gph2_disp         = iatK32Rva + 29 * 8  - (textRva + pos + 267)
+    let v2_ha2_disp          = iatK32Rva + 26 * 8  - (textRva + pos + 284)
+    let v2_slab_curr_store_b = (gcGlobalsRva + 24) - (textRva + pos + 306)
+    let v2_slab_off_init_b   = (gcGlobalsRva + 32) - (textRva + pos + 317)
+    // .huge_alloc at 323 (was 254, +69 from stage 6 insertion)
+    let v2_gph3_disp         = iatK32Rva + 29 * 8  - (textRva + pos + 329)
+    let v2_ha3_disp          = iatK32Rva + 26 * 8  - (textRva + pos + 343)
+    // INC alloc_count moved from offset 270 → 274 (stage 1.5) → 343 (stage 6).
+    let v2_count_inc         = (gcGlobalsRva + 40) - (textRva + pos + 343 + 7)
+    // Stage 1.5 header write block now at offsets 350+ (was 281).
+    let v2_allocs_load       = (gcGlobalsRva + 64) - (textRva + pos + 357)
+    let v2_allocs_store      = (gcGlobalsRva + 64) - (textRva + pos + 371)
     sb2 = sbAppend(sb2, hexByte(0x53))                                                       // [0]     PUSH RBX
     sb2 = sbAppend(sb2, hexByte(0x56))                                                       // [1]     PUSH RSI
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))             // [2-5]   SUB RSP, 0x28 (3 pushes incl RIP = 32, +40 = 72 mod 16 = 8 — WRONG: see align below)
@@ -6737,8 +6757,32 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     // [base+16..]. Caller sees ptr to user data (post-header).
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC3)+hexByte(0x10))             // [59-62] ADD RBX, 16
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x81)+hexByte(0xFB)+hexByte(0xF8)+hexByte(0xFF)+hexByte(0xFF)+hexByte(0x03))  // [63-69] CMP RBX, 67108856 (SLAB_SIZE-8)
-    sb2 = sbAppend(sb2, hexByte(0x0F)+hexByte(0x87)+hexDword(178))                           // [70-75] JA .huge_alloc rel32 → 254 (disp = 254-76 = 178; same as before because both source+target shifted +4)
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x05)+hexDword(v2_slab_curr_load))   // [72-78] MOV RAX, [RIP+slab_curr]
+    sb2 = sbAppend(sb2, hexByte(0x0F)+hexByte(0x87)+hexDword(247))                           // [70-75] JA .huge_alloc rel32 → 323 (disp 247 — stage 6 phase 2 inserted 69 bytes between here and target)
+    // ── Stage 6 phase 2: freelist-consumption block [76-144] ──────────
+    // RBX = inflated+aligned request size. Check free_head; if its
+    // [size+flags] (low 2 bits masked) ≥ RBX, unlink from free_head,
+    // re-link into gcAllocsHead (so mark walker sees it again), bump
+    // alloc_count, restore + RET. Else fall through to slab bump path.
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x05)+hexDword(v2_fl_free_load))     // [76-82]   MOV RAX, [RIP+free_head]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xC0))                               // [83-85]   TEST RAX, RAX
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(57))                                               // [86-87]   JZ .fl_skip +57 → 145
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x48)+hexByte(0x08))                 // [88-91]   MOV RCX, [RAX+8] (size+flags)
+    sb2 = sbAppend(sb2, hexByte(0x80)+hexByte(0xE1)+hexByte(0xFC))                               // [92-94]   AND CL, 0xFC (mask mark+reserved bits)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x39)+hexByte(0xD9))                               // [95-97]   CMP RCX, RBX
+    sb2 = sbAppend(sb2, hexByte(0x72)+hexByte(45))                                               // [98-99]   JB .fl_skip +45 → 145
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x10))                               // [100-102] MOV RDX, [RAX] (next free entry)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x15)+hexDword(v2_fl_free_store))    // [103-109] MOV [RIP+free_head], RDX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x15)+hexDword(v2_fl_head_load))     // [110-116] MOV RDX, [RIP+gcAllocsHead]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x10))                               // [117-119] MOV [RAX], RDX (cur->next = old gcAllocsHead)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x05)+hexDword(v2_fl_head_store))    // [120-126] MOV [RIP+gcAllocsHead], RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0x05)+hexDword(v2_fl_count_inc))     // [127-133] INC qword [RIP+gcGlobals+40] (alloc_count++)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC0)+hexByte(0x10))                 // [134-137] ADD RAX, 16 (return user-data ptr)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))                 // [138-141] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                                           // [142]     POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                                           // [143]     POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                                           // [144]     RET  (freelist-hit return)
+    // .fl_skip at 145 — original slab bump path resumes here.
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x05)+hexDword(v2_slab_curr_load))   // [145-151] MOV RAX, [RIP+slab_curr]
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xC0))                           // [79-81] TEST RAX, RAX
     sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(35))                                           // [82-83] JZ .first_slab +35 → 119
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x15)+hexDword(v2_slab_off_load))    // [84-90] MOV RDX, [RIP+slab_off]
@@ -6799,11 +6843,11 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x05)+hexDword(v2_allocs_store)) // [295-301] MOV [RIP+gcAllocsHead], RAX
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC0)+hexByte(0x10))             // [302-305] ADD RAX, 16 (return user-data ptr)
     // .epilogue at 306 (was 277 in stage 1; +25 for header-write block, +4 for size inflation)
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))             // [306-309] ADD RSP, 0x28
-    sb2 = sbAppend(sb2, hexByte(0x5E))                                                       // [310]    POP RSI
-    sb2 = sbAppend(sb2, hexByte(0x5B))                                                       // [311]    POP RBX
-    sb2 = sbAppend(sb2, hexByte(0xC3))                                                       // [312]    RET
-    pos = pos + 313
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))             // [375-378] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                                       // [379]    POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                                       // [380]    POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                                       // [381]    RET
+    pos = pos + 382
 
     // ── kr_gc_allocated() → int-string of total bytes allocated ────
     // 21 bytes. Reads gcGlobals[0] and tail-calls __rt_itoa.
@@ -6851,8 +6895,10 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     // kr_gc_mark and kr_gc_sweep positions are hardcoded — keep in sync
     // with helper-block layout (bump if helpers shift).
     offsets = offsets + "kr_gc_collect:" + pos + "\n"
-    let gcc_mark_target  = 8554
-    let gcc_sweep_target = 8685
+    // Stage 6 phase 2: __rt_alloc_v2 grew 313 → 382 (+69), so every helper
+    // after it shifts +69 in the helper block. mark+sweep targets bumped.
+    let gcc_mark_target  = 8623
+    let gcc_sweep_target = 8754
     let gcc_mark_disp  = gcc_mark_target  - (pos + 4 + 5)
     let gcc_sweep_disp = gcc_sweep_target - (pos + 9 + 5)
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [0-3]   SUB RSP, 0x28
