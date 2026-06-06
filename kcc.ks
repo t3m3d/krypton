@@ -31,13 +31,67 @@ func VERSION() { emit "kcc version 2.2.0" }
 // Locate the install root: $KRYPTON_ROOT, else the dev repo, else the pkg
 // install. The dev repo is preferred over /usr/local/krypton because the pkg
 // install is often stale (missing newly-added stdlib). Returns "" if none.
-// A valid root has at least one platform frontend (macOS arm64 or Linux x86).
+// A valid root has at least one platform frontend (macOS arm64, Linux x86,
+// or Windows x86-64).
 func hasFrontend(root) {
     if exists(root + "/compiler/macos_arm64/kcc-arm64") == "1" { emit "1" }
     if exists(root + "/compiler/linux_x86/kcc-x64") == "1" { emit "1" }
+    // Windows: the install layout puts the compile.k-built compiler at
+    // <root>/kcc.exe and the backends at <root>/bin/x64_host_new.exe.
+    // The dev repo doesn't ship a kcc.exe of its own; rely on the
+    // installed copy when running from there.
+    if exists(root + "/kcc.exe") == "1" { emit "1" }
+    if exists(root + "/bin/x64_host_new.exe") == "1" { emit "1" }
     emit "0"
 }
+// Windows-only env read: cmd.exe expands %VAR% inline; unset stays as
+// the literal "%VAR%". chomp trailing newline.
+func _winEnv(name) {
+    let raw = exec("echo %" + name + "%")
+    let s = _chompWS(raw)
+    // Empty or unsubstituted → treat as unset.
+    if len(s) == 0 { emit "" }
+    if startsWith(s, "%") == "1" { emit "" }
+    emit s
+}
+// trim trailing whitespace incl. \r\n (printenv on POSIX already chomps;
+// cmd.exe doesn't, so do it locally to avoid leaking k:env on Windows).
+func _chompWS(s) {
+    let lo = 0
+    let hi = len(s)
+    while hi > lo {
+        let c = toInt(charCode(s[hi - 1]))
+        if c == 32 || c == 9 || c == 10 || c == 13 { hi -= 1 } else { break }
+    }
+    emit substring(s, lo, hi)
+}
+func _winExists(p) {
+    // cmd.exe `if exist <path> echo Y` — robust against POSIX-only `test`.
+    let r = exec("if exist \"" + p + "\" echo Y")
+    if contains(r, "Y") == "1" { emit "1" }
+    emit "0"
+}
+
 func findRoot() {
+    // Windows branch first — POSIX `env`/`home` from k:env/k:fsx shell
+    // out to `printenv`/`$HOME` which don't work under cmd.exe.
+    let osh = exec("uname -s")
+    if contains(osh, "MINGW") == "1" || contains(osh, "MSYS") == "1" || contains(osh, "CYGWIN") == "1" {
+        let kr = _winEnv("KRYPTON_ROOT")
+        if kr != "" {
+            if _winExists(kr + "/kcc.exe") == "1" { emit kr }
+        }
+        // Dev repo via %USERPROFILE%, then default install at C:\krypton.
+        let up = _winEnv("USERPROFILE")
+        if up != "" {
+            let dev = up + "/Documents/GitHub/krypton"
+            if _winExists(dev + "/kcc.exe") == "1" { emit dev }
+        }
+        if _winExists("C:/krypton/kcc.exe") == "1" { emit "C:/krypton" }
+        emit ""
+    }
+
+    // POSIX path (macOS, Linux).
     let r = env("KRYPTON_ROOT")
     if r != "" {
         if hasFrontend(r) == "1" { emit r }
@@ -375,6 +429,14 @@ just run {
     // git-bash + MSYS report uname -s as MINGW64_NT-... or MSYS_NT-...; native
     // cmd doesn't run this script anyway. Single-stage: kcc.exe is the
     // combined front+back-end, no separate host binary like macOS/Linux.
+    //
+    // Windows quoting note: cmd.exe applies CommandLineToArgv-style parsing
+    // and chokes when a command line begins with a "double-quoted" program
+    // path (e.g. `"C:/krypton/kcc.exe" args` → "syntax incorrect"). We use
+    // forward-slash paths without outer quotes. Spaces in paths aren't
+    // supported on this path yet (the standard install at C:\krypton and
+    // the dev repo under %USERPROFILE%\Documents have none). Wrap-in-
+    // cmd-/c when that changes.
     if startsWith(os, "MINGW") == "1" || startsWith(os, "MSYS") == "1" || startsWith(os, "CYGWIN") == "1" {
         if hasFlag("--c")    { kp("kcc: --c was removed (Krypton is C-free; native pipeline only).")    exit("1") }
         if hasFlag("--gcc")  { kp("kcc: --gcc was removed (Krypton is C-free; native pipeline only).")  exit("1") }
@@ -383,8 +445,8 @@ just run {
 
         // Try install root, then C:\krypton, then PATH-installed.
         let kccExe = root + "/kcc.exe"
-        if exists(kccExe) == "0" { kccExe = "C:/krypton/kcc.exe" }
-        if exists(kccExe) == "0" {
+        if _winExists(kccExe) == "0" { kccExe = "C:/krypton/kcc.exe" }
+        if _winExists(kccExe) == "0" {
             kp("kcc-native: cannot find kcc.exe (looked in $KRYPTON_ROOT and C:/krypton).")
             exit("1")
         }
@@ -393,40 +455,57 @@ just run {
         if hasFlag("--ir") {
             let s = linuxSrc()
             if s == "" { kp("kcc: --ir needs a source file")  exit("1") }
-            kp(sh(q(kccExe) + " --ir " + q(s)))
+            kp(_chompWS(exec(kccExe + " --ir " + s)))
             exit("0")
         }
+        // Windows temp-file helpers. POSIX mktemp doesn't ship with cmd.exe,
+        // so we generate a counter+pid-ish unique name under %TEMP%. Two
+        // calls per session is fine — the names embed a millisecond-ish
+        // tick from echo %TIME% (granularity ~10ms) plus the kind suffix.
+        let winTemp = _winEnv("TEMP")
+        if winTemp == "" { winTemp = "C:/Windows/Temp" }
+        // Forward-slash form so kcc.exe accepts it unmodified.
+        winTemp = replace(winTemp, "\\", "/")
+
         // -e CODE: wrap, compile, run, delete.
         if first == "-e" {
             if argCount() < 2 { kp("kcc: -e needs code")  exit("1") }
-            let ek = sh("mktemp /tmp/_kcceval_XXXXXX.ks")
+            let tick = _chompWS(exec("echo %TIME%"))
+            // Strip ':' and '.' so the tick is filename-safe.
+            let safe = replace(replace(tick, ":", ""), ".", "")
+            let ek = winTemp + "/_kcceval_" + safe + ".ks"
+            let ebin = winTemp + "/_kcceval_" + safe + ".exe"
             writeText(ek, "just run {\n" + arg(1) + "\n}\n")
-            let ebin = sh("mktemp /tmp/_kcceval_XXXXXX.exe")
-            exec(q(kccExe) + " -o " + q(ebin) + " " + q(ek))
-            if exists(ebin) == "0" { rm(ek)  exit("1") }
-            kp(sh(q(ebin)))
-            rm(ek)
-            rm(ebin)
+            exec(kccExe + " -o " + ebin + " " + ek)
+            if _winExists(ebin) == "0" {
+                exec("del /q " + replace(ek, "/", "\\"))
+                exit("1")
+            }
+            kp(_chompWS(exec(ebin)))
+            exec("del /q " + replace(ek, "/", "\\"))
+            exec("del /q " + replace(ebin, "/", "\\"))
             exit("0")
         }
         // -r SRC [args]: compile, run, delete.
         if first == "-r" {
             if argCount() < 2 { kp("kcc: -r needs a source file")  exit("1") }
             let src = arg(1)
-            let tmpbin = sh("mktemp /tmp/_kcckrun_XXXXXX.exe")
-            exec(q(kccExe) + " -o " + q(tmpbin) + " " + q(src))
-            if exists(tmpbin) == "0" { exit("1") }
+            let tick = _chompWS(exec("echo %TIME%"))
+            let safe = replace(replace(tick, ":", ""), ".", "")
+            let tmpbin = winTemp + "/_kcckrun_" + safe + ".exe"
+            exec(kccExe + " -o " + tmpbin + " " + src)
+            if _winExists(tmpbin) == "0" { exit("1") }
             let passed = restFrom(2)
-            kp(sh(q(tmpbin) + " " + passed))
-            rm(tmpbin)
+            kp(_chompWS(exec(tmpbin + " " + passed)))
+            exec("del /q " + replace(tmpbin, "/", "\\"))
             exit("0")
         }
         // default: compile src [-o OUT].
         let src = positional(0)
         if src == "" { kp("kcc: no source file")  exit("1") }
         let out = optValue("-o", baseName(src) + ".exe")
-        exec(q(kccExe) + " -o " + q(out) + " " + q(src))
-        if exists(out) == "0" { kp("kcc: native codegen failed")  exit("1") }
+        exec(kccExe + " -o " + out + " " + src)
+        if _winExists(out) == "0" { kp("kcc: native codegen failed")  exit("1") }
         exit("0")
     }
 
