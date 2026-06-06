@@ -75,6 +75,7 @@ func e_cbnz(rt, dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q *
 func e_bhs(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 2  emit wordHL(21504 + p / 65536, p % 65536) }
 func e_bge(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 10 emit wordHL(21504 + p / 65536, p % 65536) } // b.ge (signed >=, cond GE=10)
 func e_blt(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 11 emit wordHL(21504 + p / 65536, p % 65536) } // b.lt (signed <, cond LT=11)
+func e_ble(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 13 emit wordHL(21504 + p / 65536, p % 65536) } // b.le (signed <=, cond LE=13)
 
 // composites
 func c_push() { emit e_subi(20, 20, 16) + e_str0(0, 20) }      // push x0
@@ -141,6 +142,41 @@ func emitBin(allocOff, thisOff) {
     c = c + e_cbz(6, 16)                                             // [100] .signcheck: x6==0 -> .done (116)
     c = c + e_subi(1, 1, 1) + e_movz(2, 45) + e_strb(2, 1)           // [104] *x1='-'
     c = c + e_movr(0, 1) + e_movr(30, 24) + e_ret()                  // [116] .done
+    emit c
+}
+// kr_padleft(x0=s, x1=width int, x2=pad ptr) -> padded string. 136 bytes.
+// width<=len(s) returns s. Else alloc(width+1), fill (width-len) pad chars, copy s.
+// x10=s x11=width x12=padchar x13=slen x14=buf x26=lr.
+func emitPadLeft(allocOff, thisOff) {
+    let c = e_movr(26, 30) + e_movr(10, 0) + e_movr(11, 1) + e_ldrb0(12, 2)  // [0] save lr,s,width; x12=pad[0]
+    c = c + e_movz(13, 0)                                            // [16] slen=0
+    c = c + e_ldrbO(3, 10, 13) + e_cbz(3, 12) + e_addi(13, 13, 1) + e_b(0 - 12)  // [20] .sl: strlen(s)->x13
+    c = c + e_cmp(11, 13) + e_ble(84)                               // [36] width<=slen -> .rets (124)
+    c = c + e_addi(0, 11, 1) + e_bl(allocOff - (thisOff + 48))      // [44] x0=alloc(width+1)
+    c = c + e_movr(14, 0) + e_movr(1, 0) + e_subr(2, 11, 13)        // [52] x14=buf; x1=cursor; x2=width-slen
+    c = c + e_cbz(2, 20) + e_strb(12, 1) + e_addi(1, 1, 1) + e_subi(2, 2, 1) + e_b(0 - 16)  // [64] .fill: pad
+    c = c + e_movz(3, 0)                                            // [84] .copy: i=0
+    c = c + e_ldrbO(4, 10, 3) + e_strb(4, 1) + e_addi(1, 1, 1) + e_cbz(4, 12) + e_addi(3, 3, 1) + e_b(0 - 20)  // [88] .cl: copy s incl nul
+    c = c + e_movr(0, 14) + e_movr(30, 26) + e_ret()               // [112] .cdone: return buf
+    c = c + e_movr(0, 10) + e_movr(30, 26) + e_ret()               // [124] .rets: return s
+    emit c
+}
+// kr_padright(x0=s, x1=width int, x2=pad ptr) -> padded string. 140 bytes.
+// Copies s (no nul), then fills (width-len) pad chars, then writes the NUL.
+func emitPadRight(allocOff, thisOff) {
+    let c = e_movr(26, 30) + e_movr(10, 0) + e_movr(11, 1) + e_ldrb0(12, 2)  // [0] save lr,s,width; x12=pad[0]
+    c = c + e_movz(13, 0)                                            // [16] slen=0
+    c = c + e_ldrbO(3, 10, 13) + e_cbz(3, 12) + e_addi(13, 13, 1) + e_b(0 - 12)  // [20] .sl: strlen(s)->x13
+    c = c + e_cmp(11, 13) + e_ble(88)                               // [36] width<=slen -> .rets (128)
+    c = c + e_addi(0, 11, 1) + e_bl(allocOff - (thisOff + 48))      // [44] x0=alloc(width+1)
+    c = c + e_movr(14, 0) + e_movr(1, 0)                            // [52] x14=buf; x1=cursor
+    c = c + e_movz(3, 0)                                            // [60] i=0
+    c = c + e_ldrbO(4, 10, 3) + e_cbz(4, 20) + e_strb(4, 1) + e_addi(1, 1, 1) + e_addi(3, 3, 1) + e_b(0 - 20)  // [64] .cl: copy s (no nul)
+    c = c + e_subr(2, 11, 13)                                      // [88] .pad: x2=width-slen
+    c = c + e_cbz(2, 20) + e_strb(12, 1) + e_addi(1, 1, 1) + e_subi(2, 2, 1) + e_b(0 - 16)  // [92] .fill: pad
+    c = c + e_strb(31, 1)                                          // [112] .term: *x1=NUL
+    c = c + e_movr(0, 14) + e_movr(30, 26) + e_ret()              // [116] return buf
+    c = c + e_movr(0, 10) + e_movr(30, 26) + e_ret()              // [128] .rets: return s
     emit c
 }
 // kr_plus(a=x0, b=x1) -> x0. Polymorphic +: both ints -> a+b; else convert each
@@ -360,6 +396,8 @@ func opSize(ln) {
         if startsWith(b, "max") { emit 32 }
         if startsWith(b, "hex") { emit 20 }   // pop0 + bl kr_hex + push
         if startsWith(b, "bin") { emit 20 }   // pop0 + bl kr_bin + push
+        if startsWith(b, "padLeft")  { emit 36 }  // pop x2/x1/x0 + bl + push
+        if startsWith(b, "padRight") { emit 36 }
         emit 0
     }
     emit 0
@@ -388,7 +426,9 @@ just run {
     let substrOff = atoiOff + 44
     let hexOff = substrOff + 68    // substr is 68 bytes
     let binOff = hexOff + 144      // kr_hex is 144 bytes
-    let nlOff = binOff + 128       // kr_bin is 128 bytes
+    let padleftOff = binOff + 128  // kr_bin is 128 bytes
+    let padrightOff = padleftOff + 136  // kr_padleft is 136 bytes
+    let nlOff = padrightOff + 140  // kr_padright is 140 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -495,6 +535,9 @@ just run {
             // hex/bin(n) -> string (kr_hex/kr_bin). 20 bytes.
             if startsWith(b, "hex") { code = code + c_pop0() + e_bl(hexOff - (off + 8)) + c_push()  off = off + 20 }
             if startsWith(b, "bin") { code = code + c_pop0() + e_bl(binOff - (off + 8)) + c_push()  off = off + 20 }
+            // padLeft/padRight(s, width, pad): pop pad->x2, width->x1, s->x0; bl; push. 36 bytes.
+            if startsWith(b, "padLeft") { code = code + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_bl(padleftOff - (off + 24)) + c_push()  off = off + 36 }
+            if startsWith(b, "padRight") { code = code + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_bl(padrightOff - (off + 24)) + c_push()  off = off + 36 }
             if startsWith(b, "kp") {
                 let kc = sbNew()
                 kc = sbAppend(kc, c_pop0())                         // pop arg -> x0
@@ -596,6 +639,8 @@ just run {
     bb = sbAppend(bb, emitSubstr(allocOff, substrOff))
     bb = sbAppend(bb, emitHex(allocOff, hexOff))
     bb = sbAppend(bb, emitBin(allocOff, binOff))
+    bb = sbAppend(bb, emitPadLeft(allocOff, padleftOff))
+    bb = sbAppend(bb, emitPadRight(allocOff, padrightOff))
     bb = sbAppend(bb, "")     // guard: the x86 backend drops the LAST sbAppend here
     let body = sbToString(bb)
 

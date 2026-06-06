@@ -130,9 +130,15 @@ EMITS aarch64 (`compiler/linux_arm64/elf_host`), run under qemu-aarch64-static.
       dispatch. GOTCHA: e_subi is SUB (no flags) — the a-f fixup needed an explicit
       e_cmpi0 before e_blt (stale-flags bug printed digits 0-9 as W/X). Validated
       hex(255)=ff hex(16)=10 hex(4096)=1000; bin(255)=11111111; hex in concat.
-- aarch64 still lacks padLeft/padRight + most other builtins (young backend: only
-      kp/len before this session). Native aarch64-HOST (driver+host running ON
-      arm64) is unbuilt — cross-from-x86 is the supported path.
+- [x] **padLeft/padRight** ported to arm64 (follow-up commit). emitPadLeft(136B)/
+      emitPadRight(140B): inline strlen + alloc(width+1) + fill/copy loops; width<=len
+      returns s. 3-arg dispatch pops pad->x2/width->x1/s->x0 (substring template).
+      New e_ble encoder. Validated 00007/...hi/70000/hi.../passthru/empty-pad/concat.
+- **arm64 now has full scalar-builtin parity with x86**: min/max, bitwise (6),
+      hex/bin, padLeft/padRight, + signed negatives. Remaining arm64 gaps are the
+      same lower-priority ones as x86 (struct get/set, buffer ops, ptr/raw FFI) plus
+      arm64-specific: native aarch64-HOST (driver+host running ON arm64) is unbuilt —
+      cross-from-x86 is the supported path; and kr_atoi is non-negative-only.
 
 Recipe lesson learned: the consistency check must include a **name-collision grep**,
 not just an occurrence count — a reused `let krXxSz` silently shadows another size.
