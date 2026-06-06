@@ -549,7 +549,11 @@ just run {
             exit("0")
         }
         // default: compile src [-o OUT].
-        let src = positional(0)
+        // Use linuxSrc() (flag-tolerant; skips leading --native, --help,
+        // etc.) instead of positional(0). build.sh invokes us with
+        // `--native <src> -o <out>`; positional(0) returned "--native"
+        // and produced "no source file". Same bug as macOS hit (M2W 6626).
+        let src = linuxSrc()
         if src == "" { kp("kcc: no source file")  exit("1") }
         let out = optValue("-o", baseName(src) + ".exe")
         exec(kccExe + " -o " + out + " " + src)
