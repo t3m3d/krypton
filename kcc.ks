@@ -72,6 +72,50 @@ func _winExists(p) {
     emit "0"
 }
 
+// Krypton's arg parser on Windows ALSO splits on spaces inside a
+// quoted string ("kp(\"hi there\")" → ["kp(\"hi, there\")"]). For
+// kcc -e, everything after the flag is one code expression, so re-
+// glue arg(idx)..arg(argCount-1) with spaces to undo the split.
+func _winJoinFrom(idx) {
+    let out = ""
+    let i = idx
+    while i < argCount() {
+        if i > idx { out = out + " " }
+        out = out + arg(i)
+        i = i + 1
+    }
+    emit out
+}
+
+// Krypton's arg parser on Windows preserves MSVC-CRT-style escapes
+// verbatim. `kcc -e 'kp("hi")'` reaches us as `arg(1) == "\"kp(\\\"hi\\\")\""`
+// (the literal text including outer quotes and backslash-escapes). Undo it:
+// strip a leading + trailing `"` and turn `\"` into `"`, `\\` into `\`.
+func _winUnquote(s) {
+    let n = len(s)
+    let lo = 0
+    let hi = n
+    if n >= 2 {
+        if s[0] == "\"" {
+            if s[n - 1] == "\"" { lo = 1  hi = n - 1 }
+        }
+    }
+    let out = ""
+    let i = lo
+    while i < hi {
+        let c = s[i]
+        if c == "\\" {
+            if i + 1 < hi {
+                let nx = s[i + 1]
+                if nx == "\"" { out = out + "\""  i += 2 } else {
+                    if nx == "\\" { out = out + "\\"  i += 2 } else { out = out + c  i += 1 }
+                }
+            } else { out = out + c  i += 1 }
+        } else { out = out + c  i += 1 }
+    }
+    emit out
+}
+
 func findRoot() {
     // Windows branch first — POSIX `env`/`home` from k:env/k:fsx shell
     // out to `printenv`/`$HOME` which don't work under cmd.exe.
@@ -473,11 +517,13 @@ just run {
         if first == "-e" {
             if argCount() < 2 { kp("kcc: -e needs code")  exit("1") }
             let tick = _chompWS(exec("echo %TIME%"))
-            // Strip ':' and '.' so the tick is filename-safe.
-            let safe = replace(replace(tick, ":", ""), ".", "")
+            // Strip ':' '.' AND ' ' — %TIME% returns " H:MM:SS.MS" with a
+            // leading space for single-digit hours, which would otherwise
+            // split the temp path on cmd.exe.
+            let safe = replace(replace(replace(tick, ":", ""), ".", ""), " ", "")
             let ek = winTemp + "/_kcceval_" + safe + ".ks"
             let ebin = winTemp + "/_kcceval_" + safe + ".exe"
-            writeText(ek, "just run {\n" + arg(1) + "\n}\n")
+            writeText(ek, "just run {\n" + _winUnquote(_winJoinFrom(1)) + "\n}\n")
             exec(kccExe + " -o " + ebin + " " + ek)
             if _winExists(ebin) == "0" {
                 exec("del /q " + replace(ek, "/", "\\"))
@@ -493,7 +539,7 @@ just run {
             if argCount() < 2 { kp("kcc: -r needs a source file")  exit("1") }
             let src = arg(1)
             let tick = _chompWS(exec("echo %TIME%"))
-            let safe = replace(replace(tick, ":", ""), ".", "")
+            let safe = replace(replace(replace(tick, ":", ""), ".", ""), " ", "")
             let tmpbin = winTemp + "/_kcckrun_" + safe + ".exe"
             exec(kccExe + " -o " + tmpbin + " " + src)
             if _winExists(tmpbin) == "0" { exit("1") }
