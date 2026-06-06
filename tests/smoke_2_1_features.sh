@@ -12,7 +12,16 @@
 set -u
 
 REPO="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-KCC="$REPO/kcc.sh"
+# kcc.sh was removed (0c0dc57b); the driver is the compiled kcc.ks binary seed.
+# Prefer the committed repo seed (tests THIS tree), else fall back to `kcc` on PATH.
+case "$(uname -s 2>/dev/null)" in
+    Darwin*) KCC="$REPO/bootstrap/kcc_driver_macos_aarch64" ;;
+    *)       KCC="$REPO/bootstrap/kcc_driver_linux_x86_64" ;;
+esac
+if [[ ! -x "$KCC" ]]; then
+    if command -v kcc >/dev/null 2>&1; then KCC="$(command -v kcc)"
+    else echo "smoke: no kcc driver seed and no kcc on PATH" >&2; exit 1; fi
+fi
 PASS=0
 FAIL=0
 FAILED=()
@@ -38,11 +47,11 @@ bad() {
 # 1. kcc -e one-liner
 echo "[1/6] kcc -e one-liner"
 step "kp + arithmetic"
-out="$(bash "$KCC" -e 'kp("sum=" + (1+2+3))' 2>&1)"
+out="$("$KCC" -e 'kp("sum=" + (1+2+3))' 2>&1)"
 if [[ "$out" == "sum=6" ]]; then ok; else bad "kcc -e" "got: $out"; fi
 
 step "multi-statement"
-out="$(bash "$KCC" -e 'let n = 0; let i = 1; while i <= 5 { n = n + i; i = i + 1 }; kp(n + "")' 2>&1)"
+out="$("$KCC" -e 'let n = 0; let i = 1; while i <= 5 { n = n + i; i = i + 1 }; kp(n + "")' 2>&1)"
 if [[ "$out" == "15" ]]; then ok; else bad "kcc -e multi" "got: $out"; fi
 
 # 2. kcc -r run + arg passthrough
@@ -56,11 +65,11 @@ just run {
 }
 KEOF
 step "shebang ignored + no args"
-out="$(bash "$KCC" -r "$tmpk" 2>&1)"
+out="$("$KCC" -r "$tmpk" 2>&1)"
 if [[ "$out" == "argc=0" ]]; then ok; else bad "kcc -r no-args" "got: $out"; fi
 
 step "args passed through"
-out="$(bash "$KCC" -r "$tmpk" hello 2>&1)"
+out="$("$KCC" -r "$tmpk" hello 2>&1)"
 expected="argc=1
 a0=hello"
 if [[ "$out" == "$expected" ]]; then ok; else bad "kcc -r args" "got: $out"; fi
@@ -69,13 +78,13 @@ rm -f "$tmpk"
 # 3. fs ops round-trip
 echo "[3/6] fs ops (mkdir/copy/rename/delete/rmdir/env paths)"
 step "round-trip"
-out="$(bash "$KCC" -r "$REPO/tests/test_fs_extended.k" 2>&1)"
+out="$("$KCC" -r "$REPO/tests/test_fs_extended.k" 2>&1)"
 if [[ "$out" == "ok" ]]; then ok; else bad "fs round-trip" "got: $out"; fi
 
 # 4. shellRun real exit code
 echo "[4/6] shellRun exit code"
 step "exit 0 / 7 / 42 round-trip"
-out="$(bash "$KCC" -r "$REPO/tests/test_shellrun_exit.k" 2>&1)"
+out="$("$KCC" -r "$REPO/tests/test_shellrun_exit.k" 2>&1)"
 expected="ok: 0
 err: 7
 err2: 42"
@@ -87,18 +96,18 @@ if ! command -v curl >/dev/null 2>&1; then
     echo "  curl not on PATH — skipping http tests"
 else
     step "GET status code"
-    out="$(bash "$KCC" -e 'import "k:http"; kp(httpStatus("https://httpbin.org/get"))' 2>&1)"
+    out="$("$KCC" -e 'import "k:http"; kp(httpStatus("https://httpbin.org/get"))' 2>&1)"
     if [[ "$out" == "200" ]]; then ok; else bad "httpStatus" "got: $out"; fi
 
     step "POST JSON"
-    out="$(bash "$KCC" -e 'import "k:http"; let r = httpPost("https://httpbin.org/post", "{\"x\":1}", "application/json"); kp(contains(r, "Content-Length") + "")' 2>&1)"
+    out="$("$KCC" -e 'import "k:http"; let r = httpPost("https://httpbin.org/post", "{\"x\":1}", "application/json"); kp(contains(r, "Content-Length") + "")' 2>&1)"
     if [[ "$out" == "1" ]]; then ok; else bad "httpPost" "got: $out"; fi
 fi
 
 # 6. settings — JSON load/save + tool resolution
 echo "[6/6] settings (JSON config + findTool)"
 step "round-trip"
-out="$(bash "$KCC" -r "$REPO/tests/test_settings.k" 2>&1)"
+out="$("$KCC" -r "$REPO/tests/test_settings.k" 2>&1)"
 if [[ "$out" == "ok" ]]; then ok; else bad "settings" "got: $out"; fi
 
 # Summary

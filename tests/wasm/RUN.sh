@@ -23,16 +23,21 @@ WORK="$REPO/tests/wasm/.work"           # repo-relative: avoids git-bash /tmp pa
 mkdir -p "$WORK"
 
 # ── locate kcc driver ────────────────────────────────────────────────
-# Prefer the repo driver (kcc.sh): it implements -r / --ir / -e. A bare `kcc`
-# on PATH may be only the front-end (e.g. the Windows install at /c/krypton/kcc),
-# which understands --ir but NOT -r run-mode — that silently yields empty
-# reference output and mis-grades every lesson.
-if [[ -f "$REPO/kcc.sh" ]]; then
-  KCC() { bash "$REPO/kcc.sh" "$@"; }
+# Prefer the committed repo driver seed (compiled kcc.ks; kcc.sh was removed in
+# 0c0dc57b): it implements -r / --ir / -e. A bare `kcc` on PATH may be only the
+# front-end (e.g. the Windows install at /c/krypton/kcc), which understands --ir
+# but NOT -r run-mode — that silently yields empty reference output and mis-grades
+# every lesson, so the full driver seed is preferred.
+case "$(uname -s 2>/dev/null)" in
+  Darwin*) _DRV="$REPO/bootstrap/kcc_driver_macos_aarch64" ;;
+  *)       _DRV="$REPO/bootstrap/kcc_driver_linux_x86_64" ;;
+esac
+if [[ -x "$_DRV" ]]; then
+  KCC() { "$_DRV" "$@"; }
 elif command -v kcc >/dev/null 2>&1; then
   KCC() { kcc "$@"; }
 else
-  echo "RUN.sh: no $REPO/kcc.sh and no kcc on PATH" >&2; exit 1
+  echo "RUN.sh: no driver seed ($_DRV) and no kcc on PATH" >&2; exit 1
 fi
 
 # ── locate Agent A's emitter binary ──────────────────────────────────
