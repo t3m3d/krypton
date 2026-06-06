@@ -25,7 +25,8 @@ is NOT sustainable — at some point padding won't keep up.
   the elf_host at 40007 — i.e. clean → crash with NO silent-truncation zone in
   between. So the silent drop is definitively not op count, and arm64 is 8x below
   even the crash cliff. (That ~40k-op compile crash is a separate, harder bug.)
-- **Not total binary size.** A 178KB output (50 bloat funcs) is fine.
+- **Not total binary size.** A 178KB output (50 funcs) is fine; even a **1 MB
+  output with 300 funcs** keeps all 8 trailing markers. Size is firmly NOT it.
 - **Not helper-fn count / sbAppend-chain shape.** 120 funcs + 80 appends + tails
   = all tails survive (`/tmp/mir_120_80.k`).
 - **Not string-literal count.** 2007 literals fine (arm64 has 273).
