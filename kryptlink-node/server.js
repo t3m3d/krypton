@@ -88,6 +88,10 @@ const linkCols = db.prepare("PRAGMA table_info(links)").all();
 if (!linkCols.some((c) => c.name === "user_id")) {
   db.exec(`ALTER TABLE links ADD COLUMN user_id INTEGER REFERENCES users(id)`);
 }
+const userCols = db.prepare("PRAGMA table_info(users)").all();
+if (!userCols.some((c) => c.name === "disabled")) {
+  db.exec(`ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0`);
+}
 // Bootstrap admin if no admin user exists.
 const anyAdmin = db.prepare("SELECT id FROM users WHERE is_admin = 1 LIMIT 1").get();
 if (!anyAdmin) {
@@ -108,8 +112,14 @@ const stmtInsertClick     = db.prepare("INSERT INTO clicks(code, clicked_at, ip,
 const stmtClicksByCode    = db.prepare("SELECT * FROM clicks WHERE code = ? ORDER BY clicked_at DESC LIMIT ?");
 const stmtCountClicksCode = db.prepare("SELECT COUNT(*) AS n FROM clicks WHERE code = ?");
 const stmtUserByName      = db.prepare("SELECT * FROM users WHERE username = ?");
-const stmtAllUsers        = db.prepare("SELECT id, username, is_admin, created_at FROM users ORDER BY created_at ASC");
+const stmtUserById        = db.prepare("SELECT * FROM users WHERE id = ?");
+const stmtAllUsers        = db.prepare("SELECT id, username, is_admin, disabled, created_at FROM users ORDER BY created_at ASC");
 const stmtInsertUser      = db.prepare("INSERT INTO users(username, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?)");
+const stmtUpdateUserPw    = db.prepare("UPDATE users SET password_hash = ? WHERE id = ?");
+const stmtToggleUserDis   = db.prepare("UPDATE users SET disabled = ? WHERE id = ?");
+const stmtDeleteUser      = db.prepare("DELETE FROM users WHERE id = ?");
+const stmtClearUserLinks  = db.prepare("UPDATE links SET user_id = NULL WHERE user_id = ?");
+const stmtCountUserLinks  = db.prepare("SELECT COUNT(*) AS n FROM links WHERE user_id = ?");
 
 // ── Codes ────────────────────────────────────────────────────────────
 const CODE_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -129,6 +139,49 @@ function genUniqueCode() {
     if (!stmtLinkByCode.get(c)) return c;
   }
   throw new Error("couldn't allocate a unique code in 8 tries");
+}
+
+// ── Rate limiting ────────────────────────────────────────────────────
+// Simple in-memory sliding-window buckets. State is per-process; OK for
+// a single-instance deploy. For multi-instance scale this should move
+// to SQLite or Redis. Each bucket: key → [{ ts: ms }] list (timestamps
+// of recent hits). On each check we prune entries older than the
+// window and compare count to the limit.
+const _buckets = new Map();
+function rateLimit(key, windowMs, max) {
+  const now = Date.now();
+  let arr = _buckets.get(key);
+  if (!arr) { arr = []; _buckets.set(key, arr); }
+  // Prune old
+  while (arr.length && arr[0] < now - windowMs) arr.shift();
+  if (arr.length >= max) return false;
+  arr.push(now);
+  return true;
+}
+// Best-effort GC so the Map doesn't grow without bound.
+setInterval(() => {
+  const cutoff = Date.now() - 24 * 3600 * 1000;
+  for (const [k, arr] of _buckets) {
+    while (arr.length && arr[0] < cutoff) arr.shift();
+    if (arr.length === 0) _buckets.delete(k);
+  }
+}, 60 * 60 * 1000).unref();
+
+// ── CSRF tokens ──────────────────────────────────────────────────────
+// Stateless: token = HMAC(username|csrf-namespace, secret), truncated.
+// Same-per-user (no rotation), good enough for the threat model — an
+// attacker forging a cross-site POST can't read the user's cookie or
+// guess the secret. Included as a hidden field in every authed POST
+// form; the verifyCSRF middleware rejects mismatches.
+function csrfTokenFor(user) {
+  return createHmac("sha256", SESSION_SECRET).update(user.username + "|csrf").digest("hex").slice(0, 32);
+}
+function verifyCSRF(req, user) {
+  if (!user) return false;
+  const sent = req.body && req.body._csrf;
+  const expected = csrfTokenFor(user);
+  if (!sent || sent.length !== expected.length) return false;
+  return timingSafeEqual(Buffer.from(sent), Buffer.from(expected));
 }
 
 // ── Session cookie (HMAC-signed username) ────────────────────────────
@@ -155,7 +208,9 @@ function verifyToken(token) {
 function getUser(req) {
   const username = verifyToken(req.cookies[SESSION_COOKIE]);
   if (!username) return null;
-  return stmtUserByName.get(username) || null;
+  const u = stmtUserByName.get(username);
+  if (!u || u.disabled) return null;
+  return u;
 }
 
 // ── Express setup ────────────────────────────────────────────────────
@@ -268,25 +323,60 @@ function pageAdminBody(user, msg) {
         <td>${date}</td>
       </tr>`;
     }).join("");
+    const csrf = csrfTokenFor(user);
+    const adminUsers = stmtAllUsers.all();
+    const adminUserRows = adminUsers.map((u) => {
+      if (u.id === user.id) return ""; // skip self — managed in own section
+      const linkCount = stmtCountUserLinks.get(u.id).n;
+      const date = new Date(u.created_at * 1000).toISOString().slice(0, 10);
+      return `<tr>
+        <td>${escapeHtml(u.username)} ${u.is_admin ? '<span class="pill">admin</span>' : ""} ${u.disabled ? '<span class="pill" style="background:#a44">disabled</span>' : ""}</td>
+        <td>${date}</td>
+        <td>${linkCount}</td>
+        <td>
+          <form method="POST" action="/users/toggle" style="display:inline;margin:0">
+            <input type="hidden" name="_csrf" value="${csrf}">
+            <input type="hidden" name="user_id" value="${u.id}">
+            <button type="submit" class="copy-btn">${u.disabled ? "enable" : "disable"}</button>
+          </form>
+          <form method="POST" action="/users/delete" style="display:inline;margin:0" onsubmit="return confirm('Delete ${escapeHtml(u.username)}? Their links will be kept but un-owned.')">
+            <input type="hidden" name="_csrf" value="${csrf}">
+            <input type="hidden" name="user_id" value="${u.id}">
+            <button type="submit" class="copy-btn" style="border-color:#a44;color:#ff8585">delete</button>
+          </form>
+        </td>
+      </tr>`;
+    }).join("");
     usersSection = `
       <h2>Users</h2>
       <table>
-        <tr><th>Username</th><th>Created</th></tr>
-        ${uRows}
+        <tr><th>User</th><th>Joined</th><th>Links</th><th></th></tr>
+        ${adminUserRows || `<tr><td colspan="4" class="muted">no other users yet</td></tr>`}
       </table>
-      <form method="POST" action="/users/create" class="pageform" style="margin-top:1em">
+      <h3 style="margin-top:1.5em;font-size:1em;color:var(--accent)">Create user</h3>
+      <form method="POST" action="/users/create" class="pageform">
+        <input type="hidden" name="_csrf" value="${csrf}">
         <label>New username <input type="text" name="username" pattern="[A-Za-z0-9_-]{2,32}" required></label>
         <label>Password <input type="password" name="password" minlength="8" required></label>
         <label><input type="checkbox" name="is_admin" value="1"> grant admin</label>
         <button type="submit">Create user</button>
+      </form>
+      <h3 style="margin-top:1.5em;font-size:1em;color:var(--accent)">Reset another user's password</h3>
+      <form method="POST" action="/users/reset_password" class="pageform">
+        <input type="hidden" name="_csrf" value="${csrf}">
+        <label>Username <input type="text" name="username" pattern="[A-Za-z0-9_-]{2,32}" required></label>
+        <label>New password <input type="password" name="password" minlength="8" required></label>
+        <button type="submit">Reset password</button>
       </form>`;
   }
 
+  const csrf = csrfTokenFor(user);
   return `
-    <h1>Admin <span class="userbadge">${escapeHtml(user.username)}${user.is_admin ? " · admin" : ""}</span></h1>
+    <h1>${user.is_admin ? "Admin" : "Dashboard"} <span class="userbadge">${escapeHtml(user.username)}${user.is_admin ? " · admin" : ""}</span></h1>
     ${msg ? `<div>${msg}</div>` : ""}
     <h2>Shorten a URL</h2>
     <form method="POST" action="/create" class="pageform">
+      <input type="hidden" name="_csrf" value="${csrf}">
       <label>URL <input type="url" name="url" placeholder="https://example.com/long/path" required></label>
       <label>Custom code (optional) <input type="text" name="code" placeholder="launch" pattern="[A-Za-z0-9_\\-]{1,32}"></label>
       <label>Note (optional) <input type="text" name="note" placeholder="Q4 launch announcement"></label>
@@ -298,7 +388,15 @@ function pageAdminBody(user, msg) {
       ${linkRows}
     </table>
     ${usersSection}
+    <h2>Your account</h2>
+    <form method="POST" action="/password" class="pageform">
+      <input type="hidden" name="_csrf" value="${csrf}">
+      <label>Current password <input type="password" name="current" required></label>
+      <label>New password (min 8 chars) <input type="password" name="next" minlength="8" required></label>
+      <button type="submit">Change password</button>
+    </form>
     <form method="POST" action="/logout" class="logout-form">
+      <input type="hidden" name="_csrf" value="${csrf}">
       <button type="submit">Log out</button>
     </form>`;
 }
@@ -387,15 +485,23 @@ app.get(["/", "/index.html"], (req, res) => {
   res.send(renderShell(landingBody()));
 });
 
-// Auth — username + password
+// Auth — username + password (rate-limited by IP and by username)
 app.post("/login", (req, res) => {
+  const ip = req.ip || "?";
   const username = (req.body.username || "").trim();
   const password = req.body.password || "";
+  // 10 attempts / 15 min / IP and 10 attempts / 15 min / username.
+  // Either bucket overflowing throttles. Failures and successes both
+  // count — so a stolen password still has a quota.
+  if (!rateLimit(`login:ip:${ip}`, 15 * 60 * 1000, 10) ||
+      !rateLimit(`login:user:${username}`, 15 * 60 * 1000, 10)) {
+    return res.status(429).redirect("/?err=throttled");
+  }
   if (!username || !password) {
     return res.status(400).redirect("/?err=missing");
   }
   const user = stmtUserByName.get(username);
-  if (!user || !verifyPassword(password, user.password_hash)) {
+  if (!user || user.disabled || !verifyPassword(password, user.password_hash)) {
     return res.status(401).redirect("/?err=bad");
   }
   res.cookie(SESSION_COOKIE, signToken(username), {
@@ -408,6 +514,8 @@ app.post("/login", (req, res) => {
 });
 
 app.post("/logout", (req, res) => {
+  // CSRF not strictly required for logout (no harmful side effect),
+  // but the form embeds it anyway and we don't reject if absent.
   res.clearCookie(SESSION_COOKIE);
   res.redirect("/");
 });
@@ -422,6 +530,11 @@ app.get("/admin", (req, res) => {
 app.post("/create", (req, res) => {
   const user = getUser(req);
   if (!user) return res.status(401).redirect("/");
+  if (!verifyCSRF(req, user)) return res.status(403).send(renderShell(`<h1>403</h1><p>CSRF check failed. <a href="/admin">back</a></p>`));
+  // Rate limit: 30 creates per 5 minutes per user.
+  if (!rateLimit(`create:${user.id}`, 5 * 60 * 1000, 30)) {
+    return res.status(429).send(renderShell(pageAdminBody(user, '<span class="bad">slow down — too many creates in the last 5 min</span>')));
+  }
   const url = (req.body.url || "").trim();
   let code = (req.body.code || "").trim();
   const note = (req.body.note || "").trim();
@@ -460,6 +573,7 @@ app.post("/users/create", (req, res) => {
   const user = getUser(req);
   if (!user) return res.status(401).redirect("/");
   if (!user.is_admin) return res.status(403).send(renderShell(pageAdminBody(user, '<span class="bad">admin only</span>')));
+  if (!verifyCSRF(req, user)) return res.status(403).send(renderShell(`<h1>403</h1><p>CSRF check failed. <a href="/admin">back</a></p>`));
   const newName = (req.body.username || "").trim();
   const newPw = req.body.password || "";
   const grantAdmin = req.body.is_admin === "1" ? 1 : 0;
@@ -476,12 +590,75 @@ app.post("/users/create", (req, res) => {
   res.send(renderShell(pageAdminBody(user, `Created user <code>${escapeHtml(newName)}</code>${grantAdmin ? " (admin)" : ""}`)));
 });
 
+// Self-service: change your own password.
+app.post("/password", (req, res) => {
+  const user = getUser(req);
+  if (!user) return res.status(401).redirect("/");
+  if (!verifyCSRF(req, user)) return res.status(403).send(renderShell(`<h1>403</h1><p>CSRF check failed.</p>`));
+  const current = req.body.current || "";
+  const next = req.body.next || "";
+  if (!verifyPassword(current, user.password_hash)) {
+    return res.status(401).send(renderShell(pageAdminBody(user, '<span class="bad">current password is wrong</span>')));
+  }
+  if (next.length < 8) {
+    return res.status(400).send(renderShell(pageAdminBody(user, '<span class="bad">new password must be at least 8 chars</span>')));
+  }
+  stmtUpdateUserPw.run(hashPassword(next), user.id);
+  res.send(renderShell(pageAdminBody(user, '<span class="ok">password updated</span>')));
+});
+
+// ADMIN ONLY: toggle disable state for another user.
+app.post("/users/toggle", (req, res) => {
+  const actor = getUser(req);
+  if (!actor) return res.status(401).redirect("/");
+  if (!actor.is_admin) return res.status(403).send(renderShell(`<h1>403</h1>`));
+  if (!verifyCSRF(req, actor)) return res.status(403).send(renderShell(`<h1>403</h1><p>CSRF check failed.</p>`));
+  const target = stmtUserById.get(Number(req.body.user_id));
+  if (!target) return res.status(404).send(renderShell(pageAdminBody(actor, '<span class="bad">user not found</span>')));
+  if (target.id === actor.id) return res.status(400).send(renderShell(pageAdminBody(actor, '<span class="bad">cannot disable yourself</span>')));
+  stmtToggleUserDis.run(target.disabled ? 0 : 1, target.id);
+  res.send(renderShell(pageAdminBody(actor, `<span class="ok">user <code>${escapeHtml(target.username)}</code> ${target.disabled ? "enabled" : "disabled"}</span>`)));
+});
+
+// ADMIN ONLY: delete a user. Links they own become orphaned (user_id = NULL).
+app.post("/users/delete", (req, res) => {
+  const actor = getUser(req);
+  if (!actor) return res.status(401).redirect("/");
+  if (!actor.is_admin) return res.status(403).send(renderShell(`<h1>403</h1>`));
+  if (!verifyCSRF(req, actor)) return res.status(403).send(renderShell(`<h1>403</h1><p>CSRF check failed.</p>`));
+  const target = stmtUserById.get(Number(req.body.user_id));
+  if (!target) return res.status(404).send(renderShell(pageAdminBody(actor, '<span class="bad">user not found</span>')));
+  if (target.id === actor.id) return res.status(400).send(renderShell(pageAdminBody(actor, '<span class="bad">cannot delete yourself</span>')));
+  if (target.is_admin) return res.status(400).send(renderShell(pageAdminBody(actor, '<span class="bad">cannot delete an admin from the UI (demote first via SQL)</span>')));
+  stmtClearUserLinks.run(target.id);
+  stmtDeleteUser.run(target.id);
+  res.send(renderShell(pageAdminBody(actor, `<span class="ok">user <code>${escapeHtml(target.username)}</code> deleted; their links are now un-owned</span>`)));
+});
+
+// ADMIN ONLY: reset another user's password.
+app.post("/users/reset_password", (req, res) => {
+  const actor = getUser(req);
+  if (!actor) return res.status(401).redirect("/");
+  if (!actor.is_admin) return res.status(403).send(renderShell(`<h1>403</h1>`));
+  if (!verifyCSRF(req, actor)) return res.status(403).send(renderShell(`<h1>403</h1><p>CSRF check failed.</p>`));
+  const target = stmtUserByName.get((req.body.username || "").trim());
+  if (!target) return res.status(404).send(renderShell(pageAdminBody(actor, '<span class="bad">user not found</span>')));
+  const newPw = req.body.password || "";
+  if (newPw.length < 8) return res.status(400).send(renderShell(pageAdminBody(actor, '<span class="bad">password must be at least 8 chars</span>')));
+  stmtUpdateUserPw.run(hashPassword(newPw), target.id);
+  res.send(renderShell(pageAdminBody(actor, `<span class="ok">password reset for <code>${escapeHtml(target.username)}</code></span>`)));
+});
+
 app.get("/stats/:code", (req, res) => {
   const user = getUser(req);
   if (!user) return res.redirect("/");
   const body = pageStatsBody(user, req.params.code);
-  if (!body) return res.status(404).send(renderShell(`<h1>404 — link not found</h1><p><a href="/admin">back to admin</a></p>`));
-  if (body === "forbidden") return res.status(403).send(renderShell(`<h1>403 — that link isn't yours</h1><p><a href="/admin">back to admin</a></p>`));
+  // 404 in BOTH the "doesn't exist" and "exists but isn't yours" cases.
+  // Returning a distinct 403 would leak the existence of someone else's
+  // link to a probing user.
+  if (!body || body === "forbidden") {
+    return res.status(404).send(renderShell(`<h1>404 — link not found</h1><p><a href="/admin">back to admin</a></p>`));
+  }
   res.send(renderShell(body));
 });
 
