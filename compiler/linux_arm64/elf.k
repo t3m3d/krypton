@@ -76,6 +76,8 @@ func e_bhs(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 +
 func e_bge(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 10 emit wordHL(21504 + p / 65536, p % 65536) } // b.ge (signed >=, cond GE=10)
 func e_blt(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 11 emit wordHL(21504 + p / 65536, p % 65536) } // b.lt (signed <, cond LT=11)
 func e_ble(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 13 emit wordHL(21504 + p / 65536, p % 65536) } // b.le (signed <=, cond LE=13)
+func e_bne(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 1  emit wordHL(21504 + p / 65536, p % 65536) } // b.ne (cond NE=1)
+func e_bgt(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 12 emit wordHL(21504 + p / 65536, p % 65536) } // b.gt (signed >, cond GT=12)
 
 // composites
 func c_push() { emit e_subi(20, 20, 16) + e_str0(0, 20) }      // push x0
@@ -220,6 +222,48 @@ func emitReverse(allocOff, thisOff) {
     c = c + e_subr(5, 11, 3) + e_subi(5, 5, 1) + e_ldrbO(4, 10, 5)  // [52] x5=len-1-i; w4=s[x5]
     c = c + e_strbR(4, 14, 3) + e_addi(3, 3, 1) + e_b(0 - 28)       // [64] buf[i]=w4; i++; -> .cl (44)
     c = c + e_strbR(31, 14, 11) + e_movr(0, 14) + e_movr(30, 26) + e_ret()  // [76] .done
+    emit c
+}
+// kr_startswith(x1=s, x0=prefix) -> x0=1/0. 48 bytes. No alloc.
+func emitStartsWith() {
+    let c = e_movz(3, 0)                                            // [0] i=0
+    c = c + e_ldrbO(4, 0, 3) + e_cbz(4, 24)                         // [4] .cl: pc=prefix[i]; ==0 -> .yes (32)
+    c = c + e_ldrbO(5, 1, 3) + e_cmp(4, 5) + e_bne(20)              // [12] sc=s[i]; differ -> .no (40)
+    c = c + e_addi(3, 3, 1) + e_b(0 - 24)                           // [24] i++; -> .cl (4)
+    c = c + e_movz(0, 1) + e_ret()                                  // [32] .yes: x0=1
+    c = c + e_movz(0, 0) + e_ret()                                  // [40] .no: x0=0
+    emit c
+}
+// kr_endswith(x1=s, x0=suffix) -> x0=1/0. 104 bytes. Compares s tail.
+func emitEndsWith() {
+    let c = e_movz(6, 0)                                            // [0] slen=0
+    c = c + e_ldrbO(3, 1, 6) + e_cbz(3, 12) + e_addi(6, 6, 1) + e_b(0 - 12)  // [4] strlen(s)->x6
+    c = c + e_movz(7, 0)                                            // [20] suflen=0
+    c = c + e_ldrbO(3, 0, 7) + e_cbz(3, 12) + e_addi(7, 7, 1) + e_b(0 - 12)  // [24] strlen(suffix)->x7
+    c = c + e_cmp(7, 6) + e_bgt(52)                                 // [40] suflen>slen -> .no (96)
+    c = c + e_subr(8, 6, 7) + e_movz(3, 0)                          // [48] start=slen-suflen; i=0
+    c = c + e_ldrbO(4, 0, 3) + e_cbz(4, 28)                         // [56] .cl: suf[i]; ==0 -> .yes (88)
+    c = c + e_addr(5, 8, 3) + e_ldrbO(9, 1, 5) + e_cmp(4, 9) + e_bne(20)  // [64] s[start+i]; differ -> .no (96)
+    c = c + e_addi(3, 3, 1) + e_b(0 - 28)                           // [80] i++; -> .cl (56)
+    c = c + e_movz(0, 1) + e_ret()                                  // [88] .yes
+    c = c + e_movz(0, 0) + e_ret()                                  // [96] .no
+    emit c
+}
+// kr_repeat(x1=s, x0=n) -> new heap string s repeated n times. 120 bytes.
+// x10=s x11=n x6=slen x14=buf x12=k. Uses MUL for total length.
+func emitRepeat(allocOff, thisOff) {
+    let c = e_movr(26, 30) + e_movr(10, 1) + e_movr(11, 0)          // [0] lr; x10=s; x11=n
+    c = c + e_movz(6, 0)                                            // [12] slen=0
+    c = c + e_ldrbO(3, 10, 6) + e_cbz(3, 12) + e_addi(6, 6, 1) + e_b(0 - 12)  // [16] strlen(s)->x6
+    c = c + e_mul(0, 6, 11) + e_addi(0, 0, 1)                       // [32] x0 = slen*n + 1
+    c = c + e_bl(allocOff - (thisOff + 40))                         // [40] x0=buf
+    c = c + e_movr(14, 0) + e_movr(1, 0) + e_movz(12, 0)            // [44] x14=buf; x1=cursor; k=0
+    c = c + e_cmp(12, 11) + e_bge(44)                               // [56] .outer: k>=n -> .term (104)
+    c = c + e_movz(3, 0)                                            // [64] j=0
+    c = c + e_cmp(3, 6) + e_bge(24)                                 // [68] .inner: j>=slen -> .nextk (96)
+    c = c + e_ldrbO(4, 10, 3) + e_strb(4, 1) + e_addi(1, 1, 1) + e_addi(3, 3, 1) + e_b(0 - 24)  // [76] copy s[j]
+    c = c + e_addi(12, 12, 1) + e_b(0 - 44)                         // [96] .nextk: k++; -> .outer (56)
+    c = c + e_strb(31, 1) + e_movr(0, 14) + e_movr(30, 26) + e_ret()  // [104] .term: *x1=0; return buf
     emit c
 }
 // kr_plus(a=x0, b=x1) -> x0. Polymorphic +: both ints -> a+b; else convert each
@@ -444,6 +488,9 @@ func opSize(ln) {
         if startsWith(b, "toUpper") { emit 20 }   // pop0 + bl + push
         if startsWith(b, "toLower") { emit 20 }
         if startsWith(b, "reverse") { emit 20 }
+        if startsWith(b, "startsWith") { emit 28 }  // pop0+pop1 + bl + push
+        if startsWith(b, "endsWith")   { emit 28 }
+        if startsWith(b, "repeat")     { emit 28 }
         emit 0
     }
     emit 0
@@ -477,7 +524,10 @@ just run {
     let toupperOff = padrightOff + 140  // kr_padright is 140 bytes
     let tolowerOff = toupperOff + 112   // kr_toupper is 112 bytes
     let reverseOff = tolowerOff + 112   // kr_tolower is 112 bytes
-    let nlOff = reverseOff + 92          // kr_reverse is 92 bytes
+    let startswithOff = reverseOff + 92 // kr_reverse is 92 bytes
+    let endswithOff = startswithOff + 48  // kr_startswith is 48 bytes
+    let repeatOff = endswithOff + 104   // kr_endswith is 104 bytes
+    let nlOff = repeatOff + 120          // kr_repeat is 120 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -591,6 +641,10 @@ just run {
             if startsWith(b, "toUpper") { code = code + c_pop0() + e_bl(toupperOff - (off + 8)) + c_push()  off = off + 20 }
             if startsWith(b, "toLower") { code = code + c_pop0() + e_bl(tolowerOff - (off + 8)) + c_push()  off = off + 20 }
             if startsWith(b, "reverse") { code = code + c_pop0() + e_bl(reverseOff - (off + 8)) + c_push()  off = off + 20 }
+            // 2-arg string builtins: pop0->x0 (2nd arg), pop1->x1 (1st arg); bl; push. 28 bytes.
+            if startsWith(b, "startsWith") { code = code + c_pop0() + c_pop1() + e_bl(startswithOff - (off + 16)) + c_push()  off = off + 28 }
+            if startsWith(b, "endsWith")   { code = code + c_pop0() + c_pop1() + e_bl(endswithOff - (off + 16)) + c_push()  off = off + 28 }
+            if startsWith(b, "repeat")     { code = code + c_pop0() + c_pop1() + e_bl(repeatOff - (off + 16)) + c_push()  off = off + 28 }
             if startsWith(b, "kp") {
                 let kc = sbNew()
                 kc = sbAppend(kc, c_pop0())                         // pop arg -> x0
@@ -697,6 +751,9 @@ just run {
     bb = sbAppend(bb, emitToUpper(allocOff, toupperOff))
     bb = sbAppend(bb, emitToLower(allocOff, tolowerOff))
     bb = sbAppend(bb, emitReverse(allocOff, reverseOff))
+    bb = sbAppend(bb, emitStartsWith())
+    bb = sbAppend(bb, emitEndsWith())
+    bb = sbAppend(bb, emitRepeat(allocOff, repeatOff))
     bb = sbAppend(bb, "")     // guard: the x86 backend drops the LAST sbAppend here
     let body = sbToString(bb)
 
