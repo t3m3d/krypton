@@ -92,6 +92,27 @@ const userCols = db.prepare("PRAGMA table_info(users)").all();
 if (!userCols.some((c) => c.name === "disabled")) {
   db.exec(`ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0`);
 }
+if (!userCols.some((c) => c.name === "link_limit")) {
+  // 0 means unlimited; default for new non-admin users is 100. Admins
+  // are exempt from quotas regardless of column value.
+  db.exec(`ALTER TABLE users ADD COLUMN link_limit INTEGER NOT NULL DEFAULT 100`);
+}
+
+// Audit log captures who-did-what-to-what, with IP + timestamp, so
+// admin disputes can be settled and abuse can be traced.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts          INTEGER NOT NULL,
+    actor_id    INTEGER,           -- nullable for failed logins (no session)
+    actor_name  TEXT,               -- snapshot at event time (survives user deletion)
+    action      TEXT NOT NULL,      -- e.g. 'login.ok', 'link.create', 'user.disable'
+    detail      TEXT,               -- free-form context (short URL, target username, etc.)
+    ip          TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts DESC);
+  CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_id);
+`);
 // Bootstrap admin if no admin user exists.
 const anyAdmin = db.prepare("SELECT id FROM users WHERE is_admin = 1 LIMIT 1").get();
 if (!anyAdmin) {
@@ -120,6 +141,32 @@ const stmtToggleUserDis   = db.prepare("UPDATE users SET disabled = ? WHERE id =
 const stmtDeleteUser      = db.prepare("DELETE FROM users WHERE id = ?");
 const stmtClearUserLinks  = db.prepare("UPDATE links SET user_id = NULL WHERE user_id = ?");
 const stmtCountUserLinks  = db.prepare("SELECT COUNT(*) AS n FROM links WHERE user_id = ?");
+const stmtSetUserLimit    = db.prepare("UPDATE users SET link_limit = ? WHERE id = ?");
+const stmtInsertAudit     = db.prepare("INSERT INTO audit_log(ts, actor_id, actor_name, action, detail, ip) VALUES (?, ?, ?, ?, ?, ?)");
+const stmtRecentAudit     = db.prepare("SELECT * FROM audit_log ORDER BY ts DESC LIMIT ?");
+
+// Append an audit entry. actor may be null for failed-login events
+// (the user doesn't have a session yet). detail is a free-form string.
+function logAudit(actor, action, detail, req) {
+  stmtInsertAudit.run(
+    Math.floor(Date.now() / 1000),
+    actor ? actor.id : null,
+    actor ? actor.username : (req && req.body && req.body.username) || null,
+    action,
+    detail || null,
+    (req && req.ip) || null,
+  );
+}
+
+// Returns { ok, used, limit } for a user. limit === 0 means unlimited
+// (admin or admin-bumped non-admin). Admins are always unlimited.
+function checkLinkQuota(user) {
+  if (user.is_admin) return { ok: true, used: stmtCountUserLinks.get(user.id).n, limit: 0 };
+  const used = stmtCountUserLinks.get(user.id).n;
+  const limit = user.link_limit | 0;
+  if (limit === 0) return { ok: true, used, limit: 0 };
+  return { ok: used < limit, used, limit };
+}
 
 // ── Codes ────────────────────────────────────────────────────────────
 const CODE_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -329,15 +376,22 @@ function pageAdminBody(user, msg) {
       if (u.id === user.id) return ""; // skip self — managed in own section
       const linkCount = stmtCountUserLinks.get(u.id).n;
       const date = new Date(u.created_at * 1000).toISOString().slice(0, 10);
+      const limitDisp = (u.link_limit | 0) === 0 ? "∞" : u.link_limit;
       return `<tr>
         <td>${escapeHtml(u.username)} ${u.is_admin ? '<span class="pill">admin</span>' : ""} ${u.disabled ? '<span class="pill" style="background:#a44">disabled</span>' : ""}</td>
         <td>${date}</td>
-        <td>${linkCount}</td>
+        <td>${linkCount} / ${limitDisp}</td>
         <td>
           <form method="POST" action="/users/toggle" style="display:inline;margin:0">
             <input type="hidden" name="_csrf" value="${csrf}">
             <input type="hidden" name="user_id" value="${u.id}">
             <button type="submit" class="copy-btn">${u.disabled ? "enable" : "disable"}</button>
+          </form>
+          <form method="POST" action="/users/set_limit" style="display:inline;margin:0">
+            <input type="hidden" name="_csrf" value="${csrf}">
+            <input type="hidden" name="user_id" value="${u.id}">
+            <input type="number" name="link_limit" value="${u.link_limit | 0}" min="0" max="100000" style="width:6em;font-size:.85em;padding:.2em">
+            <button type="submit" class="copy-btn">set cap</button>
           </form>
           <form method="POST" action="/users/delete" style="display:inline;margin:0" onsubmit="return confirm('Delete ${escapeHtml(u.username)}? Their links will be kept but un-owned.')">
             <input type="hidden" name="_csrf" value="${csrf}">
@@ -347,10 +401,28 @@ function pageAdminBody(user, msg) {
         </td>
       </tr>`;
     }).join("");
+
+    // Audit log — most recent 50 entries.
+    const auditRows = stmtRecentAudit.all(50).map((a) => {
+      const when = new Date(a.ts * 1000).toISOString().replace("T", " ").slice(0, 19);
+      return `<tr>
+        <td>${when}</td>
+        <td>${escapeHtml(a.actor_name || "—")}</td>
+        <td><code>${escapeHtml(a.action)}</code></td>
+        <td>${escapeHtml(a.detail || "")}</td>
+        <td class="muted">${escapeHtml(a.ip || "")}</td>
+      </tr>`;
+    }).join("") || `<tr><td colspan="5" class="muted">no events yet</td></tr>`;
+    var auditSection = `
+      <h2>Audit log <span class="muted" style="font-size:.6em;font-weight:normal">(last 50 events)</span></h2>
+      <table>
+        <tr><th>When (UTC)</th><th>Actor</th><th>Action</th><th>Detail</th><th>IP</th></tr>
+        ${auditRows}
+      </table>`;
     usersSection = `
       <h2>Users</h2>
       <table>
-        <tr><th>User</th><th>Joined</th><th>Links</th><th></th></tr>
+        <tr><th>User</th><th>Joined</th><th>Links / cap</th><th></th></tr>
         ${adminUserRows || `<tr><td colspan="4" class="muted">no other users yet</td></tr>`}
       </table>
       <h3 style="margin-top:1.5em;font-size:1em;color:var(--accent)">Create user</h3>
@@ -371,9 +443,14 @@ function pageAdminBody(user, msg) {
   }
 
   const csrf = csrfTokenFor(user);
+  const myQuota = checkLinkQuota(user);
+  const quotaBadge = myQuota.limit === 0
+    ? `<span class="muted">${myQuota.used} links</span>`
+    : `<span class="${myQuota.ok ? "muted" : "bad"}">${myQuota.used} / ${myQuota.limit} links used</span>`;
   return `
     <h1>${user.is_admin ? "Admin" : "Dashboard"} <span class="userbadge">${escapeHtml(user.username)}${user.is_admin ? " · admin" : ""}</span></h1>
     ${msg ? `<div>${msg}</div>` : ""}
+    <p style="margin-top:.4em">${quotaBadge}</p>
     <h2>Shorten a URL</h2>
     <form method="POST" action="/create" class="pageform">
       <input type="hidden" name="_csrf" value="${csrf}">
@@ -388,6 +465,7 @@ function pageAdminBody(user, msg) {
       ${linkRows}
     </table>
     ${usersSection}
+    ${user.is_admin ? auditSection : ""}
     <h2>Your account</h2>
     <form method="POST" action="/password" class="pageform">
       <input type="hidden" name="_csrf" value="${csrf}">
@@ -502,8 +580,10 @@ app.post("/login", (req, res) => {
   }
   const user = stmtUserByName.get(username);
   if (!user || user.disabled || !verifyPassword(password, user.password_hash)) {
+    logAudit(null, "login.fail", `username=${username}`, req);
     return res.status(401).redirect("/?err=bad");
   }
+  logAudit(user, "login.ok", null, req);
   res.cookie(SESSION_COOKIE, signToken(username), {
     httpOnly: true,
     sameSite: "lax",
@@ -535,6 +615,11 @@ app.post("/create", (req, res) => {
   if (!rateLimit(`create:${user.id}`, 5 * 60 * 1000, 30)) {
     return res.status(429).send(renderShell(pageAdminBody(user, '<span class="bad">slow down — too many creates in the last 5 min</span>')));
   }
+  // Quota check: non-admin users have a max link cap.
+  const q = checkLinkQuota(user);
+  if (!q.ok) {
+    return res.status(403).send(renderShell(pageAdminBody(user, `<span class="bad">link quota reached (${q.used}/${q.limit}) — delete a link or contact the admin to raise your cap</span>`)));
+  }
   const url = (req.body.url || "").trim();
   let code = (req.body.code || "").trim();
   const note = (req.body.note || "").trim();
@@ -549,6 +634,7 @@ app.post("/create", (req, res) => {
     code = genUniqueCode();
   }
   stmtInsertLink.run(code, url, Math.floor(Date.now() / 1000), note || null, user.id);
+  logAudit(user, "link.create", `${code} → ${url}`, req);
   const short = `${PUBLIC_HOST}/${code}`;
   const banner = `<div class="created">
     <img class="created-qr" src="/qr/${encodeURIComponent(code)}.svg" alt="QR code for ${escapeHtml(short)}">
@@ -587,6 +673,7 @@ app.post("/users/create", (req, res) => {
     return res.status(409).send(renderShell(pageAdminBody(user, '<span class="bad">username taken</span>')));
   }
   stmtInsertUser.run(newName, hashPassword(newPw), grantAdmin, Math.floor(Date.now() / 1000));
+  logAudit(user, "user.create", `${newName}${grantAdmin ? " (admin)" : ""}`, req);
   res.send(renderShell(pageAdminBody(user, `Created user <code>${escapeHtml(newName)}</code>${grantAdmin ? " (admin)" : ""}`)));
 });
 
@@ -604,6 +691,7 @@ app.post("/password", (req, res) => {
     return res.status(400).send(renderShell(pageAdminBody(user, '<span class="bad">new password must be at least 8 chars</span>')));
   }
   stmtUpdateUserPw.run(hashPassword(next), user.id);
+  logAudit(user, "user.password.self", null, req);
   res.send(renderShell(pageAdminBody(user, '<span class="ok">password updated</span>')));
 });
 
@@ -617,6 +705,7 @@ app.post("/users/toggle", (req, res) => {
   if (!target) return res.status(404).send(renderShell(pageAdminBody(actor, '<span class="bad">user not found</span>')));
   if (target.id === actor.id) return res.status(400).send(renderShell(pageAdminBody(actor, '<span class="bad">cannot disable yourself</span>')));
   stmtToggleUserDis.run(target.disabled ? 0 : 1, target.id);
+  logAudit(actor, target.disabled ? "user.enable" : "user.disable", target.username, req);
   res.send(renderShell(pageAdminBody(actor, `<span class="ok">user <code>${escapeHtml(target.username)}</code> ${target.disabled ? "enabled" : "disabled"}</span>`)));
 });
 
@@ -632,7 +721,22 @@ app.post("/users/delete", (req, res) => {
   if (target.is_admin) return res.status(400).send(renderShell(pageAdminBody(actor, '<span class="bad">cannot delete an admin from the UI (demote first via SQL)</span>')));
   stmtClearUserLinks.run(target.id);
   stmtDeleteUser.run(target.id);
+  logAudit(actor, "user.delete", target.username, req);
   res.send(renderShell(pageAdminBody(actor, `<span class="ok">user <code>${escapeHtml(target.username)}</code> deleted; their links are now un-owned</span>`)));
+});
+
+// ADMIN ONLY: set a user's link-creation cap. 0 = unlimited.
+app.post("/users/set_limit", (req, res) => {
+  const actor = getUser(req);
+  if (!actor) return res.status(401).redirect("/");
+  if (!actor.is_admin) return res.status(403).send(renderShell(`<h1>403</h1>`));
+  if (!verifyCSRF(req, actor)) return res.status(403).send(renderShell(`<h1>403</h1><p>CSRF check failed.</p>`));
+  const target = stmtUserById.get(Number(req.body.user_id));
+  if (!target) return res.status(404).send(renderShell(pageAdminBody(actor, '<span class="bad">user not found</span>')));
+  const newLimit = Math.max(0, Math.min(100000, Number(req.body.link_limit) | 0));
+  stmtSetUserLimit.run(newLimit, target.id);
+  logAudit(actor, "user.set_limit", `${target.username} → ${newLimit || "∞"}`, req);
+  res.send(renderShell(pageAdminBody(actor, `<span class="ok">cap for <code>${escapeHtml(target.username)}</code> set to ${newLimit || "∞"}</span>`)));
 });
 
 // ADMIN ONLY: reset another user's password.
@@ -646,6 +750,7 @@ app.post("/users/reset_password", (req, res) => {
   const newPw = req.body.password || "";
   if (newPw.length < 8) return res.status(400).send(renderShell(pageAdminBody(actor, '<span class="bad">password must be at least 8 chars</span>')));
   stmtUpdateUserPw.run(hashPassword(newPw), target.id);
+  logAudit(actor, "user.password.admin", target.username, req);
   res.send(renderShell(pageAdminBody(actor, `<span class="ok">password reset for <code>${escapeHtml(target.username)}</code></span>`)));
 });
 
@@ -680,6 +785,14 @@ app.get("/:code", (req, res, next) => {
   if (RESERVED.has(code)) return next();
   const link = stmtLinkByCode.get(code);
   if (!link) return res.status(404).send(renderShell(`<h1>404 — link not found</h1><p><a href="/">home</a></p>`));
+  // Per-owner click rate cap. Generous default (1000/min) so legit
+  // virality isn't throttled; protects against a runaway abuser pumping
+  // one customer's link in a loop. NULL owner (orphaned links from
+  // deleted users) shares a single bucket.
+  const ownerKey = link.user_id || 0;
+  if (!rateLimit(`clicks:user:${ownerKey}`, 60 * 1000, 1000)) {
+    return res.status(429).send(renderShell(`<h1>429 — too many clicks</h1><p>This link is temporarily rate-limited. Try again in a minute.</p>`));
+  }
   stmtInsertClick.run(
     code,
     Math.floor(Date.now() / 1000),
