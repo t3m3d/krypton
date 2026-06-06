@@ -421,6 +421,29 @@ func emitSbAppend(allocOff, thisOff) {
 func emitSbToString() {
     emit e_addi(0, 0, 16) + e_ret()
 }
+// kr_eq(x0=a, x1=b) -> x0=1/0. Polymorphic: both pointers (>=VBASE) -> strcmp;
+// else numeric compare (mixed int/ptr falls here and compares unequal). 76 bytes.
+func emitEq() {
+    let c = e_movzHi(9, 32512)                                    // [0] x9=VBASE
+    c = c + e_cmp(0, 9) + e_blt(44)                               // [4] a<VBASE -> .numeric (52)
+    c = c + e_cmp(1, 9) + e_blt(36)                               // [12] b<VBASE -> .numeric (52)
+    c = c + e_movz(2, 0)                                          // [20] i=0
+    c = c + e_ldrbO(3, 0, 2) + e_ldrbO(4, 1, 2) + e_cmp(3, 4) + e_bne(24)  // [24] .sl: a[i] vs b[i]; differ -> .ne (60)
+    c = c + e_cbz(3, 28)                                          // [40] a[i]==0 (both, equal) -> .eq (68)
+    c = c + e_addi(2, 2, 1) + e_b(0 - 24)                         // [44] i++; -> .sl (24)
+    c = c + e_cmp(0, 1) + e_beq(12)                               // [52] .numeric: a==b -> .eq (68)
+    c = c + e_movz(0, 0) + e_ret()                                // [60] .ne: x0=0
+    c = c + e_movz(0, 1) + e_ret()                                // [68] .eq: x0=1
+    emit c
+}
+// kr_index(x1=s, x0=idx) -> fresh 1-char string of s[idx]. 36 bytes. (char indexing)
+func emitIndex(allocOff, thisOff) {
+    let c = e_movr(26, 30) + e_ldrbO(2, 1, 0) + e_movr(10, 2)     // [0] lr; w2=s[idx]; save char
+    c = c + e_movz(0, 2) + e_bl(allocOff - (thisOff + 16))        // [12] x0=alloc(2)
+    c = c + e_strb(10, 0) + e_strbO(31, 0, 1)                     // [20] buf[0]=char; buf[1]=0
+    c = c + e_movr(30, 26) + e_ret()                            // [28] return buf
+    emit c
+}
 // kr_plus(a=x0, b=x1) -> x0. Polymorphic +: both ints -> a+b; else convert each
 // to a string (kr_str_int for the int side) and concat into a fresh heap buffer.
 // Saves lr in x23; VBASE in x9; sa=x11 sb=x12 b=x13 lenA=x14 lenB=x16 dst=x17.
@@ -620,7 +643,9 @@ func opSize(ln) {
     if op == "LABEL"     { emit 0 }
     if op == "JUMP"      { emit 4 }
     if op == "JUMPIFNOT" { emit 12 }
-    if op == "LT" || op == "GT" || op == "EQ" || op == "NEQ" || op == "LTE" || op == "GTE" { emit 32 }
+    if op == "LT" || op == "GT" || op == "LTE" || op == "GTE" { emit 32 }
+    if op == "EQ"  { emit 28 }     // polymorphic kr_eq (numeric OR strcmp)
+    if op == "NEQ" { emit 36 }     // kr_eq + invert
     if op == "INDEX" { emit 28 }   // list[idx] -> kr_split (pop0+pop1+bl+push)
     if op == "BUILTIN" {
         let b = operand(ln)
@@ -710,7 +735,9 @@ just run {
     let sbnewOff = rangeOff + 156       // kr_range is 156 bytes
     let sbappendOff = sbnewOff + 36     // kr_sbnew is 36 bytes
     let sbtostringOff = sbappendOff + 176  // kr_sbappend is 176 bytes
-    let nlOff = sbtostringOff + 8        // kr_sbtostring is 8 bytes
+    let eqOff = sbtostringOff + 8        // kr_sbtostring is 8 bytes
+    let indexOff = eqOff + 76            // kr_eq is 76 bytes
+    let nlOff = indexOff + 36            // kr_index is 36 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -785,13 +812,15 @@ just run {
         if op == "MUL" { code = code + c_pop1() + c_pop0() + e_mul(0, 0, 1) + c_push()   off = off + 28 }
         if op == "DIV" { code = code + c_pop1() + c_pop0() + e_udiv(0, 0, 1) + c_push()  off = off + 28 }
         if op == "MOD" { code = code + c_pop1() + c_pop0() + e_udiv(2, 0, 1) + e_msub(0, 2, 1, 0) + c_push()  off = off + 32 }
-        // list[idx] -> kr_split. pop0->x0=idx (top), pop1->x1=list. 28 bytes.
-        if op == "INDEX" { code = code + c_pop0() + c_pop1() + e_bl(splitOff - (off + 16)) + c_push()  off = off + 28 }
+        // s[idx] -> kr_index (i-th CHARACTER). pop0->x0=idx, pop1->x1=s. 28 bytes.
+        // (Element access on a comma-collection uses split(coll, i), not [].)
+        if op == "INDEX" { code = code + c_pop0() + c_pop1() + e_bl(indexOff - (off + 16)) + c_push()  off = off + 28 }
         if op == "POP" { code = code + e_addi(20, 20, 16)  off = off + 4 }
         if op == "LT"  { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 10) + c_push()  off = off + 32 }
         if op == "GT"  { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 13) + c_push()  off = off + 32 }
-        if op == "EQ"  { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 1) + c_push()   off = off + 32 }
-        if op == "NEQ" { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 0) + c_push()   off = off + 32 }
+        // EQ/NEQ are polymorphic (string contents OR numeric) via kr_eq.
+        if op == "EQ"  { code = code + c_pop1() + c_pop0() + e_bl(eqOff - (off + 16)) + c_push()   off = off + 28 }
+        if op == "NEQ" { code = code + c_pop1() + c_pop0() + e_bl(eqOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 1) + c_push()   off = off + 36 }
         if op == "LTE" { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 12) + c_push()  off = off + 32 }
         if op == "GTE" { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 11) + c_push()  off = off + 32 }
         if op == "JUMP" { code = code + e_b(toInt(labelAbsOffset(ir, operand(ln))) - off)  off = off + 4 }
@@ -977,6 +1006,8 @@ just run {
     bb = sbAppend(bb, emitSbNew(allocOff, sbnewOff))
     bb = sbAppend(bb, emitSbAppend(allocOff, sbappendOff))
     bb = sbAppend(bb, emitSbToString())
+    bb = sbAppend(bb, emitEq())
+    bb = sbAppend(bb, emitIndex(allocOff, indexOff))
     bb = sbAppend(bb, "")     // guard: the x86 backend drops the LAST sbAppend here
     let body = sbToString(bb)
 
