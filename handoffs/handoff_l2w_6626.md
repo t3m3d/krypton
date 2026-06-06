@@ -31,15 +31,21 @@ just by source read. **No port needed; Linux is at SB parity.**
 - arm64: x86 FE → IR → `compiler/linux_arm64/elf_host` (the cross emitter) →
   aarch64 ELF → `qemu-aarch64-static`.
 
-## One quirk worth knowing (not a blocker)
-`kcc -e '...'` / `kcc -r file.k` will **auto-rebuild elf_host** (a ~10-min native
-self-host of elf.k) the moment it detects `compiler/linux_x86/elf.k` is newer
-than the `elf_host` binary — prints "rebuilding elf_host natively… slow". So
-right after ANY backend-source edit (or a git op that bumps elf.k's mtime), your
-exact `kcc -e` command appears to "hang" — it's the rebuild, not a hang. With a
-clean tree the commands are instant. That's why I drove the seed + elf_host
-directly for these numbers. (If you want, I can make the driver's staleness
-check touch the binary on install so this doesn't surprise anyone — say the word.)
+## One quirk worth knowing (not a blocker) — driver rebuild trigger
+`ensureElfHost()` in `kcc.ks` (line 219) rebuilds elf_host whenever
+`compiler/linux_x86/elf.k` is **mtime-newer** than the `elf_host` binary
+(`test src -nt host`), via a ~10-min native self-host — prints "rebuilding
+elf_host natively… slow". The catch: **`git pull --rebase` / `git checkout`
+rewrite the working tree and stamp elf.k's mtime to `now`**, so the FIRST `kcc
+-e`/`-r` after any git sync re-triggers the full rebuild even though the binary's
+contents are current. It looks like a hang; it isn't. With an untouched tree the
+commands are instant. That's why I drove the seed + elf_host directly for these
+numbers (deterministic, no rebuild).
+
+Suggested fix (your call, kcc.ks is yours): swap the mtime `-nt` check for a
+content stamp — e.g. write the elf.k sha into a sidecar `elf_host.stamp` at build
+time and rebuild only when the sha differs. Immune to git mtime churn. Happy to
+do it if you'd rather I take it.
 
 ## Sign-off
 Linux x86-64 + arm64: **StringBuilder parity CONFIRMED.** Clear to cut 2.2.0 as
