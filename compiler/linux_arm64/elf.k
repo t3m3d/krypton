@@ -179,6 +179,49 @@ func emitPadRight(allocOff, thisOff) {
     c = c + e_movr(0, 10) + e_movr(30, 26) + e_ret()              // [128] .rets: return s
     emit c
 }
+// kr_toupper(x0=s) -> new heap string with a-z uppercased. 112 bytes.
+// x10=s x11=len x14=buf x26=lr. Copies+transforms in one pass.
+func emitToUpper(allocOff, thisOff) {
+    let c = e_movr(26, 30) + e_movr(10, 0) + e_movz(11, 0)          // [0] lr; x10=s; len=0
+    c = c + e_ldrbO(3, 10, 11) + e_cbz(3, 12) + e_addi(11, 11, 1) + e_b(0 - 12)  // [12] .sl: strlen -> x11
+    c = c + e_addi(0, 11, 1) + e_bl(allocOff - (thisOff + 32))      // [28] x0=alloc(len+1)
+    c = c + e_movr(14, 0) + e_movz(3, 0)                            // [36] x14=buf; i=0
+    c = c + e_cmp(3, 11) + e_bge(48)                                // [44] .cl: i>=len -> .done (92)
+    c = c + e_ldrbO(4, 10, 3)                                       // [52] w4=s[i]
+    c = c + e_subi(5, 4, 97) + e_cmpi0(5) + e_blt(20)               // [56] c<'a' -> .store (84)
+    c = c + e_subi(5, 4, 123) + e_cmpi0(5) + e_bge(8)               // [68] c>'z' -> .store (84)
+    c = c + e_subi(4, 4, 32)                                        // [80] c -= 32
+    c = c + e_strbR(4, 14, 3) + e_addi(3, 3, 1) + e_b(0 - 48)       // [84] .store: buf[i]=c; i++; -> .cl (44)
+    c = c + e_strbR(31, 14, 11) + e_movr(0, 14) + e_movr(30, 26) + e_ret()  // [96] .done: buf[len]=0; return buf
+    emit c
+}
+// kr_tolower(x0=s) -> new heap string with A-Z lowercased. 112 bytes.
+func emitToLower(allocOff, thisOff) {
+    let c = e_movr(26, 30) + e_movr(10, 0) + e_movz(11, 0)          // [0]
+    c = c + e_ldrbO(3, 10, 11) + e_cbz(3, 12) + e_addi(11, 11, 1) + e_b(0 - 12)  // [12] strlen
+    c = c + e_addi(0, 11, 1) + e_bl(allocOff - (thisOff + 32))      // [28] alloc
+    c = c + e_movr(14, 0) + e_movz(3, 0)                            // [36]
+    c = c + e_cmp(3, 11) + e_bge(48)                                // [44] .cl
+    c = c + e_ldrbO(4, 10, 3)                                       // [52]
+    c = c + e_subi(5, 4, 65) + e_cmpi0(5) + e_blt(20)               // [56] c<'A' -> .store
+    c = c + e_subi(5, 4, 91) + e_cmpi0(5) + e_bge(8)                // [68] c>'Z' -> .store
+    c = c + e_addi(4, 4, 32)                                        // [80] c += 32
+    c = c + e_strbR(4, 14, 3) + e_addi(3, 3, 1) + e_b(0 - 48)       // [84] .store
+    c = c + e_strbR(31, 14, 11) + e_movr(0, 14) + e_movr(30, 26) + e_ret()  // [96] .done
+    emit c
+}
+// kr_reverse(x0=s) -> new heap string reversed. 92 bytes. buf[i]=s[len-1-i].
+func emitReverse(allocOff, thisOff) {
+    let c = e_movr(26, 30) + e_movr(10, 0) + e_movz(11, 0)          // [0]
+    c = c + e_ldrbO(3, 10, 11) + e_cbz(3, 12) + e_addi(11, 11, 1) + e_b(0 - 12)  // [12] strlen -> x11
+    c = c + e_addi(0, 11, 1) + e_bl(allocOff - (thisOff + 32))      // [28] alloc
+    c = c + e_movr(14, 0) + e_movz(3, 0)                            // [36] buf; i=0
+    c = c + e_cmp(3, 11) + e_bge(28)                                // [44] .cl: i>=len -> .done (76)
+    c = c + e_subr(5, 11, 3) + e_subi(5, 5, 1) + e_ldrbO(4, 10, 5)  // [52] x5=len-1-i; w4=s[x5]
+    c = c + e_strbR(4, 14, 3) + e_addi(3, 3, 1) + e_b(0 - 28)       // [64] buf[i]=w4; i++; -> .cl (44)
+    c = c + e_strbR(31, 14, 11) + e_movr(0, 14) + e_movr(30, 26) + e_ret()  // [76] .done
+    emit c
+}
 // kr_plus(a=x0, b=x1) -> x0. Polymorphic +: both ints -> a+b; else convert each
 // to a string (kr_str_int for the int side) and concat into a fresh heap buffer.
 // Saves lr in x23; VBASE in x9; sa=x11 sb=x12 b=x13 lenA=x14 lenB=x16 dst=x17.
@@ -398,6 +441,9 @@ func opSize(ln) {
         if startsWith(b, "bin") { emit 20 }   // pop0 + bl kr_bin + push
         if startsWith(b, "padLeft")  { emit 36 }  // pop x2/x1/x0 + bl + push
         if startsWith(b, "padRight") { emit 36 }
+        if startsWith(b, "toUpper") { emit 20 }   // pop0 + bl + push
+        if startsWith(b, "toLower") { emit 20 }
+        if startsWith(b, "reverse") { emit 20 }
         emit 0
     }
     emit 0
@@ -428,7 +474,10 @@ just run {
     let binOff = hexOff + 144      // kr_hex is 144 bytes
     let padleftOff = binOff + 128  // kr_bin is 128 bytes
     let padrightOff = padleftOff + 136  // kr_padleft is 136 bytes
-    let nlOff = padrightOff + 140  // kr_padright is 140 bytes
+    let toupperOff = padrightOff + 140  // kr_padright is 140 bytes
+    let tolowerOff = toupperOff + 112   // kr_toupper is 112 bytes
+    let reverseOff = tolowerOff + 112   // kr_tolower is 112 bytes
+    let nlOff = reverseOff + 92          // kr_reverse is 92 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -538,6 +587,10 @@ just run {
             // padLeft/padRight(s, width, pad): pop pad->x2, width->x1, s->x0; bl; push. 36 bytes.
             if startsWith(b, "padLeft") { code = code + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_bl(padleftOff - (off + 24)) + c_push()  off = off + 36 }
             if startsWith(b, "padRight") { code = code + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_bl(padrightOff - (off + 24)) + c_push()  off = off + 36 }
+            // 1-arg string->string transforms (kr_toupper/tolower/reverse). 20 bytes.
+            if startsWith(b, "toUpper") { code = code + c_pop0() + e_bl(toupperOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "toLower") { code = code + c_pop0() + e_bl(tolowerOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "reverse") { code = code + c_pop0() + e_bl(reverseOff - (off + 8)) + c_push()  off = off + 20 }
             if startsWith(b, "kp") {
                 let kc = sbNew()
                 kc = sbAppend(kc, c_pop0())                         // pop arg -> x0
@@ -641,6 +694,9 @@ just run {
     bb = sbAppend(bb, emitBin(allocOff, binOff))
     bb = sbAppend(bb, emitPadLeft(allocOff, padleftOff))
     bb = sbAppend(bb, emitPadRight(allocOff, padrightOff))
+    bb = sbAppend(bb, emitToUpper(allocOff, toupperOff))
+    bb = sbAppend(bb, emitToLower(allocOff, tolowerOff))
+    bb = sbAppend(bb, emitReverse(allocOff, reverseOff))
     bb = sbAppend(bb, "")     // guard: the x86 backend drops the LAST sbAppend here
     let body = sbToString(bb)
 
