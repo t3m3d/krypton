@@ -134,11 +134,18 @@ EMITS aarch64 (`compiler/linux_arm64/elf_host`), run under qemu-aarch64-static.
       emitPadRight(140B): inline strlen + alloc(width+1) + fill/copy loops; width<=len
       returns s. 3-arg dispatch pops pad->x2/width->x1/s->x0 (substring template).
       New e_ble encoder. Validated 00007/...hi/70000/hi.../passthru/empty-pad/concat.
-- **arm64 now has full scalar-builtin parity with x86**: min/max, bitwise (6),
-      hex/bin, padLeft/padRight, + signed negatives. Remaining arm64 gaps are the
-      same lower-priority ones as x86 (struct get/set, buffer ops, ptr/raw FFI) plus
-      arm64-specific: native aarch64-HOST (driver+host running ON arm64) is unbuilt —
-      cross-from-x86 is the supported path; and kr_atoi is non-negative-only.
+- [x] **string builtins** ported to arm64 (commits dbce1923/ef58ab66/6638f765):
+      toUpper/toLower/reverse (1-arg), startsWith/endsWith/repeat (2-arg),
+      contains/indexOf/trim. Encoders added: e_bne/e_bgt/e_movn. Predicates return
+      1/0 ints (usable in `if`). All validated under qemu. WATCH: hand-computed
+      branch displacements are the top bug source — a wrong disp → infinite loop
+      (qemu hangs), and byte-count checks don't catch it. Re-derive every label.
+- **arm64 now covers**: min/max, bitwise (6), hex/bin, padLeft/padRight,
+      toUpper/toLower/reverse, startsWith/endsWith/repeat, contains/indexOf/trim,
+      + signed negatives. Remaining arm64 gaps: split/range (need array infra —
+      split is the single most-used builtin in examples, x50), abs/pow, struct/
+      buffer/FFI; plus arm64-specific: native aarch64-HOST is unbuilt (cross-from-x86
+      only), and kr_atoi is non-negative-only.
 
 Recipe lesson learned: the consistency check must include a **name-collision grep**,
 not just an occurrence count — a reused `let krXxSz` silently shadows another size.
