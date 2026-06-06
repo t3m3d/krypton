@@ -673,6 +673,31 @@ function landingBody() {
 app.use("/icons",  express.static(path.join(PUBLIC_DIR, "icons"),  { maxAge: "1h" }));
 app.use("/banner", express.static(path.join(PUBLIC_DIR, "banner"), { maxAge: "1h" }));
 
+// robots.txt — keeps polite crawlers (Googlebot, Bingbot, etc.) out of
+// the admin surface. Won't stop vulnerability scanners or CT-log
+// scrapers (they ignore robots.txt), but cleans up indexing noise and
+// drops crawler hits on /admin, /login, /stats/*, etc. Short-code
+// redirects at /<code> stay crawlable.
+const ROBOTS_TXT = [
+  "User-agent: *",
+  "Disallow: /admin",
+  "Disallow: /login",
+  "Disallow: /logout",
+  "Disallow: /create",
+  "Disallow: /password",
+  "Disallow: /users",
+  "Disallow: /audit",
+  "Disallow: /stats/",
+  "Disallow: /qr/",
+  "Allow: /",
+  "",
+].join("\n");
+app.get("/robots.txt", (_req, res) => {
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.send(ROBOTS_TXT);
+});
+
 // Landing — features grid + login form, wrapped in the shared shell.
 app.get(["/", "/index.html"], (req, res) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
