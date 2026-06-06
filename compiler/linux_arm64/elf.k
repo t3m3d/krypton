@@ -356,6 +356,14 @@ func emitCount() {
     c = c + e_movz(0, 0) + e_ret()                                // [56] .zero: x0=0
     emit c
 }
+// kr_pow(x1=base, x0=exp) -> base^exp. 32 bytes. result=1; result*=base, exp times.
+func emitPow() {
+    let c = e_movz(2, 1)                                          // [0] result=1
+    c = c + e_cmpi0(0) + e_beq(16)                                // [4] .lp: exp==0 -> .done (24)
+    c = c + e_mul(2, 2, 1) + e_subi(0, 0, 1) + e_b(0 - 16)        // [12] result*=base; exp--; -> .lp (4)
+    c = c + e_movr(0, 2) + e_ret()                                // [24] .done: x0=result
+    emit c
+}
 // kr_plus(a=x0, b=x1) -> x0. Polymorphic +: both ints -> a+b; else convert each
 // to a string (kr_str_int for the int side) and concat into a fresh heap buffer.
 // Saves lr in x23; VBASE in x9; sa=x11 sb=x12 b=x13 lenA=x14 lenB=x16 dst=x17.
@@ -556,6 +564,7 @@ func opSize(ln) {
     if op == "JUMP"      { emit 4 }
     if op == "JUMPIFNOT" { emit 12 }
     if op == "LT" || op == "GT" || op == "EQ" || op == "NEQ" || op == "LTE" || op == "GTE" { emit 32 }
+    if op == "INDEX" { emit 28 }   // list[idx] -> kr_split (pop0+pop1+bl+push)
     if op == "BUILTIN" {
         let b = operand(ln)
         if startsWith(b, "kp") { emit 20 }   // pop + bl kpDisp + push (no movz between bl and push)
@@ -563,6 +572,7 @@ func opSize(ln) {
         if startsWith(b, "gcShadowPush") { emit 16 }
         if startsWith(b, "gcShadowPop") { emit 16 }
         if startsWith(b, "charCode") { emit 20 }
+        if startsWith(b, "length") { emit 20 }  // collection count -> kr_count (BEFORE "len" to avoid strlen match)
         if startsWith(b, "len") { emit 40 }
         if startsWith(b, "toStr") { emit 32 }
         if startsWith(b, "toInt") { emit 20 }
@@ -586,6 +596,8 @@ func opSize(ln) {
         if startsWith(b, "trim")       { emit 20 }  // 1-arg: pop0 + bl + push
         if startsWith(b, "split")      { emit 28 }  // 2-arg (list, idx)
         if startsWith(b, "count")      { emit 20 }  // 1-arg (list)
+        if startsWith(b, "abs")        { emit 28 }  // inline: pop+cmp+bge+neg+push
+        if startsWith(b, "pow")        { emit 28 }  // 2-arg -> kr_pow
         emit 0
     }
     emit 0
@@ -627,7 +639,8 @@ just run {
     let trimOff = indexofOff + 120      // kr_indexof is 120 bytes
     let splitOff = trimOff + 168        // kr_trim is 168 bytes
     let countOff = splitOff + 160       // kr_split is 160 bytes
-    let nlOff = countOff + 64            // kr_count is 64 bytes
+    let powOff = countOff + 64          // kr_count is 64 bytes
+    let nlOff = powOff + 32              // kr_pow is 32 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -702,6 +715,8 @@ just run {
         if op == "MUL" { code = code + c_pop1() + c_pop0() + e_mul(0, 0, 1) + c_push()   off = off + 28 }
         if op == "DIV" { code = code + c_pop1() + c_pop0() + e_udiv(0, 0, 1) + c_push()  off = off + 28 }
         if op == "MOD" { code = code + c_pop1() + c_pop0() + e_udiv(2, 0, 1) + e_msub(0, 2, 1, 0) + c_push()  off = off + 32 }
+        // list[idx] -> kr_split. pop0->x0=idx (top), pop1->x1=list. 28 bytes.
+        if op == "INDEX" { code = code + c_pop0() + c_pop1() + e_bl(splitOff - (off + 16)) + c_push()  off = off + 28 }
         if op == "POP" { code = code + e_addi(20, 20, 16)  off = off + 4 }
         if op == "LT"  { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 10) + c_push()  off = off + 32 }
         if op == "GT"  { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 13) + c_push()  off = off + 32 }
@@ -750,6 +765,10 @@ just run {
             if startsWith(b, "trim")       { code = code + c_pop0() + e_bl(trimOff - (off + 8)) + c_push()  off = off + 20 }
             if startsWith(b, "split")      { code = code + c_pop0() + c_pop1() + e_bl(splitOff - (off + 16)) + c_push()  off = off + 28 }
             if startsWith(b, "count")      { code = code + c_pop0() + e_bl(countOff - (off + 8)) + c_push()  off = off + 20 }
+            // abs(x): inline. pop x0; if x0<0 neg; push. 28 bytes.
+            if startsWith(b, "abs")        { code = code + c_pop0() + e_cmpi0(0) + e_bge(8) + e_subr(0, 31, 0) + c_push()  off = off + 28 }
+            // pow(base, exp): pop0->x0=exp, pop1->x1=base; kr_pow. 28 bytes.
+            if startsWith(b, "pow")        { code = code + c_pop0() + c_pop1() + e_bl(powOff - (off + 16)) + c_push()  off = off + 28 }
             if startsWith(b, "kp") {
                 let kc = sbNew()
                 kc = sbAppend(kc, c_pop0())                         // pop arg -> x0
@@ -770,8 +789,11 @@ just run {
                 code = code + sbToString(kc)
                 off = off + 20
             }
-            // len(s)/length(s) -> strlen (int). 40 bytes.
-            if startsWith(b, "len") {
+            // length(collection) -> element count (kr_count). MUST precede "len " so
+            // "length" isn't mistaken for strlen. 20 bytes.
+            if startsWith(b, "length") { code = code + c_pop0() + e_bl(countOff - (off + 8)) + c_push()  off = off + 20 }
+            // len(s) -> strlen (int). "len " (trailing space) so it doesn't match "length". 40 bytes.
+            if startsWith(b, "len ") {
                 let kc = sbNew()
                 kc = sbAppend(kc, c_pop0())                  // x0 = ptr
                 kc = sbAppend(kc, e_movz(1, 0))              // len=0
@@ -864,6 +886,7 @@ just run {
     bb = sbAppend(bb, emitTrim(allocOff, trimOff))
     bb = sbAppend(bb, emitSplit(allocOff, splitOff))
     bb = sbAppend(bb, emitCount())
+    bb = sbAppend(bb, emitPow())
     bb = sbAppend(bb, "")     // guard: the x86 backend drops the LAST sbAppend here
     let body = sbToString(bb)
 
