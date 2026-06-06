@@ -145,12 +145,15 @@ EMITS aarch64 (`compiler/linux_arm64/elf_host`), run under qemu-aarch64-static.
       kr_split(160B)/kr_count(64B), new e_beq encoder. Validated incl. the real
       `while i<count(s){ toInt(split(s,i)) }` idiom. (split(s,sep) was a red herring —
       the working API is the index form, same on x86.)
+- [x] **abs/pow + []/for-in sugar** (commit f8c41f8d): abs inline, kr_pow(32B),
+      INDEX op->kr_split, length builtin->kr_count. for-in over collections now works
+      (`for n in "10,20,30"{...}`). Disambiguated length(count) from len(strlen).
 - **arm64 now covers**: min/max, bitwise (6), hex/bin, padLeft/padRight,
       toUpper/toLower/reverse, startsWith/endsWith/repeat, contains/indexOf/trim,
-      split/count, + signed negatives. Remaining arm64 gaps: abs/pow (simple int),
-      INDEX op + length builtin + for-in (parts[i] sugar — INDEX==split, length==
-      count, easy), struct/buffer/FFI; plus arm64-specific: native aarch64-HOST is
-      unbuilt (cross-from-x86 only), and kr_atoi is non-negative-only.
+      split/count, abs/pow, []-index + for-in, + signed negatives. That's the full
+      common scalar+string+collection surface. Remaining: struct/buffer/FFI (lower
+      priority, shared with x86); arm64-specific: native aarch64-HOST is unbuilt
+      (cross-from-x86 only), and kr_atoi is non-negative-only.
 
 Recipe lesson learned: the consistency check must include a **name-collision grep**,
 not just an occurrence count — a reused `let krXxSz` silently shadows another size.
