@@ -3472,6 +3472,8 @@ func opByteSize(op) {
     if op == "BUILTIN_SUBSTRING" { emit 9 } // POP RDX + POP RSI + POP RDI + CALL + PUSH RAX
     if op == "BUILTIN_SB_NEW"    { emit 6 }  // CALL kr_sbnew + PUSH RAX
     if op == "BUILTIN_SB_APPEND" { emit 30 }  // POP RSI/RDI; stringify int s; CALL kr_sbappend; PUSH RAX
+    if op == "FUNCPTR"           { emit 11 }  // MOV RDI, func_vaddr (10) + PUSH RDI (1)
+    if op == "BUILTIN_CALLPTR"   { emit 18 }  // MOV RAX,[RSP+d] + CALL RAX + ADD RSP,n + PUSH RAX
     if op == "BUILTIN_SB_TOSTR"  { emit 7 }  // POP RDI + CALL kr_sbtostring + PUSH RAX
     if op == "BUILTIN_READFILE"  { emit 7 }  // POP RDI + CALL kr_readfile + PUSH RAX
     if op == "BUILTIN_WRITEFILE" { emit 8 }  // POP RSI + POP RDI + CALL kr_writefile + PUSH RAX
@@ -3701,7 +3703,12 @@ func parseIR(ir) {
                 } else if lIdx >= 0 {
                     opSb = sbAppend(opSb, "LOAD_LOCAL " + (lIdx + 1))
                 } else {
-                    opSb = sbAppend(opSb, "UNKNOWN_LOAD " + rest)
+                    // Unresolved name (e.g. a lambda's GC-epilogue `LOAD __sh_save`,
+                    // which the front-end references without a matching LOCAL in the
+                    // lambda body). Push a dummy 0 so the operand stack stays balanced
+                    // — emitting nothing would desync the following SUB/POP and the
+                    // function would RETURN underflowed garbage (closures crashed).
+                    opSb = sbAppend(opSb, "PUSH_INT 0")
                 }
                 opCount += 1
             } else if op == "STORE" {
@@ -3777,6 +3784,11 @@ func parseIR(ir) {
                 } else {
                     opSb = sbAppend(opSb, "CALL_FUNC " + rest)
                 }
+                opCount += 1
+            } else if op == "FUNCPTR" {
+                // FUNCPTR name → push the function's absolute vaddr (for closures).
+                if opCount > 0 { opSb = sbAppend(opSb, "\n") }
+                opSb = sbAppend(opSb, "FUNCPTR " + rest)
                 opCount += 1
             } else if op == "BUILTIN" {
                 let bj = 0
@@ -3875,6 +3887,10 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_ENVSET")
                 } else if bname == "envGet" {
                     opSb = sbAppend(opSb, "BUILTIN_ENVGET")
+                } else if bname == "callPtr" {
+                    // callPtr(fnptr, arg0, .., argK) — indirect call. Carry the
+                    // operand count so the emit knows the stack depth to clean.
+                    opSb = sbAppend(opSb, "BUILTIN_CALLPTR " + trim(substring(rest, bj, len(rest))))
                 } else if bname == "structNew" {
                     // Same shape as envNew: returns NULL sentinel.
                     opSb = sbAppend(opSb, "BUILTIN_ENVNEW")
@@ -5524,6 +5540,26 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             c = sbAppend(c, hexByte(0x48) + hexByte(0x81) + hexByte(0xC4) + hexDword(cargc * 8))
             // PUSH RAX (return value onto Krypton stack)
             c = sbAppend(c, hexByte(0x50))
+        } else if op == "FUNCPTR" {
+            // Push a function's absolute vaddr (used as a closure's __fp__).
+            // funcVAddr returns a base-relative OFFSET (existing CALL_FUNC only
+            // ever uses differences, where the base cancels), so add the segment
+            // base via hexQwordVaddr — same as PUSH_STR does for string offsets.
+            // 11 bytes.
+            let fpv = toInt(funcVAddr(funcVAddrs, rest))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0xBF) + hexQwordVaddr(fpv))  // MOV RDI, base+offset
+            c = sbAppend(c, hexByte(0x57))                                       // PUSH RDI
+        } else if op == "BUILTIN_CALLPTR" {
+            // callPtr fnptr,arg0..argK — indirect call through a function pointer.
+            // Stack at entry (top→bottom): argK-1, .., arg0, fnptr (fnptr deepest).
+            // The real args (cargc-1 of them) sit in the exact slots the callee's
+            // LOAD_PARAM expects, so just load fnptr from below them and CALL it,
+            // then drop all cargc slots and push the result. 18 bytes.
+            let cargc = toInt(rest)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x8B) + hexByte(0x84) + hexByte(0x24) + hexDword((cargc - 1) * 8)) // MOV RAX,[RSP+(cargc-1)*8]
+            c = sbAppend(c, hexByte(0xFF) + hexByte(0xD0))                                 // CALL RAX
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x81) + hexByte(0xC4) + hexDword(cargc * 8)) // ADD RSP, cargc*8
+            c = sbAppend(c, hexByte(0x50))                                                 // PUSH RAX
         } else if op == "POP" {
             c = sbAppend(c, hexByte(0x5F))
         } else if op == "END_FUNC" {
