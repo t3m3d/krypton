@@ -76,6 +76,10 @@ func isX86() {
 // inherits stdio and prints to the terminal instead of capturing.
 //
 // 1. /proc/sys/kernel/arch  — Linux only, kernel-truth, no env deps.
+//                              Guarded by OS!=Windows_NT because readProc
+//                              is a Linux-only builtin (elf.k); calling
+//                              it on Windows hits an unresolved CALL and
+//                              segfaults.
 // 2. PROCESSOR_ARCHITECTURE — Windows, set by the OS in every shell.
 // 3. HOSTTYPE               — bash everywhere (Linux + macOS + git
 //                              bash on Windows). Covers macOS where
@@ -83,8 +87,10 @@ func isX86() {
 // 4. CPUTYPE                — zsh fallback (macOS default shell). Some
 //                              setups set it instead of HOSTTYPE.
 func _rawArch() {
-    let p = _trimTail(_firstLine(readProc("/proc/sys/kernel/arch")))
-    if _looksLikeArch(p) { emit p }
+    if environ("OS") != "Windows_NT" {
+        let p = _trimTail(_firstLine(readProc("/proc/sys/kernel/arch")))
+        if _looksLikeArch(p) { emit p }
+    }
 
     let w = _trimTail(environ("PROCESSOR_ARCHITECTURE"))
     if _looksLikeArch(w) { emit w }
