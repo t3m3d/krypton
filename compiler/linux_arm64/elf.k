@@ -73,6 +73,7 @@ func e_bl(dsp) { let q = dsp / 4  if q < 0 { q = q + 67108864 }  emit wordHL(378
 func e_cbz(rt, dsp)  { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + rt  emit wordHL(46080 + p / 65536, p % 65536) }
 func e_cbnz(rt, dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + rt  emit wordHL(46336 + p / 65536, p % 65536) }
 func e_bhs(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 2  emit wordHL(21504 + p / 65536, p % 65536) }
+func e_bge(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 10 emit wordHL(21504 + p / 65536, p % 65536) } // b.ge (signed >=, cond GE=10)
 
 // composites
 func c_push() { emit e_subi(20, 20, 16) + e_str0(0, 20) }      // push x0
@@ -91,14 +92,21 @@ func emitAlloc() {
 // kr_str_int: x0=value(>=0) -> x0 = ptr to NUL-term decimal in a FRESH heap buffer
 // (heap-allocated so two conversions can coexist during concat). Saves lr in x24;
 // allocOff/thisOff are byte offsets, BL disp = allocOff-(thisOff+12).
+// Signed: handles negative val by emitting '-' then the magnitude. 128 bytes.
+// x6 = neg flag. Layout offsets in [brackets].
 func emitStrInt(allocOff, thisOff) {
-    let c = e_movr(24, 30) + e_movr(10, 0) + e_movz(0, 24)            // save lr, val; size=24
-    c = c + e_bl(allocOff - (thisOff + 12))                          // bl kr_alloc -> x0=buf
-    c = c + e_addi(1, 0, 23) + e_movr(0, 10) + e_movz(4, 10) + e_strb(31, 1)  // x1=buf+23; x0=val; *x1=NUL
-    c = c + e_cbnz(0, 28)                                            // x0!=0 -> .loop (idx15)
-    c = c + e_subi(1, 1, 1) + e_movz(2, 48) + e_strb(2, 1) + e_movr(0, 1) + e_movr(30, 24) + e_ret()  // "0"
-    c = c + e_udiv(3, 0, 4) + e_msub(5, 3, 4, 0) + e_addi(5, 5, 48) + e_subi(1, 1, 1)  // .loop
-    c = c + e_strb(5, 1) + e_movr(0, 3) + e_cbnz(0, 0 - 24) + e_movr(0, 1) + e_movr(30, 24) + e_ret()
+    let c = e_movr(24, 30) + e_movr(10, 0) + e_movz(0, 24)            // [0]  x24=lr; x10=val; x0=24 (size)
+    c = c + e_bl(allocOff - (thisOff + 12))                          // [12] bl kr_alloc -> x0=buf
+    c = c + e_addi(1, 0, 23) + e_movr(0, 10) + e_movz(4, 10) + e_strb(31, 1)  // [16] x1=buf+23; x0=val; x4=10; *x1=NUL
+    c = c + e_movz(6, 0) + e_cmpi0(0) + e_bge(12) + e_subr(0, 31, 0) + e_movz(6, 1)  // [32] x6=0; if val<0: neg x0, x6=1
+    c = c + e_cbz(0, 36)                                             // [52] x0==0 -> .zero (88)
+    c = c + e_udiv(3, 0, 4) + e_msub(5, 3, 4, 0) + e_addi(5, 5, 48) + e_subi(1, 1, 1)  // [56] .loop
+    c = c + e_strb(5, 1) + e_movr(0, 3) + e_cbnz(0, 0 - 24)          // [72] *x1=dig; x0=q; x0!=0 -> .loop (56)
+    c = c + e_b(16)                                                  // [84] -> .signcheck (100)
+    c = c + e_subi(1, 1, 1) + e_movz(2, 48) + e_strb(2, 1)           // [88] .zero: x1--; *x1='0'
+    c = c + e_cbz(6, 16)                                             // [100] .signcheck: x6==0 -> .done (116)
+    c = c + e_subi(1, 1, 1) + e_movz(2, 45) + e_strb(2, 1)           // [104] x1--; *x1='-'
+    c = c + e_movr(0, 1) + e_movr(30, 24) + e_ret()                  // [116] .done: x0=x1; restore lr; ret
     emit c
 }
 // kr_plus(a=x0, b=x1) -> x0. Polymorphic +: both ints -> a+b; else convert each
@@ -106,12 +114,12 @@ func emitStrInt(allocOff, thisOff) {
 // Saves lr in x23; VBASE in x9; sa=x11 sb=x12 b=x13 lenA=x14 lenB=x16 dst=x17.
 func emitPlus(strIntOff, allocOff, thisOff) {
     let c = e_movr(23, 30) + e_movzHi(9, 32512)                                       // lr; x9=VBASE
-    c = c + e_cmp(0, 9) + e_bhs(24) + e_cmp(1, 9) + e_bhs(16)                      // either >=VBASE -> concat
+    c = c + e_cmp(0, 9) + e_bge(24) + e_cmp(1, 9) + e_bge(16)                      // either signed>=VBASE (ptr) -> concat
     c = c + e_addr(0, 0, 1) + e_movr(30, 23) + e_ret()                            // both int: a+b
     c = c + e_movr(13, 1)                                                          // [cc] x13=b
-    c = c + e_cmp(0, 9) + e_bhs(8) + e_bl(strIntOff - (thisOff + 48))             // conv a
+    c = c + e_cmp(0, 9) + e_bge(8) + e_bl(strIntOff - (thisOff + 48))             // conv a (int side only)
     c = c + e_movr(11, 0)                                                          // [as] sa
-    c = c + e_movr(0, 13) + e_cmp(0, 9) + e_bhs(8) + e_bl(strIntOff - (thisOff + 68))  // conv b
+    c = c + e_movr(0, 13) + e_cmp(0, 9) + e_bge(8) + e_bl(strIntOff - (thisOff + 68))  // conv b (int side only)
     c = c + e_movr(12, 0)                                                          // [bs] sb
     c = c + e_movz(14, 0) + e_ldrbO(3, 11, 14) + e_cbz(3, 12) + e_addi(14, 14, 1) + e_b(0 - 12)  // strlen sa
     c = c + e_movz(16, 0) + e_ldrbO(3, 12, 16) + e_cbz(3, 12) + e_addi(16, 16, 1) + e_b(0 - 12)  // strlen sb
@@ -131,7 +139,7 @@ func emitKpDisp(thisOff, siOff, prOff) {
     let c = e_movr(25, 30)
     c = c + e_movzHi(9, 32512)
     c = c + e_cmp(0, 9)
-    c = c + e_bhs(8)
+    c = c + e_bge(8)
     c = c + e_bl(siOff - (thisOff + 16))
     c = c + e_bl(prOff - (thisOff + 20))
     c = c + e_movr(30, 25)
@@ -337,7 +345,7 @@ just run {
 
     let allocOff  = HDR + START + codeSize
     let strIntOff = allocOff + 16
-    let plusOff   = strIntOff + 100
+    let plusOff   = strIntOff + 128   // str_int grew 100->128 for signed (negative) support
     let printOff  = plusOff + 212
     let kpDispOff = printOff + 64
     let atoiOff = kpDispOff + 32
@@ -486,7 +494,7 @@ just run {
                 kc = sbAppend(kc, c_pop0())
                 kc = sbAppend(kc, e_movzHi(9, 32512))
                 kc = sbAppend(kc, e_cmp(0, 9))
-                kc = sbAppend(kc, e_bhs(8))                  // pointer -> already a string
+                kc = sbAppend(kc, e_bge(8))                  // signed>=VBASE = pointer -> already a string
                 kc = sbAppend(kc, e_bl(strIntOff - (off + 20)))
                 kc = sbAppend(kc, c_push())
                 code = code + sbToString(kc)
