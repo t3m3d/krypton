@@ -2,7 +2,7 @@
 REM bootstrap.bat - install Krypton from prebuilt binaries (no gcc required)
 REM
 REM Run this once after `git clone` on Windows. Copies the bootstrap binaries
-REM into place so kcc, kcc.sh --native, etc. work without any C compiler.
+REM into place so kcc and the kr launcher work without any C compiler.
 REM
 REM For a from-source rebuild (with icon, version bump, etc.), use build_v137.bat.
 
@@ -33,14 +33,17 @@ REM Smoke test
 kcc.exe --version 2>nul
 echo.
 echo Bootstrap complete. Try:
-echo   kcc.exe examples\hello.k                              (emit C source to stdout)
-echo   bash kcc.sh --native examples/hello.k -o hello.exe    (native PE — use forward slashes in bash!)
-echo   hello.exe                                              (run the native binary)
+echo   kcc examples\hello.k -o hello.exe   (compile to native PE)
+echo   hello.exe                           (run the native binary)
+echo   kcc -e "kp(\"hi\")"                 (one-shot eval)
+echo   kr script.ks                        (auto-wrap top-level script)
 echo.
 echo Notes:
-echo   - In bash, use forward slashes (examples/hello.k). Bash treats \h as escape.
-echo   - Run kcc.sh from cmd/PowerShell-launched bash (git-bash, MSYS2). Do NOT
-echo     run it from WSL bash on Windows: WSL bash will produce a Linux ELF
-echo     instead of a Windows PE/COFF, and Windows will reject the result.
+echo   - kcc is the Krypton-native driver (kcc.ks compiled). No bash needed.
+echo   - In Git Bash / MSYS2, prefer forward slashes for paths
+echo     (examples/hello.k). Bash treats \h as an escape.
+echo   - Do NOT run kcc under WSL bash on Windows: WSL bash produces a
+echo     Linux ELF instead of a Windows PE/COFF, and Windows will reject
+echo     the result.
 
 endlocal
