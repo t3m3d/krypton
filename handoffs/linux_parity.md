@@ -156,10 +156,11 @@ EMITS aarch64 (`compiler/linux_arm64/elf_host`), run under qemu-aarch64-static.
       toUpper/toLower/reverse, startsWith/endsWith/repeat, contains/indexOf/trim,
       split/count, abs/pow, []-index + for-in, range, StringBuilder, exit, + signed
       negatives. The common scalar+string+collection+StringBuilder surface is done.
-      Remaining: byte buffers (bufNew/bufSetByte/bufGetByte ~66 uses, next-biggest),
-      file/proc/socket/env builtins, struct/FFI (lower priority, shared with x86);
-      arm64-specific: native aarch64-HOST unbuilt (cross-from-x86 only), kr_atoi
-      non-negative-only.
+      Remaining: file/proc/socket/env builtins, struct/FFI (lower priority, shared
+      with x86); arm64-specific: native aarch64-HOST unbuilt (cross-from-x86 only),
+      kr_atoi non-negative-only.
+- [x] **byte buffers** (commit b7ec4c21): bufNew/bufSetByte/bufGetByte, all inline
+      (buffer = raw byte array). Validated set/get incl. 255/0 + fromCharCode.
 
 Recipe lesson learned: the consistency check must include a **name-collision grep**,
 not just an occurrence count — a reused `let krXxSz` silently shadows another size.
