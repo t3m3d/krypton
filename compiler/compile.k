@@ -2672,65 +2672,8 @@ just run {
     let lambdaFreeVars = ""  // lambda pos -> free vars mapping
     let structTable = ""  // extern struct definitions: "NAME:field1:TYPE1,field2:TYPE2\n"
 
-    // Pre-scan: find all lambda expressions and compile them to C.
-    // Only run if source contains lambda patterns (func( without a name).
-    // Skipped in --ir mode — IR doesn't use lambdaBank (lambdas re-emit
-    // as `irLambdaIR` later), and the calls to compileBlock + cIdent here
-    // are the last C-emit dependencies in the IR pipeline. Skipping makes
-    // compile.k's --ir path truly C-free.
-    let lsi = 0
-    if irMode == 1 { lsi = ntoks }
-    while lsi < ntoks {
-        let lsTok = tokAt(tokens, lsi)
-        if lsTok == "KW:func" || lsTok == "KW:fn" {
-            let prevTok = ""
-            if lsi > 0 { prevTok = tokAt(tokens, lsi - 1) }
-            let nextTok2 = tokAt(tokens, lsi + 1)
-            if (prevTok == "ASSIGN" || prevTok == "LPAREN" || prevTok == "COMMA" || prevTok == "KW:emit" || prevTok == "KW:return" || prevTok == "KW:in") && nextTok2 == "LPAREN" {
-                // This is a lambda expression - pre-compile it
-                let lp2 = lsi + 2  // past func and LPAREN
-                let lparams2 = ""
-                let lpc2 = 0
-                while tokAt(tokens, lp2) != "RPAREN" {
-                    if tokType(tokAt(tokens, lp2)) == "ID" {
-                        if lpc2 > 0 { lparams2 = lparams2 + "," }
-                        lparams2 = lparams2 + tokVal(tokAt(tokens, lp2))
-                        lpc2 += 1
-                    }
-                    lp2 += 1
-                }
-                lp2 += 1  // past RPAREN
-                if tokAt(tokens, lp2) == "ARROW" { lp2 += 2 }
-                // Compile lambda body
-                let lbp = compileBlock(tokens, lp2, ntoks, 1, "_krlam" + lsi)
-                let lbcode = pairVal(lbp)
-                // Build signature with explicit params only
-                let lsig = "char* _krlam" + lsi + "(void)"
-                if lpc2 > 0 {
-                    lsig = "char* _krlam" + lsi + "(char* " + getNthParam(lparams2, 0)
-                    let lpi2 = 1
-                    while lpi2 < lpc2 {
-                        lsig = lsig + ", char* " + getNthParam(lparams2, lpi2)
-                        lpi2 += 1
-                    }
-                    lsig = lsig + ")"
-                }
-                // Detect free variables (for static capture)
-                let lbodyEnd = skipBlock(tokens, lp2)
-                let lfreeVars = findFreeVars(tokens, lp2, lbodyEnd, lparams2)
-                let lfvc = 0
-                if len(lfreeVars) > 0 { lfvc = lineCount(lfreeVars) }
-                let lcapDecls = ""
-                let lcapInits = ""
-                let lfvi2 = 0
-                while lfvi2 < lfvc {
-                    let fvn2 = split(lfreeVars, lfvi2)
-                    lfvi2 += 1
-                }
-            }
-        }
-        lsi += 1
-    }
+    // (Legacy C-mode lambda pre-scan removed 2026-06-05. Lambdas re-emit
+    // through `irLambdaIR` later — IR has no need for lambdaBank.)
     let ii = 0
     while ii < ntoks {
         let itok = tokAt(tokens, ii)
@@ -3104,44 +3047,20 @@ just run {
                 i = gp
             }
         } else if tok == "KW:func" || tok == "KW:fn" {
-            // Skip if this is a lambda (next token is LPAREN, not a name)
-            if tokAt(tokens, i + 1) == "LPAREN" {
-                let lskip2 = i + 2
-                while lskip2 < ntoks && tokAt(tokens, lskip2) != "RPAREN" { lskip2 += 1 }
-                lskip2 += 1
-                if tokAt(tokens, lskip2) == "ARROW" { lskip2 += 2 }
-                i = skipBlock(tokens, lskip2)
-            } else {
-            if irMode == 1 {
-                // IR mode discards the C output (sb). Skip the expensive C body
-                // compilation (compileFunc → compileBlock is O(n^2) on huge
-                // functions, which stalled native self-host); just advance past
-                // the function. IR is generated separately via irFuncIR.
-                let sk = i + 2
-                while sk < ntoks && tokAt(tokens, sk) != "RPAREN" { sk += 1 }
-                sk += 1
-                if tokAt(tokens, sk) == "ARROW" { sk += 2 }
-                i = skipBlock(tokens, sk)
-            } else {
-            let fp = compileFunc(tokens, i, ntoks)
-            let fcode = pairVal(fp)
-            sb = sbAppend(sb, fcode)
-            i = pairPos(fp)
-            }
-            }
+            // Walk past the func — IR is generated separately by irFuncIR.
+            // Handles both lambdas (no name) and named funcs.
+            let sk = i + 2
+            if tokAt(tokens, i + 1) != "LPAREN" { sk = i + 3 }   // skip name + LPAREN for named funcs
+            while sk < ntoks && tokAt(tokens, sk) != "RPAREN" { sk += 1 }
+            sk += 1
+            if tokAt(tokens, sk) == "ARROW" { sk += 2 }
+            i = skipBlock(tokens, sk)
         } else if tok == "KW:callback" {
-            // callback func — was compiled as void C function in --c mode.
-            // compileCallbackFunc deleted with the C-emit code; advance past
-            // the body in IR mode (which has its own handling via irFuncIR).
-            if irMode == 1 {
-                let cbSk = i + 3
-                while cbSk < ntoks && tokAt(tokens, cbSk) != "RPAREN" { cbSk += 1 }
-                cbSk += 1
-                if tokAt(tokens, cbSk) == "ARROW" { cbSk += 2 }
-                i = skipBlock(tokens, cbSk)
-            } else {
-                i += 1
-            }
+            let cbSk = i + 3
+            while cbSk < ntoks && tokAt(tokens, cbSk) != "RPAREN" { cbSk += 1 }
+            cbSk += 1
+            if tokAt(tokens, cbSk) == "ARROW" { cbSk += 2 }
+            i = skipBlock(tokens, cbSk)
         } else if tokType(tok) == "CBLOCK" {
             // cfunc { } — decode SOH placeholders back to newlines and emit verbatim
             let craw = replace(tokVal(tok), "\x01", "\n")
@@ -3293,32 +3212,9 @@ just run {
         emit 0
     }
 
-    // Emit C `int main(...)` + the entry block's body to sb, but only when
-    // the output target is C (legacy --c/--gcc path). In --ir mode the sb
-    // is discarded later, AND compileBlock here is the same O(n^2) scan
-    // agent-m's d5f360da skipped for function bodies — guarding it here
-    // skips it for the program entry too, which is the biggest block in
-    // typical sources (compile.k's `just run`, x64.k's `just run`).
-    // Native-pipeline self-host doesn't pay for any C codegen now.
-    if irMode == 0 {
-        sb = sbAppend(sb, "int main(int argc, char** argv) {\n")
-        sb = sbAppend(sb, "    char _stack_anchor; _stack_bottom = &_stack_anchor;\n")
-        sb = sbAppend(sb, "    _argc = argc; _argv = argv;\n")
-        sb = sbAppend(sb, "    srand((unsigned)time(NULL));\n")
-        // initialize global variables declared at file scope
-        let globInitCode = sbToString(sbGlobals)
-        if len(globInitCode) > 0 {
-            sb = sbAppend(sb, globInitCode)
-        }
+    // (Legacy C `int main(...)` emission removed 2026-06-05. Krypton is
+    // native-pipeline only now; the IR block below is the only output.)
 
-        let bp = compileBlock(tokens, entry, ntoks, 0, "0")
-        let bcode = pairVal(bp)
-        sb = sbAppend(sb, bcode)
-        sb = sbAppend(sb, "    return 0;\n")
-        sb = sbAppend(sb, "}\n")
-    }
-
-    // If --ir mode, emit IR instead of C
     if irMode {
         let sbIR = sbNew()
         sbIR = sbAppend(sbIR, "; Krypton IR\n; Source: " + file + "\n\n")
