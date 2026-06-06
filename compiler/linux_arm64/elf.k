@@ -74,6 +74,7 @@ func e_cbz(rt, dsp)  { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q *
 func e_cbnz(rt, dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + rt  emit wordHL(46336 + p / 65536, p % 65536) }
 func e_bhs(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 2  emit wordHL(21504 + p / 65536, p % 65536) }
 func e_bge(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 10 emit wordHL(21504 + p / 65536, p % 65536) } // b.ge (signed >=, cond GE=10)
+func e_blt(dsp) { let q = dsp / 4  if q < 0 { q = q + 524288 }  let p = q * 32 + 11 emit wordHL(21504 + p / 65536, p % 65536) } // b.lt (signed <, cond LT=11)
 
 // composites
 func c_push() { emit e_subi(20, 20, 16) + e_str0(0, 20) }      // push x0
@@ -107,6 +108,39 @@ func emitStrInt(allocOff, thisOff) {
     c = c + e_cbz(6, 16)                                             // [100] .signcheck: x6==0 -> .done (116)
     c = c + e_subi(1, 1, 1) + e_movz(2, 45) + e_strb(2, 1)           // [104] x1--; *x1='-'
     c = c + e_movr(0, 1) + e_movr(30, 24) + e_ret()                  // [116] .done: x0=x1; restore lr; ret
+    emit c
+}
+// kr_hex: x0=int -> x0=lowercase hex string (sign+magnitude). 144 bytes. 24B buf.
+func emitHex(allocOff, thisOff) {
+    let c = e_movr(24, 30) + e_movr(10, 0) + e_movz(0, 24)            // [0]  x24=lr; x10=val; x0=24
+    c = c + e_bl(allocOff - (thisOff + 12))                          // [12] bl kr_alloc -> x0=buf
+    c = c + e_addi(1, 0, 23) + e_movr(0, 10) + e_movz(4, 16) + e_strb(31, 1)  // [16] x1=buf+23; x0=val; x4=16; *x1=0
+    c = c + e_movz(6, 0) + e_cmpi0(0) + e_bge(12) + e_subr(0, 31, 0) + e_movz(6, 1)  // [32] sign
+    c = c + e_cbz(0, 52)                                             // [52] x0==0 -> .zero (104)
+    c = c + e_udiv(3, 0, 4) + e_msub(5, 3, 4, 0) + e_addi(5, 5, 48)  // [56] .loop: x3=x0/16; x5=rem; +'0'
+    c = c + e_subi(7, 5, 58) + e_cmpi0(7) + e_blt(8) + e_addi(5, 5, 39)  // [68] if x5>'9'(x7>=0): x5 += 0x27 (a-f)
+    c = c + e_subi(1, 1, 1) + e_strb(5, 1) + e_movr(0, 3) + e_cbnz(0, 0 - 40)  // [84] .store; x0=q; !=0 -> .loop (56)
+    c = c + e_b(16)                                                  // [100] -> .signcheck (116)
+    c = c + e_subi(1, 1, 1) + e_movz(2, 48) + e_strb(2, 1)           // [104] .zero: *x1='0'
+    c = c + e_cbz(6, 16)                                             // [116] .signcheck: x6==0 -> .done (132)
+    c = c + e_subi(1, 1, 1) + e_movz(2, 45) + e_strb(2, 1)           // [120] *x1='-'
+    c = c + e_movr(0, 1) + e_movr(30, 24) + e_ret()                  // [132] .done
+    emit c
+}
+// kr_bin: x0=int -> x0=binary string (sign+magnitude). 128 bytes. 72B buf (64 bits + sign + nul).
+func emitBin(allocOff, thisOff) {
+    let c = e_movr(24, 30) + e_movr(10, 0) + e_movz(0, 72)            // [0]  x24=lr; x10=val; x0=72
+    c = c + e_bl(allocOff - (thisOff + 12))                          // [12] bl kr_alloc -> x0=buf
+    c = c + e_addi(1, 0, 71) + e_movr(0, 10) + e_movz(4, 2) + e_strb(31, 1)  // [16] x1=buf+71; x0=val; x4=2; *x1=0
+    c = c + e_movz(6, 0) + e_cmpi0(0) + e_bge(12) + e_subr(0, 31, 0) + e_movz(6, 1)  // [32] sign
+    c = c + e_cbz(0, 36)                                             // [52] x0==0 -> .zero (88)
+    c = c + e_udiv(3, 0, 4) + e_msub(5, 3, 4, 0) + e_addi(5, 5, 48) + e_subi(1, 1, 1)  // [56] .loop
+    c = c + e_strb(5, 1) + e_movr(0, 3) + e_cbnz(0, 0 - 24)          // [72] *x1=dig; x0=q; !=0 -> .loop (56)
+    c = c + e_b(16)                                                  // [84] -> .signcheck (100)
+    c = c + e_subi(1, 1, 1) + e_movz(2, 48) + e_strb(2, 1)           // [88] .zero: *x1='0'
+    c = c + e_cbz(6, 16)                                             // [100] .signcheck: x6==0 -> .done (116)
+    c = c + e_subi(1, 1, 1) + e_movz(2, 45) + e_strb(2, 1)           // [104] *x1='-'
+    c = c + e_movr(0, 1) + e_movr(30, 24) + e_ret()                  // [116] .done
     emit c
 }
 // kr_plus(a=x0, b=x1) -> x0. Polymorphic +: both ints -> a+b; else convert each
@@ -324,6 +358,8 @@ func opSize(ln) {
         if startsWith(b, "isTruthy") { emit 24 }
         if startsWith(b, "min") { emit 32 }   // pop0+pop1+cmp+csel+push
         if startsWith(b, "max") { emit 32 }
+        if startsWith(b, "hex") { emit 20 }   // pop0 + bl kr_hex + push
+        if startsWith(b, "bin") { emit 20 }   // pop0 + bl kr_bin + push
         emit 0
     }
     emit 0
@@ -350,7 +386,9 @@ just run {
     let kpDispOff = printOff + 64
     let atoiOff = kpDispOff + 32
     let substrOff = atoiOff + 44
-    let nlOff = substrOff + 68
+    let hexOff = substrOff + 68    // substr is 68 bytes
+    let binOff = hexOff + 144      // kr_hex is 144 bytes
+    let nlOff = binOff + 128       // kr_bin is 128 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -454,6 +492,9 @@ just run {
             // (bitwise builtins arrive as CALL, handled in the CALL branch below.)
             if startsWith(b, "min") { code = code + c_pop0() + c_pop1() + e_cmp(1, 0) + e_csel(0, 1, 0, 11) + c_push()  off = off + 32 }
             if startsWith(b, "max") { code = code + c_pop0() + c_pop1() + e_cmp(1, 0) + e_csel(0, 1, 0, 12) + c_push()  off = off + 32 }
+            // hex/bin(n) -> string (kr_hex/kr_bin). 20 bytes.
+            if startsWith(b, "hex") { code = code + c_pop0() + e_bl(hexOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "bin") { code = code + c_pop0() + e_bl(binOff - (off + 8)) + c_push()  off = off + 20 }
             if startsWith(b, "kp") {
                 let kc = sbNew()
                 kc = sbAppend(kc, c_pop0())                         // pop arg -> x0
@@ -553,6 +594,8 @@ just run {
     bb = sbAppend(bb, emitKpDisp(kpDispOff, strIntOff, printOff))
     bb = sbAppend(bb, emitAtoi())
     bb = sbAppend(bb, emitSubstr(allocOff, substrOff))
+    bb = sbAppend(bb, emitHex(allocOff, hexOff))
+    bb = sbAppend(bb, emitBin(allocOff, binOff))
     bb = sbAppend(bb, "")     // guard: the x86 backend drops the LAST sbAppend here
     let body = sbToString(bb)
 
