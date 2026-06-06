@@ -140,12 +140,17 @@ EMITS aarch64 (`compiler/linux_arm64/elf_host`), run under qemu-aarch64-static.
       1/0 ints (usable in `if`). All validated under qemu. WATCH: hand-computed
       branch displacements are the top bug source — a wrong disp → infinite loop
       (qemu hangs), and byte-count checks don't catch it. Re-derive every label.
+- [x] **split/count** ported to arm64 (commit 9c478212). The "collection" model is
+      a comma-separated string: split(list, idx)->idx-th element, count(list)->count.
+      kr_split(160B)/kr_count(64B), new e_beq encoder. Validated incl. the real
+      `while i<count(s){ toInt(split(s,i)) }` idiom. (split(s,sep) was a red herring —
+      the working API is the index form, same on x86.)
 - **arm64 now covers**: min/max, bitwise (6), hex/bin, padLeft/padRight,
       toUpper/toLower/reverse, startsWith/endsWith/repeat, contains/indexOf/trim,
-      + signed negatives. Remaining arm64 gaps: split/range (need array infra —
-      split is the single most-used builtin in examples, x50), abs/pow, struct/
-      buffer/FFI; plus arm64-specific: native aarch64-HOST is unbuilt (cross-from-x86
-      only), and kr_atoi is non-negative-only.
+      split/count, + signed negatives. Remaining arm64 gaps: abs/pow (simple int),
+      INDEX op + length builtin + for-in (parts[i] sugar — INDEX==split, length==
+      count, easy), struct/buffer/FFI; plus arm64-specific: native aarch64-HOST is
+      unbuilt (cross-from-x86 only), and kr_atoi is non-negative-only.
 
 Recipe lesson learned: the consistency check must include a **name-collision grep**,
 not just an occurrence count — a reused `let krXxSz` silently shadows another size.
