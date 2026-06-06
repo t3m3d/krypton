@@ -767,8 +767,8 @@ func opSize(ln) {
         if startsWith(b, "max") { emit 32 }
         if startsWith(b, "hex") { emit 20 }   // pop0 + bl kr_hex + push
         if startsWith(b, "bin") { emit 20 }   // pop0 + bl kr_bin + push
-        if startsWith(b, "padLeft")  { emit 36 }  // pop x2/x1/x0 + bl + push
-        if startsWith(b, "padRight") { emit 36 }
+        if startsWith(b, "padLeft")  { emit 68 }  // pop x2/x1/x0 + (stringify s if int) + bl + push
+        if startsWith(b, "padRight") { emit 68 }
         if startsWith(b, "toUpper") { emit 20 }   // pop0 + bl + push
         if startsWith(b, "toLower") { emit 20 }
         if startsWith(b, "reverse") { emit 20 }
@@ -1000,8 +1000,34 @@ just run {
             if startsWith(b, "hex") { code = code + c_pop0() + e_bl(hexOff - (off + 8)) + c_push()  off = off + 20 }
             if startsWith(b, "bin") { code = code + c_pop0() + e_bl(binOff - (off + 8)) + c_push()  off = off + 20 }
             // padLeft/padRight(s, width, pad): pop pad->x2, width->x1, s->x0; bl; push. 36 bytes.
-            if startsWith(b, "padLeft") { code = code + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_bl(padleftOff - (off + 24)) + c_push()  off = off + 36 }
-            if startsWith(b, "padRight") { code = code + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_bl(padrightOff - (off + 24)) + c_push()  off = off + 36 }
+            // padLeft/padRight(s,width,pad): pop pad->x2,width->x1,s->x0; if s is an
+            // int (<VBASE) stringify it via str_int (save/restore width+pad); then bl. 68B.
+            if startsWith(b, "padLeft") {
+                code = code + e_ldr0(2, 20) + e_addi(20, 20, 16)   // [0] pop pad->x2
+                code = code + e_ldr0(1, 20) + e_addi(20, 20, 16)   // [8] pop width->x1
+                code = code + e_ldr0(0, 20) + e_addi(20, 20, 16)   // [16] pop s->x0
+                code = code + e_movzHi(9, 32512) + e_cmp(0, 9)     // [24] x9=VBASE; cmp
+                code = code + e_bge(24)                            // [32] s>=VBASE -> .skip (56)
+                code = code + e_movr(11, 1) + e_movr(12, 2)        // [36] save width,pad
+                code = code + e_bl(strIntOff - (off + 44))         // [44] x0=str(s)
+                code = code + e_movr(1, 11) + e_movr(2, 12)        // [48] restore width,pad
+                code = code + e_bl(padleftOff - (off + 56))        // [56] .skip
+                code = code + c_push()                             // [60]
+                off = off + 68
+            }
+            if startsWith(b, "padRight") {
+                code = code + e_ldr0(2, 20) + e_addi(20, 20, 16)
+                code = code + e_ldr0(1, 20) + e_addi(20, 20, 16)
+                code = code + e_ldr0(0, 20) + e_addi(20, 20, 16)
+                code = code + e_movzHi(9, 32512) + e_cmp(0, 9)
+                code = code + e_bge(24)
+                code = code + e_movr(11, 1) + e_movr(12, 2)
+                code = code + e_bl(strIntOff - (off + 44))
+                code = code + e_movr(1, 11) + e_movr(2, 12)
+                code = code + e_bl(padrightOff - (off + 56))
+                code = code + c_push()
+                off = off + 68
+            }
             // 1-arg string->string transforms (kr_toupper/tolower/reverse). 20 bytes.
             if startsWith(b, "toUpper") { code = code + c_pop0() + e_bl(toupperOff - (off + 8)) + c_push()  off = off + 20 }
             if startsWith(b, "toLower") { code = code + c_pop0() + e_bl(tolowerOff - (off + 8)) + c_push()  off = off + 20 }
