@@ -1,14 +1,27 @@
 # macOS (macho) test gaps — builtin parity backlog (2026-06-06, Agent M)
 
-**NEW 2026-06-06 — `k:map` (stdlib/map.k) BROKEN on macho.** Found building
-kryoterm's grid. Setting distinct keys in a loop collides/drops entries and
-`mapSize` miscounts. Repro: `m=mapNew(); set "0,0"/"0,1"/"0,2" each = "X"` →
-`mapGet("0,1")=""` (lost), `"0,0"`+`"0,2"` both `"X"`, `mapSize=1`. Single
-literal-key set/get works (`mapGet("1,2")` after one `mapSet` is fine), so it's
-a hashing/collision bug surfacing on multiple keys — likely a string-hash or
-bucket builtin the macho backend mishandles (map.k is shared stdlib, so check
-whether x86/elf is affected too; Linux may differ). Workaround used in kryoterm:
-flat-string grid instead of a map. Owner: macho backend / stdlib map hashing.
+**NEW 2026-06-06 — `k:map` (stdlib/map.k) BROKEN on macho — ROOT-CAUSED (name
+collision with broken macho-only builtins).** Found building kryoterm's grid.
+`map.k` defines `func mapSet`/`mapGet`/`mapHas`, but **`mapHas,mapGet,mapSet,mapDel`
+are in compile.k's builtins list (`compile.k:1424`)** → the frontend emits
+`BUILTIN_MAPSET`/`BUILTIN_MAPGET` for those calls, SHADOWING map.k's functions.
+Those builtin handlers exist **only in macho_arm64_self.k (9 refs); elf.k and
+x64.k have 0, and there is NO `BUILTIN_MAPNEW` anywhere** (the native map can't
+even be constructed). So on macho the broken/vestigial builtin wins and corrupts
+the string map (3-key loop → 1 line, keys dropped); on Linux/Windows the same
+calls fall through (no backend handler) and map.k effectively works.
+Bisection proof: a verbatim copy of map.k's 8 functions renamed `my*` works; rename
+`mySet`/`myGet` → `mapSet`/`mapGet` and it breaks — names are the only diff.
+**FIX (cross-platform, needs the owner — NOT a safe unsupervised patch on the
+just-shipped self-host compiler):** (1) remove `mapHas,mapGet,mapSet,mapDel` from
+`compile.k:1424` builtins list so user funcs win; (2) drop the dead
+`BUILTIN_MAP*` emitters in `macho_arm64_self.k`; (3) make the files that call
+`mapGet/mapSet` WITHOUT importing k:map — `stdlib/json.k`, `json_parse.k`,
+`struct_utils.k`, `native_extras.k`, `examples/import_demo.k` — `import "k:map"`
+(or the build must guarantee map.k links); (4) regen ALL frontend seeds + the
+macho host; (5) re-test json.k + map.k on all 3 platforms. The proper long-term
+fix is frontend precedence: a user-defined `func` should shadow a same-named
+builtin. **kryoterm is unblocked already** (flat-string grid, no map needed).
 
 Found while doing a fresh-clone build/test pass on macOS. **Not regressions** —
 these are builtins/edges that exist on Linux `elf.k` but aren't ported to
