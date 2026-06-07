@@ -78,8 +78,13 @@ see §B). So: no `krypton-…-linux-aarch64.tar.gz` for this release.
   self-host compile.k yet (`elf_host` SIGSEGVs on the 21747-line IR — the known
   arm64 codegen ceiling). aarch64 is the **x86-hosted cross target**, not a
   native-FE runtime path, so the stale aarch64 FE seed does NOT block 2.3.0. It
-  just means there's no native aarch64 Krypton FE yet (roadmap, tied to maturing
+  just means there's no native aarch64 Krypton FE yet (tied to maturing
   `compiler/linux_aarch64/elf.k`).
+  - **DECISION (owner, 2026-06-06): native arm64 Linux is DEFERRED to the next
+    release.** 2.3.0 ships x86-64 native + aarch64 cross-compile only. Do NOT
+    hold the cut for a native arm64 build, and no `linux-aarch64` tarball this
+    release. Unblocking it = the arm64 codegen fix (`handoffs/arm64_codegen
+    _drop.md`) → next-release work.
 
 ---
 
