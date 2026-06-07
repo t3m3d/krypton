@@ -1731,6 +1731,23 @@ func parseFullIR(ir) {
                         // connect(fd, &sockaddr_in, 16) #98 — client side.
                         curOps = sbAppend(curOps, "BUILTIN_SOCKCONNECT\n")
                         nOps += 1
+                    } else if bname == "fdRead" {
+                        // read(fd, buf, maxlen) #3 into a fresh string. For ptys/pipes.
+                        curOps = sbAppend(curOps, "BUILTIN_FDREAD\n")
+                        nOps += 1
+                    } else if bname == "fdWrite" {
+                        // write(fd, buf, len) #4. Works on any fd (pty master, pipe).
+                        curOps = sbAppend(curOps, "BUILTIN_FDWRITE\n")
+                        nOps += 1
+                    } else if bname == "fdClose" {
+                        // close(fd) #6.
+                        curOps = sbAppend(curOps, "BUILTIN_FDCLOSE\n")
+                        nOps += 1
+                    } else if bname == "ptySpawn" {
+                        // Allocate a pty, fork, exec the shell on the slave;
+                        // return the master fd. The whole dance in asm.
+                        curOps = sbAppend(curOps, "BUILTIN_PTYSPAWN\n")
+                        nOps += 1
                     }
                 } else if op == "POP" {
                     curOps = sbAppend(curOps, "POP\n")
@@ -2014,6 +2031,10 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_SOCKCLOSE"    { emit 4 }   // pop fd; x16=6; svc; push
     if opTok == "BUILTIN_SOCKRECVSTR"  { emit 36 }  // pop fd; alloc(21) 64K; recvfrom; NUL-term; return buf
     if opTok == "BUILTIN_SOCKCONNECT"  { emit 53 }  // pop lo,hi,d,c,b,a,fd(7); alloc(21) sockaddr; fill 16B w/IP; connect(98)
+    if opTok == "BUILTIN_FDWRITE"      { emit 6 }   // pop len,buf,fd; x16=4(write); svc; push
+    if opTok == "BUILTIN_FDCLOSE"      { emit 4 }   // pop fd; x16=6(close); svc; push
+    if opTok == "BUILTIN_FDREAD"       { emit 34 }  // pop maxlen,fd; alloc(21) buf; read(3); NUL-term; return buf
+    if opTok == "BUILTIN_PTYSPAWN"     { emit 146 } // open ptmx; grant/unlk/gname ioctl; fork; child setsid+dup2+execve; parent ret master
     if opTok == "POP"              { emit 1 }
     emit 0
 }
@@ -4931,6 +4952,45 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_mov_xx(0, 20))      // return buf
             s = sbAppend(s, arm64_push_x0())
             instrIdx = instrIdx + 13
+        } else if opTok == "BUILTIN_FDWRITE" {
+            // fdWrite(fd, buf, len) -> write(fd,buf,len) #4. Works on any fd
+            // (pty master, pipe, file). TOS=len, next=buf, next=fd. 6 instr.
+            s = sbAppend(s, arm64_pop(2))             // 0: x2 = len
+            s = sbAppend(s, arm64_pop(1))             // 1: x1 = buf
+            s = sbAppend(s, arm64_pop(0))             // 2: x0 = fd
+            s = sbAppend(s, arm64_movz_x_imm(16, 4))  // 3: SYS_write
+            s = sbAppend(s, arm64_svc(0x80))          // 4
+            s = sbAppend(s, arm64_push_x0())          // 5: push nbytes
+            instrIdx = instrIdx + 6
+        } else if opTok == "BUILTIN_FDCLOSE" {
+            // fdClose(fd) -> close(fd) #6. TOS=fd. 4 instr.
+            s = sbAppend(s, arm64_pop(0))             // 0: x0 = fd
+            s = sbAppend(s, arm64_movz_x_imm(16, 6))  // 1: SYS_close
+            s = sbAppend(s, arm64_svc(0x80))          // 2
+            s = sbAppend(s, arm64_push_x0())          // 3
+            instrIdx = instrIdx + 4
+        } else if opTok == "BUILTIN_FDREAD" {
+            // fdRead(fd, maxlen) -> read(fd, buf, maxlen) #3 into a fresh heap
+            // buffer, NUL-terminate at bytes_read, return as a string. TOS=maxlen,
+            // next=fd. x19=maxlen, x22=fd, x20=buf, x21=bytes (saved across alloc).
+            // 34 instr (incl alloc 21). NOTE: trusts read >= 0 (blocking fd).
+            s = sbAppend(s, arm64_pop(19))            // 0: x19 = maxlen
+            s = sbAppend(s, arm64_pop(22))            // 1: x22 = fd
+            s = sbAppend(s, arm64_add_imm(4, 19, 1))  // 2: x4 = maxlen + 1 (alloc size)
+            instrIdx = instrIdx + 3
+            s = sbAppend(s, emitAllocVar(instrIdx, textVaddr, textOff))  // x0 = buf (21)
+            instrIdx = instrIdx + 21
+            s = sbAppend(s, arm64_mov_xx(20, 0))      // 0: buf -> x20
+            s = sbAppend(s, arm64_mov_xx(0, 22))      // 1: x0 = fd
+            s = sbAppend(s, arm64_mov_xx(1, 20))      // 2: x1 = buf
+            s = sbAppend(s, arm64_mov_xx(2, 19))      // 3: x2 = maxlen
+            s = sbAppend(s, arm64_movz_x_imm(16, 3))  // 4: SYS_read
+            s = sbAppend(s, arm64_svc(0x80))          // 5
+            s = sbAppend(s, arm64_mov_xx(21, 0))      // 6: x21 = bytes_read
+            s = sbAppend(s, arm64_strb_reg(31, 20, 21)) // 7: NUL at buf[bytes_read]
+            s = sbAppend(s, arm64_mov_xx(0, 20))      // 8: return buf
+            s = sbAppend(s, arm64_push_x0())          // 9
+            instrIdx = instrIdx + 10
         } else if opTok == "POP" {
             s = sbAppend(s, arm64_pop_x0())
             instrIdx = instrIdx + 1
