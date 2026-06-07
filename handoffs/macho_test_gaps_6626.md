@@ -1,5 +1,19 @@
 # macOS (macho) test gaps — builtin parity backlog (2026-06-06, Agent M)
 
+**NEW 2026-06-07 — macho CODEGEN BUG: loop-invariant `while CONST` is skipped.**
+A `while` whose condition never changes and is true at entry but is computed from
+a never-modified local — e.g. `let go = 1` then `while go == 1 { ... }` — compiles
+to a loop whose **body never executes** (the program falls straight through).
+Found building kryoterm's interactive pty loop: the infinite poll loop produced
+zero output; an identical loop with a changing counter (`while i < N { ... i+=1 }`)
+works. Repro: `let go=1  while go==1 { kp("x")  ... }` prints nothing.
+WORKAROUND in kryoterm: large bounded counter (`while i < 2000000000`). Likely the
+condition is hoisted/folded and mis-evaluated, or the loop is treated as dead.
+Owner: macho backend (irWhileIR / loop-condition codegen). Not yet filed against
+elf/x64 — may be macho-only. Verify other platforms.
+
+
+
 **✅ FIXED on macOS 2026-06-07 (`b0e6c5ce`) — L/W: regen your frontend seeds.**
 Removed `mapHas,mapGet,mapSet` from `compile.k:1424` builtins list (kept mapDel)
 so they resolve to map.k's user funcs; rewrote `json.k`/`struct_utils.k` to parse
