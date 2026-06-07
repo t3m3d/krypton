@@ -183,21 +183,27 @@ export func kr_sbnew() {
     let buf = rawAlloc(64)
     bufSetQwordAt(buf, 0, 0)
     bufSetByte(buf, 8, 0)
-    emit intToPtr(ptrToInt(buf) + 8)
+    emit ptrAdd(buf, 8)
 }
 
 export func kr_sbappend(sb, s) {
     let s_len = len(s)
     if s_len == 0 { emit sb }
-    let base = intToPtr(ptrToInt(sb) - 8)
+
+    let base    = ptrAdd(sb, 0 - 8)
     let cur_len = bufGetQwordAt(base, 0)
-    let needed = cur_len + s_len
+    let needed  = cur_len + s_len
 
-    let cap_field = intToPtr(ptrToInt(base) - 8)
-    let raw_cap = bufGetQwordAt(cap_field, 0)
+    let cap_field   = ptrAdd(base, 0 - 8)
+    let raw_cap     = bufGetQwordAt(cap_field, 0)
     let alloc_total = bitAnd(raw_cap, 0 - 4)
-    let data_cap = alloc_total - 24
+    let data_cap    = alloc_total - 24
 
+    // Single-return shape: pick `target` + `dst_base`, then run ONE
+    // append+terminate+update path. Avoids any control-flow ambiguity
+    // around an emit inside the realloc branch.
+    let dst_base = base
+    let target   = sb
     if needed + 1 > data_cap {
         let new_total = 2 * (needed + 1) + 8
         if new_total < 64 { new_total = 64 }
@@ -207,28 +213,22 @@ export func kr_sbappend(sb, s) {
             bufSetByte(new_buf, i + 8, bufGetByte(sb, i))
             i = i + 1
         }
-        let j = 0
-        while j < s_len {
-            bufSetByte(new_buf, cur_len + 8 + j, bufGetByte(s, j))
-            j = j + 1
-        }
-        bufSetByte(new_buf, needed + 8, 0)
-        bufSetQwordAt(new_buf, 0, needed)
-        emit intToPtr(ptrToInt(new_buf) + 8)
+        dst_base = new_buf
+        target   = ptrAdd(new_buf, 8)
     }
 
     let j = 0
     while j < s_len {
-        bufSetByte(base, cur_len + 8 + j, bufGetByte(s, j))
+        bufSetByte(dst_base, cur_len + 8 + j, bufGetByte(s, j))
         j = j + 1
     }
-    bufSetByte(base, needed + 8, 0)
-    bufSetQwordAt(base, 0, needed)
-    emit sb
+    bufSetByte(dst_base, needed + 8, 0)
+    bufSetQwordAt(dst_base, 0, needed)
+    emit target
 }
 
 export func kr_sbtostring(sb) {
-    let cur_len = bufGetQwordAt(intToPtr(ptrToInt(sb) - 8), 0)
+    let cur_len = bufGetQwordAt(ptrAdd(sb, 0 - 8), 0)
     let dst = rawAlloc(cur_len + 1)
     let i = 0
     while i < cur_len {
