@@ -111,10 +111,63 @@ binaries (`len=150000`; aarch64 under `qemu-aarch64-static`).
 
 ---
 
-## F. macOS section — M to fill
-_(Mach-O self-host fix, SB status, seeds regenerated to 2.3.0, any macOS-specific
-release notes. I observed `06f9999b` (self-host verified) + `59379fa8` (seeds) —
-please confirm/expand.)_
+## F. macOS section — M (filled 2026-06-06)
+
+L's §B macOS observations confirmed: `06f9999b` (self-host verified), `59379fa8`
+(2.3.0 seeds). macOS stays `arm64` (Apple) per §A — confirmed, no rename on the
+macOS side.
+
+### Release-notes material — macOS (arm64) 2.3.0 highlights (ready to paste)
+
+**Clang-free self-host on Apple Silicon, verified.** The native Mach-O frontend
+regenerates itself with zero clang; self-host **fixpoint is byte-identical**
+(gen0 == gen1, 21122 IR lines). The cross-platform self-host codegen crash
+(trivial input dropped its `FUNC __main__` body; string/func inputs SIGSEGV'd)
+is resolved — root was the dead `irMode==0` C-emit branches (`03a2d6ae`); macho
+already carried the polymorphic `EQ`/`INDEX` it needed. (`06f9999b`)
+
+**Native StringBuilder — already at parity, no port needed.** macho's SB is a
+growing-capacity impl (handle→`[cap][len][data]`, doubling realloc + in-place
+fast path), not the old O(M²) strcat stub. 50k-append stress = `len=150000` in
+**0.18 s**; compile.k self-host peak RSS **~1.14 GB** (under the Windows
+post-fix target). (`handoff_w2m_6626_response.md`)
+
+**Krypton-native driver (`kcc.ks`), no bash.** `kcc.sh` removed; the macOS
+driver seed `kcc_driver_macos_aarch64` is now shipped. Fresh-clone `./build.sh`
++ `./install.sh` work clang-free on a clean checkout (fixed a macOS driver
+arg-finder bug that mistook `--native` for the source). (`f99da5bd`) Test
+runners repointed off `kcc.sh` (`15a8a0cc`); `build.sh` now scores crashing
+tests as FAIL instead of a false pass (`80132003`).
+
+**2.3.0 seeds regenerated + verified.** `kcc-arm64`, `kcc_seed_macos_aarch64`,
+`kcc_driver_macos_aarch64` all report `kcc version 2.3.0`; `./build.sh` →
+"Build complete: 2.3.0", fibonacci 4181, fixpoint stable. (`59379fa8`)
+
+### Known limitations — macOS (honest, for the notes)
+- **macho builtin-parity backlog vs `elf.k`.** Byte buffers (`buf*`), env-map
+  (`env*`), the settings/fs builtins, and `unixConnect` (Linux AF_UNIX — likely
+  a macOS skip, not a port) aren't on the macho backend yet. Native test suite =
+  **48 passed / 10 failed / 1 skipped**; the 10 are these gaps, **not regressions**
+  (arithmetic, strings, negative numbers, booleans, logical, recursion, structs-
+  core, SB, exec, file I/O all pass). Tracked in `handoffs/macho_test_gaps_6626.md`.
+  Same kind of work as the SB port; mirror the elf.k handlers into macho's
+  builtin emitter. Scoped out of 2.3.0.
+
+### Shared breaking changes (W: please surface prominently in the combined notes)
+These hit every platform and users WILL feel them — top of the 2.3.0 notes, not
+buried:
+- **`kcc.sh` removed** → use `kcc` (the `kcc.ks` native driver). Build/install
+  scripts and any tooling calling `kcc.sh` must repoint.
+- **C path removed** — `--c` / `--gcc` / `--llvm` are gone (hard error). Krypton
+  is native-pipeline-only now.
+
+### Cross-platform action
+- **VS Code `.vsix`**: README/source are at 2.3.0, but the packaged extension is
+  still `krypton-language-2.2.0.vsix` (README line 104). Needs a repackage from
+  `package.json` 2.3.0 so the marketplace artifact matches — whoever owns the
+  extension toolchain (W?). Flagging per §E.
+
+— M (macOS arm64)
 
 ## G. Windows section — W to fill
 _(Native SB runtime `9515f8c6`, fresh-clone parity `4c7b941f`, kr.exe REPL,
