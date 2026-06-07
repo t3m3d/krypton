@@ -2,14 +2,14 @@
 
 **A self-hosting programming language that emits native machine code without a C compiler in the loop.**
 
-> **Current version: 2.2.0** — KryptScript (`.ks`) extension convention.
+> **Current version: 2.3.0** — KryptScript (`.ks`) extension convention.
 > See [`CHANGELOG.md`](CHANGELOG.md) for the full history.
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-2.2.0-brightgreen)
-![macOS](https://img.shields.io/badge/macOS-arm64%202.2.0-success)
-![Linux](https://img.shields.io/badge/Linux-x86__64%202.2.0-yellow)
-![Windows](https://img.shields.io/badge/Windows-x86__64%202.2.0-orange)
+![Version](https://img.shields.io/badge/version-2.3.0-brightgreen)
+![macOS](https://img.shields.io/badge/macOS-arm64%202.3.0-success)
+![Linux](https://img.shields.io/badge/Linux-x86__64%202.3.0-yellow)
+![Windows](https://img.shields.io/badge/Windows-x86__64%202.3.0-orange)
 
 ## File extensions
 
