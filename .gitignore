@@ -16,6 +16,7 @@ backup/
 *.obj
 *.exe
 !bootstrap/*.exe
+!releases/krypton-*-windows-*.exe
 *.o
 *.c
 !bootstrap/kcc_seed.c
