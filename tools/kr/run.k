@@ -236,7 +236,7 @@ func _isWordBoundaryBefore(s, i) {
 // Bare expressions/statements run once (type `kp(expr)` to see a value).
 
 func _repl() {
-    kp("KryptScript REPL — Krypton 2.2.0  (:help, :q to quit)")
+    kp("KryptScript REPL — Krypton 2.3.0  (:help, :q to quit)")
     let imports = sbNew()
     let defs = sbNew()
     // readLine returns "" both for "user hit Enter" and "stdin closed".
