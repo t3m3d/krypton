@@ -1743,6 +1743,14 @@ func parseFullIR(ir) {
                         // close(fd) #6.
                         curOps = sbAppend(curOps, "BUILTIN_FDCLOSE\n")
                         nOps += 1
+                    } else if bname == "fdSetNonblock" {
+                        // fcntl(fd, F_SETFL, O_NONBLOCK) #92 — non-blocking reads.
+                        curOps = sbAppend(curOps, "BUILTIN_FDSETNONBLOCK\n")
+                        nOps += 1
+                    } else if bname == "sleepUs" {
+                        // select(0,0,0,0,{sec,usec}) #93 — poll-loop pacing.
+                        curOps = sbAppend(curOps, "BUILTIN_SLEEPUS\n")
+                        nOps += 1
                     } else if bname == "ptyMaster" {
                         // open(ptmxPath, O_RDWR) + TIOCPTYGRANT + TIOCPTYUNLK; ret master fd.
                         curOps = sbAppend(curOps, "BUILTIN_PTYMASTER\n")
@@ -2040,7 +2048,9 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_SOCKCONNECT"  { emit 53 }  // pop lo,hi,d,c,b,a,fd(7); alloc(21) sockaddr; fill 16B w/IP; connect(98)
     if opTok == "BUILTIN_FDWRITE"      { emit 6 }   // pop len,buf,fd; x16=4(write); svc; push
     if opTok == "BUILTIN_FDCLOSE"      { emit 4 }   // pop fd; x16=6(close); svc; push
-    if opTok == "BUILTIN_FDREAD"       { emit 34 }  // pop maxlen,fd; alloc(21) buf; read(3); NUL-term; return buf
+    if opTok == "BUILTIN_FDREAD"       { emit 36 }  // pop maxlen,fd; alloc(21) buf; read(3); carry-clamp; NUL-term; return buf
+    if opTok == "BUILTIN_FDSETNONBLOCK"{ emit 6 }   // pop fd; fcntl(fd,F_SETFL=4,O_NONBLOCK=4) #92; push
+    if opTok == "BUILTIN_SLEEPUS"      { emit 34 }  // pop usec,sec; alloc(21) timeval; select(0,0,0,0,&tv) #93; push
     if opTok == "BUILTIN_PTYMASTER"    { emit 20 }  // open(ptmx); TIOCPTYGRANT; TIOCPTYUNLK; ret master
     if opTok == "BUILTIN_PTYSLAVENAME" { emit 32 }  // alloc(21) 128B; ioctl TIOCPTYGNAME; ret slave path
     if opTok == "BUILTIN_PTYFORKEXEC"  { emit 68 }  // fork; child setsid+open+TIOCSCTTY+dup2x3+execve(inherited envp); parent ret pid
@@ -4982,7 +4992,9 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             // fdRead(fd, maxlen) -> read(fd, buf, maxlen) #3 into a fresh heap
             // buffer, NUL-terminate at bytes_read, return as a string. TOS=maxlen,
             // next=fd. x19=maxlen, x22=fd, x20=buf, x21=bytes (saved across alloc).
-            // 34 instr (incl alloc 21). NOTE: trusts read >= 0 (blocking fd).
+            // 36 instr (incl alloc 21). On macOS a syscall sets the carry flag on
+            // error (x0 = +errno, e.g. EAGAIN=35 on a non-blocking fd, EIO after the
+            // child exits) — so check carry and treat any error as 0 bytes (-> "").
             s = sbAppend(s, arm64_pop(19))            // 0: x19 = maxlen
             s = sbAppend(s, arm64_pop(22))            // 1: x22 = fd
             s = sbAppend(s, arm64_add_imm(4, 19, 1))  // 2: x4 = maxlen + 1 (alloc size)
@@ -4995,9 +5007,43 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_mov_xx(2, 19))      // 3: x2 = maxlen
             s = sbAppend(s, arm64_movz_x_imm(16, 3))  // 4: SYS_read
             s = sbAppend(s, arm64_svc(0x80))          // 5
-            s = sbAppend(s, arm64_mov_xx(21, 0))      // 6: x21 = bytes_read
-            s = sbAppend(s, arm64_strb_reg(31, 20, 21)) // 7: NUL at buf[bytes_read]
-            s = sbAppend(s, arm64_mov_xx(0, 20))      // 8: return buf
+            s = sbAppend(s, arm64_mov_xx(21, 0))      // 6: x21 = bytes_read (or errno)
+            s = sbAppend(s, arm64_b_cond(3, 2))       // 7: b.cc +2 (carry clear=ok, skip clamp)
+            s = sbAppend(s, arm64_movz_x_imm(21, 0))  // 8: error -> 0 bytes
+            s = sbAppend(s, arm64_strb_reg(31, 20, 21)) // 9: NUL at buf[bytes_read]
+            s = sbAppend(s, arm64_mov_xx(0, 20))      // 10: return buf
+            s = sbAppend(s, arm64_push_x0())          // 11
+            instrIdx = instrIdx + 12
+        } else if opTok == "BUILTIN_FDSETNONBLOCK" {
+            // fdSetNonblock(fd) -> fcntl(fd, F_SETFL=4, O_NONBLOCK=4) #92. F_SETFL
+            // only touches status flags (O_NONBLOCK), leaves O_RDWR intact. TOS=fd. 6 instr.
+            s = sbAppend(s, arm64_pop(0))             // 0: x0 = fd
+            s = sbAppend(s, arm64_movz_x_imm(1, 4))   // 1: F_SETFL
+            s = sbAppend(s, arm64_movz_x_imm(2, 4))   // 2: O_NONBLOCK
+            s = sbAppend(s, arm64_movz_x_imm(16, 92)) // 3: SYS_fcntl
+            s = sbAppend(s, arm64_svc(0x80))          // 4
+            s = sbAppend(s, arm64_push_x0())          // 5
+            instrIdx = instrIdx + 6
+        } else if opTok == "BUILTIN_SLEEPUS" {
+            // sleepUs(sec, usec) -> select(0, NULL, NULL, NULL, &{tv_sec=sec,
+            // tv_usec=usec}) #93. The classic portable sub-second sleep (Darwin has
+            // no plain nanosleep syscall). Builds timeval in a fresh 16-byte cell.
+            // TOS=usec, next=sec. 34 instr (incl alloc 21).
+            s = sbAppend(s, arm64_pop(20))            // 0: x20 = usec
+            s = sbAppend(s, arm64_pop(19))            // 1: x19 = sec
+            s = sbAppend(s, arm64_movz_x_imm(4, 16))  // 2: alloc 16 bytes
+            instrIdx = instrIdx + 3
+            s = sbAppend(s, emitAllocVar(instrIdx, textVaddr, textOff))  // x0 = tv (21)
+            instrIdx = instrIdx + 21
+            s = sbAppend(s, arm64_str_imm(19, 0, 0))  // 0: tv.tv_sec = sec
+            s = sbAppend(s, arm64_str_imm(20, 0, 1))  // 1: tv.tv_usec = usec (offset 8)
+            s = sbAppend(s, arm64_mov_xx(4, 0))       // 2: x4 = &tv (5th arg)
+            s = sbAppend(s, arm64_movz_x_imm(0, 0))   // 3: nfds = 0
+            s = sbAppend(s, arm64_movz_x_imm(1, 0))   // 4: readfds = NULL
+            s = sbAppend(s, arm64_movz_x_imm(2, 0))   // 5: writefds = NULL
+            s = sbAppend(s, arm64_movz_x_imm(3, 0))   // 6: errorfds = NULL
+            s = sbAppend(s, arm64_movz_x_imm(16, 93)) // 7: SYS_select
+            s = sbAppend(s, arm64_svc(0x80))          // 8
             s = sbAppend(s, arm64_push_x0())          // 9
             instrIdx = instrIdx + 10
         } else if opTok == "BUILTIN_PTYMASTER" {
