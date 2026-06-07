@@ -62,7 +62,7 @@ KCC_DRIVER="$SCRIPT_DIR/bootstrap/kcc_driver_${OSNAME}_${ARCH}"
 # matches the dispatcher's case in ./kcc.
 case "$OSNAME/$ARCH" in
     macos/aarch64)    KCC="./compiler/macos_arm64/kcc-arm64" ;;
-    linux/aarch64)    KCC="./compiler/linux_arm64/kcc-linux-arm64" ;;
+    linux/aarch64)    KCC="./compiler/linux_aarch64/kcc-linux-aarch64" ;;
     linux/x86_64)     KCC="./compiler/linux_x86/kcc-x64" ;;
     macos/x86_64)     KCC="./compiler/linux_x86/kcc-x64" ;;  # Intel Mac fallback (legacy macho.k path)
     windows/x86_64)   KCC="./kcc.exe" ;;
@@ -251,7 +251,7 @@ if [[ -f "$SEED_BIN" ]]; then
     fi
     if [[ "$OSNAME" == "linux" ]]; then
         echo "    ./kcc --native hello.k -o hello      gcc-free native ELF (x86_64)"
-        echo "    ./kcc --arm64  hello.k -o hello      cross-compile to aarch64 ELF"
+        echo "    ./kcc --aarch64 hello.k -o hello      cross-compile to aarch64 ELF"
     elif [[ "$OSNAME" == "macos" ]]; then
         echo "    ./kcc --native hello.k -o hello      gcc-free native Mach-O (arm64)"
     elif [[ "$OSNAME" == "windows" ]]; then

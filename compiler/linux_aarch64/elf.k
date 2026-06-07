@@ -1,4 +1,4 @@
-// compiler/linux_arm64/elf.k — native aarch64 Linux ELF backend (WIP).
+// compiler/linux_aarch64/elf.k — native aarch64 Linux ELF backend (WIP).
 //
 // Cross backend: built by the x86 kcc, runs on x86, emits aarch64. Reads Krypton
 // IR (arg 0), writes a static syscall-only aarch64 ELF (arg 1). Test under qemu.

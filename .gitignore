@@ -53,6 +53,6 @@ downloads-page-2.1.txt
 kcc-native
 
 # Linux arm64 backend build artifacts + qemu core dumps
-compiler/linux_arm64/elf_host
+compiler/linux_aarch64/elf_host
 qemu_*.core
 *.core
