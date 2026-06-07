@@ -4,6 +4,84 @@ All notable changes to the Krypton language and compiler.
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-06-06 — Self-host fix + native StringBuilder + 3-platform parity
+
+**Headline:**
+
+- **Self-host codegen crash resolved on all three platforms.** L confirmed
+  Linux x86 (`2ae2cdf3`), M confirmed macOS Mach-O (`06f9999b`, gen0 ==
+  gen1 byte-identical 21,122-line IR fixpoint). Fix landed in `03a2d6ae`
+  (deletes 122 lines of dead `irMode==0` branches in `compile.k` whose
+  unresolved `compileBlock`/`compileFunc` CALLs the unix backends
+  mishandled) plus M's polymorphic-EQ work already shipped in
+  `macho_arm64_self.k`. Both pieces required.
+- **Native growing-capacity StringBuilder (`9515f8c6`).** Windows'
+  `kr_sbappend` was a 1-byte `kr_alloc(1)` + `JMP __rt_strcat` stub —
+  O(M²) per append, the wall every Krypton program hit when accumulating
+  text. New impl in `runtime/krypton_rt.k`: `[length qword][data]`
+  layout, capacity-doubling realloc, amortized O(1) append. Verified
+  end-to-end: 50k-append stress 2.4 sec, `compile.k` self-host RAM
+  3-5 GB → 2.4 GB. macOS + Linux already shipped equivalent
+  `[cap][len][data]` doubling-realloc impls (`macho_arm64_self.k`,
+  `elf.k:1339` x86, `elf.k:387` arm64); 2.3.0 brings Windows to parity.
+  Verified numbers: Linux x86 50k stress **3 ms** / 42 MB RSS;
+  Linux arm64 10 ms; macOS 0.18 s / 1.14 GB; Windows 2.4 s / 2.4 GB.
+
+**Windows driver + script runner:**
+
+- `kcc.exe` is now the `kcc.ks`-built Krypton-native driver
+  (`b0780f3d`). The compile.k-built backend it dispatches to is
+  renamed `kcc-bin.exe`. Both ship to `C:\krypton`.
+- `kcc.ks --print-arch` segfault fix on Windows (`c1674943`). `arch()`
+  in `stdlib/arch.k` called the Linux-only `readProc` builtin
+  unconditionally; on Windows that's an unresolved CALL → SIGSEGV.
+  Now guarded by `OS != Windows_NT`.
+- `kcc -e` quote/space parser fix on Windows (`def520cc`). Two bugs:
+  (1) `%TIME%` returns a leading space for single-digit hours, which
+  broke the temp filename; (2) Krypton's `arg()` preserves MSVC-CRT
+  quoting verbatim AND splits on spaces inside quoted strings, so
+  `kcc -e 'kp("hi there")'` arrived as 4 args. New `_winJoinFrom()`
+  re-glues and `_winUnquote()` strips/unescapes.
+- `kcc.ks` Windows default-compile path used `positional(0)`, which
+  mistook `--native` for the source on `./build.sh --native <src>
+  -o <out>` invocations (`4c7b941f`). Switched to `linuxSrc()`
+  (flag-tolerant). Same bug bit macOS earlier today (M's `f99da5bd`).
+- **`bootstrap/kcc_driver_windows_x86_64.exe` now committed** —
+  matches `bootstrap/kcc_driver_linux_x86_64` and
+  `bootstrap/kcc_driver_macos_aarch64`. Fresh Windows `git clone` +
+  `bootstrap.bat` + `build.sh` works without C tools.
+- `bootstrap.bat` help text retired its `kcc.sh` references and now
+  points users at `kcc`, `kcc -e`, and `kr` — the current surface.
+- `kr.exe` (the `tools/kr/run.k` script runner) grew **Swift-like
+  top-level auto-wrap + accumulating REPL** (`669e9126`). Scripts
+  without an explicit `just run { }` block get wrapped automatically
+  (`#!/usr/bin/env kr` shebang stripped first); `kr` with no args
+  drops into a REPL that remembers `import` / `func` / `struct` /
+  `let` lines and re-emits them around each new line. Matches the
+  POSIX `kr` script's behavior. Commands: `:help` / `:list` /
+  `:reset` / `:q`. Multi-line continuation when braces don't balance.
+
+**Frontend cleanup:**
+
+- `compile.k` shrank 3466 → 3362 lines (`03a2d6ae`). The dead
+  `irMode==0` branches (legacy lambda pre-compile loop, `KW:func`
+  C-emit fallthrough, top-level C `int main(...)` emission) carried
+  CALLs to the deleted `compileBlock` / `compileFunc` helpers; their
+  removal both fixes the unix self-host crash and drops 122 lines of
+  retired C-pipeline scaffolding.
+
+**Process / repo hygiene:**
+
+- `handoffs/` pruned from 20 docs to 5 live agent threads
+  (`2c1f4bd1`, `a2d62703`). Resolved self-host crash, kr.exe parity,
+  wasm drop, param crash, Linux exec, sockets cross-backend, and
+  agent-L crash handoffs all removed. Three design archives moved to
+  `docs/`: `docs/SELFHOST_MACOS.md`, `docs/design/GC_SELFHOST_PLAN.md`,
+  `docs/design/LOWBIT_TAGGING_PLAN.md`. `handoffs/` is now strictly
+  live agent-to-agent threads.
+
+---
+
 **Linux GUI flagship — `stdlib/x11.k` Phase A1+A2 (agent w):**
 
 - Pure-Krypton X11 wire-protocol client. No libX11, no libxcb, no

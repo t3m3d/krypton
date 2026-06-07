@@ -5,7 +5,7 @@ releasenotes/
 versions/
 build/
 bin/
-releases/
+releases/*.exe
 web/site/
 .claude/
 docs/claude/
