@@ -54,6 +54,29 @@ The web framework adds a third extension for templates:
 - **`.htk`** — htmk + ks template source built by `kweb`. Same Krypton syntax;
   the convention signals "this file is meant to render HTML."
 
+## What's new in 2.3
+
+**The compiler stopped needing C.** 2.3.0 is fully clang/gcc-free across build,
+run, imports, and self-host on macOS (arm64), Linux (x86-64), and Windows
+(x86-64) — and the toolchain hosts itself on all three.
+
+> ⚠️ **Breaking changes**
+> - **`kcc.sh` removed.** `kcc` is now the Krypton-native driver (compiled from
+>   `kcc.ks`, no bash dependency). Repoint any scripts/tooling that called `kcc.sh`.
+> - **C path removed.** `--c` / `--gcc` / `--llvm` are gone (hard error). The
+>   native code generators are the only path now.
+
+- **Clang/gcc-free self-host** on all three platforms — fixpoint byte-stable.
+- **Native StringBuilder** (growing-capacity, doubling realloc) — amortized O(1)
+  append; append-heavy code goes from minutes to seconds, self-host RAM drops sharply.
+- **Krypton-native `kcc.ks` driver** replaces the bash `kcc.sh`.
+- **Linux backend parity** — first-class functions/closures (`FUNCPTR`/`callPtr`,
+  `k:fp`), int-arg builtins, library-file + GC-diagnostic fixes, `--aarch64`
+  cross-compile (`--arm64` alias kept).
+- **Windows** — `kcc.exe`/`kcc-bin.exe` driver/backend split, native
+  `krypton_rt.dll` StringBuilder, `kr.exe` Swift-like auto-wrap + REPL.
+- **macOS** — Mach-O self-host crash fixed; fresh-clone build/install fixed.
+
 ## What's new in 2.2
 
 - **KryptScript** — `.ks` everywhere the toolchain accepts `.k`. Installer +
@@ -94,14 +117,18 @@ The web framework adds a third extension for templates:
   Winsock + POSIX `cfunc`) is still around for the Windows / `--gcc`
   path; new macOS code should `import "k:server_native"`.
 
-**Platform release status (2026-06-01):**
+**Platform release status (2026-06-06 — 2.3.0):**
 
 | Platform | Shipped version | Notes |
 |----------|-----------------|-------|
-| Windows x86_64 | **2.1.1** | Inno Setup installer (kcc + kweb + WASM backend + .k/.ks file associations). |
-| macOS arm64 | **2.1.1** | Homebrew tap: `brew install krypton`. Backend self-hosts; KRYPTON_ROOT-based install; UTF-8 fromCharCode fix. |
-| Linux x86_64 | 2.1.1 (source) | Build from `compile.k` via the existing 2.0.0 elf seed. Same source as macOS. |
+| macOS arm64 | **2.3.0** | `brew install t3m3d/krypton/krypton`, the `.pkg`, or the tarball. Clang-free self-host; Krypton-native `kcc.ks` driver. |
+| Linux x86_64 | **2.3.0** | Prebuilt tarball → `./install.sh` (no C compiler). Self-hosting. aarch64 via `kcc --aarch64` cross-compile. |
+| Windows x86_64 | **2.3.0** | Inno Setup installer: `kcc.exe`/`kcc-bin.exe` driver/backend split, native `krypton_rt.dll`, `kr.exe` REPL, kweb, WASM, .k/.ks associations. |
 | **VS Code / Antigravity ext.** | **2.3.0** | `extensions/krypton-language-2.3.0.vsix`. Adds `.ks` (KryptScript) alongside `.k`, bundles the `kls` language server for Windows + macOS, ships `KryptScript` as a language-picker alias. |
+
+All three native toolchains are **clang/gcc-free** for build, run, imports, and
+self-host. One GitHub release ([`2.3.0`](https://github.com/t3m3d/krypton/releases/tag/2.3.0))
+carries every platform's artifact.
 
 **Bundled CLIs (one package, four commands):**
 
@@ -116,11 +143,11 @@ The web framework adds a third extension for templates:
   to a temp file, runs it inheriting stdio, propagates the script's exit
   code, then cleans up. The installer associates `.ks` with `kr.exe` so
   Explorer double-click + cmd.exe `myscript.ks args` both Just Work — the
-  Windows-native equivalent of a `.bat` file. _(Top-level wrap + REPL are
-  POSIX-only so far; Windows `kr.exe` parity is a TODO.)_
+  Windows-native equivalent of a `.bat` file. _(As of 2.3.0, Windows `kr.exe`
+  has the same top-level auto-wrap + REPL as the POSIX `kr`.)_
 - `kweb` — web framework CLI (`kweb init <name>`, `kweb build`, `kweb serve`,
-  `kweb deploy <host> <user>`). **Windows-only in 2.1.1**; macOS port targets
-  2.1.2 once `stdlib/fs.k` finishes its POSIX rewrite.
+  `kweb deploy <host> <user>`). **Windows-only as of 2.3.0**; the macOS port is
+  pending the `stdlib/fs.k` POSIX rewrite.
 
 Krypton is a dynamically typed language with clean syntax, ~150 built-in functions, and a compiler written in itself.
 
@@ -147,7 +174,8 @@ The **default** compilation pipeline produces a native executable on every suppo
 | **Windows x86_64** | `compiler/windows_x86/x64.k` | PE/COFF, kernel32-only via `runtime/krypton_rt.dll` |
 | **macOS arm64** | `compiler/macos_arm64/macho_arm64_self.k` | Mach-O with in-Krypton SHA-256 ad-hoc code signing |
 
-C output (`--c`) and gcc-rebuild (`--gcc`, deprecated) remain as escape hatches but are not part of the normal flow.
+The native code generators are the only path. The old C escape hatches
+(`--c` / `--gcc` / `--llvm`) were **removed in 2.3.0** — they now hard-error.
 
 ```
 jxt
@@ -179,10 +207,14 @@ just run {
 | macOS arm64 | `kcc_seed_macos_aarch64` | none (pure copy); macho_host built on first `--native` call via clang |
 | Linux ARM64 | `kcc_seed_linux_aarch64` | none (pure copy); **C path only** — no native ELF aarch64 backend yet, `kcc --native` falls back to gcc/clang |
 
-**Optional, for development only:**
-- **gcc** — one-time bootstrap if you edit `compiler/linux_x86/elf.k` or `compiler/windows_x86/x64.k` and need to rebuild a seed binary. End users never need it.
-- **LLVM/clang** — only for the optional `--llvm` backend.
-- **macOS Xcode CLT** — provides `xcrun` for the macOS arm64 self-build path. (Note: the macho_arm64_self.k pipeline emits Mach-O directly with in-Krypton SHA-256 ad-hoc signing — no clang or codesign invocation.)
+**Optional, for development only (end users never need a C compiler):**
+- **gcc / clang** — one-time backend bootstrap *only* if you edit a backend
+  emitter (`compiler/linux_x86/elf.k`, `compiler/windows_x86/x64.k`, or
+  `compiler/macos_arm64/macho_arm64_self.k`) and need to rebuild its host seed.
+  Building and running normal programs never touches a C compiler.
+- **macOS**: the `macho_arm64_self.k` pipeline emits Mach-O directly with
+  in-Krypton SHA-256 ad-hoc signing — no clang or `codesign` invocation at
+  user-compile time.
 
 ---
 
@@ -300,15 +332,12 @@ Per-platform pipeline (chosen automatically):
 ### Other compilation modes (opt-in)
 
 ```bash
-kcc --c hello.k                       # emit C source to stdout (debug/porting aid)
-kcc --c hello.k -o hello.c            # emit C source to a file
-kcc --llvm hello.k -o hello.ll        # emit LLVM IR; pair with `clang hello.ll -o hello`
 kcc --ir hello.k                      # emit Krypton IR (.kir) to stdout
-
-# DEPRECATED — emits a deprecation warning. Removed once each platform's
-# native rebuild fully replaces gcc in the lazy-rebuild fallback.
-kcc --gcc hello.k                     # route through C+gcc internally
+kcc --aarch64 hello.k -o hello        # Linux: cross-compile to a static aarch64 ELF
 ```
+
+> The C escape hatches `--c` / `--gcc` / `--llvm` were **removed in 2.3.0**
+> (they now hard-error). Native code generation is the only path.
 
 ---
 
@@ -503,16 +532,12 @@ source.k
     │                              compiler/macos_arm64/macho_arm64_self.k →
     │                              Mach-O (in-Krypton SHA-256 ad-hoc signing)
     │
-    ├─ --c:                       source.k → C source (stdout or -o file)
-    │                             Debug aid / porting only. Pair with
-    │                             `gcc out.c -o out -lm` to build manually.
+    ├─ --aarch64      (Linux):    source.k → .kir →
+    │                              compiler/linux_aarch64/elf.k → static aarch64 ELF
     │
-    ├─ --llvm:                    source.k → .kir → optimize.k →
-    │                              compiler/llvm.k → .ll
-    │                              Pair with `clang hello.ll -o hello`.
-    │
-    └─ --gcc (DEPRECATED):        source.k → C source → gcc → native binary
-                                  Emits a deprecation warning. Will be removed.
+    └─ --ir:                      source.k → Krypton IR (.kir) to stdout
+
+  (The --c / --gcc / --llvm C escape hatches were removed in 2.3.0.)
 ```
 
 ### Krypton IR
@@ -610,7 +635,7 @@ krypton/
 │   ├── krypton_rt.k       # Krypton runtime (Phase 2 — self-hosted)
 │   └── krypton_rt.dll     # Windows bootstrap runtime (kernel32-only, hand-emitted by x64.k)
 ├── bootstrap/                                # Prebuilt seeds — pure-copy install, no compiler
-│   ├── kcc_seed.c                            # Pre-generated C source of compile.k (gcc fallback)
+│   ├── kcc_driver_<os>_<arch>                # kcc.ks-built driver (the `kcc` command), per platform
 │   ├── kcc_seed_linux_x86_64                 # Linux x86_64 kcc ELF
 │   ├── elf_host_linux_x86_64                 # Linux x86_64 ELF emitter
 │   ├── optimize_host_linux_x86_64            # Linux x86_64 IR optimizer
@@ -662,9 +687,9 @@ Krypton solves the self-hosting chicken-and-egg problem by shipping prebuilt see
 
 Pure `cp` — no compiler invoked at install. After that, `kcc source.k` runs the platform's native emitter end-to-end with no C tools.
 
-**Re-seeding (developer-only, one-time gcc bootstrap):**
+**Re-seeding (developer-only):**
 
-If you edit `compiler/<platform>/<emitter>.k` you may need to rebuild the seed. The exact steps live in [bootstrap/REBUILD_SEED.md](bootstrap/REBUILD_SEED.md). Linux currently still needs gcc once for this; the path to dropping it entirely (a pure-Krypton self-bootstrap of `elf.k`) is documented there.
+If you edit `compiler/<platform>/<emitter>.k` you may need to rebuild the seed. As of 2.3.0 the native toolchain regenerates its own seeds with **no C compiler** (the frontend self-hosts and the backend host is rebuilt by the native pipeline); the exact steps live in [bootstrap/REBUILD_SEED.md](bootstrap/REBUILD_SEED.md). (macOS still uses clang for the one-time `macho_host` rebuild if you edit `macho_arm64_self.k` and no prebuilt host is present.)
 
 The compiler has been self-hosting since the v0.1 series. Historical bootstrap binaries live in `versions/`.
 
