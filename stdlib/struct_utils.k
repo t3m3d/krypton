@@ -31,23 +31,33 @@ func structCopy(src, dst) {
 }
 
 // Create a struct from a map (key-value pairs)
+// `map` is a k:map value (a "key=val\n…" string). Parsed inline so this module
+// stays self-contained (the old keys()/mapGet() native-map builtins were
+// broken/removed; transitive k:map import wouldn't link for importers anyway).
 func structFromMap(map) {
     let obj = structNew()
-    let ks = keys(map)
-    for k in ks {
-        setField(obj, k, mapGet(map, k))
+    let lines = lineCount(map)
+    let i = 0
+    while i < lines {
+        let line = getLine(map, i)
+        if len(line) > 0 {
+            let j = 0
+            while j < len(line) { if line[j] == "=" { break }  j += 1 }
+            setField(obj, substring(line, 0, j), substring(line, j + 1, len(line)))
+        }
+        i += 1
     }
     emit obj
 }
 
-// Convert a struct to a map
+// Convert a struct to a k:map value (a "key=val\n…" string).
 func structToMap(obj) {
-    let map = ""
+    let sb = sbNew()
     let fields = structFields(obj)
     for field in fields {
-        map = mapSet(map, field, getField(obj, field))
+        sb = sbAppend(sb, field + "=" + getField(obj, field) + "\n")
     }
-    emit map
+    emit sbToString(sb)
 }
 
 // Check if two structs have identical fields and values
