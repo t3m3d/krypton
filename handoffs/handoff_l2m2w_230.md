@@ -42,12 +42,17 @@ cross-compile flag with `--arm64` kept as an alias. (Branch — see §C.)
   platforms show 2.3.0).
 - **macOS seeds regenerated** by M (`59379fa8`): `kcc_seed_macos_aarch64`,
   `kcc-arm64`, `kcc_driver_macos_aarch64` now report 2.3.0.
-- **⚠️ LINUX SEEDS NOT YET REGENERATED** — `bootstrap/kcc_driver_linux_x86_64`,
-  `kcc_seed_linux_x86_64`, `kcc_seed_linux_aarch64` on `main` are still built
-  from pre-bump source, so they **still report 2.2.0**. **L owns this** — I will
-  regenerate the Linux driver + FE seeds at 2.3.0 (and fold it into the branch in
-  §C). Tracking item; do not cut the Linux release until `kcc --version` →
-  `2.3.0` from the committed Linux seed.
+- **✅ LINUX x86 SEEDS REGENERATED** (`66cabd90`, on main): `kcc_driver_linux
+  _x86_64` + `kcc_seed_linux_x86_64` + `compiler/linux_x86/kcc-x64` rebuilt at
+  2.3.0. `kcc --version` → `2.3.0` on Linux. New FE verified: byte-identical IR
+  to the prior seed (only version string changed), self-host fixpoint holds,
+  examples + closures run.
+- **⚠️ `kcc_seed_linux_aarch64` NOT regenerated** — the Linux arm64 backend can't
+  self-host compile.k yet (`elf_host` SIGSEGVs on the 21747-line IR — the known
+  arm64 codegen ceiling). aarch64 is the **x86-hosted cross target**, not a
+  native-FE runtime path, so the stale aarch64 FE seed does NOT block 2.3.0. It
+  just means there's no native aarch64 Krypton FE yet (roadmap, tied to maturing
+  `compiler/linux_aarch64/elf.k`).
 
 ---
 
@@ -60,13 +65,15 @@ Contains the Linux `arm64 → aarch64` rename: `compiler/linux_arm64/` →
 **Verified:** `--aarch64`, `--arm64` alias, and x86 native all produce working
 binaries (`len=150000`; aarch64 under `qemu-aarch64-static`).
 
-- It also carries a now-**redundant** version-bump commit (`81aef423`) — main
-  already has the source bump (§B). **L will rebase the branch onto current main**
-  (drops the dup) **+ regenerate the Linux 2.3.0 seeds**, then it's a clean merge =
-  rename + Linux seeds. macOS `arm64` and historical docs untouched.
+- **✅ CLEANED & READY TO MERGE** — rebased onto the 2.3.0 main; the redundant
+  version commit is dropped. Branch is now a **single commit** (`ac726fe4`) on top
+  of `66cabd90` = just the rename + driver rebuilt at 2.3.0 with the new paths.
+  Re-verified post-rebase: `--aarch64`, `--arm64` alias, x86 native all green
+  (len=150000); `kcc --version` 2.3.0. **Ready to merge whenever the cut wants it
+  — fast-forward over current main.**
 - **M / W action:** nothing required for the rename itself (Linux-only paths),
   but be aware `--aarch64` is now the documented Linux flag if any cross-platform
-  docs/CI reference `--arm64`.
+  docs/CI reference `--arm64` (the alias keeps `--arm64` working).
 
 ---
 
@@ -90,11 +97,15 @@ binaries (`len=150000`; aarch64 under `qemu-aarch64-static`).
 
 ## E. Pre-release checklist (Linux portion)
 
-- [ ] L: rebase `linux-aarch64-rename` onto main + regenerate Linux 2.3.0 seeds
-      (driver + FE x86 + FE aarch64); confirm `kcc --version` → `2.3.0`.
-- [ ] L: merge the branch (or hand the PR to whoever cuts).
+- [x] L: regenerate Linux x86 2.3.0 seeds (driver + FE) — `66cabd90`,
+      `kcc --version` → `2.3.0`. (aarch64 FE seed N/A — see §B.)
+- [x] L: clean `linux-aarch64-rename` branch onto 2.3.0 main — `ac726fe4`,
+      single commit, ready to fast-forward merge.
+- [ ] Whoever cuts: merge `linux-aarch64-rename` into main (or leave Linux on
+      `linux_arm64` for 2.3.0 and land the rename in 2.3.1 — your call; it's
+      cosmetic + backward-compatible either way).
 - [ ] Verify on a fresh clone: `kcc hello.k -o h && ./h`, `kcc --aarch64 hello.k
-      -o h2 && qemu-aarch64-static h2`, `kcc --version`.
+      -o h2 && qemu-aarch64-static h2`, `kcc --version` → 2.3.0.
 - [ ] Cross-platform (M/W): README/extension already at 2.3.0 source; ensure the
       **VS Code .vsix** is rebuilt from `krypton-lang/package.json` 2.3.0.
 
