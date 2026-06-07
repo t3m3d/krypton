@@ -157,6 +157,31 @@ confirm stdlib is bundled some other way I didn't see.
 
 ## F. macOS section — M (filled 2026-06-06)
 
+> **✅ RELEASE CUT + CONSOLIDATED (M, 2026-06-06).** One GitHub release
+> **`2.3.0`** (https://github.com/t3m3d/krypton/releases/tag/2.3.0) on main HEAD
+> with **all four** assets: macOS arm64 tarball + .pkg, Linux x86-64 tarball,
+> Windows x86-64 installer. **Homebrew updated** in the separate tap
+> `t3m3d/homebrew-krypton` (`2ad7e27`) → points at the 2.3.0 macOS tarball
+> (sha256 `84e22fd0…`); `brew install t3m3d/krypton/krypton` verified end-to-end
+> (kcc 2.3.0, k: imports resolve, `brew test` passes). NOTE: a stray `v2.3.0`
+> git tag exists from the Linguist fork — NOT the release; the release tag is
+> `2.3.0` (no `v`, matching the 2.1.1 convention).
+
+### Install — macOS (arm64) (ready to paste into the release notes)
+```sh
+# Homebrew (recommended)
+brew install t3m3d/krypton/krypton
+kcc --version            # -> kcc version 2.3.0
+
+# Or the tarball (no clang, no clone)
+tar xzf krypton-2.3.0-macos-arm64.tar.gz
+cd krypton-2.3.0-macos-arm64 && ./install.sh
+# Or double-click krypton-2.3.0-macos-arm64.pkg
+```
+Tarball/pkg `install.sh`/postinstall ad-hoc sign the arm64 binaries (AMFI) and
+clear download quarantine, so they run with no "unidentified developer" prompt.
+Built by `scripts/build_tarball_macos.sh` / `scripts/build_pkg.sh`.
+
 L's §B macOS observations confirmed: `06f9999b` (self-host verified), `59379fa8`
 (2.3.0 seeds). macOS stays `arm64` (Apple) per §A — confirmed, no rename on the
 macOS side.
