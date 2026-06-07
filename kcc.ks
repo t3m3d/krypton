@@ -10,7 +10,7 @@
 //     kcc.sh kcc.ks -o kcc-native
 //     ./kcc-native hello.k -o hello
 //
-// SCOPE: macOS arm64 + Linux x86-64 native, + Linux aarch64 cross-compile (--arm64).
+// SCOPE: macOS arm64 + Linux x86-64 native, + Linux aarch64 cross-compile (--aarch64).
 // Modes: --version/--ir/-o/-r/-e/--c. (Windows not yet wired.) One KryptScript
 // driver, no bash, no .bat.
 //
@@ -291,10 +291,10 @@ func linuxSrc() {
 }
 
 // Ensure the aarch64 backend host (an x86 binary that EMITS arm64) is built from
-// compiler/linux_arm64/elf.k. "1" ok / "0" fail.
+// compiler/linux_aarch64/elf.k. "1" ok / "0" fail.
 func ensureArm64Host(root) {
-    let host = root + "/compiler/linux_arm64/elf_host"
-    let bsrc = root + "/compiler/linux_arm64/elf.k"
+    let host = root + "/compiler/linux_aarch64/elf_host"
+    let bsrc = root + "/compiler/linux_aarch64/elf.k"
     let fe   = root + "/compiler/linux_x86/kcc-x64"
     let need = "1"
     if exists(host) == "1" {
@@ -303,7 +303,7 @@ func ensureArm64Host(root) {
     if need == "0" { emit "1" }
     // The arm64 backend host is an x86 binary that EMITS arm64, so the x86
     // NATIVE pipeline builds it — no gcc. Ensure the x86 elf_host exists, then
-    // it compiles linux_arm64/elf.k's IR into the arm64-emitter host.
+    // it compiles linux_aarch64/elf.k's IR into the arm64-emitter host.
     if ensureElfHost(root) == "0" { emit "0" }
     let elf = root + "/compiler/linux_x86/elf_host"
     kp("kcc: building arm64 backend host natively (self-host, no C)...")
@@ -320,7 +320,7 @@ func ensureArm64Host(root) {
 // (No optimizer pass yet — the arm64 backend consumes the raw IR.) "1"/"0".
 func compileArm64(root, src, out) {
     let fe = root + "/compiler/linux_x86/kcc-x64"
-    let host = root + "/compiler/linux_arm64/elf_host"
+    let host = root + "/compiler/linux_aarch64/elf_host"
     if ensureArm64Host(root) == "0" { emit "0" }
     let tmpir = sh("mktemp /tmp/_kcka_XXXXXX.kir")
     exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src) + " > " + q(tmpir))
@@ -383,7 +383,7 @@ just run {
         kp("Usage: kcc <source.k|source.ks> [flags]")
         kp("  --native    (default) emit native binary at ./<basename>")
         kp("  --ir        emit Krypton IR to stdout")
-        kp("  --arm64     cross-compile to a static aarch64 ELF")
+        kp("  --aarch64   cross-compile to a static aarch64 ELF (alias: --arm64)")
         kp("  -o FILE     output path")
         kp("  -r FILE     compile, run, delete (like python file.py)")
         kp("  -e CODE     compile + run an inline snippet (like python -c)")
@@ -416,7 +416,7 @@ just run {
         //   --arm64                  -> arm64 backend regardless of host
         //   --x64                    -> x86_64 backend regardless of host
         let toArm = "0"
-        if hasFlag("--arm64") == "1" { toArm = "1" }
+        if hasFlag("--arm64") == "1" || hasFlag("--aarch64") == "1" { toArm = "1" }
         else { if hasFlag("--x64") == "0" { if arch() == "arm64" { toArm = "1" } } }
         let fe = root + "/compiler/linux_x86/kcc-x64"   // x86 front-end emits arch-agnostic IR
 
