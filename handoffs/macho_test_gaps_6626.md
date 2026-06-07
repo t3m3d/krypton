@@ -1,5 +1,15 @@
 # macOS (macho) test gaps — builtin parity backlog (2026-06-06, Agent M)
 
+**NEW 2026-06-06 — `k:map` (stdlib/map.k) BROKEN on macho.** Found building
+kryoterm's grid. Setting distinct keys in a loop collides/drops entries and
+`mapSize` miscounts. Repro: `m=mapNew(); set "0,0"/"0,1"/"0,2" each = "X"` →
+`mapGet("0,1")=""` (lost), `"0,0"`+`"0,2"` both `"X"`, `mapSize=1`. Single
+literal-key set/get works (`mapGet("1,2")` after one `mapSet` is fine), so it's
+a hashing/collision bug surfacing on multiple keys — likely a string-hash or
+bucket builtin the macho backend mishandles (map.k is shared stdlib, so check
+whether x86/elf is affected too; Linux may differ). Workaround used in kryoterm:
+flat-string grid instead of a map. Owner: macho backend / stdlib map hashing.
+
 Found while doing a fresh-clone build/test pass on macOS. **Not regressions** —
 these are builtins/edges that exist on Linux `elf.k` but aren't ported to
 `compiler/macos_arm64/macho_arm64_self.k` yet. Basics (arithmetic, strings,
