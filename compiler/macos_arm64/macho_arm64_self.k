@@ -1743,10 +1743,17 @@ func parseFullIR(ir) {
                         // close(fd) #6.
                         curOps = sbAppend(curOps, "BUILTIN_FDCLOSE\n")
                         nOps += 1
-                    } else if bname == "ptySpawn" {
-                        // Allocate a pty, fork, exec the shell on the slave;
-                        // return the master fd. The whole dance in asm.
-                        curOps = sbAppend(curOps, "BUILTIN_PTYSPAWN\n")
+                    } else if bname == "ptyMaster" {
+                        // open(ptmxPath, O_RDWR) + TIOCPTYGRANT + TIOCPTYUNLK; ret master fd.
+                        curOps = sbAppend(curOps, "BUILTIN_PTYMASTER\n")
+                        nOps += 1
+                    } else if bname == "ptySlaveName" {
+                        // ioctl(master, TIOCPTYGNAME, buf); return slave path string.
+                        curOps = sbAppend(curOps, "BUILTIN_PTYSLAVENAME\n")
+                        nOps += 1
+                    } else if bname == "ptyForkExec" {
+                        // fork; child: setsid+open(slave)+TIOCSCTTY+dup2x3+execve; parent: ret pid.
+                        curOps = sbAppend(curOps, "BUILTIN_PTYFORKEXEC\n")
                         nOps += 1
                     }
                 } else if op == "POP" {
@@ -2034,7 +2041,9 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_FDWRITE"      { emit 6 }   // pop len,buf,fd; x16=4(write); svc; push
     if opTok == "BUILTIN_FDCLOSE"      { emit 4 }   // pop fd; x16=6(close); svc; push
     if opTok == "BUILTIN_FDREAD"       { emit 34 }  // pop maxlen,fd; alloc(21) buf; read(3); NUL-term; return buf
-    if opTok == "BUILTIN_PTYSPAWN"     { emit 146 } // open ptmx; grant/unlk/gname ioctl; fork; child setsid+dup2+execve; parent ret master
+    if opTok == "BUILTIN_PTYMASTER"    { emit 20 }  // open(ptmx); TIOCPTYGRANT; TIOCPTYUNLK; ret master
+    if opTok == "BUILTIN_PTYSLAVENAME" { emit 32 }  // alloc(21) 128B; ioctl TIOCPTYGNAME; ret slave path
+    if opTok == "BUILTIN_PTYFORKEXEC"  { emit 86 }  // fork; child setsid+open+TIOCSCTTY+dup2x3+execve; parent ret pid
     if opTok == "POP"              { emit 1 }
     emit 0
 }
@@ -4991,6 +5000,52 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_mov_xx(0, 20))      // 8: return buf
             s = sbAppend(s, arm64_push_x0())          // 9
             instrIdx = instrIdx + 10
+        } else if opTok == "BUILTIN_PTYMASTER" {
+            // ptyMaster(ptmxPath): open(path, O_RDWR=2, 0) #5; then grant + unlock
+            // the pty via ioctl #54: TIOCPTYGRANT=0x20007454, TIOCPTYUNLK=0x20007452.
+            // Return the master fd. TOS=path. x19=master. 20 instr.
+            s = sbAppend(s, arm64_pop(0))             // 0: x0 = path
+            s = sbAppend(s, arm64_movz_x_imm(1, 2))   // 1: O_RDWR
+            s = sbAppend(s, arm64_movz_x_imm(2, 0))   // 2: mode 0
+            s = sbAppend(s, arm64_movz_x_imm(16, 5))  // 3: SYS_open
+            s = sbAppend(s, arm64_svc(0x80))          // 4
+            s = sbAppend(s, arm64_mov_xx(19, 0))      // 5: x19 = master fd
+            // ioctl(master, TIOCPTYGRANT, 0)
+            s = sbAppend(s, arm64_mov_xx(0, 19))      // 6
+            s = sbAppend(s, arm64_movz_x_imm(1, 0x7454)) // 7
+            s = sbAppend(s, arm64_movk_x_imm_lsl16(1, 0x2000)) // 8: x1 = 0x20007454
+            s = sbAppend(s, arm64_movz_x_imm(2, 0))   // 9
+            s = sbAppend(s, arm64_movz_x_imm(16, 54)) // 10: SYS_ioctl
+            s = sbAppend(s, arm64_svc(0x80))          // 11
+            // ioctl(master, TIOCPTYUNLK, 0)
+            s = sbAppend(s, arm64_mov_xx(0, 19))      // 12
+            s = sbAppend(s, arm64_movz_x_imm(1, 0x7452)) // 13
+            s = sbAppend(s, arm64_movk_x_imm_lsl16(1, 0x2000)) // 14: x1 = 0x20007452
+            s = sbAppend(s, arm64_movz_x_imm(2, 0))   // 15
+            s = sbAppend(s, arm64_movz_x_imm(16, 54)) // 16
+            s = sbAppend(s, arm64_svc(0x80))          // 17
+            s = sbAppend(s, arm64_mov_xx(0, 19))      // 18: return master
+            s = sbAppend(s, arm64_push_x0())          // 19
+            instrIdx = instrIdx + 20
+        } else if opTok == "BUILTIN_PTYSLAVENAME" {
+            // ptySlaveName(master): ioctl(master, TIOCPTYGNAME=0x40807453, buf) #54
+            // — kernel writes the slave path (e.g. "/dev/ttys003", NUL-term) into a
+            // fresh 128-byte buffer. Return it as a string. TOS=master. 32 instr.
+            s = sbAppend(s, arm64_pop(19))            // 0: x19 = master
+            s = sbAppend(s, arm64_movz_x_imm(4, 128)) // 1: alloc size
+            instrIdx = instrIdx + 2
+            s = sbAppend(s, emitAllocVar(instrIdx, textVaddr, textOff))  // x0 = buf (21)
+            instrIdx = instrIdx + 21
+            s = sbAppend(s, arm64_mov_xx(20, 0))      // 0: x20 = buf
+            s = sbAppend(s, arm64_mov_xx(0, 19))      // 1: x0 = master
+            s = sbAppend(s, arm64_movz_x_imm(1, 0x7453)) // 2
+            s = sbAppend(s, arm64_movk_x_imm_lsl16(1, 0x4080)) // 3: x1 = 0x40807453
+            s = sbAppend(s, arm64_mov_xx(2, 20))      // 4: x2 = buf
+            s = sbAppend(s, arm64_movz_x_imm(16, 54)) // 5: SYS_ioctl
+            s = sbAppend(s, arm64_svc(0x80))          // 6
+            s = sbAppend(s, arm64_mov_xx(0, 20))      // 7: return buf (kernel NUL-termed)
+            s = sbAppend(s, arm64_push_x0())          // 8
+            instrIdx = instrIdx + 9
         } else if opTok == "POP" {
             s = sbAppend(s, arm64_pop_x0())
             instrIdx = instrIdx + 1
