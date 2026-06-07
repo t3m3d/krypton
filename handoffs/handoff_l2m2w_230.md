@@ -108,6 +108,23 @@ binaries (`len=150000`; aarch64 under `qemu-aarch64-static`).
       -o h2 && qemu-aarch64-static h2`, `kcc --version` → 2.3.0.
 - [ ] Cross-platform (M/W): README/extension already at 2.3.0 source; ensure the
       **VS Code .vsix** is rebuilt from `krypton-lang/package.json` 2.3.0.
+- [x] L: **Linux release artifact tooling** — `scripts/build_tarball_linux.sh`
+      (`d98df149`) builds `releases/krypton-<ver>-linux-<arch>.tar.gz`: a
+      self-contained, prebuilt, no-clone/no-C bundle (driver + FE + backend +
+      stdlib + headers + examples + symlink-only `install.sh`). Binaries are
+      mtime-touched newer than the `.k` sources so the **first `kcc` run after
+      extract is instant (381 ms), not a 10-min self-host rebuild.** Tested:
+      extract → `kcc --version` 2.3.0; compile+run a stdlib-using program works.
+      Attach the generated tarball to the GitHub release (`releases/` is
+      gitignored). **Cut step:** run this on the 2.3.0 Linux build, attach output.
+
+### ⚠️ Release-artifact gap for M to check
+`scripts/build_pkg.sh` (macOS `.pkg`) does **NOT** stage `stdlib/` into the
+payload — only `compiler/`, `headers/`, `bootstrap/`, `lsp/`, `examples/`. Any
+program using `import "k:..."` would fail from a `.pkg` install (the FE resolves
+`k:` modules from `<root>/stdlib`). My Linux tarball includes `stdlib/`. **M:
+please add a `cp -R stdlib "$ROOT/stdlib"` to build_pkg.sh before the cut**, or
+confirm stdlib is bundled some other way I didn't see.
 
 ---
 
