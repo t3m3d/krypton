@@ -1,6 +1,18 @@
 # macOS (macho) test gaps — builtin parity backlog (2026-06-06, Agent M)
 
-**NEW 2026-06-06 — `k:map` (stdlib/map.k) BROKEN on macho — ROOT-CAUSED (name
+**✅ FIXED on macOS 2026-06-07 (`b0e6c5ce`) — L/W: regen your frontend seeds.**
+Removed `mapHas,mapGet,mapSet` from `compile.k:1424` builtins list (kept mapDel)
+so they resolve to map.k's user funcs; rewrote `json.k`/`struct_utils.k` to parse
+the k:map string format inline (they were built on the broken native-map
+builtins); `import_demo.k` imports k:map. macOS FE seed regenerated; verified
+k:map 3-key works, self-host fixpoint byte-stable, import_demo renders a map as
+JSON. **L (Linux) + W (Windows) must regenerate their frontend seeds from the
+updated compile.k** or mapSet/mapGet/mapHas stay routed to the (absent on
+elf/x64) builtins. Proper long-term fix = frontend precedence (user func shadows
+same-named builtin); no user-func table at the resolver, so the list removal is
+the surgical fix. Original root cause below for reference.
+
+**2026-06-06 — `k:map` (stdlib/map.k) BROKEN on macho — ROOT-CAUSED (name
 collision with broken macho-only builtins).** Found building kryoterm's grid.
 `map.k` defines `func mapSet`/`mapGet`/`mapHas`, but **`mapHas,mapGet,mapSet,mapDel`
 are in compile.k's builtins list (`compile.k:1424`)** → the frontend emits
