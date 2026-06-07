@@ -213,9 +213,177 @@ buried:
 
 — M (macOS arm64)
 
-## G. Windows section — W to fill
-_(Native SB runtime `9515f8c6`, fresh-clone parity `4c7b941f`, kr.exe REPL,
-kcc.ks `-e` fix, any Windows release notes. Also: the driver rebuild-trigger
-sha-stamp idea from `handoff_l2w_6626.md` is yours if you want it.)_
+## G. Windows section — W (filled 2026-06-06)
 
-— L (Linux x86-64 / aarch64)
+L's §B Windows note confirmed: source strings already at 2.3.0 via M's
+`d28cba25`. Driver seed `bootstrap/kcc_driver_windows_x86_64.exe` and a
+fresh `krypton_rt.dll` are committed — see Cross-platform action below.
+
+### Release-notes material — Windows x86_64 2.3.0 highlights (ready to paste)
+
+**Native StringBuilder shipped (`9515f8c6`).** Windows' `kr_sbappend` was a
+1-byte `kr_alloc(1)` + `JMP __rt_strcat` stub — O(M²) per append, the wall
+every Krypton program hit when accumulating text. New impl in
+`runtime/krypton_rt.k`: `[length qword][data]` layout, capacity-doubling
+realloc, amortized O(1) append. Verified: 50k-append stress **2.4 s**
+(was minutes), `compile.k` self-host RAM **3-5 GB → 2.4 GB peak**. macOS
+and Linux already had equivalent impls; Windows now joins them.
+
+**Cross-platform self-host crash fixed (shared with macOS + Linux).**
+Root cause `03a2d6ae` — deleted 122 lines of dead `irMode==0` branches
+in `compile.k` whose unresolved `compileBlock`/`compileFunc` CALLs the
+unix backends mishandled. Windows was never broken on this (x64.k handled
+the dead CALLs gracefully) but shares the cleaner FE source.
+
+**`kcc.exe` driver split (`b0780f3d`).** `kcc.exe` is now the Krypton-native
+driver compiled from `kcc.ks`. The legacy compile.k-built backend was
+renamed `kcc-bin.exe` (the driver dispatches to it). Lays the groundwork
+for ABI-stable user-facing CLI while letting the backend churn.
+
+**`kr.exe` — Swift-like auto-wrap + accumulating REPL (`669e9126`).**
+Scripts without an explicit `just run { }` block get auto-wrapped (with
+`#!/usr/bin/env kr` shebang stripped first). `kr` with no args drops into
+a REPL that remembers `import`/`func`/`struct`/`let` lines and re-emits
+them around each new line. Commands: `:help`/`:list`/`:reset`/`:q`.
+Multi-line continuation when braces don't balance. Matches the POSIX
+`kr` script's behavior on Linux + macOS.
+
+**Windows-specific bug fixes:**
+- `kcc --print-arch` segfault (`c1674943`) — `stdlib/arch.k` called the
+  Linux-only `readProc` unconditionally → unresolved CALL → SIGSEGV on
+  Windows. Guarded by `OS != Windows_NT`.
+- `kcc -e` quote/space parser (`def520cc`) — two bugs masked each other:
+  `%TIME%` leading-space killed the temp filename; Krypton's `arg()`
+  preserves MSVC-CRT quoting AND splits on spaces inside quoted strings,
+  so `kcc -e 'kp("hi there")'` arrived as 4 args. New `_winJoinFrom()`
+  re-glues and `_winUnquote()` strips/unescapes.
+- `kcc.ks` Windows default-compile branch (`4c7b941f`) — used
+  `positional(0)`, mistaking `--native` for the source on `./build.sh
+  --native <src> -o <out>` invocations. Same bug bit macOS (M's
+  `f99da5bd`). Switched to `linuxSrc()`.
+
+**Fresh-clone parity (`4c7b941f`).** Three items mirroring M's macOS
+fresh-clone work:
+- `bootstrap/kcc_driver_windows_x86_64.exe` now committed (was missing —
+  only `_linux_x86_64` and now `_macos_aarch64` seeds had been).
+  Fresh-clone `bootstrap.bat` + `./build.sh` works without C tools.
+- `bootstrap.bat` help text dropped its `kcc.sh` references and now
+  points at `kcc`, `kcc -e`, and `kr` — the current surface.
+- `tools/kr/run.k` already clean — no `kcc.sh` references.
+
+### Install — Windows x86_64 (ready to paste into the release notes)
+
+**Installer route (recommended for most users).** Run
+`krypton-2.3.0-windows-x86_64.exe` (the Inno Setup installer). It
+copies `kcc.exe` (driver), `kcc-bin.exe` (backend), `kr.exe`,
+`krypton_rt.dll`, the optimizer + x64 host, the stdlib, and headers to
+`C:\krypton\`, adds them to PATH, and registers `.ks` and `.k` file
+associations (`.ks` → `kr.exe`, `.k` → `kcc.exe` for library viewing).
+
+```cmd
+:: Verify
+kcc --version           :: -> kcc version 2.3.0
+kr --version            :: -> kr  version 2.3.0
+echo just run { kp("hi") } > hi.ks
+kr hi.ks                :: -> hi
+kcc hi.ks -o hi.exe && hi.exe
+```
+
+**From-source route (developer / no admin).** Clone the repo and use
+`bootstrap.bat`:
+
+```cmd
+git clone https://github.com/t3m3d/krypton
+cd krypton
+bootstrap.bat           :: copies prebuilt seeds into place, no gcc needed
+kcc --version           :: -> kcc version 2.3.0
+```
+
+Then either point your PATH at the repo root or run `./build.sh`
+under Git Bash / MSYS2 for a full from-source rebuild. No clang, no
+gcc — the seeds are Krypton-native.
+
+**Uninstall:** the installer's uninstaller in
+`Start → Settings → Apps`, or for the from-source route just delete
+the repo / `C:\krypton`. PATH entries the installer added are removed
+by the uninstaller.
+
+### Known limitations — Windows (honest, for the notes)
+
+1. **`x64.k` native self-host hits a RAM wall.** Rebuilding
+   `compiler/windows_x86/x64_host_new.exe` from `compile.k` →
+   `kcc-bin.exe` consumes ~30 GB+ RAM during the IR-emit pass on the
+   current 9700-line `x64.k`. The pre-existing FE `+`-allocation
+   pattern: `compile.k` uses `+` on strings everywhere (not just
+   sbAppend); each `+` allocates fresh, intermediates accumulate to
+   function exit. The native SB shipped this release helps everywhere
+   sbAppend is used but doesn't touch raw `+` sites. Workaround:
+   rebuild on a machine with ≥48 GB free RAM, or wait for Tier-2
+   arena GC (roadmap, the structural fix). Affects only the rebuilding
+   of the Windows backend itself; `kcc` user workloads are unaffected
+   and run on the shipped seed.
+2. **Stage 6 phase 2 (freelist consumption) source-on-branch only.**
+   Sits on `stage6-phase2-freelist-consume` (`eb844258`) with a full
+   cascade audit. Couldn't validate the binary because of the wall
+   above. Will land in 2.3.1 once x64.k rebuild becomes possible.
+3. **No Windows arm64 backend yet.** `kcc.ks` will route to it the day
+   a `compiler/windows_arm64/` lands; mechanism in place since the
+   `stdlib/arch.k` work (see L's §A "Naming standardized" — same
+   pattern). Roadmap, scoped out of 2.3.0.
+
+### Driver rebuild-trigger sha-stamp idea (L's suggestion)
+
+L flagged in `handoff_l2w_6626.md` that `ensureElfHost()` /
+`ensureMachoHost()` in `kcc.ks` use `test src -nt host` (mtime-based)
+which mis-fires on `git pull --rebase` (rewrites mtimes → triggers a
+~10-min rebuild even though contents are current). Suggested fix: swap
+the mtime check for a content-sha stamp in a sidecar file
+(`elf_host.stamp` = sha of `elf.k` at build time; rebuild only on sha
+mismatch). Confirming I'll take this **post-2.3.0** — too late to
+land cleanly in this cut, low risk to defer (it's cosmetic; the
+rebuild still produces a correct binary, it just LOOKS like a hang).
+Filed against 2.3.1.
+
+### Cross-platform action — VS Code extension
+
+M's note flagged the `.vsix` was stale. Done in this pass:
+- `krypton-lang/package.json` bumped 2.2.0 → 2.3.0.
+- New `extensions/krypton-language-2.3.0.vsix` packaged via `npx vsce`
+  (9.96 KB, 8 files). Old `extensions/krypton-language-2.2.0.vsix`
+  deleted.
+- `README.md` line 104 updated to point at the 2.3.0 `.vsix`.
+
+The marketplace artifact now matches `package.json` 2.3.0. Publisher
+upload (`vsce publish`) is a manual step Brian owns — credentials live
+with him, not in CI.
+
+---
+
+## H. Final assembly — W ready when cut is called
+
+I've held my local 2.3.0 version bumps + CHANGELOG draft uncommitted
+(per Brian's "wait for the chain" note). My queued local changes:
+- `CHANGELOG.md` — new `[2.3.0] - 2026-06-06` section above
+  `[Unreleased]`, fully populated from the prior `[Unreleased]` content
+  plus today's headline items.
+- `compiler/compile.k` — `kccVer = "2.3.0"` (Linux already bumped this
+  on `66cabd90`; my local change is redundant — will drop on rebase).
+- `kcc.ks` — VERSION + help text strings at 2.3.0.
+- `krypton-lang/package.json` + `README.md` + `extensions/*.vsix` —
+  bumped this pass.
+- `bootstrap/kcc_driver_windows_x86_64.exe` — already on main from
+  `4c7b941f`. (If §B's bump pass missed re-baking it at 2.3.0, I can
+  rebuild + recommit; let me know.)
+
+**Ready to:**
+1. Merge `linux-aarch64-rename` into main (L's call per §E).
+2. Run `scripts/build_tarball_linux.sh` on the 2.3.0 Linux build,
+   attach output to the release.
+3. Build + attach `krypton-2.3.0-windows-x86_64.exe` from
+   `installer/krypton-installer.iss` (gitignored per memory; I have the
+   `.iss` locally, can rebuild on this box).
+4. Build + attach M's macOS `.pkg` (M's lane — needs the stdlib fix in
+   §E and re-run `scripts/build_pkg.sh`).
+5. Tag `v2.3.0` and write the GitHub release with the assembled notes.
+
+— W (Windows x86_64)
