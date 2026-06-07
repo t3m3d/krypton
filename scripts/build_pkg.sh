@@ -4,11 +4,14 @@
 # Output: releases/krypton-<version>-macos-arm64.pkg
 #
 # Install layout once the .pkg is run:
-#   /usr/local/krypton/                payload (compiler, runtime, headers, LSP)
-#   /usr/local/bin/{kcc,kcc.sh,kls}   symlinks → /usr/local/krypton/...
+#   /usr/local/krypton/                payload (driver, compiler, backend, stdlib,
+#                                      headers, examples, LSP)
+#   /usr/local/bin/{kcc,kls}           symlinks → /usr/local/krypton/...
 #
-# Uses Apple's pkgbuild (ships with Xcode Command Line Tools — no extra deps).
-# Run on a Mac after `./build.sh` has produced the platform binaries.
+# `kcc` is the Krypton-native driver (kcc.ks compiled → kcc_driver_macos_aarch64).
+# kcc.sh was removed (0c0dc57b); the C-source seed (kcc_seed.c) was removed too —
+# everything is Krypton-built now. Uses Apple's pkgbuild (Xcode CLT, no extra
+# deps). Run on a Mac after `./build.sh` has produced the platform binaries.
 
 set -euo pipefail
 
@@ -16,18 +19,20 @@ cd "$(dirname "$0")/.."
 
 # ── Pre-flight checks ──────────────────────────────────────────────────────
 [[ "$(uname -s)" == "Darwin" ]] || { echo "build_pkg.sh: macOS only"; exit 1; }
-[[ "$(uname -m)" == "arm64" ]]  || { echo "build_pkg.sh: arm64 only (this script bundles kcc-arm64)"; exit 1; }
+[[ "$(uname -m)" == "arm64" ]]  || { echo "build_pkg.sh: arm64 only (this script bundles the arm64 binaries)"; exit 1; }
 command -v pkgbuild >/dev/null || { echo "build_pkg.sh: pkgbuild not found (install Xcode Command Line Tools)"; exit 1; }
 
+DRIVER="bootstrap/kcc_driver_macos_aarch64"
+HOST="bootstrap/macho_host_macos_aarch64"
 [[ -x "compiler/macos_arm64/kcc-arm64" ]] || { echo "build_pkg.sh: missing compiler/macos_arm64/kcc-arm64 — run ./build.sh first"; exit 1; }
-[[ -x "kcc" ]]       || { echo "build_pkg.sh: missing ./kcc dispatcher"; exit 1; }
-[[ -x "kcc.sh" ]]    || { echo "build_pkg.sh: missing ./kcc.sh driver"; exit 1; }
+[[ -x "$DRIVER" ]] || { echo "build_pkg.sh: missing $DRIVER (the kcc.ks driver seed) — run ./build.sh first"; exit 1; }
+[[ -x "$HOST" ]]   || { echo "build_pkg.sh: missing $HOST (the macho backend host seed)"; exit 1; }
 KLS_BIN=""
 [[ -x "compiler/macos_arm64/kls" ]] && KLS_BIN="compiler/macos_arm64/kls"
 [[ -z "$KLS_BIN" && -x "kls" ]]     && KLS_BIN="kls"
 
 # ── Version ────────────────────────────────────────────────────────────────
-VERSION=$(./kcc --version 2>&1 | sed -E 's/^kcc version //;s/[[:space:]]+.*$//')
+VERSION=$(KRYPTON_ROOT="$PWD" "./$DRIVER" --version 2>&1 | sed -E 's/^kcc version //;s/[[:space:]]+.*$//')
 [[ -n "$VERSION" ]] || { echo "build_pkg.sh: could not detect kcc version"; exit 1; }
 
 PKG_ID="org.krypton-lang.krypton"
@@ -35,87 +40,82 @@ PKG_FILE="releases/krypton-${VERSION}-macos-arm64.pkg"
 
 # ── Stage payload ──────────────────────────────────────────────────────────
 STAGE=$(mktemp -d)
+SCRIPTS_DIR=$(mktemp -d)
 trap 'rm -rf "$STAGE" "$SCRIPTS_DIR"' EXIT
 
 PREFIX="/usr/local/krypton"
 ROOT="$STAGE$PREFIX"
 mkdir -p "$ROOT"
 
-echo "staging payload..."
-# Top-level wrappers
-install -m 0755 kcc       "$ROOT/kcc"
-install -m 0755 kcc.sh    "$ROOT/kcc.sh"
+echo "staging payload for $VERSION ..."
 
-# Compiler sources + per-platform binary (kcc dispatcher resolves to this)
-mkdir -p "$ROOT/compiler/macos_arm64"
-install -m 0755 compiler/macos_arm64/kcc-arm64                  "$ROOT/compiler/macos_arm64/kcc-arm64"
-[[ -n "$KLS_BIN" ]] && install -m 0755 "$KLS_BIN"               "$ROOT/compiler/macos_arm64/kls"
-install -m 0644 compiler/compile.k                              "$ROOT/compiler/compile.k"
-install -m 0644 compiler/optimize.k                             "$ROOT/compiler/optimize.k"
-install -m 0644 compiler/macos_arm64/macho_arm64_self.k         "$ROOT/compiler/macos_arm64/macho_arm64_self.k"
-[[ -f compiler/macos_arm64/macho.k ]] && \
-    install -m 0644 compiler/macos_arm64/macho.k                "$ROOT/compiler/macos_arm64/macho.k"
-[[ -f compiler/llvm.k ]] && install -m 0644 compiler/llvm.k     "$ROOT/compiler/llvm.k"
-[[ -f compiler/run.k ]] && install -m 0644 compiler/run.k       "$ROOT/compiler/run.k"
-
-# Header files (used by --headers flag, and by kls)
-mkdir -p "$ROOT/headers"
-cp -R headers/ "$ROOT/headers/"
-find "$ROOT/headers" -type f -exec chmod 0644 {} \;
-
-# Bootstrap source + macOS arm64 seed (so users can rebuild from source if needed)
+# Driver (the `kcc` command) + frontend seed.
+# (BSD/macOS `install` has no GNU `-D`, so mkdir the dir first.)
 mkdir -p "$ROOT/bootstrap"
-install -m 0644 bootstrap/kcc_seed.c                  "$ROOT/bootstrap/kcc_seed.c"
-install -m 0644 bootstrap/kcc_seed_macos_aarch64      "$ROOT/bootstrap/kcc_seed_macos_aarch64"
+install -m 0755 "$DRIVER"                          "$ROOT/$DRIVER"
+install -m 0755 bootstrap/kcc_seed_macos_aarch64   "$ROOT/bootstrap/kcc_seed_macos_aarch64"
 
-# LSP sources (so users can rebuild kls from source if they edit it)
-mkdir -p "$ROOT/lsp"
-for f in lsp/*.k lsp/README.md; do
-    [[ -f "$f" ]] || continue
-    install -m 0644 "$f" "$ROOT/$f"
-done
+# Frontend + backend host + their sources (driver resolves root via
+# compiler/macos_arm64/kcc-arm64; ensureHost runs compiler/macos_arm64/macho_host).
+mkdir -p "$ROOT/compiler/macos_arm64"
+install -m 0755 compiler/macos_arm64/kcc-arm64          "$ROOT/compiler/macos_arm64/kcc-arm64"
+install -m 0755 "$HOST"                                 "$ROOT/compiler/macos_arm64/macho_host"
+install -m 0644 compiler/macos_arm64/macho_arm64_self.k "$ROOT/compiler/macos_arm64/macho_arm64_self.k"
+install -m 0644 compiler/compile.k                      "$ROOT/compiler/compile.k"
+[[ -f compiler/optimize.k ]] && install -m 0644 compiler/optimize.k "$ROOT/compiler/optimize.k"
+[[ -n "$KLS_BIN" ]] && install -m 0755 "$KLS_BIN"       "$ROOT/compiler/macos_arm64/kls"
 
-# Examples
-if [[ -d examples ]]; then
-    mkdir -p "$ROOT/examples"
-    for f in examples/*.k; do
-        [[ -f "$f" ]] || continue
-        install -m 0644 "$f" "$ROOT/$f"
+# Standard library — REQUIRED for `import "k:..."` (the FE resolves k: modules
+# from <root>/stdlib). Was missing before — imports failed from a .pkg install.
+cp -R stdlib "$ROOT/stdlib"
+
+# Header files (--headers flag + kls) and examples.
+cp -R headers "$ROOT/headers"
+[[ -d examples ]] && cp -R examples "$ROOT/examples"
+
+# LSP sources (so users can rebuild kls if they edit it).
+if [[ -d lsp ]]; then
+    mkdir -p "$ROOT/lsp"
+    for f in lsp/*.k lsp/README.md; do
+        [[ -f "$f" ]] && install -m 0644 "$f" "$ROOT/$f"
     done
 fi
 
+[[ -f LICENSE ]] && install -m 0644 LICENSE "$ROOT/LICENSE"
+find "$ROOT" -type f -name '*.k' -exec chmod 0644 {} \;
+
 # ── Post-install script ────────────────────────────────────────────────────
-# Adds Krypton to PATH two ways (both run as root by Installer.app):
-#   1. /etc/paths.d/krypton  → /usr/local/krypton joins PATH for new shells
-#      (this is macOS's standard mechanism — see `man path_helper`)
-#   2. Symlinks in /usr/local/bin/  → instant availability if that dir is
-#      already on the user's PATH (it is by default via /etc/paths)
-SCRIPTS_DIR=$(mktemp -d)
+# Runs as root via Installer.app: symlink kcc/kls onto PATH, ad-hoc sign the
+# binaries (AMFI on Apple Silicon refuses unsigned Mach-O), and stamp the
+# binaries newer than their .k sources so the driver never tries to clang-
+# rebuild macho_host on first run (it would fail on a clang-less machine).
 cat > "$SCRIPTS_DIR/postinstall" <<'EOF'
 #!/bin/bash
-# Krypton post-install — runs as root via Installer.app.
 set -e
+ROOT=/usr/local/krypton
 
-# 1. /etc/paths.d entry — picked up by path_helper(1) on new shell launch.
-mkdir -p /etc/paths.d
-echo "/usr/local/krypton" > /etc/paths.d/krypton
-chmod 0644 /etc/paths.d/krypton
-
-# 2. Belt-and-suspenders: also symlink into /usr/local/bin so the commands
-#    are available even if a future macOS release changes PATH defaults, or
-#    if the user's shell was opened before the install completed.
 mkdir -p /usr/local/bin
-ln -sf /usr/local/krypton/kcc    /usr/local/bin/kcc
-ln -sf /usr/local/krypton/kcc.sh /usr/local/bin/kcc.sh
-[[ -e /usr/local/krypton/compiler/macos_arm64/kls ]] && \
-    ln -sf /usr/local/krypton/compiler/macos_arm64/kls /usr/local/bin/kls
+ln -sf "$ROOT/bootstrap/kcc_driver_macos_aarch64" /usr/local/bin/kcc
+[[ -e "$ROOT/compiler/macos_arm64/kls" ]] && ln -sf "$ROOT/compiler/macos_arm64/kls" /usr/local/bin/kls
+
+# Ad-hoc sign the executables so they run under AMFI.
+for b in "$ROOT/bootstrap/kcc_driver_macos_aarch64" \
+         "$ROOT/compiler/macos_arm64/kcc-arm64" \
+         "$ROOT/compiler/macos_arm64/macho_host" \
+         "$ROOT/compiler/macos_arm64/kls"; do
+    [[ -e "$b" ]] && codesign -s - -f "$b" 2>/dev/null || true
+done
+
+# Make binaries newer than the .k sources -> ensureHost() sees macho_host as
+# up-to-date and skips the one-time clang rebuild.
+touch "$ROOT/bootstrap/kcc_driver_macos_aarch64" \
+      "$ROOT/compiler/macos_arm64/kcc-arm64" \
+      "$ROOT/compiler/macos_arm64/macho_host" 2>/dev/null || true
 exit 0
 EOF
 chmod 0755 "$SCRIPTS_DIR/postinstall"
 
 # ── Strip xattrs so pkgbuild doesn't bake AppleDouble (._*) files ─────────
-# Files in the repo may carry quarantine bits and other extended attributes
-# from earlier downloads/cps. xattr -cr clears them recursively.
 xattr -cr "$STAGE" 2>/dev/null || true
 
 # ── Build the .pkg ─────────────────────────────────────────────────────────
@@ -123,8 +123,6 @@ mkdir -p releases
 rm -f "$PKG_FILE"
 
 echo "building $PKG_FILE..."
-# COPYFILE_DISABLE=1 stops pkgbuild's internal cpio from encoding AppleDouble
-# (._*) sidecars when packaging files that carry xattrs.
 COPYFILE_DISABLE=1 pkgbuild \
     --root            "$STAGE" \
     --identifier      "$PKG_ID" \
@@ -140,4 +138,5 @@ echo ""
 echo "install:    sudo installer -pkg $PKG_FILE -target /"
 echo "or open in Finder:  open $PKG_FILE"
 echo ""
-echo "uninstall:  sudo rm -rf /usr/local/krypton /usr/local/bin/{kcc,kcc.sh,kls}"
+echo "verify:     kcc --version   # -> kcc version $VERSION"
+echo "uninstall:  sudo rm -rf /usr/local/krypton /usr/local/bin/{kcc,kls}"
