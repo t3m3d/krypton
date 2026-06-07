@@ -407,7 +407,7 @@ func sitePage(title, content) {
         htVoid("meta", htAttr("name", "theme-color") + htAttr("content", "#5d16da")) +
         htVoid("meta", htAttr("name", "apple-mobile-web-app-capable") + htAttr("content", "yes")) +
         htVoid("meta", htAttr("name", "apple-mobile-web-app-status-bar-style") + htAttr("content", "black-translucent")) +
-        htVoid("meta", htAttr("name", "generator") + htAttr("content", "Krypton 2.1.1")) +
+        htVoid("meta", htAttr("name", "generator") + htAttr("content", "Krypton 2.3.0")) +
         htVoid("meta", htAttr("name", "author") + htAttr("content", "KryptonBytes")) +
         // Open Graph (Facebook, LinkedIn, Slack, Discord previews).
         htVoid("meta", htAttr("property", "og:title")       + htAttr("content", fullTitle)) +
@@ -705,42 +705,72 @@ func dlBtn(url, label) {
 
 func pageDownloads() {
     let BS = fromCharCode(92)
-    // All buttons land on the same GitHub release page (tag "2.1.1"),
-    // which bundles four components shipped together:
-    //   - Krypton 2.1.1 toolchain (Windows installer + macOS pkg/tarball)
-    //   - kweb web framework (bundled into the Windows installer)
-    //   - VS Code / Google Antigravity extension 2.2.0 (KryptScript-aware)
-    // Each section below calls out its specific component version. Bump
-    // the tag URL when a new bundled release is cut.
-    let LATEST = "https://github.com/t3m3d/krypton/releases/tag/2.1.1"
+    // 2.3.0 is the first 3-platform equal release (Windows + macOS + Linux
+    // x86 all native). Asset URLs land on the same release tag; the per-
+    // platform sections call out install vs build-from-source paths.
+    let LATEST = "https://github.com/t3m3d/krypton/releases/tag/2.3.0"
     let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
         "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
-        "<span class=" + DQ() + "tag" + DQ() + ">Latest release: 2.1.1</span>" +
+        "<span class=" + DQ() + "tag" + DQ() + ">Latest release: 2.3.0</span>" +
         htH1("Downloads") +
-        htP("Krypton 2.1.1 toolchain (" + htCode("kcc") + " + WASM backend) for Windows and macOS, the " + htCode("kweb") + " web framework CLI on Windows, and the KryptScript-aware 2.2.0 VS Code / Google Antigravity extension " + DASH() + " all on one GitHub release.") +
+        htP("Krypton 2.3.0 ships native on Windows x86-64, macOS Apple Silicon, and Linux x86-64. Self-host fix across all three backends, new growing-capacity StringBuilder, and a Krypton-native CLI driver. Plus the 2.3.0 VS Code / Google Antigravity extension.") +
         "</div>"
     let content = hero +
         "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
-        htP("Released May 31, 2026. A bundled release: the Krypton 2.1.1 toolchain (" + htCode("kcc") + " + WASM backend) for Windows and macOS, the " + htCode("kweb") + " web framework CLI on Windows, and the KryptScript-aware 2.2.0 VS Code / Google Antigravity extension. All assets live on " + htAA(htHref(LATEST), "one GitHub release page") + ".") +
+        htP("Released June 6, 2026. All assets live on " + htAA(htHref(LATEST), "one GitHub release page") + ".") +
 
-        htH3("What's in the bundle") +
+        htH3("What's in the release") +
         htUl(
-            htLi(htCode("krypton-2.1.1-setup.exe") + " " + DASH() + " Windows installer. Bundles " + htCode("kcc") + ", " + htCode("kweb") + ", the WASM backend, krypton_rt.dll, and " + htCode(".k") + " + " + htCode(".ks") + " file associations.") +
-            htLi(htCode("krypton-2.1.1-macos-arm64.pkg") + " " + DASH() + " macOS Apple Silicon signed installer (toolchain; kweb macOS port targets 2.1.2).") +
-            htLi(htCode("krypton-2.1.1-macos-arm64.tar.gz") + " " + DASH() + " macOS Apple Silicon tarball, same contents as the .pkg.") +
-            htLi(htCode("krypton-language-2.2.0.vsix") + " " + DASH() + " VS Code / Antigravity extension. Adds " + htCode(".ks") + " (KryptScript) + " + htCode(".k") + " syntax and ships the " + htCode("kls") + " language server for both platforms.")
+            htLi(htCode("krypton-2.3.0-windows-x86_64.exe") + " " + DASH() + " Windows installer. Bundles " + htCode("kcc") + " (Krypton-native driver), " + htCode("kcc-bin") + " (the compile.k-built backend), " + htCode("kr") + " (KryptScript runner with REPL), " + htCode("krypton_rt.dll") + ", the WASM backend, " + htCode("kweb") + ", and " + htCode(".k") + " / " + htCode(".ks") + " file associations.") +
+            htLi(htCode("krypton-2.3.0-macos-arm64.pkg") + " " + DASH() + " macOS Apple Silicon signed installer (toolchain installs to " + htCode("/usr/local/krypton") + ").") +
+            htLi(htCode("krypton-2.3.0-macos-arm64.tar.gz") + " " + DASH() + " macOS Apple Silicon tarball, same contents as the .pkg.") +
+            htLi(htCode("krypton-2.3.0-linux-x86_64.tar.gz") + " " + DASH() + " Linux x86-64 self-contained tarball (static syscall-only ELF, no glibc dep). First " + htCode("kcc") + " run is instant " + DASH() + " no self-host rebuild.") +
+            htLi(htCode("krypton-language-2.3.0.vsix") + " " + DASH() + " VS Code / Antigravity extension. Adds " + htCode(".ks") + " (KryptScript) + " + htCode(".k") + " syntax and ships the " + htCode("kls") + " language server for Windows + macOS.")
         ) +
 
-        htH2("Windows Installer (toolchain 2.1.1 + kweb)") +
-        htP("One-click install to C:" + BS + "krypton with automatic PATH configuration. Bundles " + htCode("kcc") + " (the compiler), " + htCode("kweb") + " (the web framework CLI), the WASM backend, and " + htCode(".k") + " + " + htCode(".ks") + " file associations. 2.6 MB. Windows 10/11 x64.") +
-        htP(dlBtn(LATEST, "Download for Windows")) +
+        htH2("Windows x86-64") +
+        htP("One-click installer to " + htCode("C:" + BS + "krypton") + " with automatic PATH configuration. 2.7 MB. Windows 10 / 11 x64.") +
+        htP(dlBtn(LATEST, "Download Windows installer")) +
+        htH3("Or from source (no admin)") +
+        htPre(htCode("git clone https://github.com/t3m3d/krypton" + NL() +
+                     "cd krypton" + NL() +
+                     "bootstrap.bat        :: copies prebuilt seeds into place, no gcc needed" + NL() +
+                     "kcc --version        :: -> kcc version 2.3.0")) +
+        htP("Then add the repo root to your PATH, or use the from-source seed in place. " + htCode("bootstrap.bat") + " ships the Krypton-native driver, the backend, " + htCode("kr.exe") + ", and the runtime DLL " + DASH() + " no C compiler, no clang.") +
 
-        htH2("macOS Apple Silicon (toolchain 2.1.1)") +
-        htP("Signed-payload .pkg installer for arm64 Macs. Installs to /usr/local/krypton with " + htCode("kcc") + " on your PATH. " + htCode("kweb") + " is Windows-only in 2.1.1 " + DASH() + " the macOS port arrives in 2.1.2 once " + htCode("stdlib/fs.k") + " finishes its POSIX rewrite.") +
-        htP(dlBtn(LATEST, "Download .pkg for macOS")) +
-        htH3("Or install with Homebrew") +
-        htPre(htCode("brew install krypton")) +
-        htP("Prefer a tarball? Grab " + htAA(htHref(LATEST), htCode("krypton-2.1.1-macos-arm64.tar.gz")) + " from the release page.") +
+        htH2("macOS Apple Silicon (arm64)") +
+        htP("Two install paths, both clang-free. The toolchain self-hosts on Mach-O without any external compiler.") +
+        htH3("Homebrew (recommended)") +
+        htPre(htCode("brew install t3m3d/krypton/krypton" + NL() +
+                     "kcc --version        # -> kcc version 2.3.0")) +
+        htP("Tap " + htCode("t3m3d/krypton") + " is live; the formula installs the same 2.3.0 macOS toolchain.") +
+        htH3("Or the signed " + htCode(".pkg") + " / tarball") +
+        htP(dlBtn(LATEST, "Download .pkg") + " " + htAA(htHref(LATEST), "or grab the tarball")) +
+        htP("Both install scripts ad-hoc-sign the binaries (AMFI) and clear download quarantine, so they run with no " + htQ("unidentified developer") + " prompt.") +
+
+        htH2("Linux x86-64") +
+        htP("Self-contained tarball, no clone or C compiler required:") +
+        htPre(htCode("tar xzf krypton-2.3.0-linux-x86_64.tar.gz" + NL() +
+                     "cd krypton-2.3.0-linux-x86_64" + NL() +
+                     "./install.sh         # symlinks kcc into /usr/local/bin (prompts for sudo if needed)" + NL() +
+                     "kcc --version        # -> kcc version 2.3.0" + NL() +
+                     "kcc hello.k -o hello && ./hello")) +
+        htP("Custom location: " + htCode("./install.sh /opt/krypton") + ", then add " + htCode("/opt/krypton/bin") + " to PATH. Uninstall: " + htCode("rm /usr/local/bin/kcc") + " plus the install dir.") +
+        htP(dlBtn(LATEST, "Download Linux tarball")) +
+        htH3("aarch64 (cross-compile target)") +
+        htP("Linux aarch64 ships as a " + htStrong("cross target") + " in 2.3.0, not a native install. On an x86-64 box:") +
+        htPre(htCode("kcc --aarch64 prog.k -o prog   # static aarch64 ELF" + NL() +
+                     "qemu-aarch64-static prog       # or run on real arm64 hardware")) +
+        htP("Native aarch64-hosted toolchain is roadmap for the next release.") +
+        htH3("Or build from source (any Linux distro)") +
+        htPre(htCode("git clone https://github.com/t3m3d/krypton" + NL() +
+                     "cd krypton" + NL() +
+                     "./build.sh")) +
+        htP("Prebuilt seeds eliminate the need for external compilers " + DASH() + " no gcc / clang at user-invocation time.") +
+
+        htH2("VS Code &amp; Google Antigravity Extension (2.3.0)") +
+        htP("Syntax highlighting, bracket matching, code folding, and " + htCode("kls") + "-powered diagnostics + completions for Krypton (" + htCode(".k") + " libraries) and KryptScript (" + htCode(".ks") + " scripts). One " + htCode(".vsix") + " installs in both VS Code and Google Antigravity (a VS Code fork) " + DASH() + " Extensions panel " + fromCharCode(8594) + " Install from VSIX.") +
+        htP(dlBtn(LATEST, "Download .vsix")) +
 
         htH2("Krypton Web Framework (kweb)") +
         htP("kweb is a single-binary CLI that scaffolds, builds, serves, and deploys Krypton sites. The DSL stack:") +
@@ -755,26 +785,15 @@ func pageDownloads() {
                      "kweb build            # render to dist/" + NL() +
                      "kweb serve [port]     # local dev server" + NL() +
                      "kweb deploy <host> <user>   # rsync dist/ over SSH")) +
-        htP("On macOS / Linux for now, build from source after installing the toolchain:") +
+        htP("On macOS / Linux, build from source after installing the toolchain:") +
         htPre(htCode("git clone https://github.com/t3m3d/kweb" + NL() + "cd kweb" + NL() + "kcc kweb.htk -o kweb")) +
         htP("This very site (" + htCode("krypton-lang.org") + ") is rendered by kweb, written in Krypton.") +
 
-        htH2("Linux / BSD / Source") +
-        htP("Clone and build " + DASH() + " prebuilt seeds eliminate the need for external compilers:") +
-        htPre(htCode("git clone https://github.com/t3m3d/krypton" + NL() + "cd krypton" + NL() + "./build.sh")) +
-
-        htH2("VS Code &amp; Google Antigravity Extension (2.2.0)") +
-        htP("Syntax highlighting, bracket matching, code folding, and " + htCode("kls") + "-powered diagnostics + completions for Krypton (" + htCode(".k") + " libraries) and KryptScript (" + htCode(".ks") + " scripts). New in 2.2.0: full " + htCode(".ks") + " language contribution, " + htCode("KryptScript") + " language-picker alias, and refreshed " + htCode("kls") + " bundled binaries for Windows + macOS. One .vsix installs in both VS Code and Google Antigravity (a VS Code fork) " + DASH() + " Extensions panel " + fromCharCode(8594) + " Install from VSIX.") +
-        htP(dlBtn(LATEST, "Download .vsix")) +
-
-        htH2("New: KryptScript (" + htCode(".ks") + " scripts)") +
-        htP("Krypton 2.2 introduces " + htCode(".ks") + " as a sibling extension for run-as-script files. Same compiler, same syntax, different use case. " + htA("/kryptscript.html", "Learn about KryptScript " + DASH() + " what it's for, how to write one, and how it relates to ") + htCode(".k") + ".") +
-
         htH2("Verify") +
         htP("After install, confirm the toolchain version:") +
-        htPre(htCode("kcc --version    # kcc version 2.1.1")) +
+        htPre(htCode("kcc --version    # kcc version 2.3.0")) +
         htP("And confirm the editor extension version inside VS Code / Antigravity:") +
-        htPre(htCode("Extensions panel " + fromCharCode(8594) + " Krypton " + fromCharCode(8594) + " v2.2.0")) +
+        htPre(htCode("Extensions panel " + fromCharCode(8594) + " Krypton " + fromCharCode(8594) + " v2.3.0")) +
         "</div></section>"
     emit sitePage("Downloads", content)
 }
