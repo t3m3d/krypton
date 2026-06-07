@@ -35,15 +35,26 @@ func jsonArray(lst) {
     emit sbToString(sb)
 }
 
+// jsonObject(map) — `map` is a k:map value (a "key=val\n…" string). Parsed
+// directly here so json.k stays self-contained (no k:map import needed — and
+// the old keys()/mapGet() native-map builtins were broken/removed).
 func jsonObject(map) {
     let sb = sbNew()
     sb = sbAppend(sb, "{")
-    let ks = keys(map)
-    let cnt = length(ks)
+    let lines = lineCount(map)
     let i = 0
-    for k in ks {
-        if i > 0 { sb = sbAppend(sb, ",") }
-        sb = sbAppend(sb, jsonStr(k) + ":" + jsonStr(mapGet(map, k)))
+    let first = 1
+    while i < lines {
+        let line = getLine(map, i)
+        if len(line) > 0 {
+            let j = 0
+            while j < len(line) { if line[j] == "=" { break }  j += 1 }
+            let k = substring(line, 0, j)
+            let v = substring(line, j + 1, len(line))
+            if first == 0 { sb = sbAppend(sb, ",") }
+            sb = sbAppend(sb, jsonStr(k) + ":" + jsonStr(v))
+            first = 0
+        }
         i += 1
     }
     sb = sbAppend(sb, "}")
