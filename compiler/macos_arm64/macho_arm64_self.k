@@ -2043,7 +2043,7 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_FDREAD"       { emit 34 }  // pop maxlen,fd; alloc(21) buf; read(3); NUL-term; return buf
     if opTok == "BUILTIN_PTYMASTER"    { emit 20 }  // open(ptmx); TIOCPTYGRANT; TIOCPTYUNLK; ret master
     if opTok == "BUILTIN_PTYSLAVENAME" { emit 32 }  // alloc(21) 128B; ioctl TIOCPTYGNAME; ret slave path
-    if opTok == "BUILTIN_PTYFORKEXEC"  { emit 86 }  // fork; child setsid+open+TIOCSCTTY+dup2x3+execve; parent ret pid
+    if opTok == "BUILTIN_PTYFORKEXEC"  { emit 66 }  // fork; child setsid+open+TIOCSCTTY+dup2x3+execve; parent ret pid
     if opTok == "POP"              { emit 1 }
     emit 0
 }
@@ -5046,6 +5046,67 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_mov_xx(0, 20))      // 7: return buf (kernel NUL-termed)
             s = sbAppend(s, arm64_push_x0())          // 8
             instrIdx = instrIdx + 9
+        } else if opTok == "BUILTIN_PTYFORKEXEC" {
+            // ptyForkExec(slaveName, shellPath): fork; CHILD becomes the shell on
+            // the pty slave (setsid, open slave, TIOCSCTTY, dup2 0/1/2, execve);
+            // PARENT returns the child pid. macOS fork: x0=child pid in BOTH, and
+            // x1==1 marks the child (x1==0 parent). TOS=shellPath, next=slaveName.
+            // x20=slaveName, x21=shellPath, x22=slave fd. 66 instr (alloc 21).
+            s = sbAppend(s, arm64_pop(21))            // 0: x21 = shellPath
+            s = sbAppend(s, arm64_pop(20))            // 1: x20 = slaveName
+            s = sbAppend(s, arm64_movz_x_imm(16, 2))  // 2: SYS_fork
+            s = sbAppend(s, arm64_svc(0x80))          // 3
+            s = sbAppend(s, arm64_cbnz(1, 3))         // 4: x1!=0 -> CHILD @7
+            s = sbAppend(s, arm64_push_x0())          // 5: PARENT: return child pid
+            s = sbAppend(s, arm64_b(60))              // 6: -> END @66
+            // CHILD @7:
+            s = sbAppend(s, arm64_movz_x_imm(16, 147))// 7: SYS_setsid
+            s = sbAppend(s, arm64_svc(0x80))          // 8
+            s = sbAppend(s, arm64_mov_xx(0, 20))      // 9: x0 = slaveName
+            s = sbAppend(s, arm64_movz_x_imm(1, 2))   // 10: O_RDWR
+            s = sbAppend(s, arm64_movz_x_imm(2, 0))   // 11: mode 0
+            s = sbAppend(s, arm64_movz_x_imm(16, 5))  // 12: SYS_open
+            s = sbAppend(s, arm64_svc(0x80))          // 13
+            s = sbAppend(s, arm64_mov_xx(22, 0))      // 14: x22 = slave fd
+            // ioctl(slave, TIOCSCTTY=0x20007461, 0) — become controlling tty
+            s = sbAppend(s, arm64_mov_xx(0, 22))      // 15
+            s = sbAppend(s, arm64_movz_x_imm(1, 0x7461)) // 16
+            s = sbAppend(s, arm64_movk_x_imm_lsl16(1, 0x2000)) // 17: x1 = 0x20007461
+            s = sbAppend(s, arm64_movz_x_imm(2, 0))   // 18
+            s = sbAppend(s, arm64_movz_x_imm(16, 54)) // 19: SYS_ioctl
+            s = sbAppend(s, arm64_svc(0x80))          // 20
+            // dup2(slave, 0/1/2) #90
+            s = sbAppend(s, arm64_mov_xx(0, 22))      // 21
+            s = sbAppend(s, arm64_movz_x_imm(1, 0))   // 22
+            s = sbAppend(s, arm64_movz_x_imm(16, 90)) // 23
+            s = sbAppend(s, arm64_svc(0x80))          // 24
+            s = sbAppend(s, arm64_mov_xx(0, 22))      // 25
+            s = sbAppend(s, arm64_movz_x_imm(1, 1))   // 26
+            s = sbAppend(s, arm64_movz_x_imm(16, 90)) // 27
+            s = sbAppend(s, arm64_svc(0x80))          // 28
+            s = sbAppend(s, arm64_mov_xx(0, 22))      // 29
+            s = sbAppend(s, arm64_movz_x_imm(1, 2))   // 30
+            s = sbAppend(s, arm64_movz_x_imm(16, 90)) // 31
+            s = sbAppend(s, arm64_svc(0x80))          // 32
+            // build argv = [shellPath, NULL]
+            s = sbAppend(s, arm64_movz_x_imm(4, 16))  // 33: alloc 16 bytes (2 ptrs)
+            instrIdx = instrIdx + 34
+            s = sbAppend(s, emitAllocVar(instrIdx, textVaddr, textOff))  // 34-54: x0 = argv (21)
+            instrIdx = instrIdx + 21
+            s = sbAppend(s, arm64_str_imm(21, 0, 0))  // 55: argv[0] = shellPath
+            s = sbAppend(s, arm64_movz_x_imm(9, 0))   // 56: x9 = 0
+            s = sbAppend(s, arm64_str_imm(9, 0, 1))   // 57: argv[1] = NULL (offset 8)
+            s = sbAppend(s, arm64_mov_xx(1, 0))       // 58: x1 = argv
+            s = sbAppend(s, arm64_mov_xx(0, 21))      // 59: x0 = shellPath
+            s = sbAppend(s, arm64_movz_x_imm(2, 0))   // 60: envp = NULL
+            s = sbAppend(s, arm64_movz_x_imm(16, 59)) // 61: SYS_execve
+            s = sbAppend(s, arm64_svc(0x80))          // 62
+            // execve only returns on failure -> exit(1)
+            s = sbAppend(s, arm64_movz_x_imm(0, 1))   // 63
+            s = sbAppend(s, arm64_movz_x_imm(16, 1))  // 64: SYS_exit
+            s = sbAppend(s, arm64_svc(0x80))          // 65
+            instrIdx = instrIdx + 11
+            // END @66
         } else if opTok == "POP" {
             s = sbAppend(s, arm64_pop_x0())
             instrIdx = instrIdx + 1
