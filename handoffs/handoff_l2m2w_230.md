@@ -33,6 +33,33 @@ realloc SB — no port was needed.
 ELF `EM_AARCH64`, qemu); **macOS stays `arm64`** (Apple). New `--aarch64`
 cross-compile flag with `--arm64` kept as an alias. (Branch — see §C.)
 
+### Install — Linux (ready to paste into the release notes)
+
+**x86-64 (native).** Download `krypton-2.3.0-linux-x86_64.tar.gz` from the
+release assets, then:
+
+```sh
+tar xzf krypton-2.3.0-linux-x86_64.tar.gz
+cd krypton-2.3.0-linux-x86_64
+./install.sh            # symlinks `kcc` into /usr/local/bin (prompts for sudo if needed)
+kcc --version           # -> kcc version 2.3.0
+kcc hello.k -o hello && ./hello
+```
+
+No clone, no C compiler, no rebuild — prebuilt static binaries, and the first
+`kcc` run is instant (binaries are stamped newer than sources so the driver
+doesn't self-host-rebuild). Custom location: `./install.sh /opt/krypton`
+(then add `/opt/krypton`'s `bin` to PATH). Uninstall = `rm /usr/local/bin/kcc`
+and the install dir. Artifact built by `scripts/build_tarball_linux.sh`; the
+2.3.0 tarball is committed at `releases/` (sha256
+`5765abc75d5952988b4f5b27fdffd2051619be2e8edb4ebf1fe6c22c1444ce65`).
+
+**aarch64.** No native install in 2.3.0 — aarch64 is a **cross target**. On an
+x86-64 box: `kcc --aarch64 prog.k -o prog` emits a static aarch64 ELF (runs on
+aarch64 hardware or under `qemu-aarch64-static`). A native aarch64-hosted
+toolchain is roadmap (blocked on the arm64 backend self-hosting `compile.k`;
+see §B). So: no `krypton-…-linux-aarch64.tar.gz` for this release.
+
 ---
 
 ## B. Version bump status (2.2.0 → 2.3.0)
