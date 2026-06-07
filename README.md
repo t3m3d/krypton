@@ -101,7 +101,7 @@ The web framework adds a third extension for templates:
 | Windows x86_64 | **2.1.1** | Inno Setup installer (kcc + kweb + WASM backend + .k/.ks file associations). |
 | macOS arm64 | **2.1.1** | Homebrew tap: `brew install krypton`. Backend self-hosts; KRYPTON_ROOT-based install; UTF-8 fromCharCode fix. |
 | Linux x86_64 | 2.1.1 (source) | Build from `compile.k` via the existing 2.0.0 elf seed. Same source as macOS. |
-| **VS Code / Antigravity ext.** | **2.2.0** | `extensions/krypton-language-2.2.0.vsix`. Adds `.ks` (KryptScript) alongside `.k`, bundles the `kls` language server for Windows + macOS, ships `KryptScript` as a language-picker alias. |
+| **VS Code / Antigravity ext.** | **2.3.0** | `extensions/krypton-language-2.3.0.vsix`. Adds `.ks` (KryptScript) alongside `.k`, bundles the `kls` language server for Windows + macOS, ships `KryptScript` as a language-picker alias. |
 
 **Bundled CLIs (one package, four commands):**
 
