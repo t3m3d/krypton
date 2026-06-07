@@ -2043,7 +2043,7 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_FDREAD"       { emit 34 }  // pop maxlen,fd; alloc(21) buf; read(3); NUL-term; return buf
     if opTok == "BUILTIN_PTYMASTER"    { emit 20 }  // open(ptmx); TIOCPTYGRANT; TIOCPTYUNLK; ret master
     if opTok == "BUILTIN_PTYSLAVENAME" { emit 32 }  // alloc(21) 128B; ioctl TIOCPTYGNAME; ret slave path
-    if opTok == "BUILTIN_PTYFORKEXEC"  { emit 66 }  // fork; child setsid+open+TIOCSCTTY+dup2x3+execve; parent ret pid
+    if opTok == "BUILTIN_PTYFORKEXEC"  { emit 68 }  // fork; child setsid+open+TIOCSCTTY+dup2x3+execve(inherited envp); parent ret pid
     if opTok == "POP"              { emit 1 }
     emit 0
 }
@@ -5058,7 +5058,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_svc(0x80))          // 3
             s = sbAppend(s, arm64_cbnz(1, 3))         // 4: x1!=0 -> CHILD @7
             s = sbAppend(s, arm64_push_x0())          // 5: PARENT: return child pid
-            s = sbAppend(s, arm64_b(60))              // 6: -> END @66
+            s = sbAppend(s, arm64_b(62))              // 6: -> END @68
             // CHILD @7:
             s = sbAppend(s, arm64_movz_x_imm(16, 147))// 7: SYS_setsid
             s = sbAppend(s, arm64_svc(0x80))          // 8
@@ -5093,20 +5093,25 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             instrIdx = instrIdx + 34
             s = sbAppend(s, emitAllocVar(instrIdx, textVaddr, textOff))  // 34-54: x0 = argv (21)
             instrIdx = instrIdx + 21
+            // envp = inherited envp saved at bump_cell+80 (so the shell gets $PATH
+            // etc). adrp is at index 60 → imm21 uses instrIdx+5 (instrIdx is base+55).
+            let imm21pe = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + (instrIdx + 5) * 4) / 4096
             s = sbAppend(s, arm64_str_imm(21, 0, 0))  // 55: argv[0] = shellPath
             s = sbAppend(s, arm64_movz_x_imm(9, 0))   // 56: x9 = 0
             s = sbAppend(s, arm64_str_imm(9, 0, 1))   // 57: argv[1] = NULL (offset 8)
             s = sbAppend(s, arm64_mov_xx(1, 0))       // 58: x1 = argv
             s = sbAppend(s, arm64_mov_xx(0, 21))      // 59: x0 = shellPath
-            s = sbAppend(s, arm64_movz_x_imm(2, 0))   // 60: envp = NULL
-            s = sbAppend(s, arm64_movz_x_imm(16, 59)) // 61: SYS_execve
-            s = sbAppend(s, arm64_svc(0x80))          // 62
+            s = sbAppend(s, arm64_adrp(9, imm21pe))   // 60: x9 = bump_cell page
+            s = sbAppend(s, arm64_add_imm(9, 9, 0))   // 61
+            s = sbAppend(s, arm64_ldr_imm(2, 9, 10))  // 62: x2 = envp (cell+80)
+            s = sbAppend(s, arm64_movz_x_imm(16, 59)) // 63: SYS_execve
+            s = sbAppend(s, arm64_svc(0x80))          // 64
             // execve only returns on failure -> exit(1)
-            s = sbAppend(s, arm64_movz_x_imm(0, 1))   // 63
-            s = sbAppend(s, arm64_movz_x_imm(16, 1))  // 64: SYS_exit
-            s = sbAppend(s, arm64_svc(0x80))          // 65
-            instrIdx = instrIdx + 11
-            // END @66
+            s = sbAppend(s, arm64_movz_x_imm(0, 1))   // 65
+            s = sbAppend(s, arm64_movz_x_imm(16, 1))  // 66: SYS_exit
+            s = sbAppend(s, arm64_svc(0x80))          // 67
+            instrIdx = instrIdx + 13
+            // END @68
         } else if opTok == "POP" {
             s = sbAppend(s, arm64_pop_x0())
             instrIdx = instrIdx + 1
