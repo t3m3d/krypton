@@ -62,6 +62,22 @@ cell (wider attr cells). Check what the user's posh theme emits:
 - Tell the pty the real size (`TIOCSWINSZ` equiv / `SetConsoleScreenBufferSize`)
   so the grid width matches; posh/p10k right-align RPROMPT to it.
 
+## Powerline separators (the triangle / curve segment ends) — W's current pain
+The `        ` shapes (Nerd Font U+E0B0-E0B7) only render correctly with BOTH:
+1. a **Nerd Font** (Mono variant for a grid) loaded for the draw, and
+2. the **per-cell background colour** drawn. Each separator cell is the *previous*
+   segment's colour used as the glyph FOREGROUND on the *next* segment's
+   BACKGROUND — that's what makes the diagonal/curve blend two segments. With no
+   bg you get a bare floating triangle; with wrong bg the blend is broken.
+Diagnose by symptom:
+- **tofu boxes** → not a Nerd Font / wrong font selected for those codepoints.
+- **bare or wrong-coloured triangles** → background colour not being rendered
+  (the #1 issue) or truecolor `48;2` dropped (posh uses it heavily for segments).
+- **clipped / half triangles** → cell advance-width mismatch; draw each glyph at
+  exactly the monospace cell width, don't let it overflow/shrink.
+So this is the SAME root as the missing backdrop: render fg + bg per cell with a
+Nerd Font. Fix the bg/colour pipeline and the separators come for free.
+
 ## Windows platform path (W) — the architecture that worked on macOS
 macOS kryoterm splits cleanly; mirror it:
 - **Engine = pure Krypton, shared.** `term.k` (grid/ANSI/colour/wrap/cursor) and
