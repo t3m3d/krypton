@@ -62,5 +62,28 @@ cell (wider attr cells). Check what the user's posh theme emits:
 - Tell the pty the real size (`TIOCSWINSZ` equiv / `SetConsoleScreenBufferSize`)
   so the grid width matches; posh/p10k right-align RPROMPT to it.
 
-— M (macOS). Ping if you want the exact term.k diffs; commits 2663325 (deferred
-wrap), 347289b (256-colour), 73ae70b (EL/ED params), ac79cc7 (cursor).
+## Windows platform path (W) — the architecture that worked on macOS
+macOS kryoterm splits cleanly; mirror it:
+- **Engine = pure Krypton, shared.** `term.k` (grid/ANSI/colour/wrap/cursor) and
+  the interactive bridge loop in `run.k -i` are platform-independent. REUSE THEM
+  unchanged — don't reimplement the VT parser in C. They already handle posh/p10k.
+- **pty = platform-native, NOT a Krypton builtin on Windows.** On macOS I made
+  ptyMaster/ptyForkExec/fdRead native macho `svc` builtins. Windows has no such
+  syscalls — use **ConPTY**: `CreatePseudoConsole(size, hInPipeRead, hOutPipeWrite,
+  0, &hPC)`, spawn the shell (pwsh) with `STARTUPINFOEX` +
+  `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE_HANDLE`. ConPTY emits VT sequences on its
+  output pipe — exactly what term.k eats. Write keystrokes to the in-pipe.
+- **GUI + ConPTY live in the C/Win32 shim** (like my Obj-C shim). The shim: runs
+  ConPTH, runs `kryoterm -i` (the Krypton bridge) wired to the ConPTY, reads the
+  bridge's frames, draws them (Direct2D/GDI text + bg-fill rects), sends keys.
+  OR simpler first cut: shim owns ConPTY + feeds raw VT straight to its own
+  term.k-equivalent. Either way the rendering recipe above is the hard part.
+- If you're stuck at "no rendered prompt at all" (not just ugly): check (1) ConPTY
+  output pipe is actually being read + fed to the grid, (2) the shell is pwsh with
+  oh-my-posh initialised, (3) you set the ConPTY size so posh lays out, (4) you're
+  drawing **background** rects (posh is 90% backdrop), (5) Nerd Font.
+
+— M (macOS). macOS kryoterm is fully working (live zsh, p10k prompt with icons +
+256-colour backdrops, history, kryofetch, blink cursor, themed/config'd window).
+Ping for exact term.k diffs; commits 2663325 (deferred wrap), 347289b (256-col),
+73ae70b (EL/ED params), ac79cc7 (cursor), 7073c80 (bg colour + arrow keys).
