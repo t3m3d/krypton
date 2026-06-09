@@ -281,6 +281,7 @@ func cfCount(cname, argc) {
     if cname == "objc_msgSend_rect" { emit 15 }
     if cname == "objc_msgSend_frame" { emit 12 }   // (obj,sel,x,y,w,h): rect-only NSRect arg
     if cname == "objc_msgSend_d1" { emit 6 }        // (obj,sel,n): one CGFloat arg -> d0
+    if cname == "objc_msgSend_rectp" { emit 13 }    // (obj,sel,x,y,w,h,p): NSRect d0..d3 + ptr x2
     emit argc + 2
 }
 // 0-based index of foreign symbol "_"+name in g_FORSYMS, or -1 if not foreign.
@@ -4992,6 +4993,22 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
                 s = sbAppend(s, arm64_pop(0))  instrIdx = instrIdx + 1   // obj
                 let dti = textSz / 4 + foreignIdx("objc_msgSend_d1") * 3
                 s = sbAppend(s, arm64_bl(dti - instrIdx))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_push(0))  instrIdx = instrIdx + 1
+            } else if cname == "objc_msgSend_rectp" {
+                // (obj,sel,x,y,w,h,p): NSRect{x,y,w,h} -> d0..d3, ptr -> x2 (drawInRect:withAttributes:)
+                s = sbAppend(s, arm64_pop(2))  instrIdx = instrIdx + 1   // p
+                s = sbAppend(s, arm64_pop(9))  instrIdx = instrIdx + 1   // h
+                s = sbAppend(s, arm64_scvtf_d_x(3, 9))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_pop(9))  instrIdx = instrIdx + 1   // w
+                s = sbAppend(s, arm64_scvtf_d_x(2, 9))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_pop(9))  instrIdx = instrIdx + 1   // y
+                s = sbAppend(s, arm64_scvtf_d_x(1, 9))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_pop(9))  instrIdx = instrIdx + 1   // x
+                s = sbAppend(s, arm64_scvtf_d_x(0, 9))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_pop(1))  instrIdx = instrIdx + 1   // sel
+                s = sbAppend(s, arm64_pop(0))  instrIdx = instrIdx + 1   // obj
+                let pti = textSz / 4 + foreignIdx("objc_msgSend_rectp") * 3
+                s = sbAppend(s, arm64_bl(pti - instrIdx))  instrIdx = instrIdx + 1
                 s = sbAppend(s, arm64_push(0))  instrIdx = instrIdx + 1
             } else {
             // Pop args in reverse: x(argc-1) first (TOS), down to x0 (deepest)
