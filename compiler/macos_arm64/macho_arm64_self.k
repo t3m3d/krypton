@@ -241,14 +241,32 @@ func strtabUnpadded() {
     emit n
 }
 
-// Backend-side symbol→dylib table (step 2a; moves to the jxt `lib` directive in 2b).
+// Backend-side symbol→dylib table (step 2a; moves to the jxt `lib` directive later).
+func _isMsgSend(name) {
+    if len(name) >= 12 { if substring(name, 0, 12) == "objc_msgSend" { emit 1 } }
+    emit 0
+}
 func foreignLibFor(name) {
     if name == "getpid"          { emit "/usr/lib/libSystem.B.dylib" }
+    if _isMsgSend(name) == 1     { emit "/usr/lib/libobjc.A.dylib" }
     if name == "objc_getClass"   { emit "/usr/lib/libobjc.A.dylib" }
+    if name == "objc_lookUpClass"{ emit "/usr/lib/libobjc.A.dylib" }
     if name == "class_getName"   { emit "/usr/lib/libobjc.A.dylib" }
     if name == "sel_registerName"{ emit "/usr/lib/libobjc.A.dylib" }
-    if name == "objc_msgSend"    { emit "/usr/lib/libobjc.A.dylib" }
+    if name == "objc_retain"     { emit "/usr/lib/libobjc.A.dylib" }
+    if name == "objc_release"    { emit "/usr/lib/libobjc.A.dylib" }
+    if name == "objc_setAssociatedObject" { emit "/usr/lib/libobjc.A.dylib" }
+    if name == "objc_getAssociatedObject" { emit "/usr/lib/libobjc.A.dylib" }
+    if name == "objc_allocateClassPair"   { emit "/usr/lib/libobjc.A.dylib" }
+    if name == "objc_registerClassPair"   { emit "/usr/lib/libobjc.A.dylib" }
+    if name == "class_addMethod"          { emit "/usr/lib/libobjc.A.dylib" }
     emit ""
+}
+// Krypton call name → the C import symbol. The objc_msgSend_N/fpret wrappers all
+// collapse to the single libobjc symbol _objc_msgSend (arm64 has no separate fpret).
+func foreignSymFor(name) {
+    if _isMsgSend(name) == 1 { emit "_objc_msgSend" }
+    emit "_" + name
 }
 func _forHas(sym) {
     let i = 0  let n = lineCount(g_FORSYMS)
@@ -257,7 +275,7 @@ func _forHas(sym) {
 }
 // 0-based index of foreign symbol "_"+name in g_FORSYMS, or -1 if not foreign.
 func foreignIdx(name) {
-    let sym = "_" + name  let i = 0
+    let sym = foreignSymFor(name)  let i = 0
     while i < g_NFOREIGN { if getLine(g_FORSYMS, i) == sym { emit i }  i += 1 }
     emit 0 - 1
 }
@@ -282,7 +300,7 @@ func detectForeign(parsed) {
             let nm = substring(rest, 0, sp)
             let lib = foreignLibFor(nm)
             if len(lib) > 0 {
-                let sym = "_" + nm
+                let sym = foreignSymFor(nm)
                 if _forHas(sym) == 0 {
                     let ord = _dylibOrd(lib)
                     if len(g_FORSYMS) > 0 { g_FORSYMS = g_FORSYMS + "\n"  g_FORLIB = g_FORLIB + "\n" }
@@ -293,6 +311,14 @@ func detectForeign(parsed) {
             }
         }
         i += 1
+    }
+    // objc classes (NSString, NSWindow, ...) live in Foundation/AppKit, not libobjc.
+    // Force-load them (no imported symbol) so objc_getClass finds them at runtime.
+    let usesObjc = 0  let d = 0
+    while d < lineCount(g_DYLIBS) { if getLine(g_DYLIBS, d) == "/usr/lib/libobjc.A.dylib" { usesObjc = 1 }  d += 1 }
+    if usesObjc == 1 {
+        _dylibOrd("/System/Library/Frameworks/Foundation.framework/Foundation")
+        _dylibOrd("/System/Library/Frameworks/AppKit.framework/AppKit")
     }
     emit 0
 }
