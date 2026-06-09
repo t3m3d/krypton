@@ -69,10 +69,10 @@ func reHL(self, cmd, notif) {
 
 func onRun(self, cmd, sender) {
   let app = msg(cls("NSApplication"), "sharedApplication")
-  let cp = cocoaGetAssocKey(app, "kryide.curpath")
+  let cp = cocoaGetAssocKey(app, "cortex.curpath")
   if cp == 0 { cocoaAlert("Run", "Open a .k file first.")  emit "1" }
   let path = msg(cp, "UTF8String")
-  writeFile(path, cocoaTVGetString(cocoaGetAssocKey(app, "kryide.editor")))
+  writeFile(path, cocoaTVGetString(cocoaGetAssocKey(app, "cortex.editor")))
   let out = exec("cd " + arg(0) + " && kcc --native " + path + " -o /tmp/kryrun 2>&1 && /tmp/kryrun 2>&1")
   cocoaAlert("Run output", out)
 }
@@ -83,19 +83,19 @@ func onOpen(self, cmd, sender) {
     let url = msg_1(msg(panel, "URLs"), "objectAtIndex:", 0)
     let p = msg(msg(url, "path"), "UTF8String")
     let app = msg(cls("NSApplication"), "sharedApplication")
-    cocoaTVSetString(cocoaGetAssocKey(app, "kryide.editor"), readFile(p))
-    cocoaSetAssocKey(app, "kryide.curpath", nsString(p))
-    msg_1(cocoaGetAssocKey(app, "kryide.win"), "setTitle:", nsString("kryide — " + p))
+    cocoaTVSetString(cocoaGetAssocKey(app, "cortex.editor"), readFile(p))
+    cocoaSetAssocKey(app, "cortex.curpath", nsString(p))
+    msg_1(cocoaGetAssocKey(app, "cortex.win"), "setTitle:", nsString("cortex — " + p))
   }
 }
 
 func onSave(self, cmd, sender) {
   let app = msg(cls("NSApplication"), "sharedApplication")
-  let cp = cocoaGetAssocKey(app, "kryide.curpath")
-  if cp == 0 { kp("kryide: no file open")  emit "1" }
+  let cp = cocoaGetAssocKey(app, "cortex.curpath")
+  if cp == 0 { kp("cortex: no file open")  emit "1" }
   let path = msg(cp, "UTF8String")
-  writeFile(path, cocoaTVGetString(cocoaGetAssocKey(app, "kryide.editor")))
-  kp("kryide: saved " + path)
+  writeFile(path, cocoaTVGetString(cocoaGetAssocKey(app, "cortex.editor")))
+  kp("cortex: saved " + path)
 }
 
 func dsRows(self, cmd, tv) { emit cocoaArrayCount(cocoaGetAssocKey(self, "files")) }
@@ -109,8 +109,8 @@ func dsSelect(self, cmd, notif) {
   let path = dir + "/" + fname
   cocoaTVSetString(cocoaGetAssocKey(self, "editor"), readFile(path))
   let a = msg(cls("NSApplication"), "sharedApplication")
-  cocoaSetAssocKey(a, "kryide.curpath", nsString(path))
-  msg_1(cocoaGetAssocKey(a, "kryide.win"), "setTitle:", nsString("kryide — " + path))
+  cocoaSetAssocKey(a, "cortex.curpath", nsString(path))
+  msg_1(cocoaGetAssocKey(a, "cortex.win"), "setTitle:", nsString("cortex — " + path))
 }
 
 just run {
@@ -118,7 +118,7 @@ just run {
   let listing = exec("ls -1 " + dir)
   let app = cocoaInit()
   let bar = cocoaMenuBar(app)
-  let win = cocoaWindow(app, "kryide — pure-Krypton IDE (live highlight) on objk", 880, 560)
+  let win = cocoaWindow(app, "cortex — pure-Krypton IDE (live highlight) on objk", 880, 560)
   let table = cocoaTable(win, 0, 0, 240, 560)
   let editor = cocoaScrollText(win, 240, 0, 640, 560)
   cocoaSetFont(editor, cocoaMonoFont(13))
@@ -143,9 +143,9 @@ just run {
   cocoaSetDataSource(table, ds)
   msg_1(table, "setDelegate:", ds)
   cocoaTVSetStorageDelegate(editor, ds)
-  cocoaTVSetString(editor, "// kryide — click a file on the left; live syntax highlighting\nfunc demo() {\n    let x = 1\n    return x\n}\n")
-  cocoaSetAssocKey(app, "kryide.editor", editor)
-  cocoaSetAssocKey(app, "kryide.win", win)
+  cocoaTVSetString(editor, "// cortex — click a file on the left; live syntax highlighting\nfunc demo() {\n    let x = 1\n    return x\n}\n")
+  cocoaSetAssocKey(app, "cortex.editor", editor)
+  cocoaSetAssocKey(app, "cortex.win", win)
   let fileMenu = cocoaMenuAdd(bar, "File")
   cocoaMenuItem(fileMenu, "Open", "o", funcptr(onOpen))
   cocoaMenuItem(fileMenu, "Run", "r", funcptr(onRun))
