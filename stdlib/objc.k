@@ -86,16 +86,17 @@ func msg_frame(obj, selName, x, y, w, h) {
 
 // ── Convenience ────────────────────────────────────────────────────────
 
-// [[Class alloc] init] in one call.
+// [[Class alloc] init] in one call. (Selectors inlined — head consts don't
+// survive the native import boundary.)
 func allocInit(className) {
-    let raw = msg(cls(className), sel_alloc)
-    emit msg(raw, sel_init)
+    let raw = msg(cls(className), "alloc")
+    emit msg(raw, "init")
 }
 
 // Convert a Krypton string to an NSString. Use any time a Cocoa setter
 // wants an `NSString *` argument: setTitle:, setStringValue:, etc.
 func nsString(s) {
-    emit msg_1(cls(NSString_cls), sel_stringWithUTF8String, s)
+    emit msg_1(cls("NSString"), "stringWithUTF8String:", s)
 }
 
 // ── Autorelease pool — caller-held handle ──────────────────────────────
