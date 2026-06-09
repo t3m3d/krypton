@@ -126,6 +126,33 @@ func cocoaGetAssoc(control) {
     emit objc_getAssociatedObject(control, sel("kr.assoc"))
 }
 
+// ── Scrollable text view (the editor core kcode needs) ─────────────────
+// NSTextView inside an NSScrollView. Returns the NSTextView handle; the
+// scroll view is added to the window's content view. All plain msg/msg_frame
+// — no new backend primitives needed.
+func cocoaScrollText(win, x, y, w, h) {
+    let sv = msg_frame(msg(cls("NSScrollView"), "alloc"), "initWithFrame:", x, y, w, h)
+    msg_1(sv, "setHasVerticalScroller:", 1)
+    msg_1(sv, "setBorderType:", 2)                 // NSBezelBorder
+    let tv = msg_frame(msg(cls("NSTextView"), "alloc"), "initWithFrame:", 0, 0, w, h)
+    msg_1(tv, "setRichText:", 0)
+    msg_1(sv, "setDocumentView:", tv)
+    _addToContentView(win, sv)
+    emit tv
+}
+func cocoaTVSetString(tv, s) { msg_1(tv, "setString:", nsString(s))  emit "1" }
+func cocoaTVGetString(tv)    { emit msg(msg(tv, "string"), "UTF8String") }
+
+// ── Colors (named — Krypton has no float literals for colorWithRed:…) ───
+func cocoaColorNamed(name)        { emit msg(cls("NSColor"), name) }
+func cocoaSetBg(view, color)      { msg_1(view, "setBackgroundColor:", color)  emit "1" }
+func cocoaSetTextColor(tv, color) { msg_1(tv, "setTextColor:", color)          emit "1" }
+
+// ── Fonts ──────────────────────────────────────────────────────────────
+// [NSFont userFixedPitchFontOfSize:n] — monospaced (size in pt, int is fine).
+func cocoaMonoFont(size)     { emit msg_d1(cls("NSFont"), "userFixedPitchFontOfSize:", size) }
+func cocoaSetFont(view, font){ msg_1(view, "setFont:", font)  emit "1" }
+
 // ── Internal helpers ───────────────────────────────────────────────────
 
 func _addToContentView(win, view) {
