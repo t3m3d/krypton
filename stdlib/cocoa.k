@@ -149,12 +149,20 @@ func cocoaTVGetString(tv)    { emit msg(msg(tv, "string"), "UTF8String") }
 // runtime string values ("NSColor" = foreground, "NSFont" = font).
 func cocoaTVColorRange(tv, color, loc, len) {
     let ts = msg(tv, "textStorage")
-    msg_4(ts, "addAttribute:value:range:", nsString("NSColor"), color, loc, len)
+    let total = msg(ts, "length")
+    if loc >= total { emit "1" }
+    let l = len
+    if loc + l > total { l = total - loc }
+    msg_4(ts, "addAttribute:value:range:", nsString("NSColor"), color, loc, l)
     emit "1"
 }
 func cocoaTVFontRange(tv, font, loc, len) {
     let ts = msg(tv, "textStorage")
-    msg_4(ts, "addAttribute:value:range:", nsString("NSFont"), font, loc, len)
+    let total = msg(ts, "length")
+    if loc >= total { emit "1" }
+    let l = len
+    if loc + l > total { l = total - loc }
+    msg_4(ts, "addAttribute:value:range:", nsString("NSFont"), font, loc, l)
     emit "1"
 }
 // Length of the text view's storage (for full-range ops).
