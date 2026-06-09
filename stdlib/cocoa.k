@@ -171,6 +171,13 @@ func cocoaScrollText(win, x, y, w, h) {
 }
 func cocoaTVSetString(tv, s) { msg_1(tv, "setString:", nsString(s))  emit "1" }
 func cocoaTVGetString(tv)    { emit msg(msg(tv, "string"), "UTF8String") }
+// Append without rebuilding the whole document (for streaming output, e.g. a pty).
+func cocoaTVAppend(tv, s) {
+    let astr = msg_1(msg(cls("NSAttributedString"), "alloc"), "initWithString:", nsString(s))
+    msg_1(msg(tv, "textStorage"), "appendAttributedString:", astr)
+    msg_1(tv, "scrollToEndOfDocument:", 0)
+    emit "1"
+}
 
 // Syntax highlighting: colour a [loc, loc+len) range of the text view's storage.
 // NSRange is a 16-byte struct (location, length) → passed as two GP args, so
@@ -265,6 +272,36 @@ func cocoaCustomView(win, c, x, y, w, h) {
     emit v
 }
 func cocoaNeedsDisplay(v)           { msg_1(v, "setNeedsDisplay:", 1)  emit "1" }
+func cocoaMakeFirstResponder(win, v){ msg_1(win, "makeFirstResponder:", v)  emit "1" }
+
+// ── Timer (repeating) — drives async work (e.g. polling a pty) ─────────
+// Fires `actionSel` on `target` every `ms` milliseconds (ms/1000 -> TimeInterval).
+func cocoaTimer(target, actionSel, ms) {
+    emit msg_timer(cls("NSTimer"), "scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:",
+        ms, target, actionSel, 0, 1)
+}
+
+// ── Manual event loop ──────────────────────────────────────────────────
+// Use instead of cocoaRun when you must interleave native work (e.g. reading a
+// pty) with event handling in the MAIN flow — doing such work inside a timer/
+// action callback can fault. cocoaFinishLaunching once, then loop:
+//   cocoaPumpEvents(app)  // drain pending events
+//   <your work>
+//   sleepUs(0, 8000)
+func cocoaFinishLaunching(app) { msg(app, "finishLaunching")  msg_1(app, "activateIgnoringOtherApps:", 1)  emit "1" }
+// Dispatch one pending event (non-blocking); returns 1 if one was handled, else 0.
+func cocoaPumpEvent(app) {
+    let ev = msg_4(app, "nextEventMatchingMask:untilDate:inMode:dequeue:",
+        0 - 1, 0, nsString("kCFRunLoopDefaultMode"), 1)
+    if ev == 0 { emit 0 }
+    msg_1(app, "sendEvent:", ev)
+    emit 1
+}
+// Drain all currently-pending events.
+func cocoaPumpEvents(app) {
+    while cocoaPumpEvent(app) == 1 { }
+    emit "1"
+}
 func cocoaClassAddMethod(c, selName, fnPtr, types) { class_addMethod(c, sel(selName), fnPtr, types)  emit "1" }
 func cocoaClassRegister(c)          { objc_registerClassPair(c)  emit "1" }
 func cocoaNew(c)                    { emit msg(msg(c, "alloc"), "init") }

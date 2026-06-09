@@ -291,6 +291,8 @@ func _forHas(sym) {
 }
 // arm64 SCVTF Dd, Xn — signed 64-bit int -> double (objk NSRect float args).
 func arm64_scvtf_d_x(dd, xn) { emit hexDword((0x9e62 * 0x10000 + 0x0) + xn * 32 + dd) }
+// FDIV Dd, Dn, Dm (scalar double): 0x1E601800 | Dm<<16 | Dn<<5 | Dd
+func arm64_fdiv_d(dd, dn, dm) { emit hexDword(0x1E601800 + dm * 0x10000 + dn * 32 + dd) }
 // instruction count for a CALL_FUNC (must match the byte emitter). The NSRect
 // window-init special form is 15 instrs (3 GP pops + 4×(pop+scvtf) + 2 GP pops + bl + push).
 func cfCount(cname, argc) {
@@ -298,6 +300,7 @@ func cfCount(cname, argc) {
     if cname == "objc_msgSend_frame" { emit 12 }   // (obj,sel,x,y,w,h): rect-only NSRect arg
     if cname == "objc_msgSend_d1" { emit 6 }        // (obj,sel,n): one CGFloat arg -> d0
     if cname == "objc_msgSend_rectp" { emit 13 }    // (obj,sel,x,y,w,h,p): NSRect d0..d3 + ptr x2
+    if cname == "objc_msgSend_timer" { emit 13 }    // (self,sel,ms,target,actsel,info,rep): ms/1000->d0 + x2..x5
     emit argc + 2
 }
 // 0-based index of foreign symbol "_"+name in g_FORSYMS, or -1 if not foreign.
@@ -5025,6 +5028,23 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
                 s = sbAppend(s, arm64_pop(0))  instrIdx = instrIdx + 1   // obj
                 let pti = textSz / 4 + foreignIdx("objc_msgSend_rectp") * 3
                 s = sbAppend(s, arm64_bl(pti - instrIdx))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_push(0))  instrIdx = instrIdx + 1
+            } else if cname == "objc_msgSend_timer" {
+                // (self,sel,ms,target,actsel,info,rep): ms/1000.0 -> d0 (TimeInterval),
+                // target x2, actsel x3, info x4, rep x5
+                s = sbAppend(s, arm64_pop(5))  instrIdx = instrIdx + 1   // repeats
+                s = sbAppend(s, arm64_pop(4))  instrIdx = instrIdx + 1   // userInfo
+                s = sbAppend(s, arm64_pop(3))  instrIdx = instrIdx + 1   // actsel
+                s = sbAppend(s, arm64_pop(2))  instrIdx = instrIdx + 1   // target
+                s = sbAppend(s, arm64_pop(9))  instrIdx = instrIdx + 1   // ms
+                s = sbAppend(s, arm64_scvtf_d_x(0, 9))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_movz_x_imm(10, 1000))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_scvtf_d_x(1, 10))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_fdiv_d(0, 0, 1))  instrIdx = instrIdx + 1   // d0 = ms/1000.0
+                s = sbAppend(s, arm64_pop(1))  instrIdx = instrIdx + 1   // sel
+                s = sbAppend(s, arm64_pop(0))  instrIdx = instrIdx + 1   // self
+                let tti = textSz / 4 + foreignIdx("objc_msgSend_timer") * 3
+                s = sbAppend(s, arm64_bl(tti - instrIdx))  instrIdx = instrIdx + 1
                 s = sbAppend(s, arm64_push(0))  instrIdx = instrIdx + 1
             } else {
             // Pop args in reverse: x(argc-1) first (TOS), down to x0 (deepest)
