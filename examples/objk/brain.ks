@@ -156,6 +156,17 @@ func onSave(self, cmd, sender) {
   kp("brain: saved " + path)
 }
 
+// ── integrated console (run shell commands, see output) ────────────────
+func onCmd(self, cmd, sender) {
+  let app = appH()
+  let line = msg(msg(sender, "stringValue"), "UTF8String")
+  let console = cocoaGetAssocKey(app, "brain.console")
+  let out = exec("cd " + arg(0) + " && " + line + " 2>&1")
+  cocoaTVSetString(console, cocoaTVGetString(console) + "$ " + line + "\n" + out)
+  msg_1(sender, "setStringValue:", nsString(""))
+  msg_1(console, "scrollToEndOfDocument:", 0)
+}
+
 // ── file tree ──────────────────────────────────────────────────────────
 func dsRows(self, cmd, tv) { emit cocoaArrayCount(cocoaGetAssocKey(self, "files")) }
 func dsValue(self, cmd, tv, col, row) { emit cocoaArrayGet(cocoaGetAssocKey(self, "files"), row) }
@@ -172,9 +183,12 @@ just run {
   let app = cocoaInit()
   let bar = cocoaMenuBar(app)
   let win = cocoaWindow(app, "brain — pure-Krypton IDE on objk", 900, 600)
-  let table = cocoaTable(win, 0, 0, 240, 600)
-  let tabseg = cocoaSegmented(win, 240, 568, 660, 26)
-  let editor = cocoaScrollText(win, 240, 0, 660, 564)
+  let table = cocoaTable(win, 0, 170, 240, 430)
+  let tabseg = cocoaSegmented(win, 240, 574, 660, 24)
+  let editor = cocoaScrollText(win, 240, 170, 660, 400)
+  let console = cocoaScrollText(win, 0, 32, 900, 132)
+  msg_1(console, "setEditable:", 0)
+  let cmdfield = cocoaTextField(win, 0, 4, 900, 24)
   cocoaSetFont(editor, cocoaMonoFont(13))
   msg_1(editor, "setAllowsUndo:", 1)
   msg_1(editor, "setUsesFindBar:", 1)
@@ -203,6 +217,10 @@ just run {
   cocoaSetAssocKey(app, "brain.tabpaths", cocoaArray())
   cocoaSetAssocKey(app, "brain.tabtexts", cocoaArray())
   cocoaSegOnChange(tabseg, funcptr(onTabChange))
+  cocoaSetAssocKey(app, "brain.console", console)
+  cocoaTVSetString(console, "stem — integrated terminal. type a command, press Enter.\n")
+  cocoaSetFont(console, cocoaMonoFont(12))
+  cocoaOnClick(cmdfield, funcptr(onCmd))
 
   let fileMenu = cocoaMenuAdd(bar, "File")
   cocoaMenuItem(fileMenu, "Open", "o", funcptr(onOpen))
