@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Build a pure-Krypton objk GUI app (.app bundle). No Obj-C source.
-#   ./scripts/build-objk-app.sh examples/objk/kryide.ks kryide
+#   ./scripts/build-objk-app.sh examples/objk/brain.ks kryide
 set -e
 cd "$(dirname "$0")/.."
-SRC="${1:-examples/objk/kryide.ks}"
-NAME="${2:-$(basename "$SRC" .ks)}"
+SRC="${1:-examples/objk/brain.ks}"
+NAME="${2:-brain}"
 ROOT="$PWD"
 FE="$ROOT/compiler/macos_arm64/kcc-arm64"
 HOST="$ROOT/compiler/macos_arm64/macho_host"
