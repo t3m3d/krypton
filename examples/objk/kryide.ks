@@ -34,6 +34,20 @@ func hlComments(ts, src, color) {
   }
   emit "1"
 }
+func hlStrings(ts, src, color) {
+  let n = len(src)  let pos = 0
+  while pos < n {
+    let i = indexOf(substring(src, pos, n), "\"")
+    if i < 0 { emit "1" }
+    let start = pos + i
+    let j = indexOf(substring(src, start + 1, n), "\"")
+    if j < 0 { emit "1" }
+    let end = start + 1 + j + 1
+    cocoaTSColorRange(ts, color, start, end - start)
+    pos = end
+  }
+  emit "1"
+}
 func highlightTS(ts, src) {
   let kw = cocoaColorNamed("purpleColor")
   hlWord(ts, src, "func", kw)  hlWord(ts, src, "let", kw)  hlWord(ts, src, "if", kw)
@@ -41,6 +55,7 @@ func highlightTS(ts, src) {
   hlWord(ts, src, "emit", kw)  hlWord(ts, src, "import", kw) hlWord(ts, src, "module", kw)
   hlWord(ts, src, "const", kw) hlWord(ts, src, "just", kw)   hlWord(ts, src, "run", kw)
   hlWord(ts, src, "kp", cocoaColorNamed("blueColor"))
+  hlStrings(ts, src, cocoaColorNamed("greenColor"))
   hlComments(ts, src, cocoaColorNamed("grayColor"))
   emit "1"
 }
