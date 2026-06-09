@@ -356,17 +356,15 @@ func siteNav(active) {
 }
 
 // Sponsor slot — leaderboard-sized clickable area above the footer.
-// Currently shows a styled text placeholder ("Sponsor: The People Wire →").
-// When an image is dropped at dist/ads/thepeoplewire.png, replace the
-// inner `<div class="sponsor-inner">...</div>` with
-// `<img src="/ads/thepeoplewire.png" alt="The People Wire">`.
+// Image lives at dist/ads/gpdlonly.png; the link is a kry.li short URL
+// so we can read click-through analytics via the kryptlink dashboard.
 func siteSponsorSlot() {
-    emit "<a href=" + DQ() + "https://www.thepeoplewire.com" + DQ() +
+    emit "<a href=" + DQ() + "https://www.kry.li/thepeoplewiread" + DQ() +
          " target=" + DQ() + "_blank" + DQ() +
          " rel=" + DQ() + "noopener noreferrer sponsored" + DQ() +
          " class=" + DQ() + "sponsor-slot" + DQ() + ">" +
-         "<img src=" + DQ() + "/ads/thepeoplewire.png" + DQ() +
-         " alt=" + DQ() + "The People Wire" + DQ() + ">" +
+         "<img src=" + DQ() + "/ads/gpdlonly.png" + DQ() +
+         " alt=" + DQ() + "Google Play Download" + DQ() + ">" +
          "</a>"
 }
 
