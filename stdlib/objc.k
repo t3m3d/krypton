@@ -83,6 +83,10 @@ func msg_rect(obj, selName, x, y, w, h, mask, backing, deferF) {
 func msg_frame(obj, selName, x, y, w, h) {
     emit objc_msgSend_frame(obj, sel(selName), x, y, w, h)
 }
+// one CGFloat arg (e.g. fontOfSize:, setAlphaValue:) — lands in d0.
+func msg_d1(obj, selName, n) {
+    emit objc_msgSend_d1(obj, sel(selName), n)
+}
 
 // ── Convenience ────────────────────────────────────────────────────────
 
