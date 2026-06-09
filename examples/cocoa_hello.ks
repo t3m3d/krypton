@@ -19,19 +19,24 @@
 // Until then this file parses + the symbols resolve at link, but
 // clicks don't fire.
 
+// Krypton imports are NOT transitive — pull in every layer explicitly.
 import "k:cocoa"
+import "k:objc"
+import "head:cocoa"
+import "head:objc"
 
 // Click handler. Receives the sender (the NSButton instance). We use
 // envGet on a shared GC env that the main flow attaches to the button
 // via cocoaSetAssoc — that's the Cocoa-idiomatic equivalent of a
 // closure capture. (envs survive across calls because they're GC heap
 // objects, unlike module-level `let` which doesn't init on import.)
-func onClick(sender) {
-    let env = cocoaGetAssoc(sender)
-    let lbl = envGet(env, "label")
-    let n   = toInt(envGet(env, "count")) + 1
-    envSet(env, "count", "" + n)
-    cocoaSetText(lbl, "Clicked " + n + " time(s)")
+// objk: an action handler IS the Obj-C method IMP, so it takes the full
+// (self, _cmd, sender) the runtime passes. `sender` is the clicked control.
+// The label was attached to the button via cocoaSetAssoc, so the handler
+// pulls it back off `sender` and updates it — pure-Krypton closure capture.
+func onClick(self, cmd, sender) {
+    let lbl = cocoaGetAssoc(sender)
+    cocoaSetText(lbl, "Clicked! (from a pure-Krypton handler)")
 }
 
 just run {
@@ -41,13 +46,8 @@ just run {
     let lbl = cocoaLabel(win, "Click the button.", 40, 110, 320, 24)
     let btn = cocoaButton(win, "Click me", 150, 50, 100, 32)
 
-    // Stash the click handler's state alongside the button. The
-    // trampoline retrieves it via objc_getAssociatedObject when the
-    // button fires its action.
-    let state = envNew()
-    envSet(state, "label", lbl)
-    envSet(state, "count", "0")
-    cocoaSetAssoc(btn, state)
+    // Attach the label to the button so onClick can find it via the sender.
+    cocoaSetAssoc(btn, lbl)
 
     cocoaOnClick(btn, funcptr(onClick))
     cocoaShow(win, app)

@@ -76,10 +76,8 @@ func cocoaWindow(app, title, w, h) {
                NSWindowStyleMaskMiniaturizable +
                NSWindowStyleMaskResizable
     let raw = msg(cls(NSWindow_cls), sel_alloc)
-    let win = msg_4(raw,
-        sel_initWithContentRect_styleMask_backing_defer,
-        _nsRect(0, 0, w, h),
-        mask, NSBackingStoreBuffered, "0")
+    let win = msg_rect(raw, sel_initWithContentRect_styleMask_backing_defer,
+        0, 0, w, h, mask, NSBackingStoreBuffered, 0)
     msg_1(win, sel_setTitle, nsString(title))
     emit win
 }
@@ -96,7 +94,7 @@ func cocoaShow(win, app) {
 
 func cocoaButton(win, label, x, y, w, h) {
     let raw = msg(cls(NSButton_cls), sel_alloc)
-    let btn = msg_1(raw, sel_initWithFrame, _nsRect(x, y, w, h))
+    let btn = msg_frame(raw, sel_initWithFrame, x, y, w, h)
     msg_1(btn, sel_setTitle, nsString(label))
     _addToContentView(win, btn)
     emit btn
@@ -104,7 +102,7 @@ func cocoaButton(win, label, x, y, w, h) {
 
 func cocoaTextField(win, x, y, w, h) {
     let raw = msg(cls(NSTextField_cls), sel_alloc)
-    let tf = msg_1(raw, sel_initWithFrame, _nsRect(x, y, w, h))
+    let tf = msg_frame(raw, sel_initWithFrame, x, y, w, h)
     msg_1(tf, sel_setEditable, "1")
     _addToContentView(win, tf)
     emit tf
@@ -112,7 +110,7 @@ func cocoaTextField(win, x, y, w, h) {
 
 func cocoaLabel(win, text, x, y, w, h) {
     let raw = msg(cls(NSTextField_cls), sel_alloc)
-    let lbl = msg_1(raw, sel_initWithFrame, _nsRect(x, y, w, h))
+    let lbl = msg_frame(raw, sel_initWithFrame, x, y, w, h)
     msg_1(lbl, sel_setStringValue, nsString(text))
     msg_1(lbl, sel_setEditable, "0")
     _addToContentView(win, lbl)
@@ -167,9 +165,24 @@ func cocoaAlert(title, message) {
 //
 // Until that pipeline lands the call is a no-op binding (programs
 // still link and run, clicks have no effect).
+// Implemented via objk (2026-06-09): the handler IS the Obj-C method IMP — objc
+// passes (self, _cmd, sender) in x0/x1/x2, which is exactly Krypton's register
+// calling convention, so a Krypton `func onClick(self, cmd, sender)` works directly.
+// We synthesise one target class per distinct handler (named from the funcptr),
+// add `objk_dispatch:` with the handler as its IMP, and point the control's
+// target/action at it. Handlers take (self, cmd, sender) — use `sender` for the
+// control and cocoaGetAssoc(sender) for attached state.
 func cocoaOnClick(control, fnPtr) {
-    // The wiring lives in the codegen; the user-facing API is fixed
-    // now so callers don't have to revisit their code when it lands.
+    let nm = "KryptonObjkCB" + ("" + fnPtr)
+    let c = objc_lookUpClass(nm)
+    if c == 0 {
+        c = objc_allocateClassPair(cls(NSObject_cls), nm, 0)
+        class_addMethod(c, sel("objk_dispatch:"), fnPtr, "v@:@")
+        objc_registerClassPair(c)
+    }
+    let target = msg(msg(c, sel_alloc), sel_init)
+    msg_1(control, "setTarget:", target)
+    msg_1(control, "setAction:", sel("objk_dispatch:"))
     emit "1"
 }
 
