@@ -135,6 +135,22 @@ func cocoaArray()             { emit msg(cls("NSMutableArray"), "array") }
 func cocoaArrayAdd(arr, obj)  { msg_1(arr, "addObject:", obj)  emit "1" }
 func cocoaArrayCount(arr)     { emit msg(arr, "count") }
 func cocoaArrayGet(arr, i)    { emit msg_1(arr, "objectAtIndex:", i) }
+func cocoaArraySet(arr, i, o) { msg_2(arr, "replaceObjectAtIndex:withObject:", i, o)  emit "1" }
+func cocoaArrayRemove(arr, i) { msg_1(arr, "removeObjectAtIndex:", i)  emit "1" }
+func cocoaNumber(n)           { emit msg_1(cls("NSNumber"), "numberWithInt:", n) }
+func cocoaNumberVal(num)      { emit msg(num, "intValue") }
+
+// ── Segmented control (tab bar) ────────────────────────────────────────
+func cocoaSegmented(win, x, y, w, h) {
+    let seg = msg_frame(msg(cls("NSSegmentedControl"), "alloc"), "initWithFrame:", x, y, w, h)
+    _addToContentView(win, seg)
+    emit seg
+}
+func cocoaSegCount(seg, n)        { msg_1(seg, "setSegmentCount:", n)  emit "1" }
+func cocoaSegLabel(seg, lbl, i)   { msg_2(seg, "setLabel:forSegment:", nsString(lbl), i)  emit "1" }
+func cocoaSegSelect(seg, i)       { msg_1(seg, "setSelectedSegment:", i)  emit "1" }
+func cocoaSegSelected(seg)        { emit msg(seg, "selectedSegment") }
+func cocoaSegOnChange(seg, fnPtr) { cocoaOnClick(seg, fnPtr)  emit "1" }
 
 // ── Scrollable text view (the editor core kcode needs) ─────────────────
 // NSTextView inside an NSScrollView. Returns the NSTextView handle; the
