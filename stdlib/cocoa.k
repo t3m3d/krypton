@@ -125,6 +125,16 @@ func cocoaSetAssoc(control, value) {
 func cocoaGetAssoc(control) {
     emit objc_getAssociatedObject(control, sel("kr.assoc"))
 }
+// Keyed variants (attach several values under named keys; sel(key) is stable).
+func cocoaSetAssocKey(control, key, value) { objc_setAssociatedObject(control, sel(key), value, 1)  emit "1" }
+func cocoaGetAssocKey(control, key)        { emit objc_getAssociatedObject(control, sel(key)) }
+
+// ── NSArray (mutable) — hold model data in Obj-C so stateless Krypton
+//    delegates can read it back (no fork/exec inside AppKit callbacks) ────
+func cocoaArray()             { emit msg(cls("NSMutableArray"), "array") }
+func cocoaArrayAdd(arr, obj)  { msg_1(arr, "addObject:", obj)  emit "1" }
+func cocoaArrayCount(arr)     { emit msg(arr, "count") }
+func cocoaArrayGet(arr, i)    { emit msg_1(arr, "objectAtIndex:", i) }
 
 // ── Scrollable text view (the editor core kcode needs) ─────────────────
 // NSTextView inside an NSScrollView. Returns the NSTextView handle; the
