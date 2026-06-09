@@ -1763,6 +1763,18 @@ func parseFullIR(ir) {
                         // fork; child: setsid+open(slave)+TIOCSCTTY+dup2x3+execve; parent: ret pid.
                         curOps = sbAppend(curOps, "BUILTIN_PTYFORKEXEC\n")
                         nOps += 1
+                    } else if bname == "ptySetSize" {
+                        // ioctl(fd, TIOCSWINSZ, &{rows,cols}) — tell the pty its size.
+                        curOps = sbAppend(curOps, "BUILTIN_PTYSETSIZE\n")
+                        nOps += 1
+                    } else if bname == "procAlive" {
+                        // kill(pid, 0) #37 — 1 if the process exists, else 0.
+                        curOps = sbAppend(curOps, "BUILTIN_PROCALIVE\n")
+                        nOps += 1
+                    } else if bname == "waitChild" {
+                        // wait4(pid, 0, WNOHANG, 0) #7 — reap + report a child's exit.
+                        curOps = sbAppend(curOps, "BUILTIN_WAITCHILD\n")
+                        nOps += 1
                     }
                 } else if op == "POP" {
                     curOps = sbAppend(curOps, "POP\n")
@@ -2054,6 +2066,9 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_PTYMASTER"    { emit 20 }  // open(ptmx); TIOCPTYGRANT; TIOCPTYUNLK; ret master
     if opTok == "BUILTIN_PTYSLAVENAME" { emit 32 }  // alloc(21) 128B; ioctl TIOCPTYGNAME; ret slave path
     if opTok == "BUILTIN_PTYFORKEXEC"  { emit 68 }  // fork; child setsid+open+TIOCSCTTY+dup2x3+execve(inherited envp); parent ret pid
+    if opTok == "BUILTIN_PTYSETSIZE"   { emit 40 }  // pop cols,rows,fd; alloc(21) winsize; ioctl TIOCSWINSZ; push
+    if opTok == "BUILTIN_PROCALIVE"    { emit 8 }   // pop pid; kill(pid,0) #37; carry-clear->1 else 0; push
+    if opTok == "BUILTIN_WAITCHILD"    { emit 7 }   // pop pid; wait4(pid,0,WNOHANG=1,0) #7; push x0 (pid reaped/0 running)
     if opTok == "POP"              { emit 1 }
     emit 0
 }
@@ -5158,6 +5173,59 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_svc(0x80))          // 67
             instrIdx = instrIdx + 13
             // END @68
+        } else if opTok == "BUILTIN_PTYSETSIZE" {
+            // ptySetSize(fd, rows, cols) -> ioctl(fd, TIOCSWINSZ=0x80087467,
+            // &winsize{ws_row=rows, ws_col=cols, 0, 0}) #54. Tells the pty its
+            // size so the shell/programs use the real width. TOS=cols, next=rows,
+            // next=fd. rows/cols stored as the low byte (<=255). 40 instr (alloc 21).
+            s = sbAppend(s, arm64_pop(20))            // 0: x20 = cols
+            s = sbAppend(s, arm64_pop(21))            // 1: x21 = rows
+            s = sbAppend(s, arm64_pop(19))            // 2: x19 = fd
+            s = sbAppend(s, arm64_movz_x_imm(4, 8))   // 3: alloc 8 bytes (winsize)
+            instrIdx = instrIdx + 4
+            s = sbAppend(s, emitAllocVar(instrIdx, textVaddr, textOff))  // 4-24: x0 = ws (21)
+            instrIdx = instrIdx + 21
+            s = sbAppend(s, arm64_strb_imm(21, 0, 0)) // 0: ws_row low = rows
+            s = sbAppend(s, arm64_strb_imm(31, 0, 1)) // 1: ws_row high = 0
+            s = sbAppend(s, arm64_strb_imm(20, 0, 2)) // 2: ws_col low = cols
+            s = sbAppend(s, arm64_strb_imm(31, 0, 3)) // 3: ws_col high = 0
+            s = sbAppend(s, arm64_strb_imm(31, 0, 4)) // 4: ws_xpixel = 0
+            s = sbAppend(s, arm64_strb_imm(31, 0, 5)) // 5
+            s = sbAppend(s, arm64_strb_imm(31, 0, 6)) // 6: ws_ypixel = 0
+            s = sbAppend(s, arm64_strb_imm(31, 0, 7)) // 7
+            s = sbAppend(s, arm64_mov_xx(2, 0))       // 8: x2 = &ws
+            s = sbAppend(s, arm64_mov_xx(0, 19))      // 9: x0 = fd
+            s = sbAppend(s, arm64_movz_x_imm(1, 0x7467))       // 10
+            s = sbAppend(s, arm64_movk_x_imm_lsl16(1, 0x8008)) // 11: x1 = 0x80087467
+            s = sbAppend(s, arm64_movz_x_imm(16, 54)) // 12: SYS_ioctl
+            s = sbAppend(s, arm64_svc(0x80))          // 13
+            s = sbAppend(s, arm64_push_x0())          // 14
+            instrIdx = instrIdx + 15
+        } else if opTok == "BUILTIN_PROCALIVE" {
+            // procAlive(pid) -> kill(pid, 0) #37. sig 0 = probe existence/perm.
+            // macOS sets the carry flag on error (ESRCH if the process is gone),
+            // so carry-clear = alive. Returns 1 alive, 0 dead. TOS=pid. 8 instr.
+            s = sbAppend(s, arm64_pop(0))             // 0: x0 = pid
+            s = sbAppend(s, arm64_movz_x_imm(1, 0))   // 1: x1 = 0 (sig 0)
+            s = sbAppend(s, arm64_movz_x_imm(16, 37)) // 2: SYS_kill
+            s = sbAppend(s, arm64_svc(0x80))          // 3
+            s = sbAppend(s, arm64_movz_x_imm(0, 1))   // 4: assume alive (movz leaves flags)
+            s = sbAppend(s, arm64_b_cond(3, 2))       // 5: b.cc +2 (carry clear=alive -> skip)
+            s = sbAppend(s, arm64_movz_x_imm(0, 0))   // 6: error -> dead
+            s = sbAppend(s, arm64_push_x0())          // 7
+            instrIdx = instrIdx + 8
+        } else if opTok == "BUILTIN_WAITCHILD" {
+            // waitChild(pid) -> wait4(pid, NULL, WNOHANG=1, NULL) #7. Reaps a
+            // child that has exited (clears the zombie) and returns its pid; 0 if
+            // the child is still running; errno if no such child. TOS=pid. 7 instr.
+            s = sbAppend(s, arm64_pop(0))             // 0: x0 = pid
+            s = sbAppend(s, arm64_movz_x_imm(1, 0))   // 1: x1 = NULL (status)
+            s = sbAppend(s, arm64_movz_x_imm(2, 1))   // 2: x2 = WNOHANG
+            s = sbAppend(s, arm64_movz_x_imm(3, 0))   // 3: x3 = NULL (rusage)
+            s = sbAppend(s, arm64_movz_x_imm(16, 7))  // 4: SYS_wait4
+            s = sbAppend(s, arm64_svc(0x80))          // 5
+            s = sbAppend(s, arm64_push_x0())          // 6
+            instrIdx = instrIdx + 7
         } else if opTok == "POP" {
             s = sbAppend(s, arm64_pop_x0())
             instrIdx = instrIdx + 1
