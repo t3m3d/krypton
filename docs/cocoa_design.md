@@ -233,3 +233,24 @@ Picking this up. Reconnaissance done. **All work is in `compiler/macos_arm64/mac
 - **P5 — polish.** GC/runloop hook in `cocoaRun`, selector/class caches, expand cocoa.krh surface. End: delete `gui_shim.m`/`gui_editor.m`, kryoterm + kcode GUIs become pure Krypton.
 
 **Iteration loop:** edit `macho_arm64_self.k` → `kcc --native t.ks -o /tmp/t` (auto-rebuilds `macho_host`) → `codesign -s - -f /tmp/t` → `/tmp/t`. Recoverable: revert source + rebuild host. Validate the risky Mach-O byte layout in an isolated single-import experiment before touching the live codegen switch.
+
+---
+
+## Reusability decision (2026-06-09): objk = generic C-FFI + cocoa client
+
+Brian: "make it self-contained pieces Linux/Windows can use later." Adopted. objk is **not** a macOS-objc codegen feature — it's a **generic C foreign-function interface**; objc/cocoa is its first client.
+
+**Why this works:** in the frontend today (`compile.k` jxt handling ~L2832), `jxt { func foo(args) }` only adds `foo:argc:0` to `ftable` — no library, no "foreign" flag. Backends decide foreign-ness privately (Windows `x64.k` = hardcoded symbol→DLL table + IAT). So nothing about objc is special at IR level; `objc_msgSend` is a plain C call.
+
+**Shared layer (build once, all platforms):**
+1. **Header lib-binding** — extend `jxt` with a `lib "name"` directive binding following `func`s to a library. Backward-compatible (no `lib` ⇒ current behaviour).
+2. **Frontend foreign-symbol table in IR** — record `{symbol → lib, arg type-tags, ret tag}` (the one new IR channel). Every backend consumes it generically.
+3. **Backend-emitter contract (documented):** given the foreign table → (a) emit the platform import section, (b) lower each foreign call per the platform ABI.
+
+**Irreducibly per-platform (these ARE the platform diffs):** import bytes (macho dyld chained-bind / ELF PLT-GOT / PE IAT) + arg→register ABI (arm64 AAPCS / x86-64 SysV / Win64).
+
+**macOS-only client:** `objc.krh`/`cocoa.krh`/`objc.k`/`cocoa.k`. msgSend self/sel, NSRect, associated objects, class synthesis = ordinary C calls once FFI exists.
+
+**Migration win:** Windows already has an import emitter — port its hardcoded IAT table onto the shared foreign-table and it's validated by existing Win32 headers. Linux implements one ELF emitter → GTK/`.so` for free. Neither needs objc.
+
+**Revised build order:** P1 now = the generic FFI in the macho backend (lib-binding in jxt → IR foreign table → dyld chained-bind import emitter + arm64 C-ABI call lowering), proven with a single libc/libobjc symbol. objc/cocoa ride on top from P2. Keep the foreign-table format + emitter entry points backend-neutral so elf/pe slot in.
