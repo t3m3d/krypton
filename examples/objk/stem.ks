@@ -1,9 +1,9 @@
 // stem — a pure-Krypton terminal on objk (no Obj-C source).
-// A real shell on a pseudo-terminal (native pty builtins). Raw keystrokes are
-// written straight to the pty; the shell echoes them, so input appears inline
-// after the prompt (a real terminal, not a separate input box). The pty is read
-// in a MANUAL event loop — fdRead inside a run-loop callback faults. Replaces
-// gui_shim.m.
+// Real shell on a pseudo-terminal (native pty builtins). Raw keystrokes go
+// straight to the pty (shell echoes them inline). The pty is read in a MANUAL
+// event loop (fdRead inside a run-loop callback faults), and a small terminal
+// filter handles backspace + strips CSI escapes so line editing reads cleanly.
+// Replaces gui_shim.m.
 import "k:cocoa"
 import "k:objc"
 import "head:cocoa"
@@ -11,22 +11,63 @@ import "head:objc"
 
 func appH() { emit msg(cls("NSApplication"), "sharedApplication") }
 
-// Raw key -> pty. The shell echoes it back into the output stream.
 func onKey(self, cmd, event) {
   let chars = msg(msg(event, "characters"), "UTF8String")
-  let master = cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.master"))
-  fdWrite(master, chars, len(chars))
+  fdWrite(cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.master")), chars, len(chars))
 }
 func acceptsFR(self, cmd) { emit 1 }
 
+// Is `ch` a CSI final byte (0x40..0x7e)? Ends an ESC[ … sequence.
+func isCsiFinal(ch) { emit indexOf("@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~", ch) >= 0 }
+
+// Apply a raw pty chunk to the on-screen string: backspace/DEL erase the last
+// char, CR is dropped, ESC[ … sequences are stripped, everything else appends.
+// (Line-mode terminal: handles shell editing; full-screen apps need a grid.)
+func applyChunk(screen, chunk) {
+  let bs = fromCharCode(8)
+  let del = fromCharCode(127)
+  let cr = fromCharCode(13)
+  let esc = fromCharCode(27)
+  let n = len(chunk)
+  let out = screen
+  let i = 0
+  while i < n {
+    let c = chunk[i]
+    let handled = 0
+    if c == bs  { if len(out) > 0 { out = substring(out, 0, len(out) - 1) }  handled = 1 }
+    if c == del { if len(out) > 0 { out = substring(out, 0, len(out) - 1) }  handled = 1 }
+    if c == cr  { handled = 1 }
+    if c == esc {
+      handled = 1
+      i = i + 1
+      if i < n {
+        if chunk[i] == "[" {
+          i = i + 1
+          let done = 0
+          while done == 0 {
+            if i >= n { done = 1 }
+            if done == 0 {
+              let fin = isCsiFinal(chunk[i])
+              i = i + 1
+              if fin { done = 1 }
+            }
+          }
+          i = i - 1
+        }
+      }
+    }
+    if handled == 0 { out = out + c }
+    i = i + 1
+  }
+  emit out
+}
+
 just run {
-  // 1. real shell on a pty
   let m = ptyMaster("/dev/ptmx")
   let slave = ptySlaveName(m)
   ptyForkExec(slave, "/bin/sh")
   fdSetNonblock(m)
 
-  // 2. window: an output text view + a transparent key-capture view on top
   let app = cocoaInit()
   let win = cocoaWindow(app, "stem — pure-Krypton terminal on objk", 760, 500)
   let view = cocoaScrollText(win, 0, 0, 760, 500)
@@ -41,17 +82,21 @@ just run {
   let kview = cocoaCustomView(win, kc, 0, 0, 760, 500)
 
   cocoaSetAssocKey(app, "stem.master", cocoaNumber(m))
-  cocoaSetAssocKey(app, "stem.view", view)
   cocoaShow(win, app)
   cocoaMakeFirstResponder(win, kview)
-
-  // 3. manual loop: pump events, read the pty, append — all in the main flow
   cocoaFinishLaunching(app)
+
+  let screen = ""
   let running = 1
   while running == 1 {
     cocoaPumpEvents(app)
     let chunk = fdRead(m, 4096)
-    if len(chunk) > 0 { cocoaTVAppend(view, chunk) }
+    if len(chunk) > 0 {
+      screen = applyChunk(screen, chunk)
+      if len(screen) > 12000 { screen = substring(screen, len(screen) - 12000, len(screen)) }
+      cocoaTVSetString(view, screen)
+      msg_1(view, "scrollToEndOfDocument:", 0)
+    }
     sleepUs(0, 8000)
   }
 }
