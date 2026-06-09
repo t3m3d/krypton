@@ -129,6 +129,33 @@ func onTabChange(self, cmd, sender) {
   selectTab(cocoaSegSelected(sender))
 }
 
+func onNew(self, cmd, sender) {
+  let app = appH()
+  saveCurTab()
+  let paths = cocoaGetAssocKey(app, "brain.tabpaths")
+  let texts = cocoaGetAssocKey(app, "brain.tabtexts")
+  cocoaArrayAdd(paths, nsString(arg(0) + "/untitled-" + cocoaArrayCount(paths) + ".k"))
+  cocoaArrayAdd(texts, nsString("// new file\n"))
+  rebuildTabs()
+  selectTab(cocoaArrayCount(paths) - 1)
+}
+func onClose(self, cmd, sender) {
+  let app = appH()
+  let idx = curTabIdx()
+  if idx < 0 { emit "1" }
+  let paths = cocoaGetAssocKey(app, "brain.tabpaths")
+  let texts = cocoaGetAssocKey(app, "brain.tabtexts")
+  cocoaArrayRemove(paths, idx)
+  cocoaArrayRemove(texts, idx)
+  cocoaSetAssocKey(app, "brain.curtab", cocoaNumber(0 - 1))
+  rebuildTabs()
+  let n = cocoaArrayCount(paths)
+  if n == 0 { cocoaTVSetString(cocoaGetAssocKey(app, "brain.editor"), "// no file open\n")  emit "1" }
+  let pick = idx
+  if pick >= n { pick = n - 1 }
+  selectTab(pick)
+}
+
 // ── menu actions ──────────────────────────────────────────────────────
 func onRun(self, cmd, sender) {
   let app = appH()
@@ -223,7 +250,9 @@ just run {
   cocoaOnClick(cmdfield, funcptr(onCmd))
 
   let fileMenu = cocoaMenuAdd(bar, "File")
+  cocoaMenuItem(fileMenu, "New", "n", funcptr(onNew))
   cocoaMenuItem(fileMenu, "Open", "o", funcptr(onOpen))
+  cocoaMenuItem(fileMenu, "Close Tab", "w", funcptr(onClose))
   cocoaMenuItem(fileMenu, "Save", "s", funcptr(onSave))
   cocoaMenuItem(fileMenu, "Run", "r", funcptr(onRun))
   let editMenu = cocoaMenuAdd(bar, "Edit")
