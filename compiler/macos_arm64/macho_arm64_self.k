@@ -1544,6 +1544,9 @@ func parseFullIR(ir) {
                 } else if op == "RETURN" {
                     curOps = sbAppend(curOps, "RETURN\n")
                     nOps += 1
+                } else if op == "FUNCPTR" {
+                    curOps = sbAppend(curOps, "FUNCPTR " + rest + "\n")   // objk: push a func's code addr (objc IMP)
+                    nOps += 1
                 } else if op == "PUSH" {
                     if len(rest) > 0 {
                         if rest[0] == "\"" {
@@ -2095,6 +2098,7 @@ func computeFrameSizeF(parsed, fIdx) {
 // are handled at the caller because they depend on frame size or argc).
 func opInstrCount(opTok) {
     if opTok == "PUSH_STR"     { emit 3 }
+    if opTok == "FUNCPTR"      { emit 3 }   // adrp + add (func vaddr) + push
     if opTok == "PUSH_INT"     { emit 3 }   // movz low / movk high or nop / push
     if opTok == "LOAD_SLOT"    { emit 2 }
     if opTok == "STORE_SLOT"   { emit 2 }
@@ -2483,6 +2487,14 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             let imm21 = strOffInText / 4096 - (textOff + instrIdx * 4) / 4096
             s = sbAppend(s, arm64_adrp(0, imm21))
             s = sbAppend(s, arm64_add_imm(0, 0, strOffInText % 4096))
+            s = sbAppend(s, arm64_push_x0())
+            instrIdx = instrIdx + 3
+        } else if opTok == "FUNCPTR" {
+            // push the __text vaddr of function `restTok` (objk: use as an objc IMP).
+            let fOff = textOff + findLabel(funcTable, restTok) * 4
+            let fImm = fOff / 4096 - (textOff + instrIdx * 4) / 4096
+            s = sbAppend(s, arm64_adrp(0, fImm))
+            s = sbAppend(s, arm64_add_imm(0, 0, fOff % 4096))
             s = sbAppend(s, arm64_push_x0())
             instrIdx = instrIdx + 3
         } else if opTok == "PUSH_INT" {
@@ -5417,7 +5429,8 @@ func emitTextFromIR(parsed, strOffsets, textSz) {
     while oi < nF {
         let fIdx = toInt(getLine(order, oi))
         let funcStartInstr = findLabel(funcTable, funcName(parsed, fIdx))
-        s = sbAppend(s, emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz))
+        let fcode = emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz)
+        s = sbAppend(s, fcode)
         oi += 1
     }
     emit sbToString(s)
