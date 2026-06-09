@@ -260,7 +260,10 @@ func foreignLibFor(name) {
     if name == "objc_allocateClassPair"   { emit "/usr/lib/libobjc.A.dylib" }
     if name == "objc_registerClassPair"   { emit "/usr/lib/libobjc.A.dylib" }
     if name == "class_addMethod"          { emit "/usr/lib/libobjc.A.dylib" }
-    emit ""
+    // default: any other foreign C symbol lives in libSystem (libc/posix:
+    // posix_openpt, grantpt, unlockpt, ptsname, fork, setsid, open, dup2, execl,
+    // ioctl, _exit, ...). objc symbols are matched above.
+    emit "/usr/lib/libSystem.B.dylib"
 }
 // Krypton call name → the C import symbol. The objc_msgSend_N/fpret wrappers all
 // collapse to the single libobjc symbol _objc_msgSend (arm64 has no separate fpret).
