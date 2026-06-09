@@ -143,6 +143,23 @@ func cocoaScrollText(win, x, y, w, h) {
 func cocoaTVSetString(tv, s) { msg_1(tv, "setString:", nsString(s))  emit "1" }
 func cocoaTVGetString(tv)    { emit msg(msg(tv, "string"), "UTF8String") }
 
+// Syntax highlighting: colour a [loc, loc+len) range of the text view's storage.
+// NSRange is a 16-byte struct (location, length) → passed as two GP args, so
+// addAttribute:value:range: is a plain msg_4. Attribute keys use their stable
+// runtime string values ("NSColor" = foreground, "NSFont" = font).
+func cocoaTVColorRange(tv, color, loc, len) {
+    let ts = msg(tv, "textStorage")
+    msg_4(ts, "addAttribute:value:range:", nsString("NSColor"), color, loc, len)
+    emit "1"
+}
+func cocoaTVFontRange(tv, font, loc, len) {
+    let ts = msg(tv, "textStorage")
+    msg_4(ts, "addAttribute:value:range:", nsString("NSFont"), font, loc, len)
+    emit "1"
+}
+// Length of the text view's storage (for full-range ops).
+func cocoaTVLength(tv) { emit msg(msg(tv, "textStorage"), "length") }
+
 // ── Colors (named — Krypton has no float literals for colorWithRed:…) ───
 func cocoaColorNamed(name)        { emit msg(cls("NSColor"), name) }
 func cocoaSetBg(view, color)      { msg_1(view, "setBackgroundColor:", color)  emit "1" }
