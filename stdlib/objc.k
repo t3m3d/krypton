@@ -87,6 +87,10 @@ func msg_frame(obj, selName, x, y, w, h) {
 func msg_d1(obj, selName, n) {
     emit objc_msgSend_d1(obj, sel(selName), n)
 }
+// NSRect arg (d0..d3) + one pointer arg (x2) — e.g. drawInRect:withAttributes:.
+func msg_rectp(obj, selName, x, y, w, h, p) {
+    emit objc_msgSend_rectp(obj, sel(selName), x, y, w, h, p)
+}
 
 // ── Convenience ────────────────────────────────────────────────────────
 
