@@ -51,6 +51,12 @@ jxt {
     // can route the return register correctly.)
     func objc_msgSend_fpret(self, sel)
 
+    // NSRect-taking variants (objk): the 4 CGFloats of the rect go in d0..d3 per
+    // the arm64 struct ABI. _rect = initWithContentRect:styleMask:backing:defer:
+    // (rect + 3 trailing ints), _frame = initWithFrame: (rect only).
+    func objc_msgSend_rect(self, sel, x, y, w, h, mask, backing, deferF)
+    func objc_msgSend_frame(self, sel, x, y, w, h)
+
     // ── Class introspection (rarely needed at runtime) ─────────────────
     func class_getName(cls)
     func class_getSuperclass(cls)
