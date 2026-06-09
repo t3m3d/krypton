@@ -91,6 +91,10 @@ func msg_d1(obj, selName, n) {
 func msg_rectp(obj, selName, x, y, w, h, p) {
     emit objc_msgSend_rectp(obj, sel(selName), x, y, w, h, p)
 }
+// NSTimer-style: a TimeInterval (ms/1000 -> d0) + target + selector + userInfo + repeats.
+func msg_timer(obj, methodSel, ms, target, actionSel, info, rep) {
+    emit objc_msgSend_timer(obj, sel(methodSel), ms, target, sel(actionSel), info, rep)
+}
 
 // ── Convenience ────────────────────────────────────────────────────────
 
