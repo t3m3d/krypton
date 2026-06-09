@@ -260,10 +260,23 @@ func foreignLibFor(name) {
     if name == "objc_allocateClassPair"   { emit "/usr/lib/libobjc.A.dylib" }
     if name == "objc_registerClassPair"   { emit "/usr/lib/libobjc.A.dylib" }
     if name == "class_addMethod"          { emit "/usr/lib/libobjc.A.dylib" }
-    // default: any other foreign C symbol lives in libSystem (libc/posix:
-    // posix_openpt, grantpt, unlockpt, ptsname, fork, setsid, open, dup2, execl,
-    // ioctl, _exit, ...). objc symbols are matched above.
-    emit "/usr/lib/libSystem.B.dylib"
+    // libc/posix (libSystem) — explicit allowlist so non-foreign user funcs
+    // (cls, msg, …) keep falling through to "" and are filtered out of imports.
+    if name == "posix_openpt" { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "grantpt"      { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "unlockpt"     { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "ptsname"      { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "fork"         { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "setsid"       { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "dup2"         { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "execl"        { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "execvp"       { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "open"         { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "close"        { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "ioctl"        { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "_exit"        { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "kill"         { emit "/usr/lib/libSystem.B.dylib" }
+    emit ""
 }
 // Krypton call name → the C import symbol. The objc_msgSend_N/fpret wrappers all
 // collapse to the single libobjc symbol _objc_msgSend (arm64 has no separate fpret).
