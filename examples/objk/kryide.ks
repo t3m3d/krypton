@@ -52,6 +52,18 @@ func reHL(self, cmd, notif) {
   highlightTS(ts, cocoaTSString(ts))
 }
 
+func onOpen(self, cmd, sender) {
+  let panel = msg(cls("NSOpenPanel"), "openPanel")
+  if msg(panel, "runModal") == 1 {
+    let url = msg_1(msg(panel, "URLs"), "objectAtIndex:", 0)
+    let p = msg(msg(url, "path"), "UTF8String")
+    let app = msg(cls("NSApplication"), "sharedApplication")
+    cocoaTVSetString(cocoaGetAssocKey(app, "kryide.editor"), readFile(p))
+    cocoaSetAssocKey(app, "kryide.curpath", nsString(p))
+    msg_1(cocoaGetAssocKey(app, "kryide.win"), "setTitle:", nsString("kryide — " + p))
+  }
+}
+
 func onSave(self, cmd, sender) {
   let app = msg(cls("NSApplication"), "sharedApplication")
   let cp = cocoaGetAssocKey(app, "kryide.curpath")
@@ -71,7 +83,9 @@ func dsSelect(self, cmd, notif) {
   let dir = msg(cocoaGetAssocKey(self, "dir"), "UTF8String")
   let path = dir + "/" + fname
   cocoaTVSetString(cocoaGetAssocKey(self, "editor"), readFile(path))
-  cocoaSetAssocKey(msg(cls("NSApplication"), "sharedApplication"), "kryide.curpath", nsString(path))
+  let a = msg(cls("NSApplication"), "sharedApplication")
+  cocoaSetAssocKey(a, "kryide.curpath", nsString(path))
+  msg_1(cocoaGetAssocKey(a, "kryide.win"), "setTitle:", nsString("kryide — " + path))
 }
 
 just run {
@@ -104,7 +118,9 @@ just run {
   cocoaTVSetStorageDelegate(editor, ds)
   cocoaTVSetString(editor, "// kryide — click a file on the left; live syntax highlighting\nfunc demo() {\n    let x = 1\n    return x\n}\n")
   cocoaSetAssocKey(app, "kryide.editor", editor)
+  cocoaSetAssocKey(app, "kryide.win", win)
   let fileMenu = cocoaMenuAdd(bar, "File")
+  cocoaMenuItem(fileMenu, "Open", "o", funcptr(onOpen))
   cocoaMenuItem(fileMenu, "Save", "s", funcptr(onSave))
   cocoaReload(table)
   cocoaShow(win, app)
