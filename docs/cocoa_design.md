@@ -210,3 +210,26 @@ Not in scope today. Land the primitives first; abstractions later.
   event, every Nth, or via a CFRunLoop observer?
 
 When you've got opinions, land them in this doc; PRs welcome.
+
+---
+
+## Agent M implementation plan + decisions (2026-06-09)
+
+Picking this up. Reconnaissance done. **All work is in `compiler/macos_arm64/macho_arm64_self.k`** (the Krypton-only macho codegen → built into `macho_host` by `kcc` via the `kcc-arm64` frontend + clang, one-time/stale). The krypton-side scaffold (objc.krh/cocoa.krh/objc.k/cocoa.k/cocoa_hello.ks) is complete and unchanged.
+
+**Core lever:** the backend already contains a *working-but-removed* single-import dyld path (`_puts` from libSystem): `emitStubCode` (adrp x16,got@page / ldr / br), `emitGotSlot` (dyld_chained_ptr_64_bind), `emitChainedFixups` (header + starts_in_image + imports + symbols), symtab/strtab, and in-Krypton SHA-256 ad-hoc signing. It's currently dialed to **zero imports** (C-free static). objk = generalize this to **N imports across M dylibs** + wire the objc builtins. NOTE: this re-introduces dynamic linking — a deliberate, macOS-GUI-only exception to the syscall-only C-free model.
+
+**Decisions (answering the doc's open questions):**
+- **Static chained-bind imports, not dlsym.** Revive the existing chained-fixups machinery; add `LC_LOAD_DYLIB` for `/usr/lib/libobjc.A.dylib`, `Foundation.framework/Foundation`, `AppKit.framework/AppKit`. Simpler than runtime dlsym, reuses what's there.
+- **Phase-1 strings are literals.** Class names + selectors come from `cocoa.krh` consts → emit each unique literal into `__cstring`, pass its vaddr as `char*`. Defer general runtime Krypton-string→`char*` (needed for `nsString(userText)`) to Phase 2.
+- **Dedicated `_nsrect` handle** (not shared with Win32 RECT) → unpack to d0..d3. Phase 3.
+- **Callbacks last** (Phase 4): `objc_allocateClassPair`/`class_addMethod` + a small arm64 trampoline + funcptr table.
+
+**Phasing (each phase ends in a runnable on-device test):**
+- **P1 — msgSend ABI + N-import link.** Generalize layout/stubs/got/fixups/symtab to N symbols; LC_LOAD_DYLIB libobjc+Foundation; builtins `objc_getClass`, `sel_registerName`, `objc_msgSend`(_0.._2), `class_getName`; literal `char*` args; x0 return. **Test:** `kp(class_getName(objc_getClass("NSObject")))` prints `NSObject`; then NSString `stringWithUTF8String:`→`UTF8String` roundtrip prints "hi".
+- **P2 — runtime strings + arity.** Krypton string ⇄ `char*`/NSString both directions; full `objc_msgSend_1.._6`; pointer/int return handling.
+- **P3 — NSRect + AppKit window.** `_nsrect` → d0..d3; integer/enum args (styleMask) in xN; add AppKit dylib. **Test:** `cocoaWindow`+`cocoaShow`+`cocoaRun` opens a blank NSWindow.
+- **P4 — callbacks.** `KrCallbackTarget` class synthesis + `krDispatch:` trampoline + `funcptr` table + setTarget/setAction. **Test:** `cocoa_hello.ks` button updates the label.
+- **P5 — polish.** GC/runloop hook in `cocoaRun`, selector/class caches, expand cocoa.krh surface. End: delete `gui_shim.m`/`gui_editor.m`, kryoterm + kcode GUIs become pure Krypton.
+
+**Iteration loop:** edit `macho_arm64_self.k` → `kcc --native t.ks -o /tmp/t` (auto-rebuilds `macho_host`) → `codesign -s - -f /tmp/t` → `/tmp/t`. Recoverable: revert source + rebuild host. Validate the risky Mach-O byte layout in an isolated single-import experiment before touching the live codegen switch.
