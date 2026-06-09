@@ -52,6 +52,16 @@ func reHL(self, cmd, notif) {
   highlightTS(ts, cocoaTSString(ts))
 }
 
+func onRun(self, cmd, sender) {
+  let app = msg(cls("NSApplication"), "sharedApplication")
+  let cp = cocoaGetAssocKey(app, "kryide.curpath")
+  if cp == 0 { cocoaAlert("Run", "Open a .k file first.")  emit "1" }
+  let path = msg(cp, "UTF8String")
+  writeFile(path, cocoaTVGetString(cocoaGetAssocKey(app, "kryide.editor")))
+  let out = exec("cd " + arg(0) + " && kcc --native " + path + " -o /tmp/kryrun 2>&1 && /tmp/kryrun 2>&1")
+  cocoaAlert("Run output", out)
+}
+
 func onOpen(self, cmd, sender) {
   let panel = msg(cls("NSOpenPanel"), "openPanel")
   if msg(panel, "runModal") == 1 {
@@ -121,6 +131,7 @@ just run {
   cocoaSetAssocKey(app, "kryide.win", win)
   let fileMenu = cocoaMenuAdd(bar, "File")
   cocoaMenuItem(fileMenu, "Open", "o", funcptr(onOpen))
+  cocoaMenuItem(fileMenu, "Run", "r", funcptr(onRun))
   cocoaMenuItem(fileMenu, "Save", "s", funcptr(onSave))
   cocoaReload(table)
   cocoaShow(win, app)
