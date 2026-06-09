@@ -65,6 +65,9 @@ func cocoaTextField(win, x, y, w, h) {
     let raw = msg(cls("NSTextField"), "alloc")
     let tf = msg_frame(raw, "initWithFrame:", x, y, w, h)
     msg_1(tf, "setEditable:", 1)
+    msg_1(tf, "setSelectable:", 1)
+    msg_1(tf, "setBezeled:", 1)            // visible, focusable input box
+    msg_1(tf, "setDrawsBackground:", 1)
     _addToContentView(win, tf)
     emit tf
 }
@@ -270,8 +273,10 @@ func cocoaNew(c)                    { emit msg(msg(c, "alloc"), "init") }
 func cocoaTable(win, x, y, w, h) {
     let sv = msg_frame(msg(cls("NSScrollView"), "alloc"), "initWithFrame:", x, y, w, h)
     msg_1(sv, "setHasVerticalScroller:", 1)
-    msg_1(sv, "setBorderType:", 2)
+    msg_1(sv, "setBorderType:", 0)             // no bezel border
+    msg_1(sv, "setFocusRingType:", 1)          // no blue focus ring
     let tbl = msg_frame(msg(cls("NSTableView"), "alloc"), "initWithFrame:", 0, 0, w, h)
+    msg_1(tbl, "setFocusRingType:", 1)
     let col = msg_1(msg(cls("NSTableColumn"), "alloc"), "initWithIdentifier:", nsString("c0"))
     msg_d1(col, "setWidth:", w)
     msg_1(tbl, "addTableColumn:", col)
