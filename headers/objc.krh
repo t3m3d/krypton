@@ -56,6 +56,7 @@ jxt {
     // (rect + 3 trailing ints), _frame = initWithFrame: (rect only).
     func objc_msgSend_rect(self, sel, x, y, w, h, mask, backing, deferF)
     func objc_msgSend_frame(self, sel, x, y, w, h)
+    func objc_msgSend_d1(self, sel, n)              // one CGFloat arg -> d0
 
     // ── Class introspection (rarely needed at runtime) ─────────────────
     func class_getName(cls)
