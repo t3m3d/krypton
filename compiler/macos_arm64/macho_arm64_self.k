@@ -279,6 +279,7 @@ func arm64_scvtf_d_x(dd, xn) { emit hexDword((0x9e62 * 0x10000 + 0x0) + xn * 32 
 // window-init special form is 15 instrs (3 GP pops + 4×(pop+scvtf) + 2 GP pops + bl + push).
 func cfCount(cname, argc) {
     if cname == "objc_msgSend_rect" { emit 15 }
+    if cname == "objc_msgSend_frame" { emit 12 }   // (obj,sel,x,y,w,h): rect-only NSRect arg
     emit argc + 2
 }
 // 0-based index of foreign symbol "_"+name in g_FORSYMS, or -1 if not foreign.
@@ -4966,6 +4967,21 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
                 s = sbAppend(s, arm64_pop(0))  instrIdx = instrIdx + 1   // obj
                 let rti = textSz / 4 + foreignIdx("objc_msgSend_rect") * 3
                 s = sbAppend(s, arm64_bl(rti - instrIdx))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_push(0))  instrIdx = instrIdx + 1
+            } else if cname == "objc_msgSend_frame" {
+                // (obj,sel,x,y,w,h): NSRect{x,y,w,h} -> d0..d3 (initWithFrame:)
+                s = sbAppend(s, arm64_pop(9))  instrIdx = instrIdx + 1   // h
+                s = sbAppend(s, arm64_scvtf_d_x(3, 9))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_pop(9))  instrIdx = instrIdx + 1   // w
+                s = sbAppend(s, arm64_scvtf_d_x(2, 9))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_pop(9))  instrIdx = instrIdx + 1   // y
+                s = sbAppend(s, arm64_scvtf_d_x(1, 9))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_pop(9))  instrIdx = instrIdx + 1   // x
+                s = sbAppend(s, arm64_scvtf_d_x(0, 9))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_pop(1))  instrIdx = instrIdx + 1   // sel
+                s = sbAppend(s, arm64_pop(0))  instrIdx = instrIdx + 1   // obj
+                let fti = textSz / 4 + foreignIdx("objc_msgSend_frame") * 3
+                s = sbAppend(s, arm64_bl(fti - instrIdx))  instrIdx = instrIdx + 1
                 s = sbAppend(s, arm64_push(0))  instrIdx = instrIdx + 1
             } else {
             // Pop args in reverse: x(argc-1) first (TOS), down to x0 (deepest)
