@@ -210,6 +210,63 @@ let g_CODESIG_OFF         = 0xC0C0
 let g_CODESIG_SIZE        = 244
 let g_FILE_TOTAL_SIZE     = 0xC0C0 + 244
 
+// objk FFI: foreign (dylib-imported) symbols used by the program.
+// g_NFOREIGN==0 ⇒ pure syscall-only binary (byte-identical to pre-objk output).
+let g_NFOREIGN  = 0
+let g_FORSYMS   = ""    // newline-sep import symbols, with leading "_" (e.g. "_getpid")
+let g_FORLIB    = ""    // newline-sep 1-based dylib ordinal, parallel to g_FORSYMS
+let g_DYLIBS    = ""    // newline-sep dylib paths (ordinal = index+1)
+
+// Backend-side symbol→dylib table (step 2a; moves to the jxt `lib` directive in 2b).
+func foreignLibFor(name) {
+    if name == "getpid"          { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "objc_getClass"   { emit "/usr/lib/libobjc.A.dylib" }
+    if name == "class_getName"   { emit "/usr/lib/libobjc.A.dylib" }
+    if name == "sel_registerName"{ emit "/usr/lib/libobjc.A.dylib" }
+    if name == "objc_msgSend"    { emit "/usr/lib/libobjc.A.dylib" }
+    emit ""
+}
+func _forHas(sym) {
+    let i = 0  let n = lineCount(g_FORSYMS)
+    while i < n { if getLine(g_FORSYMS, i) == sym { emit 1 }  i += 1 }
+    emit 0
+}
+// find-or-add a dylib path; return its 1-based ordinal.
+func _dylibOrd(lib) {
+    let i = 0  let n = lineCount(g_DYLIBS)
+    while i < n { if getLine(g_DYLIBS, i) == lib { emit i + 1 }  i += 1 }
+    if len(g_DYLIBS) > 0 { g_DYLIBS = g_DYLIBS + "\n" }
+    g_DYLIBS = g_DYLIBS + lib
+    emit lineCount(g_DYLIBS)
+}
+// Scan parsed IR for CALLs to known foreign symbols; build g_FORSYMS/g_FORLIB/g_DYLIBS.
+func detectForeign(parsed) {
+    g_NFOREIGN = 0  g_FORSYMS = ""  g_FORLIB = ""  g_DYLIBS = ""
+    let nL = lineCount(parsed)  let i = 0
+    while i < nL {
+        let ln = getLine(parsed, i)
+        if len(ln) > 10 && substring(ln, 0, 10) == "CALL_FUNC " {
+            let rest = substring(ln, 10, len(ln))
+            let sp = 0
+            while sp < len(rest) && rest[sp] != " " { sp += 1 }
+            let nm = substring(rest, 0, sp)
+            let lib = foreignLibFor(nm)
+            if len(lib) > 0 {
+                let sym = "_" + nm
+                if _forHas(sym) == 0 {
+                    let ord = _dylibOrd(lib)
+                    if len(g_FORSYMS) > 0 { g_FORSYMS = g_FORSYMS + "\n"  g_FORLIB = g_FORLIB + "\n" }
+                    g_FORSYMS = g_FORSYMS + sym
+                    g_FORLIB = g_FORLIB + ("" + ord)
+                    g_NFOREIGN = g_NFOREIGN + 1
+                }
+            }
+        }
+        i += 1
+    }
+    emit 0
+}
+
 func TEXT_VADDR()         { emit 0 }
 func DATA_CONST_VADDR()   { emit 0 + g_TEXT_VMSIZE }
 func LINKEDIT_VADDR()     { emit g_LINKEDIT_VADDR }
@@ -5888,6 +5945,8 @@ just run {
             exit("1")
         }
         irOps = parseFullIR(ir)
+        detectForeign(irOps)
+        if g_NFOREIGN > 0 { printErr("objk: " + g_NFOREIGN + " foreign sym(s) [" + g_FORSYMS + "] across " + lineCount(g_DYLIBS) + " dylib(s)") }
         g_funcStartCache = buildFuncStartCache(irOps)
         irStrOffsets = computeStringOffsets(irOps)
         g_TEXT_SIZE = computeTextSize(irOps)
