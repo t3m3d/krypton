@@ -73,6 +73,17 @@ func msg_fp(obj, selName) {
     emit objc_msgSend_fpret(obj, sel(selName))
 }
 
+// NSRect-taking initialisers. The backend lowers these specially: the 4 rect
+// CGFloats go in d0..d3 (arm64 struct ABI), trailing ints in x2.. — what
+// objc_msgSend needs for initWithContentRect:styleMask:backing:defer: and
+// initWithFrame:.
+func msg_rect(obj, selName, x, y, w, h, mask, backing, deferF) {
+    emit objc_msgSend_rect(obj, sel(selName), x, y, w, h, mask, backing, deferF)
+}
+func msg_frame(obj, selName, x, y, w, h) {
+    emit objc_msgSend_frame(obj, sel(selName), x, y, w, h)
+}
+
 // ── Convenience ────────────────────────────────────────────────────────
 
 // [[Class alloc] init] in one call.
