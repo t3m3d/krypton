@@ -187,6 +187,18 @@ func cocoaViewClassNew(name)        { emit objc_allocateClassPair(cls("NSView"),
 // takes only the NSRect -> d0..d3, so it's msg_frame.
 func cocoaFillRect(x, y, w, h)      { msg_frame(cls("NSBezierPath"), "fillRect:", x, y, w, h)  emit "1" }
 func cocoaColorSet(color)           { msg(color, "set")  emit "1" }
+// Build a text-attributes dict {font, color} for drawing strings.
+func cocoaTextAttrs(font, color) {
+    let d = msg(cls("NSMutableDictionary"), "dictionary")
+    msg_2(d, "setObject:forKey:", font, nsString("NSFont"))
+    msg_2(d, "setObject:forKey:", color, nsString("NSColor"))
+    emit d
+}
+// Draw a string into a rect with the given attributes (use inside drawRect:).
+func cocoaDrawText(str, x, y, w, h, attrs) {
+    msg_rectp(nsString(str), "drawInRect:withAttributes:", x, y, w, h, attrs)
+    emit "1"
+}
 // Instantiate a custom view with a frame and add it to the window.
 func cocoaCustomView(win, c, x, y, w, h) {
     let v = msg_frame(msg(c, "alloc"), "initWithFrame:", x, y, w, h)

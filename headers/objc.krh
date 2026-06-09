@@ -57,6 +57,7 @@ jxt {
     func objc_msgSend_rect(self, sel, x, y, w, h, mask, backing, deferF)
     func objc_msgSend_frame(self, sel, x, y, w, h)
     func objc_msgSend_d1(self, sel, n)              // one CGFloat arg -> d0
+    func objc_msgSend_rectp(self, sel, x, y, w, h, p)  // NSRect d0..d3 + ptr x2 (drawInRect:withAttributes:)
 
     // ── Class introspection (rarely needed at runtime) ─────────────────
     func class_getName(cls)
