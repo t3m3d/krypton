@@ -179,6 +179,21 @@ func cocoaSetFont(view, font){ msg_1(view, "setFont:", font)  emit "1" }
 //   cocoaClassRegister(c)
 //   let inst = cocoaNew(c)
 func cocoaClassNew(name)            { emit objc_allocateClassPair(cls("NSObject"), name, 0) }
+// Subclass NSView (for a custom-drawn view: add a drawRect: method whose IMP is a
+// Krypton func). The drawRect: dirtyRect arrives in d0..d3 (FP regs) and is simply
+// ignored by the Krypton handler (it reads x0=self, x1=_cmd).
+func cocoaViewClassNew(name)        { emit objc_allocateClassPair(cls("NSView"), name, 0) }
+// Fill the current colour into a rect (call [color set] first). NSBezierPath fillRect:
+// takes only the NSRect -> d0..d3, so it's msg_frame.
+func cocoaFillRect(x, y, w, h)      { msg_frame(cls("NSBezierPath"), "fillRect:", x, y, w, h)  emit "1" }
+func cocoaColorSet(color)           { msg(color, "set")  emit "1" }
+// Instantiate a custom view with a frame and add it to the window.
+func cocoaCustomView(win, c, x, y, w, h) {
+    let v = msg_frame(msg(c, "alloc"), "initWithFrame:", x, y, w, h)
+    _addToContentView(win, v)
+    emit v
+}
+func cocoaNeedsDisplay(v)           { msg_1(v, "setNeedsDisplay:", 1)  emit "1" }
 func cocoaClassAddMethod(c, selName, fnPtr, types) { class_addMethod(c, sel(selName), fnPtr, types)  emit "1" }
 func cocoaClassRegister(c)          { objc_registerClassPair(c)  emit "1" }
 func cocoaNew(c)                    { emit msg(msg(c, "alloc"), "init") }
