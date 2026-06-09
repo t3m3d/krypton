@@ -153,6 +153,44 @@ func cocoaSetTextColor(tv, color) { msg_1(tv, "setTextColor:", color)          e
 func cocoaMonoFont(size)     { emit msg_d1(cls("NSFont"), "userFixedPitchFontOfSize:", size) }
 func cocoaSetFont(view, font){ msg_1(view, "setFont:", font)  emit "1" }
 
+// ── Runtime class synthesis (delegates / data sources) ─────────────────
+// Build an Obj-C class at runtime whose methods are Krypton funcs (used as
+// IMPs). Lets a data source / delegate be written in pure Krypton — every
+// method takes (self, _cmd, …) and returns via x0/d0.
+//   let c = cocoaClassNew("MyDataSource")
+//   cocoaClassAddMethod(c, "numberOfRowsInTableView:", funcptr(nrows), "q@:@")
+//   cocoaClassRegister(c)
+//   let inst = cocoaNew(c)
+func cocoaClassNew(name)            { emit objc_allocateClassPair(cls("NSObject"), name, 0) }
+func cocoaClassAddMethod(c, selName, fnPtr, types) { class_addMethod(c, sel(selName), fnPtr, types)  emit "1" }
+func cocoaClassRegister(c)          { objc_registerClassPair(c)  emit "1" }
+func cocoaNew(c)                    { emit msg(msg(c, "alloc"), "init") }
+
+// ── Table view (single column) — feed it a data source instance ────────
+func cocoaTable(win, x, y, w, h) {
+    let sv = msg_frame(msg(cls("NSScrollView"), "alloc"), "initWithFrame:", x, y, w, h)
+    msg_1(sv, "setHasVerticalScroller:", 1)
+    msg_1(sv, "setBorderType:", 2)
+    let tbl = msg_frame(msg(cls("NSTableView"), "alloc"), "initWithFrame:", 0, 0, w, h)
+    let col = msg_1(msg(cls("NSTableColumn"), "alloc"), "initWithIdentifier:", nsString("c0"))
+    msg_d1(col, "setWidth:", w)
+    msg_1(tbl, "addTableColumn:", col)
+    msg_1(sv, "setDocumentView:", tbl)
+    _addToContentView(win, sv)
+    emit tbl
+}
+func cocoaSetDataSource(table, ds) { msg_1(table, "setDataSource:", ds)  emit "1" }
+func cocoaReload(table)            { msg(table, "reloadData")            emit "1" }
+
+// ── Split view (sidebar | main — kcode's layout) ───────────────────────
+func cocoaSplit(win, x, y, w, h) {
+    let sp = msg_frame(msg(cls("NSSplitView"), "alloc"), "initWithFrame:", x, y, w, h)
+    msg_1(sp, "setVertical:", 1)
+    _addToContentView(win, sp)
+    emit sp
+}
+func cocoaSplitAdd(split, view) { msg_1(split, "addSubview:", view)  emit "1" }
+
 // ── Internal helpers ───────────────────────────────────────────────────
 
 func _addToContentView(win, view) {
