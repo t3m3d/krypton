@@ -5739,6 +5739,122 @@ func asciiToHex(s) {
     emit out
 }
 
+// ── objk import de-risk: emit a minimal 1-import Mach-O ──────────────────────
+// Hand-lays a complete binary that imports `_getpid` from libSystem.B.dylib via
+// a dyld stub + chained-bind GOT, calls it, and exits with the pid (low byte).
+// Byte-for-byte mirrors a clang reference. Isolated from the production path —
+// proves dyld on Tahoe accepts the generalized chained-fixups + LC_LOAD_DYLIB
+// before that machinery is wired into the IR codegen. Reached via --objk-import-test.
+func emitObjkTestBinary(outFile) {
+    g_TEXT_VMSIZE = 0x4000                          // execSegLimit for the signer
+    // ---- __text + __stubs (file 0x400) ----
+    // _main @ 0x100000400: bl stub(+3); exit(x0): movz x16,#1; svc #0x80
+    let mainCode = arm64_bl(3) + arm64_movz_x_imm(16, 1) + arm64_svc(0x80)
+    let stubCode = arm64_adrp(16, 4) + arm64_ldr_imm(16, 16, 0) + arm64_br(16)
+    let textBlob = mainCode + stubCode              // 24 B @ 0x400
+
+    // ---- load commands ----
+    let lcs = ""
+    // 1: __PAGEZERO (72)
+    lcs = lcs + hexDword(LC_SEGMENT_64()) + hexDword(72) + hexStr("__PAGEZERO") + hexPad(6)
+    lcs = lcs + hexQword2(0,0) + hexQword2(0,1) + hexQword(0) + hexQword(0)
+    lcs = lcs + hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0)
+    // 2: __TEXT (2 sects: __text, __stubs) (232)
+    lcs = lcs + hexDword(LC_SEGMENT_64()) + hexDword(232) + hexStr("__TEXT") + hexPad(10)
+    lcs = lcs + hexQword2(0,1) + hexQword(0x4000) + hexQword(0) + hexQword(0x4000)
+    lcs = lcs + hexDword(5) + hexDword(5) + hexDword(2) + hexDword(0)
+    //   sect __text @ 0x400, size 12
+    lcs = lcs + hexStr("__text") + hexPad(10) + hexStr("__TEXT") + hexPad(10)
+    lcs = lcs + hexQword2(0x400,1) + hexQword(12) + hexDword(0x400) + hexDword(2)
+    lcs = lcs + hexDword(0) + hexDword(0) + hexDword((0x8000*0x10000+0x400)) + hexDword(0) + hexDword(0) + hexDword(0)
+    //   sect __stubs @ 0x40c, size 12, S_SYMBOL_STUBS, reserved1=0(indirect idx), reserved2=12(stub size)
+    lcs = lcs + hexStr("__stubs") + hexPad(9) + hexStr("__TEXT") + hexPad(10)
+    lcs = lcs + hexQword2(0x40c,1) + hexQword(12) + hexDword(0x40c) + hexDword(2)
+    lcs = lcs + hexDword(0) + hexDword(0) + hexDword((0x8000*0x10000+0x408)) + hexDword(0) + hexDword(12) + hexDword(0)
+    // 3: __DATA_CONST (1 sect __got) (152)
+    lcs = lcs + hexDword(LC_SEGMENT_64()) + hexDword(152) + hexStr("__DATA_CONST") + hexPad(4)
+    lcs = lcs + hexQword2(0x4000,1) + hexQword(0x4000) + hexQword(0x4000) + hexQword(0x4000)
+    lcs = lcs + hexDword(3) + hexDword(3) + hexDword(1) + hexDword(0x10)
+    //   sect __got @ 0x100004000, size 8, S_NON_LAZY_SYMBOL_POINTERS, reserved1=1(indirect idx)
+    lcs = lcs + hexStr("__got") + hexPad(11) + hexStr("__DATA_CONST") + hexPad(4)
+    lcs = lcs + hexQword2(0x4000,1) + hexQword(8) + hexDword(0x4000) + hexDword(3)
+    lcs = lcs + hexDword(0) + hexDword(0) + hexDword(6) + hexDword(1) + hexDword(0) + hexDword(0)
+    // 4: __LINKEDIT (72) — fileoff 0x8000, filesize = total - 0x8000
+    let leSize = (0x80c0 + 312) - 0x8000
+    lcs = lcs + hexDword(LC_SEGMENT_64()) + hexDword(72) + hexStr("__LINKEDIT") + hexPad(6)
+    lcs = lcs + hexQword2(0x8000,1) + hexQword(0x4000) + hexQword(0x8000) + hexQword(leSize)
+    lcs = lcs + hexDword(1) + hexDword(1) + hexDword(0) + hexDword(0)
+    // 5: LC_DYLD_CHAINED_FIXUPS (16) @ 0x8000, 96
+    lcs = lcs + hexDword(LC_DYLD_CHAINED_FIXUPS()) + hexDword(16) + hexDword(0x8000) + hexDword(96)
+    // 6: LC_SYMTAB (24): symoff 0x8060, nsyms 3, stroff 0x8098, strsize 40
+    lcs = lcs + hexDword(LC_SYMTAB()) + hexDword(24) + hexDword(0x8060) + hexDword(3) + hexDword(0x8098) + hexDword(40)
+    // 7: LC_DYSYMTAB (80): nlocalsym0, iextdef0 nextdef2, iundef2 nundef1, indirectsymoff 0x8090 nindirect2
+    lcs = lcs + hexDword(LC_DYSYMTAB()) + hexDword(80)
+    lcs = lcs + hexDword(0) + hexDword(0) + hexDword(0) + hexDword(2) + hexDword(2) + hexDword(1)
+    lcs = lcs + hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0)
+    lcs = lcs + hexDword(0x8090) + hexDword(2) + hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0)
+    // 8: LC_LOAD_DYLINKER (32)
+    lcs = lcs + hexDword(LC_LOAD_DYLINKER()) + hexDword(32) + hexDword(12) + hexStr("/usr/lib/dyld") + hexByte(0) + hexPad(6)
+    // 9: LC_BUILD_VERSION (24)
+    lcs = lcs + hexDword(LC_BUILD_VERSION()) + hexDword(24) + hexDword(1) + hexDword(0x000e0000) + hexDword(0x000e0000) + hexDword(0)
+    // 10: LC_MAIN (24): entryoff 0x400
+    lcs = lcs + hexDword(LC_MAIN()) + hexDword(24) + hexQword(0x400) + hexQword(0)
+    // 11: LC_LOAD_DYLIB libSystem.B.dylib (56)
+    lcs = lcs + hexDword(LC_LOAD_DYLIB()) + hexDword(56) + hexDword(24) + hexDword(2) + hexDword(0x054C0000) + hexDword(0x00010000)
+    lcs = lcs + hexStr("/usr/lib/libSystem.B.dylib") + hexByte(0) + hexPad(5)
+    // 12: LC_CODE_SIGNATURE (16): codesig @ 0x80c0
+    lcs = lcs + hexDword(LC_CODE_SIGNATURE()) + hexDword(16) + hexDword(0x80c0) + hexDword(312)
+
+    let header = emitHeader(12, hexBytesLen(lcs))
+    let prefix = header + lcs                        // 32 + 800 = 832
+
+    // ---- LINKEDIT blobs ----
+    // chained fixups (96 B)
+    let fx = ""
+    fx = fx + hexDword(0) + hexDword(32) + hexDword(80) + hexDword(84)   // version, starts_off, imports_off, symbols_off
+    fx = fx + hexDword(1) + hexDword(1) + hexDword(0) + hexDword(0)      // imports_count, imports_format=1, symbols_format=0, pad
+    // starts_in_image @ +32: seg_count=4, offsets[PAGEZERO,TEXT,DATA_CONST,LINKEDIT]; [2]=24 (8-aligns the seg struct)
+    fx = fx + hexDword(4) + hexDword(0) + hexDword(0) + hexDword(24) + hexDword(0)
+    fx = fx + hexPad(4)                                                  // gap: 20-byte array -> seg struct at +24
+    // starts_in_segment @ +56: size24, page_size 0x4000, ptr_format 6, seg_offset 0x4000, max_valid 0, page_count1, page_start[0]=0
+    fx = fx + hexDword(24) + hexWord(0x4000) + hexWord(6) + hexQword(0x4000) + hexDword(0) + hexWord(1) + hexWord(0)
+    // imports @ +80: dyld_chained_import = lib_ordinal1 | name_offset(1)<<9 = 0x201
+    fx = fx + hexDword(0x201)
+    // symbols @ +84: "\0_getpid\0", pad to 96
+    fx = fx + hexByte(0) + hexStr("_getpid") + hexByte(0) + hexPad(3)
+    // symtab (3 × nlist_64, 48 B)
+    let sym = ""
+    sym = sym + hexDword(2)  + hexByte(0x0f) + hexByte(1) + hexWord(0x10) + hexQword2(0,1)        // __mh_execute_header
+    sym = sym + hexDword(22) + hexByte(0x0f) + hexByte(1) + hexWord(0)    + hexQword2(0x400,1)    // _main
+    sym = sym + hexDword(28) + hexByte(0x01) + hexByte(0) + hexWord(0x100) + hexQword2(0,0)       // _getpid (undef, ordinal 1)
+    // indirect symtab (2 × uint32) — __stubs[0] + __got[1] both -> sym idx 2
+    let isym = hexDword(2) + hexDword(2)
+    // strtab (40 B)
+    let strt = hexByte(0x20) + hexByte(0) + hexStr("__mh_execute_header") + hexByte(0) + hexStr("_main") + hexByte(0) + hexStr("_getpid") + hexByte(0) + hexPad(4)
+    // got slot (8 B) — dyld_chained_ptr_64_bind ordinal 0
+    let got = hexDword(0) + hexDword((0x8000*0x10000+0x0))
+
+    // ---- assemble body up to codesig ----
+    let body = prefix + hexPad(0x400 - hexBytesLen(prefix))
+    body = body + textBlob + hexPad(0x4000 - 0x400 - hexBytesLen(textBlob))
+    body = body + got + hexPad(0x8000 - 0x4008)
+    body = body + fx + sym + isym + strt                 // 96+48+8+40 = 192 = 0x8000..0x80c0
+    let codeLimit = hexBytesLen(body)
+    if codeLimit != 0x80c0 {
+        printErr("objk-test: BUG body=" + codeLimit + " want 0x80c0=32960")
+        exit("1")
+    }
+    let cd = buildCodeDirectory(body, codeLimit, "krypton")
+    let sig = buildSuperBlob(cd)
+    if hexBytesLen(sig) != 312 {
+        printErr("objk-test: BUG sig=" + hexBytesLen(sig) + " want 312")
+        exit("1")
+    }
+    writeBytes(outFile, body + sig)
+    printErr("objk-test: wrote " + outFile + " (1 import _getpid@libSystem, ad-hoc signed)")
+    emit "1"
+}
+
 just run {
     // Build the hex lookup table first so all subsequent hexByte/hexDword calls
     // take the cheap substring path (keeps self-compile heap in budget).
@@ -5789,6 +5905,14 @@ just run {
         }
         g_ENTRY_OFF = TEXT_OFF() + mainInstr * 4
         useIr = "1"
+    }
+
+    // objk import de-risk (isolated; no IR, no production layout).
+    if arg0 == "--objk-import-test" {
+        let oOut = arg("1")
+        if len(oOut) == 0 { printErr("usage: --objk-import-test <out>")  exit("1") }
+        emitObjkTestBinary(oOut)
+        exit("0")
     }
 
     // Always run computeLayout (default mode picks up the static defaults; IR
