@@ -178,6 +178,28 @@ func cocoaTVFontRange(tv, font, loc, len) {
 // Length of the text view's storage (for full-range ops).
 func cocoaTVLength(tv) { emit msg(msg(tv, "textStorage"), "length") }
 
+// ── Live syntax highlighting via the NSTextStorage delegate ────────────
+// Set a delegate whose textStorageDidProcessEditing: (a Krypton func) re-colours
+// on every edit — the canonical highlighting hook. These operate on the storage
+// the delegate receives (notif object); guard on cocoaTSEditedChars so re-adding
+// attributes (which itself fires the delegate) does not recurse.
+func cocoaTVSetStorageDelegate(tv, d) { msg_1(msg(tv, "textStorage"), "setDelegate:", d)  emit "1" }
+func cocoaTSString(ts)     { emit msg(msg(ts, "string"), "UTF8String") }
+func cocoaTSLength(ts)     { emit msg(ts, "length") }
+func cocoaTSEditedChars(ts){ emit bitAnd(msg(ts, "editedMask"), 1) }   // 1 = characters changed
+func cocoaTSClearColor(ts) {
+    msg_3(ts, "removeAttribute:range:", nsString("NSColor"), 0, msg(ts, "length"))
+    emit "1"
+}
+func cocoaTSColorRange(ts, color, loc, len) {
+    let total = msg(ts, "length")
+    if loc >= total { emit "1" }
+    let l = len
+    if loc + l > total { l = total - loc }
+    msg_4(ts, "addAttribute:value:range:", nsString("NSColor"), color, loc, l)
+    emit "1"
+}
+
 // ── Colors (named — Krypton has no float literals for colorWithRed:…) ───
 func cocoaColorNamed(name)        { emit msg(cls("NSColor"), name) }
 func cocoaSetBg(view, color)      { msg_1(view, "setBackgroundColor:", color)  emit "1" }
