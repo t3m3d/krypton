@@ -291,6 +291,15 @@ func cocoaMenuAdd(bar, title) {
     msg_1(bar, "addItem:", item)
     emit sub
 }
+// Add a menu item bound to a built-in selector with NO target — it dispatches up
+// the responder chain to the first responder (e.g. cut:/copy:/paste:/selectAll:/
+// performFindPanelAction: handled by the focused NSTextView). Standard editing.
+func cocoaMenuItemSel(menu, title, key, selName) {
+    let item = msg_3(msg(cls("NSMenuItem"), "alloc"), "initWithTitle:action:keyEquivalent:",
+        nsString(title), sel(selName), nsString(key))
+    msg_1(menu, "addItem:", item)
+    emit "1"
+}
 // Add an action item to a menu, wired to a Krypton handler (one class per fn).
 func cocoaMenuItem(menu, title, key, fnPtr) {
     let nm = "KryptonObjkMenuCB" + ("" + fnPtr)
