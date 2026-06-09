@@ -273,6 +273,14 @@ func _forHas(sym) {
     while i < n { if getLine(g_FORSYMS, i) == sym { emit 1 }  i += 1 }
     emit 0
 }
+// arm64 SCVTF Dd, Xn — signed 64-bit int -> double (objk NSRect float args).
+func arm64_scvtf_d_x(dd, xn) { emit hexDword((0x9e62 * 0x10000 + 0x0) + xn * 32 + dd) }
+// instruction count for a CALL_FUNC (must match the byte emitter). The NSRect
+// window-init special form is 15 instrs (3 GP pops + 4×(pop+scvtf) + 2 GP pops + bl + push).
+func cfCount(cname, argc) {
+    if cname == "objc_msgSend_rect" { emit 15 }
+    emit argc + 2
+}
 // 0-based index of foreign symbol "_"+name in g_FORSYMS, or -1 if not foreign.
 func foreignIdx(name) {
     let sym = foreignSymFor(name)  let i = 0
@@ -2243,7 +2251,7 @@ func computeFunctionInstrs(parsed, fIdx) {
             while s2 < len(opLine) && opLine[s2] != " " { s2 += 1 }
             let argc = 0
             if s2 < len(opLine) { argc = toInt(trim(substring(opLine, s2 + 1, len(opLine)))) }
-            n = n + argc + 2
+            n = n + cfCount(substring(opLine, sp + 1, s2), argc)
         } else if tok == "RETURN" {
             n = n + 3
             if frame > 0 { n = n + 1 }
@@ -2295,7 +2303,7 @@ func buildFunctionLabelTable(parsed, fIdx, funcStartInstr) {
             while s2 < len(opLine) && opLine[s2] != " " { s2 += 1 }
             let argc = 0
             if s2 < len(opLine) { argc = toInt(trim(substring(opLine, s2 + 1, len(opLine)))) }
-            n = n + argc + 2
+            n = n + cfCount(substring(opLine, sp + 1, s2), argc)
         } else if tok == "RETURN" {
             n = n + 3
             if frame > 0 { n = n + 1 }
@@ -4928,6 +4936,26 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             let cname = substring(restTok, 0, s2)
             let argc = 0
             if s2 < len(restTok) { argc = toInt(trim(substring(restTok, s2 + 1, len(restTok)))) }
+            // objk NSRect form: objc_msgSend_rect(obj, sel, x, y, w, h, mask, backing, defer)
+            // arm64 AAPCS: self x0, sel x1, NSRect{x,y,w,h} -> d0..d3, mask x2, backing x3, defer x4.
+            if cname == "objc_msgSend_rect" {
+                s = sbAppend(s, arm64_pop(4))  instrIdx = instrIdx + 1   // defer
+                s = sbAppend(s, arm64_pop(3))  instrIdx = instrIdx + 1   // backing
+                s = sbAppend(s, arm64_pop(2))  instrIdx = instrIdx + 1   // mask
+                s = sbAppend(s, arm64_pop(9))  instrIdx = instrIdx + 1   // h
+                s = sbAppend(s, arm64_scvtf_d_x(3, 9))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_pop(9))  instrIdx = instrIdx + 1   // w
+                s = sbAppend(s, arm64_scvtf_d_x(2, 9))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_pop(9))  instrIdx = instrIdx + 1   // y
+                s = sbAppend(s, arm64_scvtf_d_x(1, 9))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_pop(9))  instrIdx = instrIdx + 1   // x
+                s = sbAppend(s, arm64_scvtf_d_x(0, 9))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_pop(1))  instrIdx = instrIdx + 1   // sel
+                s = sbAppend(s, arm64_pop(0))  instrIdx = instrIdx + 1   // obj
+                let rti = textSz / 4 + foreignIdx("objc_msgSend_rect") * 3
+                s = sbAppend(s, arm64_bl(rti - instrIdx))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_push(0))  instrIdx = instrIdx + 1
+            } else {
             // Pop args in reverse: x(argc-1) first (TOS), down to x0 (deepest)
             let ai = argc - 1
             while ai >= 0 {
@@ -4944,6 +4972,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             instrIdx = instrIdx + 1
             s = sbAppend(s, arm64_push(0))
             instrIdx = instrIdx + 1
+            }
         } else if opTok == "RETURN" {
             s = sbAppend(s, arm64_pop_x0())
             instrIdx = instrIdx + 1
