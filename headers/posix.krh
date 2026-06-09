@@ -1,0 +1,13 @@
+// posix.krh — libc/POSIX primitives (libSystem) for pty + process control.
+// import "head:posix"
+jxt {
+    func posix_openpt(flags)        // master pty fd (O_RDWR=2)
+    func grantpt(fd)
+    func unlockpt(fd)
+    func ptsname(fd)                // -> char* slave device path
+    func fork()                     // -> pid (0 in child)
+    func setsid()
+    func dup2(oldfd, newfd)
+    func execl(path, arg0, term)    // varargs; pass 0 terminator
+    func _exit(code)
+}
