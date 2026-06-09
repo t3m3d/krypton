@@ -191,6 +191,39 @@ func cocoaSplit(win, x, y, w, h) {
 }
 func cocoaSplitAdd(split, view) { msg_1(split, "addSubview:", view)  emit "1" }
 
+// ── Menu bar ───────────────────────────────────────────────────────────
+func cocoaMenuBar(app) {
+    let bar = msg(cls("NSMenu"), "new")
+    msg_1(app, "setMainMenu:", bar)
+    emit bar
+}
+// Add a top-level menu (e.g. the app menu) to the bar; returns the submenu so
+// items can be added to it.
+func cocoaMenuAdd(bar, title) {
+    let item = msg_3(msg(cls("NSMenuItem"), "alloc"), "initWithTitle:action:keyEquivalent:",
+        nsString(title), 0, nsString(""))
+    let sub = msg_1(msg(cls("NSMenu"), "alloc"), "initWithTitle:", nsString(title))
+    msg_1(item, "setSubmenu:", sub)
+    msg_1(bar, "addItem:", item)
+    emit sub
+}
+// Add an action item to a menu, wired to a Krypton handler (one class per fn).
+func cocoaMenuItem(menu, title, key, fnPtr) {
+    let nm = "KryptonObjkMenuCB" + ("" + fnPtr)
+    let c = objc_lookUpClass(nm)
+    if c == 0 {
+        c = objc_allocateClassPair(cls("NSObject"), nm, 0)
+        class_addMethod(c, sel("objk_dispatch:"), fnPtr, "v@:@")
+        objc_registerClassPair(c)
+    }
+    let target = msg(msg(c, "alloc"), "init")
+    let item = msg_3(msg(cls("NSMenuItem"), "alloc"), "initWithTitle:action:keyEquivalent:",
+        nsString(title), sel("objk_dispatch:"), nsString(key))
+    msg_1(item, "setTarget:", target)
+    msg_1(menu, "addItem:", item)
+    emit "1"
+}
+
 // ── Internal helpers ───────────────────────────────────────────────────
 
 func _addToContentView(win, view) {
