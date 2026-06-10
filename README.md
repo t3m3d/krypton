@@ -122,7 +122,7 @@ run, imports, and self-host on macOS (arm64), Linux (x86-64), and Windows
 | Platform | Shipped version | Notes |
 |----------|-----------------|-------|
 | macOS arm64 | **2.3.0** | `brew install t3m3d/krypton/krypton`, the `.pkg`, or the tarball. Clang-free self-host; Krypton-native `kcc.ks` driver. |
-| Linux x86_64 | **2.3.0** | Prebuilt tarball → `./install.sh` (no C compiler). Self-hosting. aarch64 via `kcc --aarch64` cross-compile. |
+| Linux x86_64 | **2.3.0** | `brew install t3m3d/krypton/krypton` (kcc + kweb), the prebuilt tarball → `./install.sh`, or build from source. No C compiler. Self-hosting. aarch64 via `kcc --aarch64` cross-compile. |
 | Windows x86_64 | **2.3.0** | Inno Setup installer: `kcc.exe`/`kcc-bin.exe` driver/backend split, native `krypton_rt.dll`, `kr.exe` REPL, kweb, WASM, .k/.ks associations. |
 | **VS Code / Antigravity ext.** | **2.3.0** | `extensions/krypton-language-2.3.0.vsix`. Adds `.ks` (KryptScript) alongside `.k`, bundles the `kls` language server for Windows + macOS, ships `KryptScript` as a language-picker alias. |
 
@@ -219,6 +219,18 @@ just run {
 ---
 
 ### Linux / WSL
+
+**Install via Homebrew (recommended):**
+
+```bash
+brew tap t3m3d/krypton
+brew install krypton
+```
+
+Installs `kcc` (or `krypton`) and `kweb` on PATH — prebuilt static ELF binaries,
+no C compiler. x86_64 only.
+
+**Or the prebuilt tarball / source:**
 
 ```bash
 git clone https://github.com/t3m3d/krypton && cd krypton && ./install.sh
