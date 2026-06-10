@@ -1281,6 +1281,48 @@ func onRevert(self, cmd, sender) {
 func onCloseEditor(self, cmd, sender) { onClose(self, cmd, sender) }
 func onCloseWindow(self, cmd, sender) { msg_1(cocoaGetAssocKey(appH(), "brain.win"), "performClose:", 0)  emit "1" }
 
+// ── View: toggle sidebar / terminal ─────────────────────────────────────
+func brainFlag(key, def) {
+  let v = cocoaGetAssocKey(appH(), key)
+  if v == 0 { emit def }
+  emit cocoaNumberVal(v)
+}
+func relayout() {
+  let app = appH()
+  let sb = brainFlag("brain.sidebar", 1)
+  let tm = brainFlag("brain.terminal", 1)
+  let sbw = 240
+  if sb == 0 { sbw = 0 }
+  let topB = 252
+  if tm == 0 { topB = 0 }
+  let treeHidden = 1
+  if sb == 1 { treeHidden = 0 }
+  msg_1(cocoaGetAssocKey(app, "brain.treesv"), "setHidden:", treeHidden)
+  msg_frame(cocoaGetAssocKey(app, "brain.treesv"), "setFrame:", 0, topB, 240, 640 - topB)
+  let termHidden = 1
+  if tm == 1 { termHidden = 0 }
+  msg_1(cocoaGetAssocKey(app, "brain.termsv"), "setHidden:", termHidden)
+  msg_1(cocoaGetAssocKey(app, "brain.kview"), "setHidden:", termHidden)
+  msg_frame(cocoaGetAssocKey(app, "brain.editorsv"), "setFrame:", sbw, topB, 940 - sbw, 608 - topB)
+  emit "1"
+}
+func onToggleSidebar(self, cmd, sender) {
+  let v = brainFlag("brain.sidebar", 1)
+  let nv = 0
+  if v == 0 { nv = 1 }
+  cocoaSetAssocKey(appH(), "brain.sidebar", cocoaNumber(nv))
+  relayout()
+  emit "1"
+}
+func onToggleTerminal(self, cmd, sender) {
+  let v = brainFlag("brain.terminal", 1)
+  let nv = 0
+  if v == 0 { nv = 1 }
+  cocoaSetAssocKey(appH(), "brain.terminal", cocoaNumber(nv))
+  relayout()
+  emit "1"
+}
+
 just run {
   let dir = projDir()
   recentAdd("folders", dir)
@@ -1355,6 +1397,11 @@ just run {
   cocoaClassRegister(kc)
   let kview = cocoaCustomView(win, kc, 0, 0, 940, 246)
   cocoaSetAssocKey(app, "stem.master", cocoaNumber(m))
+  // view refs for View-menu toggles
+  cocoaSetAssocKey(app, "brain.treesv", msg(table, "enclosingScrollView"))
+  cocoaSetAssocKey(app, "brain.editorsv", msg(editor, "enclosingScrollView"))
+  cocoaSetAssocKey(app, "brain.termsv", msg(term, "enclosingScrollView"))
+  cocoaSetAssocKey(app, "brain.kview", kview)
 
   // file tree data
   let files = cocoaArray()
@@ -1420,11 +1467,22 @@ just run {
   cocoaMenuItem(fileMenu, "Close Window", "W", funcptr(onCloseWindow))
   let editMenu = cocoaMenuAdd(bar, "Edit")
   cocoaMenuItemSel(editMenu, "Undo", "z", "undo:")
+  cocoaMenuItemSel(editMenu, "Redo", "Z", "redo:")
+  cocoaMenuSeparator(editMenu)
   cocoaMenuItemSel(editMenu, "Cut", "x", "cut:")
   cocoaMenuItemSel(editMenu, "Copy", "c", "copy:")
   cocoaMenuItemSel(editMenu, "Paste", "v", "paste:")
+  cocoaMenuItemSel(editMenu, "Delete", "", "delete:")
   cocoaMenuItemSel(editMenu, "Select All", "a", "selectAll:")
-  cocoaMenuItemSel(editMenu, "Find", "f", "performTextFinderAction:")
+  cocoaMenuSeparator(editMenu)
+  // NSTextFinder actions (tag = NSTextFinderAction): 1 showFind, 2 next, 3 prev, 12 showReplace
+  cocoaMenuItemSelTag(editMenu, "Find", "f", "performTextFinderAction:", 1)
+  cocoaMenuItemSelTag(editMenu, "Find Next", "g", "performTextFinderAction:", 2)
+  cocoaMenuItemSelTag(editMenu, "Find Previous", "G", "performTextFinderAction:", 3)
+  cocoaMenuItemSelTag(editMenu, "Find and Replace", "F", "performTextFinderAction:", 12)
+  let viewMenu = cocoaMenuAdd(bar, "View")
+  cocoaMenuItem(viewMenu, "Toggle Sidebar", "b", funcptr(onToggleSidebar))
+  cocoaMenuItem(viewMenu, "Toggle Terminal", "j", funcptr(onToggleTerminal))
   let runMenu = cocoaMenuAdd(bar, "Run")
   cocoaMenuItem(runMenu, "Run File", "r", funcptr(onRun))
 
