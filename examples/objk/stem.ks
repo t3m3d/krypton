@@ -755,7 +755,35 @@ func cubeLvl(v) { if v == 0 { emit 0 }  emit v * 40 + 55 }
 
 // True 256-colour index -> NSColor (exact RGB): 0-15 ANSI palette, 16-231 the
 // 6x6x6 cube, 232-255 greyscale ramp.
-func color256(n) {
+// ── config (~/.config/stem/config, simple key = value) ─────────────────
+func cfgVal(cfg, key, def) {
+  let n = len(cfg)  let i = 0  let ls = 0
+  while i <= n {
+    let brk = 0
+    if i == n { brk = 1 }
+    if brk == 0 { if cfg[i] == "\n" { brk = 1 } }
+    if brk == 1 {
+      let line = trim(substring(cfg, ls, i))
+      let eq = indexOf(line, "=")
+      if eq > 0 { if trim(substring(line, 0, eq)) == key { emit trim(substring(line, eq + 1, len(line))) } }
+      ls = i + 1
+    }
+    i = i + 1
+  }
+  emit def
+}
+func hexNib(c) { emit indexOf("0123456789abcdef", toLower(c)) }
+func hexByte(s, i) { emit hexNib(substring(s, i, i + 1)) * 16 + hexNib(substring(s, i + 1, i + 2)) }
+// config colour (#RRGGBB) or fallback RGB.
+func cfgRGB(cfg, key, r, g, b) {
+  let v = cfgVal(cfg, key, "")
+  if indexOf(v, "#") == 0 { emit cocoaRGB(hexByte(v, 1), hexByte(v, 3), hexByte(v, 5)) }
+  emit cocoaRGB(r, g, b)
+}
+// palette lookup (built once into stem.pal; colours 0-15 overridable via config).
+func color256(n) { emit cocoaArrayGet(cocoaGetAssocKey(appH(), "stem.pal"), n) }
+
+func color256def(n) {
   if n == 0  { emit cocoaRGB(0, 0, 0) }
   if n == 1  { emit cocoaRGB(205, 49, 49) }
   if n == 2  { emit cocoaRGB(13, 188, 121) }
@@ -841,12 +869,29 @@ func renderSnapshot(snap, deflt, font) {
   emit acc
 }
 
+func defaultConfig() {
+  emit "# stem config — key = value, # comments. Restart stem to apply.\nshell = /bin/zsh\nfont = JetBrainsMono Nerd Font Mono\nfont_size = 13\ncols = 92\nrows = 28\nwidth = 760\nheight = 500\ntitle = stem\n# colours as #RRGGBB\nfg = #ffffff\nbg = #000000\ncolor0 = #000000\ncolor1 = #cd3131\ncolor2 = #0dbc79\ncolor3 = #e5e510\ncolor4 = #2472c8\ncolor5 = #bc3fbc\ncolor6 = #11a8cd\ncolor7 = #e5e5e5\ncolor8 = #666666\ncolor9 = #f14c4c\ncolor10 = #23d18b\ncolor11 = #f5f567\ncolor12 = #3b8eea\ncolor13 = #d670d6\ncolor14 = #29b8db\ncolor15 = #ffffff\n"
+}
+
 just run {
-  let cols = 92
-  let rows = 28
+  // load config (create with defaults on first run)
+  let cfgPath = environ("HOME") + "/.config/stem/config"
+  let cfg = readFile(cfgPath)
+  if len(cfg) == 0 {
+    exec("mkdir -p \"" + environ("HOME") + "/.config/stem\"")
+    cfg = defaultConfig()
+    writeFile(cfgPath, cfg)
+  }
+
+  let cols  = toInt(cfgVal(cfg, "cols", "92"))
+  let rows  = toInt(cfgVal(cfg, "rows", "28"))
+  let width = toInt(cfgVal(cfg, "width", "760"))
+  let height = toInt(cfgVal(cfg, "height", "500"))
+  let shell = cfgVal(cfg, "shell", "/bin/zsh")
+
   let m = ptyMaster("/dev/ptmx")
   let slave = ptySlaveName(m)
-  ptyForkExec(slave, "/bin/zsh")
+  ptyForkExec(slave, shell)
   let tries = 0
   let szdone = 0
   while tries < 60 {
@@ -860,15 +905,41 @@ just run {
   fdWrite(m, setup, len(setup))
 
   let app = cocoaInit()
-  let win = cocoaWindow(app, "stem — pure-Krypton terminal (grid)", 760, 500)
-  let view = cocoaScrollText(win, 0, 0, 760, 500)
+
+  // palette cache (0-15 from config, 16-255 computed)
+  let pal = cocoaArray()
+  let pn = 0
+  while pn < 256 {
+    let c = color256def(pn)
+    if pn == 0  { c = cfgRGB(cfg, "color0",  0, 0, 0) }
+    if pn == 1  { c = cfgRGB(cfg, "color1",  205, 49, 49) }
+    if pn == 2  { c = cfgRGB(cfg, "color2",  13, 188, 121) }
+    if pn == 3  { c = cfgRGB(cfg, "color3",  229, 229, 16) }
+    if pn == 4  { c = cfgRGB(cfg, "color4",  36, 114, 200) }
+    if pn == 5  { c = cfgRGB(cfg, "color5",  188, 63, 188) }
+    if pn == 6  { c = cfgRGB(cfg, "color6",  17, 168, 205) }
+    if pn == 7  { c = cfgRGB(cfg, "color7",  229, 229, 229) }
+    if pn == 8  { c = cfgRGB(cfg, "color8",  102, 102, 102) }
+    if pn == 9  { c = cfgRGB(cfg, "color9",  241, 76, 76) }
+    if pn == 10 { c = cfgRGB(cfg, "color10", 35, 209, 139) }
+    if pn == 11 { c = cfgRGB(cfg, "color11", 245, 245, 67) }
+    if pn == 12 { c = cfgRGB(cfg, "color12", 59, 142, 234) }
+    if pn == 13 { c = cfgRGB(cfg, "color13", 214, 112, 214) }
+    if pn == 14 { c = cfgRGB(cfg, "color14", 41, 184, 219) }
+    if pn == 15 { c = cfgRGB(cfg, "color15", 255, 255, 255) }
+    cocoaArrayAdd(pal, c)
+    pn = pn + 1
+  }
+  cocoaSetAssocKey(app, "stem.pal", pal)
+
+  let win = cocoaWindow(app, cfgVal(cfg, "title", "stem"), width, height)
+  let view = cocoaScrollText(win, 0, 0, width, height)
   msg_1(view, "setEditable:", 0)
   msg_1(view, "setSelectable:", 0)
-  let mono = cocoaFontFamily(cocoaMonoFont(13), "JetBrainsMono Nerd Font Mono")
+  let mono = cocoaFontFamily(cocoaMonoFont(toInt(cfgVal(cfg, "font_size", "13"))), cfgVal(cfg, "font", "JetBrainsMono Nerd Font Mono"))
   cocoaSetFont(view, mono)
-  let fg = cocoaColorNamed("whiteColor")
-  let bg = cocoaColorNamed("darkGrayColor")
-  if isDarkMode(app) == 1 { bg = cocoaColorNamed("blackColor") }
+  let fg = cfgRGB(cfg, "fg", 255, 255, 255)
+  let bg = cfgRGB(cfg, "bg", 0, 0, 0)
   cocoaSetBg(view, bg)
   cocoaSetTextColor(view, fg)
   msg_1(win, "setBackgroundColor:", bg)
@@ -879,7 +950,7 @@ just run {
   cocoaClassAddMethod(kc, "keyDown:", funcptr(onKey), "v@:@")
   cocoaClassAddMethod(kc, "acceptsFirstResponder", funcptr(acceptsFR), "c@:")
   cocoaClassRegister(kc)
-  let kview = cocoaCustomView(win, kc, 0, 0, 760, 500)
+  let kview = cocoaCustomView(win, kc, 0, 0, width, height)
 
   cocoaSetAssocKey(app, "stem.master", cocoaNumber(m))
   cocoaShow(win, app)
