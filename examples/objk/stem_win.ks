@@ -286,6 +286,42 @@ func onCmd() {
     guiSetText(_ci(), "")
 }
 
+// Inline-prompt handler.  Fires on every EN_CHANGE of the RichEdit.
+// We only act when:
+//   - re-entry guard is off  (so guiRichAppend below doesn't loop)
+//   - the buffer ends with "\n"  (user just pressed Enter)
+// Then: extract the text between the last "$ " marker and the
+// trailing newline → that's the command → run it → append a new "$ "
+// prompt.
+func onRichChange() {
+    if guiStateGet("stem.inHandler") == "1" { emit "1" }
+    let text = guiGetText(_o())
+    let n = len(text)
+    if n == 0 { emit "1" }
+    if text[n - 1] != "\n" { emit "1" }
+    // find last "$ " (search backwards for '$' then check next char)
+    let i = n - 2
+    let promptAt = 0 - 1
+    while i >= 0 {
+        if text[i] == "$" {
+            if i + 1 < n { if text[i + 1] == " " { promptAt = i  i = 0 - 1 } }
+        }
+        i = i - 1
+    }
+    if promptAt < 0 { emit "1" }
+    let cmd = substring(text, promptAt + 2, n - 1)
+    guiStateSet("stem.inHandler", "1")
+    if tryBuiltin(cmd) == "1" {
+        guiStateSet("stem.inHandler", "0")
+        appendOutput("$ ")
+        emit "1"
+    }
+    runCommand(cmd)
+    appendOutput("$ ")
+    guiStateSet("stem.inHandler", "0")
+    emit "1"
+}
+
 // ── entry ────────────────────────────────────────────────────────────
 
 just run {
@@ -309,28 +345,47 @@ just run {
     if osIsLightMode() == "0" { bg = "0x0a0a0a" }
     let fg = "0xe8e8e8"
     guiSetWindowBg(bg)
+    // Tells gui.k's WM_CTLCOLOREDIT/STATIC handler what fg to use,
+    // and the stored window-bg brush becomes the bg for EDIT/STATIC.
+    // Without this the cmdline EDIT renders white-on-white default.
+    guiSetUiTextColor(fg)
 
     guiInit()
     let win = guiWindow("stem", 900, 600)
     guiStateSet("stem.win", win + "")
 
-    let output  = guiRichEdit(win,  0,   0, 900, 560)
-    let cmdline = guiTextInput(win, 0, 560, 900,  40)
-    guiStateSet("stem.output",  output + "")
-    guiStateSet("stem.cmdline", cmdline + "")
+    // Single RichEdit pane — output and input share the same buffer,
+    // terminal-style.  RichEdit is editable; an onChange handler
+    // detects when the user pressed Enter (last char becomes \n) and
+    // extracts the command between the last "$ " prompt marker and
+    // the newline.  Re-entry guarded because guiRichAppend also fires
+    // EN_CHANGE.
+    let output  = guiRichEdit(win, 0, 0, 900, 600)
+    guiStateSet("stem.output", output + "")
+    guiStateSet("stem.cmdline", output + "")   // alias so existing code paths still resolve
 
     guiRichSetMonoFont(output, "Cascadia Mono", 11)
     guiRichSetBg(output, bg)
     guiRichSetFgDefault(output, fg)
-    guiRichReadOnly(output, 1)
-    guiOnClick(cmdline, funcptr(onCmd))
+    // Editable — user can type at the end of the buffer.
+    guiOnClick(output, funcptr(onRichChange))   // EN_CHANGE per keystroke
 
     refreshTitle()
-    appendOutput("\x1b[36mstem v0.1.3\x1b[0m -- pure-Krypton terminal (objk/Win32).\n")
+    // Banner first — guard prevents onRichChange from firing on each
+    // appendOutput call below.
+    guiStateSet("stem.inHandler", "1")
+    appendOutput("\x1b[36mstem v0.1.4\x1b[0m -- pure-Krypton terminal (objk/Win32).\n")
     appendOutput("builtins: clear / cls / exit. cd persists across commands.\n")
-    appendOutput("ANSI colours render inline via guiRichAppend.\n")
     appendOutput("\x1b[90mcwd: " + cwd + "\x1b[0m\n\n")
+    appendOutput("$ ")
+    guiStateSet("stem.inHandler", "0")
 
     guiShow(win)
+    // Push focus to the cmdline EDIT control via WM_NEXTDLGCTL (=40):
+    // wParam = HWND of the control to receive focus, lParam = 1 means
+    // "interpret wParam as an HWND, not as a tab direction". Works on
+    // any parent, doesn't require dialog style. SendMessageA is the
+    // proven-working entry point gui.k uses everywhere.
+    SendMessageA(win + "", "40", cmdline + "", "1")
     guiRun()
 }
