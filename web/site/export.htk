@@ -340,9 +340,9 @@ func siteNav(active) {
          htA("/playground.html", "Playground") +
          htA("/blog.html", "Blog") +
          htA("/docs.html", "Docs") +
-         htA("/programs.html", "Programs") +
+         htA("/programs/", "Programs") +
          htA("/kcode.html", "kcode") +
-         htA("/stem.html", "stem") +
+         htA("/programs/stem.html", "stem") +
          htA("/downloads.html", "Downloads") +
          htA("/contact.html", "Contact") +
          "</div></div></nav>" +
@@ -546,11 +546,22 @@ func pagePrograms() {
         "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
         htH1("Programs") +
         htP("Real software written in Krypton.") +
+        "<p style=" + DQ() + "margin-top:10px;font-size:1.05em" + DQ() + ">" +
+            htA("/kcode.html", "kcode") + " &middot; " +
+            htA("/programs/stem.html", "stem") + " &middot; " +
+            htA("/programs/brain.html", "brain") + " &middot; " +
+            htA("/programs/#kryofetch", "kryofetch") + " &middot; " +
+            htA("/programs/#kmon", "kmon") + " &middot; " +
+            htA("/programs/#yubikrypt", "yubiKrypt") + " &middot; " +
+            htA("/objk.html", "objk") +
+        "</p>" +
         "</div>"
     let content = hero +
         "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
         "<div class=" + DQ() + "card" + DQ() + " style=" + DQ() + "margin:24px 0" + DQ() + ">" +
         "<span class=" + DQ() + "tag" + DQ() + ">Featured</span>" +
+        "<a id=" + DQ() + "kryofetch" + DQ() + "></a>" +
+
         htH2("kryofetch") +
         htP("A system-information fetch tool. Reads user, OS, CPU, RAM/disk with bar graphs, GPU, shell, terminal, resolution, uptime, and theme " + DASH() + " rendered next to a coloured ASCII logo.") +
         htP("Windows port (~600 lines, 7 modules) talks to Win32 directly " + DASH() + " registry, GlobalMemoryStatusEx, DXGI. Linux port reads /proc, /sys, /etc/os-release via native readProc syscalls. No WMI, no PowerShell, no Python.") +
@@ -558,15 +569,17 @@ func pagePrograms() {
         htP(htEm("Windows 10/11 (native PE/COFF) " + DOT() + " Linux x86_64 (static syscall-only ELF, no gcc at runtime). aarch64 follows when its Milestone 4 ships string-concat.")) +
         "</div>" +
         "<div class=" + DQ() + "card" + DQ() + " style=" + DQ() + "margin:24px 0" + DQ() + ">" +
-        "<span class=" + DQ() + "tag" + DQ() + ">New</span>" +
-        htH2("kmon") +
+                "<a id=" + DQ() + "kmon" + DQ() + "></a>" +
+
+                htH2("kmon") +
         htP("Real-time network monitor. Captures live packets, parses Ethernet + IPv4 + TCP/UDP/ICMP in pure Krypton, streams to a browser dashboard via SSE.") +
         htP(htA("https://github.com/t3m3d/kmon", "View on GitHub")) +
         htP(htEm("Windows 10/11 " + DOT() + " requires Npcap")) +
         "</div>" +
         "<div class=" + DQ() + "card" + DQ() + " style=" + DQ() + "margin:24px 0" + DQ() + ">" +
-        "<span class=" + DQ() + "tag" + DQ() + ">New</span>" +
-        htH2("yubiKrypt") +
+                "<a id=" + DQ() + "yubikrypt" + DQ() + "></a>" +
+
+                htH2("yubiKrypt") +
         htP("A YubiKey detector and OATH/TOTP authenticator written entirely in KryptScript. Detects a plugged-in key, shows model + interfaces, and (with ykman installed) renders live TOTP codes with a 30-second countdown.") +
         htP("Single self-contained .ks file. macOS frontend reused verbatim on Linux " + DASH() + " same .ks, same builtins, just a different native backend underneath.") +
         htP(htA("https://github.com/t3m3d/yubikrypt", "View on GitHub")) +
@@ -575,10 +588,18 @@ func pagePrograms() {
         "<div class=" + DQ() + "card" + DQ() + " style=" + DQ() + "margin:24px 0" + DQ() + ">" +
         "<span class=" + DQ() + "tag" + DQ() + ">New</span>" +
         htH2("stem") +
-        htP("A terminal emulator being built in pure Krypton plus KryptScript " + DASH() + " no Qt, no GTK, no libX11. The window comes from stdlib/x11.k (the Krypton X11 wire-protocol client speaking directly over a socket); the binary is a static syscall-only ELF.") +
-        htP("Phase 0 shipped: spawns a child process via shellRun and echoes its output. Phase 1 (X11 window) and Phase 2 (in-window rendering) follow as stdlib/x11.k gains CreateWindow + ImageText8. Sibling project to terk (Qt6/C++) " + DASH() + " stem exists to retire that C++ surface once feature parity lands.") +
-        htP(htA("https://github.com/t3m3d/stem", "View on GitHub")) +
-        htP(htEm("Linux x86_64 " + DOT() + " 4126-byte static ELF (phase 0). Linux aarch64 once that backend finishes Milestone 4 (string-concat).")) +
+        htP("A terminal emulator written entirely in pure Krypton on the objk Objective-C FFI " + DASH() + " no Obj-C source. The shell, the pseudo-terminal, the ANSI grid renderer (" + htCode("term.k") + ") and the macOS window/keyboard/colour are all native Krypton.") +
+        htP("Live " + htCode("zsh") + " sourcing your " + htCode("~/.zshrc") + " (powerlevel10k), truecolor, Nerd Font glyphs, a vertical-bar cursor, and a full config (" + htCode("~/.config/stem/config") + ": shell, font, size, colours).") +
+        htP(htA("/programs/stem.html", "Details") + " " + DOT() + " " + htA("https://github.com/t3m3d/stem", "View on GitHub")) +
+        htP(htEm("macOS arm64 " + DOT() + " " + htCode("brew install --cask t3m3d/krypton/stem"))) +
+        "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + " style=" + DQ() + "margin:24px 0" + DQ() + ">" +
+        "<span class=" + DQ() + "tag" + DQ() + ">New</span>" +
+        htH2("brain") +
+        htP("A native macOS IDE written in pure Krypton on the objk FFI " + DASH() + " no Obj-C source. File-tree sidebar, multi-file tabs, live syntax highlighting, Open/Save/Run, and an integrated console.") +
+        htP("Built on the same objk Cocoa stdlib as stem: NSWindow, NSTextView, NSTableView data sources, menus and delegates are all Krypton funcs used directly as Objective-C method IMPs. Pairs with the stem terminal.") +
+        htP(htA("/programs/brain.html", "Details") + " " + DOT() + " " + htA("https://github.com/t3m3d/krypton/tree/main/examples/objk", "View on GitHub")) +
+        htP(htEm("macOS arm64 " + DOT() + " no C, no Obj-C, no Swift.")) +
         "</div>" +
         htH2("More") +
         "<div class=" + DQ() + "grid" + DQ() + ">" +
@@ -1295,9 +1316,11 @@ func buildSitemap() {
         _sitemapUrl("/learn.html") +
         _sitemapUrl("/playground.html") +
         _sitemapUrl("/blog.html") +
-        _sitemapUrl("/programs.html") +
+        _sitemapUrl("/programs/") +
         _sitemapUrl("/kcode.html") +
-        _sitemapUrl("/stem.html") +
+        _sitemapUrl("/programs/stem.html") +
+        _sitemapUrl("/programs/brain.html") +
+        _sitemapUrl("/objk.html") +
         _sitemapUrl("/downloads.html") +
         _sitemapUrl("/kryptscript.html") +
         _sitemapUrl("/contact.html") +
@@ -1431,12 +1454,83 @@ func pageStem() {
 
     let install = "<section class=" + DQ() + "dotbg" + DQ() + " id=" + DQ() + "install" + DQ() + "><div class=" + DQ() + "wrap" + DQ() + " style=" + DQ() + "text-align:center" + DQ() + ">" +
         htH2("Install") +
-        htP("macOS on Apple Silicon (Tahoe). Add the tap, then install the CLI, the clickable app, or both.") +
+        htP("macOS on Apple Silicon (Tahoe).") +
         htPre("brew install --cask t3m3d/krypton/stem") +
         htP(htEm("A " + htA("https://www.nerdfonts.com/", "JetBrainsMono Nerd Font") + " is recommended for powerline / icon glyphs (configurable in " + htCode("~/.config/stem/config") + ").")) +
         "</div></section>"
 
     emit sitePage("stem", hero + features + install)
+}
+
+func pageBrain() {
+    let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
+        "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
+        htImgA(htSrc("/brain.png") + htAttr("alt", "brain app icon") +
+               htAttr("style", "width:132px;height:132px;border-radius:24%;box-shadow:0 12px 40px rgba(0,0,0,.45);margin-bottom:20px")) +
+        "<span class=" + DQ() + "tag" + DQ() + ">macOS arm64 " + DASH() + " free</span>" +
+        htH1("brain") +
+        htP("A native macOS code editor / IDE whose entire UI is " + htEm("pure Krypton") + " on the objk Objective-C FFI " + DASH() +
+            " no Obj-C, no Swift source. A real Cocoa app " + DASH() + " NSWindow, NSTextView, NSTableView, menus " + DASH() + " driven by Krypton functions used directly as Objective-C method IMPs. Pairs with the " + htA("/programs/stem.html", "stem") + " terminal.") +
+        "<a href=" + DQ() + "#install" + DQ() + " class=" + DQ() + "btn primary" + DQ() + ">Install via Homebrew</a>" +
+        "<a href=" + DQ() + "https://github.com/t3m3d/krypton/releases/tag/brain-0.1.0" + DQ() + " class=" + DQ() + "btn primary" + DQ() + ">Download DMG</a>" +
+        "<a href=" + DQ() + "https://github.com/t3m3d/krypton/tree/main/examples/objk" + DQ() + " class=" + DQ() + "btn outline" + DQ() + ">View Source</a>" +
+        "</div>"
+
+    let features = "<section id=" + DQ() + "features" + DQ() + "><div class=" + DQ() + "wrap" + DQ() + ">" +
+        htH2("A code editor, written in Krypton") +
+        htP("File tree, tabs, live syntax highlighting and a Run button " + DASH() + " the VS Code basics, with zero Objective-C source.") +
+        "<div class=" + DQ() + "grid" + DQ() + ">" +
+        krCard("Live syntax highlighting", "Colours keywords, strings and comments as you type, via an " + htCode("NSTextStorage") + " delegate that is itself a Krypton function.") +
+        krCard("File tree + tabs", "An " + htCode("NSTableView") + " sidebar (Krypton data source) lists the folder; multi-file tabs (" + htCode("NSSegmentedControl") + ") keep each document's text.") +
+        krCard("Open / Save / Run", "&#8984;O / &#8984;S, and &#8984;R compiles the open file with " + htCode("kcc") + " and shows the output. New / Close tab, a full Edit menu.") +
+        krCard("Integrated console", "A bottom pane runs shell commands and shows their output, next to the editor.") +
+        krCard("Pure objk Cocoa", "Window, text view, table data sources, menus and delegates are all Krypton funcs as Obj-C IMPs " + DASH() + " the same objk stdlib stem is built on.") +
+        krCard("Tiny &amp; self-contained", "A single Mach-O, ad-hoc signed, no runtime dependency.") +
+        "</div>" +
+        "</div></section>"
+
+    let install = "<section class=" + DQ() + "dotbg" + DQ() + " id=" + DQ() + "install" + DQ() + "><div class=" + DQ() + "wrap" + DQ() + " style=" + DQ() + "text-align:center" + DQ() + ">" +
+        htH2("Install") +
+        htP("macOS on Apple Silicon (Tahoe).") +
+        htPre("brew install --cask t3m3d/krypton/brain") +
+        htP(htEm("Pure Krypton on objk " + DASH() + " no C, no Obj-C, no Swift. Or grab the " + htA("https://github.com/t3m3d/krypton/releases/tag/brain-0.1.0", "DMG") + ".")) +
+        "</div></section>"
+
+    emit sitePage("brain", hero + features + install)
+}
+
+func pageObjk() {
+    let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
+        "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
+        htImgA(htSrc("/objk.png") + htAttr("alt", "objk icon") +
+               htAttr("style", "width:132px;height:132px;border-radius:24%;box-shadow:0 12px 40px rgba(0,0,0,.45);margin-bottom:20px")) +
+        "<span class=" + DQ() + "tag" + DQ() + ">macOS arm64</span>" +
+        htH1("objk") +
+        htP("Objective-K " + DASH() + " a Krypton " + "&#8596;" + " Objective-C / Cocoa bridge built into the Mach-O backend. It lets " + htEm("pure Krypton") + " programs call macOS AppKit & Foundation directly, so a real native GUI app can ship with " + htEm("no Obj-C, no Swift source") + ". It is what " + htA("/programs/stem.html", "stem") + " and " + htA("/programs/brain.html", "brain") + " are built on.") +
+        "<a href=" + DQ() + "#how" + DQ() + " class=" + DQ() + "btn primary" + DQ() + ">How it works</a>" +
+        "<a href=" + DQ() + "https://github.com/t3m3d/krypton/tree/main/stdlib" + DQ() + " class=" + DQ() + "btn outline" + DQ() + ">View stdlib</a>" +
+        "</div>"
+
+    let how = "<section id=" + DQ() + "how" + DQ() + "><div class=" + DQ() + "wrap" + DQ() + ">" +
+        htH2("Krypton calling Cocoa, with no Objective-C") +
+        htP("The backend dyld-binds " + htCode("libobjc") + " / Foundation / AppKit, then lowers a small family of " + htCode("objc_msgSend") + " calls. Krypton's register calling convention already matches the arm64 ABI, so a Krypton function is usable " + htEm("directly") + " as an Objective-C method IMP " + DASH() + " that is how callbacks, data sources and delegates work.") +
+        "<div class=" + DQ() + "grid" + DQ() + ">" +
+        krCard("objc_msgSend family", "Dispatch wrappers for 0&#8211;6 args, plus NSRect (d0&#8211;d3), CGFloat, NSSize, NSPoint+ptr, 256-colour RGBA, and NSTimer variants " + DASH() + " each one is a tiny lowering in the backend.") +
+        krCard("Funcs as IMPs", "A Krypton " + htCode("func onClick(self, cmd, sender)") + " is registered with " + htCode("class_addMethod") + " and called by Cocoa with no shim. Multi-method delegates (table data sources, text-storage) work the same way.") +
+        krCard("Runtime class synthesis", "Build Obj-C classes at runtime (" + htCode("objc_allocateClassPair") + ") whose methods are Krypton funcs " + DASH() + " custom NSViews with " + htCode("drawRect:") + ", delegates, targets.") +
+        krCard("Ergonomic stdlib", htCode("stdlib/cocoa.k") + " + " + htCode("stdlib/objc.k") + " wrap it: windows, buttons, text views, tables, menus, colours, fonts, timers " + DASH() + " " + htCode("msg(obj, \"setTitle:\", nsString(s))") + " reads like Swift.") +
+        krCard("Strings are C strings", "Krypton strings are NUL-terminated, so a string literal IS a valid " + htCode("char*") + " " + DASH() + " no marshalling to pass selectors, class names or text to Cocoa.") +
+        krCard("Self-host safe", "Programs with no foreign calls stay byte-identical (N=0 invariant), so adding the FFI never disturbs the bootstrapping compiler.") +
+        "</div>" +
+        "</div></section>"
+
+    let powers = "<section class=" + DQ() + "dotbg" + DQ() + "><div class=" + DQ() + "wrap" + DQ() + " style=" + DQ() + "text-align:center" + DQ() + ">" +
+        htH2("What it powers") +
+        htP("Real, shipping apps " + DASH() + " not demos:") +
+        htP(htA("/programs/stem.html", "stem") + " " + DOT() + " a terminal (NSWindow + grid + pty). " + htA("/programs/brain.html", "brain") + " " + DOT() + " an IDE (NSTextView, NSTableView, tabs, menus). Both pure Krypton.") +
+        "</div></section>"
+
+    emit sitePage("objk", hero + how + powers)
 }
 
 func pageKcode() {
@@ -1706,12 +1800,14 @@ just run {
     writePage(dist + "/about.html", pageAbout())
     writePage(dist + "/features.html", pageFeatures())
     writePage(dist + "/compare.html", pageCompare())
-    writePage(dist + "/programs.html", pagePrograms())
+    writePage(dist + "/programs/index.html", pagePrograms())
     writePage(dist + "/downloads.html", pageDownloads())
     writePage(dist + "/kryptscript.html", pageKryptScript())
     writePage(dist + "/contact.html", pageContact())
     writePage(dist + "/kcode.html", pageKcode())
-    writePage(dist + "/stem.html", pageStem())
+    writePage(dist + "/programs/stem.html", pageStem())
+    writePage(dist + "/programs/brain.html", pageBrain())
+    writePage(dist + "/objk.html", pageObjk())
     writePage(dist + "/sponsor.html", pageSponsor())
     writePage(dist + "/playground.html", pagePlayground())
     writePage(dist + "/blog.html", pageBlog())
