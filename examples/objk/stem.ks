@@ -1,9 +1,8 @@
 // stem — a pure-Krypton terminal on objk (no Obj-C source).
-// Real shell on a pseudo-terminal (native pty builtins). Raw keystrokes go
-// straight to the pty (shell echoes them inline). The pty is read in a MANUAL
-// event loop (fdRead inside a run-loop callback faults), and a small terminal
-// filter handles backspace + strips CSI escapes so line editing reads cleanly.
-// Replaces gui_shim.m.
+// Real shell on a pty (native pty builtins). Raw keys -> pty (shell echoes
+// inline). The pty is read in a MANUAL event loop (fdRead in a run-loop callback
+// faults) and parsed into coloured text runs (SGR) in the view's textStorage,
+// with backspace + CSI handling. Replaces gui_shim.m.
 import "k:cocoa"
 import "k:objc"
 import "head:cocoa"
@@ -11,50 +10,62 @@ import "head:objc"
 
 func appH() { emit msg(cls("NSApplication"), "sharedApplication") }
 
+// Raw key -> pty. Arrows become ESC[ABCD; other keys pass through.
 func onKey(self, cmd, event) {
   let m = cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.master"))
   let esc = fromCharCode(27)
   let kc = msg(event, "keyCode")
   let seq = ""
-  if kc == 126 { seq = esc + "[A" }       // up
-  if kc == 125 { seq = esc + "[B" }       // down
-  if kc == 124 { seq = esc + "[C" }       // right
-  if kc == 123 { seq = esc + "[D" }       // left
+  if kc == 126 { seq = esc + "[A" }
+  if kc == 125 { seq = esc + "[B" }
+  if kc == 124 { seq = esc + "[C" }
+  if kc == 123 { seq = esc + "[D" }
   if seq == "" { seq = msg(msg(event, "characters"), "UTF8String") }
   fdWrite(m, seq, len(seq))
 }
 func acceptsFR(self, cmd) { emit 1 }
+func isDarkMode(app) { emit indexOf(msg(msg(msg(app, "effectiveAppearance"), "name"), "UTF8String"), "Dark") >= 0 }
 
-// Dark mode? effectiveAppearance name contains "Dark".
-func isDarkMode(app) {
-  emit indexOf(msg(msg(msg(app, "effectiveAppearance"), "name"), "UTF8String"), "Dark") >= 0
+func isCsiFinal(ch) { emit indexOf("@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~", ch) >= 0 }
+
+// SGR params -> NSColor (deflt on reset/unknown).
+func sgrColor(body, deflt) {
+  if indexOf(body, "31") >= 0 { emit cocoaColorNamed("systemRedColor") }
+  if indexOf(body, "32") >= 0 { emit cocoaColorNamed("systemGreenColor") }
+  if indexOf(body, "33") >= 0 { emit cocoaColorNamed("systemYellowColor") }
+  if indexOf(body, "34") >= 0 { emit cocoaColorNamed("systemBlueColor") }
+  if indexOf(body, "35") >= 0 { emit cocoaColorNamed("systemPurpleColor") }
+  if indexOf(body, "36") >= 0 { emit cocoaColorNamed("systemTealColor") }
+  if indexOf(body, "37") >= 0 { emit cocoaColorNamed("whiteColor") }
+  emit deflt
 }
 
-// Is `ch` a CSI final byte (0x40..0x7e)? Ends an ESC[ … sequence.
-func isCsiFinal(ch) { emit indexOf("@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~", ch) >= 0 }
-// Index of the last newline in `s` (-1 if none).
-func lastNl(s) { let i = len(s) - 1  while i >= 0 { if s[i] == "\n" { emit i }  i = i - 1 }  emit 0 - 1 }
+// Append `text` to the storage `ts` coloured `color`.
+func appendRun(ts, text, color) {
+  if len(text) == 0 { emit "1" }
+  let start = msg(ts, "length")
+  msg_1(ts, "appendAttributedString:", msg_1(msg(cls("NSAttributedString"), "alloc"), "initWithString:", nsString(text)))
+  msg_4(ts, "addAttribute:value:range:", nsString("NSColor"), color, start, msg(ts, "length") - start)
+  emit "1"
+}
+func tsLen(ts) { emit msg(ts, "length") }
+func delLast(ts) { let L = msg(ts, "length")  if L > 0 { msg_2(ts, "deleteCharactersInRange:", L - 1, 1) }  emit "1" }
+func clearTs(ts) { msg_2(ts, "deleteCharactersInRange:", 0, msg(ts, "length"))  emit "1" }
 
-// Apply a raw pty chunk to the on-screen string: backspace/DEL erase the last
-// char, CR clears the current line (shells redraw the line after \r), ESC[ …
-// CSI is stripped (ESC[2J clears the screen), everything else appends.
-// (Line-mode terminal: handles shell editing; full-screen apps need a grid.)
-func applyChunk(screen, chunk) {
+// Parse a raw chunk into coloured runs appended to `ts`; returns the new colour.
+func processChunk(ts, chunk, curColor, deflt) {
+  let esc = fromCharCode(27)
   let bs = fromCharCode(8)
   let del = fromCharCode(127)
   let cr = fromCharCode(13)
-  let esc = fromCharCode(27)
   let n = len(chunk)
-  let out = screen
   let i = 0
+  let run = ""
+  let color = curColor
   while i < n {
     let c = chunk[i]
-    let handled = 0
-    if c == bs  { if len(out) > 0 { out = substring(out, 0, len(out) - 1) }  handled = 1 }
-    if c == del { if len(out) > 0 { out = substring(out, 0, len(out) - 1) }  handled = 1 }
-    if c == cr  { handled = 1 }   // drop CR; in CRLF the LF makes the newline (clearing here ate kryofetch's text)
     if c == esc {
-      handled = 1
+      if len(run) > 0 { appendRun(ts, run, color)  run = "" }
       i = i + 1
       if i < n {
         if chunk[i] == "[" {
@@ -67,20 +78,31 @@ func applyChunk(screen, chunk) {
               let ch = chunk[i]
               i = i + 1
               if isCsiFinal(ch) {
-                if ch == "J" { if indexOf(body, "2") >= 0 { out = "" } }
+                if ch == "m" { color = sgrColor(body, deflt) }
+                if ch == "J" { if indexOf(body, "2") >= 0 { clearTs(ts) } }
                 done = 1
               }
               if done == 0 { body = body + ch }
             }
           }
-          i = i - 1
         }
       }
+    } else {
+      let ctrl = 0
+      if c == bs  { ctrl = 1 }
+      if c == del { ctrl = 1 }
+      if ctrl == 1 {
+        if len(run) > 0 { run = substring(run, 0, len(run) - 1) }
+        else { delLast(ts) }
+        i = i + 1
+      } else {
+        if c == cr { i = i + 1 }
+        else { run = run + c  i = i + 1 }
+      }
     }
-    if handled == 0 { out = out + c }
-    i = i + 1
   }
-  emit out
+  if len(run) > 0 { appendRun(ts, run, color) }
+  emit color
 }
 
 just run {
@@ -88,7 +110,6 @@ just run {
   let slave = ptySlaveName(m)
   ptyForkExec(slave, "/bin/sh")
   fdSetNonblock(m)
-  // GUI apps launch with a minimal PATH; add Homebrew + common bins, then clear.
   let setup = "export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; clear\n"
   fdWrite(m, setup, len(setup))
 
@@ -98,12 +119,11 @@ just run {
   msg_1(view, "setEditable:", 0)
   msg_1(view, "setSelectable:", 0)
   cocoaSetFont(view, cocoaMonoFont(13))
-  // gloss black in dark mode, dark grey in light mode; light text on top
+  let fg = cocoaColorNamed("whiteColor")
   let bg = cocoaColorNamed("darkGrayColor")
   if isDarkMode(app) == 1 { bg = cocoaColorNamed("blackColor") }
   cocoaSetBg(view, bg)
-  cocoaSetTextColor(view, cocoaColorNamed("whiteColor"))
-  // window chrome matches: dark-styled titlebar + border showing the bg colour
+  cocoaSetTextColor(view, fg)
   msg_1(win, "setBackgroundColor:", bg)
   msg_1(win, "setTitlebarAppearsTransparent:", 1)
   msg_1(win, "setAppearance:", msg_1(cls("NSAppearance"), "appearanceNamed:", nsString("NSAppearanceNameDarkAqua")))
@@ -119,15 +139,20 @@ just run {
   cocoaMakeFirstResponder(win, kview)
   cocoaFinishLaunching(app)
 
-  let screen = ""
+  let ts = msg(view, "textStorage")
+  let curColor = fg
+  let hasCursor = 0
   let running = 1
   while running == 1 {
     cocoaPumpEvents(app)
     let chunk = fdRead(m, 4096)
     if len(chunk) > 0 {
-      screen = applyChunk(screen, chunk)
-      if len(screen) > 12000 { screen = substring(screen, len(screen) - 12000, len(screen)) }
-      cocoaTVSetString(view, screen + "█")    // block cursor at the input position
+      if hasCursor == 1 { delLast(ts)  hasCursor = 0 }
+      curColor = processChunk(ts, chunk, curColor, fg)
+      let L = tsLen(ts)
+      if L > 16000 { msg_2(ts, "deleteCharactersInRange:", 0, L - 16000) }
+      appendRun(ts, "█", fg)
+      hasCursor = 1
       msg_1(view, "scrollToEndOfDocument:", 0)
     }
     sleepUs(0, 8000)
