@@ -1609,6 +1609,7 @@ just run {
 
   // top: tree + editor + tabs ; bottom: terminal
   let table = cocoaTable(win, 0, 252, 240, 388)
+  msg_1(table, "setHeaderView:", 0)
   cocoaSetBg(table, cocoaRGB(20, 36, 42))
   msg_1(msg(table, "enclosingScrollView"), "setDrawsBackground:", 1)
   cocoaSetBg(msg(table, "enclosingScrollView"), cocoaRGB(20, 36, 42))
