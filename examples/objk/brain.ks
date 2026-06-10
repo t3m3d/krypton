@@ -1065,7 +1065,9 @@ func highlightLang(ts, src, ext) {
 func reHL(self, cmd, notif) {
   let ts = msg(notif, "object")
   if cocoaTSEditedChars(ts) == 0 { emit "1" }
-  cocoaTSClearColor(ts)
+  // paint the whole range light first (removeAttribute would fall back to
+  // black); token colours overlay on top.
+  cocoaTSColorRange(ts, cocoaRGB(212, 212, 212), 0, cocoaTSLength(ts))
   let lang = cocoaGetAssocKey(appH(), "brain.lang")
   let ext = ""
   if lang != 0 { ext = msg(lang, "UTF8String") }
