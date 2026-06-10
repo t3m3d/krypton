@@ -873,18 +873,33 @@ func renderSnapshot(snap, deflt, font, cr, cc) {
         let cont = 0
         let code = charCode(c)
         if code >= 128 { if code < 192 { cont = 1 } }
-        if cont == 0 {
-          if vrow == cr { if vcol == cc { if len(run) > 0 { appendRunTo(acc, run, fg, bg, font)  run = "" }  curStart = msg(acc, "length") } }
-          vcol = vcol + 1
-        }
-        run = run + c
+        let isCur = 0
+        if cont == 0 { if vrow == cr { if vcol == cc { isCur = 1 } } }
+        if isCur == 1 {
+          if len(run) > 0 { appendRunTo(acc, run, fg, bg, font)  run = "" }
+          appendRunTo(acc, "▏", fg, bg, font)
+          curStart = 0
+        } else { run = run + c }
+        if cont == 0 { vcol = vcol + 1 }
         i = i + 1
       }
     }
   }
-  if len(run) > 0 { appendRunTo(acc, run, fg, bg, font) }
-  // clean underline cursor on the cursor cell (no layout change)
-  if curStart >= 0 { msg_4(acc, "addAttribute:value:range:", nsString("NSUnderline"), cocoaNumber(1), curStart, 1) }
+  if len(run) > 0 { appendRunTo(acc, run, fg, bg, font)  run = "" }
+  // vertical bar cursor (ghostty-style). If not already drawn in-loop (curStart>=0),
+  // the cursor was at end-of-line and got trimmed out of gridRender — pad to its
+  // column on its row, draw the bar.
+  if curStart < 0 {
+    if vrow == cr {
+      if cc >= vcol {
+      let pad = ""
+      let k = vcol
+      while k < cc { pad = pad + " "  k = k + 1 }
+      if len(pad) > 0 { appendRunTo(acc, pad, fg, bg, font) }
+      appendRunTo(acc, "▏", fg, bg, font)
+      }
+    }
+  }
   emit acc
 }
 
