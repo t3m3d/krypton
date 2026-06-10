@@ -7,6 +7,7 @@ import "head:cocoa"
 import "head:objc"
 
 func appH() { emit msg(cls("NSApplication"), "sharedApplication") }
+func projDir() { let d = "" + arg(0)  if len(d) == 0 { emit environ("HOME") }  emit d }
 func baseName(p) { let n = len(p)  let i = n - 1  while i >= 0 { if p[i] == "/" { emit substring(p, i + 1, n) }  i = i - 1 }  emit p }
 
 func nlines(s) { let n = len(s)  let c = 0  let i = 0  while i < n { if s[i] == "\n" { c = c + 1 }  i = i + 1 }  emit c }
@@ -134,7 +135,7 @@ func onNew(self, cmd, sender) {
   saveCurTab()
   let paths = cocoaGetAssocKey(app, "brain.tabpaths")
   let texts = cocoaGetAssocKey(app, "brain.tabtexts")
-  cocoaArrayAdd(paths, nsString(arg(0) + "/untitled-" + cocoaArrayCount(paths) + ".k"))
+  cocoaArrayAdd(paths, nsString(projDir() + "/untitled-" + cocoaArrayCount(paths) + ".k"))
   cocoaArrayAdd(texts, nsString("// new file\n"))
   rebuildTabs()
   selectTab(cocoaArrayCount(paths) - 1)
@@ -164,7 +165,7 @@ func onRun(self, cmd, sender) {
   let path = msg(cp, "UTF8String")
   saveCurTab()
   writeFile(path, cocoaTVGetString(cocoaGetAssocKey(app, "brain.editor")))
-  cocoaAlert("Run output", exec("cd " + arg(0) + " && kcc --native " + path + " -o /tmp/brainrun 2>&1 && /tmp/brainrun 2>&1"))
+  cocoaAlert("Run output", exec("cd " + projDir() + " && kcc --native " + path + " -o /tmp/brainrun 2>&1 && /tmp/brainrun 2>&1"))
 }
 func onOpen(self, cmd, sender) {
   let panel = msg(cls("NSOpenPanel"), "openPanel")
@@ -188,7 +189,7 @@ func onCmd(self, cmd, sender) {
   let app = appH()
   let line = msg(msg(sender, "stringValue"), "UTF8String")
   let console = cocoaGetAssocKey(app, "brain.console")
-  let out = exec("cd " + arg(0) + " && " + line + " 2>&1")
+  let out = exec("cd " + projDir() + " && " + line + " 2>&1")
   cocoaTVSetString(console, cocoaTVGetString(console) + "$ " + line + "\n" + out)
   msg_1(sender, "setStringValue:", nsString(""))
   msg_1(console, "scrollToEndOfDocument:", 0)
@@ -205,7 +206,7 @@ func dsSelect(self, cmd, notif) {
 }
 
 just run {
-  let dir = arg(0)
+  let dir = projDir()
   let listing = exec("ls -1 " + dir)
   let app = cocoaInit()
   let bar = cocoaMenuBar(app)
