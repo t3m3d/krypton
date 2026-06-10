@@ -1558,7 +1558,7 @@ func focusTerm() { cocoaMakeFirstResponder(cocoaGetAssocKey(appH(), "brain.win")
 func runInTerm(c) { showTermPane(1)  termWrite(c + "\n")  cocoaSetAssocKey(appH(), "brain.lastrun", nsString(c))  focusTerm()  emit "1" }
 
 func onNewTerminal(self, cmd, sender)    { showTermPane(1)  termWrite("clear\n")  focusTerm()  emit "1" }
-func onSplitTerminal(self, cmd, sender)  { exec("open -na stem")  emit "1" }
+func onSplitTerminal(self, cmd, sender)  { showTermPane(1)  focusTerm()  emit "1" }
 func onNewTermWindow(self, cmd, sender)  { exec("open -na stem")  emit "1" }
 func onRunTask(self, cmd, sender)        { let c = promptText("Run task (shell command):", "")  if len(c) > 0 { runInTerm(c) }  emit "1" }
 func onRunBuildTask(self, cmd, sender) {
