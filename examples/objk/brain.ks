@@ -1091,13 +1091,7 @@ func onRun(self, cmd, sender) {
   writeFile(path, cocoaTVGetString(cocoaGetAssocKey(app, "brain.editor")))
   cocoaAlert("Run output", exec("cd " + projDir() + " && kcc --native " + path + " -o /tmp/brainrun 2>&1 && /tmp/brainrun 2>&1"))
 }
-func onOpen(self, cmd, sender) {
-  let panel = msg(cls("NSOpenPanel"), "openPanel")
-  if msg(panel, "runModal") == 1 {
-    let url = msg_1(msg(panel, "URLs"), "objectAtIndex:", 0)
-    openTab(msg(msg(url, "path"), "UTF8String"))
-  }
-}
+func onOpen(self, cmd, sender) { let f = chooseFile()  if len(f) > 0 { openTab(f) }  emit "1" }
 func onSave(self, cmd, sender) {
   let app = appH()
   let cp = cocoaGetAssocKey(app, "brain.curpath")
@@ -1161,21 +1155,14 @@ func loadFolder(d) {
   msg_1(cocoaGetAssocKey(app, "brain.win"), "setTitle:", nsString("brain — " + d))
   emit "1"
 }
-func onOpenFolder(self, cmd, sender) {
-  let p = msg(cls("NSOpenPanel"), "openPanel")
-  msg_1(p, "setCanChooseDirectories:", 1)
-  msg_1(p, "setCanChooseFiles:", 0)
-  msg_1(p, "setAllowsMultipleSelection:", 0)
-  if msg(p, "runModal") == 1 {
-    loadFolder(msg(msg(msg_1(msg(p, "URLs"), "objectAtIndex:", 0), "path"), "UTF8String"))
-  }
-}
-func onOpenWorkspace(self, cmd, sender) {
-  let p = msg(cls("NSOpenPanel"), "openPanel")
-  if msg(p, "runModal") == 1 {
-    loadFolder(dirOf(msg(msg(msg_1(msg(p, "URLs"), "objectAtIndex:", 0), "path"), "UTF8String")))
-  }
-}
+// native pickers via osascript — NSOpenPanel.runModal does not display in a
+// manual event-loop app, so shell out to the system chooser (run-loop independent).
+func chooseFolder() { emit trim(exec("osascript -e 'try' -e 'POSIX path of (choose folder)' -e 'end try' 2>/dev/null")) }
+func chooseFile()   { emit trim(exec("osascript -e 'try' -e 'POSIX path of (choose file)' -e 'end try' 2>/dev/null")) }
+func chooseSave()   { emit trim(exec("osascript -e 'try' -e 'POSIX path of (choose file name)' -e 'end try' 2>/dev/null")) }
+
+func onOpenFolder(self, cmd, sender) { let d = chooseFolder()  if len(d) > 0 { loadFolder(d) }  emit "1" }
+func onOpenWorkspace(self, cmd, sender) { let f = chooseFile()  if len(f) > 0 { loadFolder(dirOf(f)) }  emit "1" }
 func onOpenRecentFolder(self, cmd, sender) { loadFolder(msg(msg(sender, "title"), "UTF8String")) }
 func onOpenRecentFile(self, cmd, sender) { openTab(msg(msg(sender, "title"), "UTF8String")) }
 
@@ -1186,22 +1173,21 @@ func onDupWorkspace(self, cmd, sender) {
   emit "1"
 }
 func onSaveWorkspaceAs(self, cmd, sender) {
-  let sp = msg(cls("NSSavePanel"), "savePanel")
-  if msg(sp, "runModal") == 1 {
-    writeFile(msg(msg(msg(sp, "URL"), "path"), "UTF8String"), msg(cocoaGetAssocKey(appH(), "brain.dir"), "UTF8String") + "\n")
-  }
+  let path = chooseSave()
+  if len(path) > 0 { writeFile(path, msg(cocoaGetAssocKey(appH(), "brain.dir"), "UTF8String") + "\n") }
+  emit "1"
 }
 // save group
 func onSaveAs(self, cmd, sender) {
   let app = appH()
-  let sp = msg(cls("NSSavePanel"), "savePanel")
-  if msg(sp, "runModal") == 1 {
-    let path = msg(msg(msg(sp, "URL"), "path"), "UTF8String")
+  let path = chooseSave()
+  if len(path) > 0 {
     saveCurTab()
     writeFile(path, cocoaTVGetString(cocoaGetAssocKey(app, "brain.editor")))
     cocoaSetAssocKey(app, "brain.curpath", nsString(path))
     recentAdd("files", path)
   }
+  emit "1"
 }
 func onSaveAll(self, cmd, sender) {
   let app = appH()
