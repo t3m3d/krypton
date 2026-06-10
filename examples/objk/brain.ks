@@ -1521,7 +1521,7 @@ just run {
   let editor = cocoaScrollText(win, 240, 252, 700, 356)
   cocoaSetFont(editor, cocoaMonoFont(13))
   // dark theme
-  cocoaSetBg(editor, cocoaRGB(30, 30, 30))
+  cocoaSetBg(editor, cocoaRGB(24, 43, 48))
   cocoaSetTextColor(editor, cocoaRGB(212, 212, 212))
   msg_1(editor, "setInsertionPointColor:", cocoaRGB(220, 220, 220))
   msg_1(editor, "setAllowsUndo:", 1)
