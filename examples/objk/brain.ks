@@ -1168,6 +1168,65 @@ func onOpenRecentFolder(self, cmd, sender) {
 }
 func onOpenRecentFile(self, cmd, sender) { openTab(msg(msg(sender, "title"), "UTF8String")) }
 
+// workspace (brain's "workspace" = the opened folder)
+func onAddFolder(self, cmd, sender) { onOpenFolder(self, cmd, sender) }
+func onDupWorkspace(self, cmd, sender) {
+  exec("open -n /Applications/brain.app --args \"" + msg(cocoaGetAssocKey(appH(), "brain.dir"), "UTF8String") + "\"")
+  emit "1"
+}
+func onSaveWorkspaceAs(self, cmd, sender) {
+  let sp = msg(cls("NSSavePanel"), "savePanel")
+  if msg(sp, "runModal") == 1 {
+    writeFile(msg(msg(msg(sp, "URL"), "path"), "UTF8String"), msg(cocoaGetAssocKey(appH(), "brain.dir"), "UTF8String") + "\n")
+  }
+}
+// save group
+func onSaveAs(self, cmd, sender) {
+  let app = appH()
+  let sp = msg(cls("NSSavePanel"), "savePanel")
+  if msg(sp, "runModal") == 1 {
+    let path = msg(msg(msg(sp, "URL"), "path"), "UTF8String")
+    saveCurTab()
+    writeFile(path, cocoaTVGetString(cocoaGetAssocKey(app, "brain.editor")))
+    cocoaSetAssocKey(app, "brain.curpath", nsString(path))
+    recentAdd("files", path)
+  }
+}
+func onSaveAll(self, cmd, sender) {
+  let app = appH()
+  saveCurTab()
+  let paths = cocoaGetAssocKey(app, "brain.tabpaths")
+  let texts = cocoaGetAssocKey(app, "brain.tabtexts")
+  let n = cocoaArrayCount(paths)
+  let i = 0
+  while i < n {
+    let p = msg(cocoaArrayGet(paths, i), "UTF8String")
+    if indexOf(p, "untitled-") < 0 { writeFile(p, msg(cocoaArrayGet(texts, i), "UTF8String")) }
+    i = i + 1
+  }
+  emit "1"
+}
+func onAutoSave(self, cmd, sender) {
+  let app = appH()
+  let cur = cocoaGetAssocKey(app, "brain.autosave")
+  let v = 0
+  if cur != 0 { v = cocoaNumberVal(cur) }
+  let nv = 1
+  if v == 1 { nv = 0 }
+  cocoaSetAssocKey(app, "brain.autosave", cocoaNumber(nv))
+  msg_1(sender, "setState:", nv)
+  emit "1"
+}
+func onRevert(self, cmd, sender) {
+  let app = appH()
+  let cp = cocoaGetAssocKey(app, "brain.curpath")
+  if cp == 0 { emit "1" }
+  cocoaTVSetString(cocoaGetAssocKey(app, "brain.editor"), readFile(msg(cp, "UTF8String")))
+  emit "1"
+}
+func onCloseEditor(self, cmd, sender) { onClose(self, cmd, sender) }
+func onCloseWindow(self, cmd, sender) { msg_1(cocoaGetAssocKey(appH(), "brain.win"), "performClose:", 0)  emit "1" }
+
 just run {
   let dir = projDir()
   recentAdd("folders", dir)
@@ -1265,6 +1324,7 @@ just run {
   cocoaTVSetStorageDelegate(editor, ds)
 
   cocoaSetAssocKey(app, "brain.editor", editor)
+  cocoaSetAssocKey(app, "brain.dir", nsString(dir))
   cocoaSetAssocKey(app, "brain.win", win)
   cocoaSetAssocKey(app, "brain.tabseg", tabseg)
   cocoaSetAssocKey(app, "brain.tabpaths", cocoaArray())
@@ -1291,9 +1351,20 @@ just run {
   let rfi = 0
   while rfi < rfin { let lnf = lineAt(rfiles, rfi)  if len(lnf) > 0 { cocoaMenuItem(fileMenu, lnf, "", funcptr(onOpenRecentFile)) }  rfi = rfi + 1 }
   cocoaMenuSeparator(fileMenu)
+  cocoaMenuSeparator(fileMenu)
+  cocoaMenuItem(fileMenu, "Add Folder to Workspace", "", funcptr(onAddFolder))
+  cocoaMenuItem(fileMenu, "Save Workspace As", "", funcptr(onSaveWorkspaceAs))
+  cocoaMenuItem(fileMenu, "Duplicate Workspace", "", funcptr(onDupWorkspace))
+  cocoaMenuSeparator(fileMenu)
   cocoaMenuItem(fileMenu, "Save", "s", funcptr(onSave))
-  cocoaMenuItem(fileMenu, "Run", "r", funcptr(onRun))
-  cocoaMenuItem(fileMenu, "Close Tab", "w", funcptr(onClose))
+  cocoaMenuItem(fileMenu, "Save As", "S", funcptr(onSaveAs))
+  cocoaMenuItem(fileMenu, "Save All", "", funcptr(onSaveAll))
+  cocoaMenuSeparator(fileMenu)
+  cocoaMenuItem(fileMenu, "Auto Save", "", funcptr(onAutoSave))
+  cocoaMenuSeparator(fileMenu)
+  cocoaMenuItem(fileMenu, "Revert File", "", funcptr(onRevert))
+  cocoaMenuItem(fileMenu, "Close Editor", "w", funcptr(onCloseEditor))
+  cocoaMenuItem(fileMenu, "Close Window", "W", funcptr(onCloseWindow))
   let editMenu = cocoaMenuAdd(bar, "Edit")
   cocoaMenuItemSel(editMenu, "Undo", "z", "undo:")
   cocoaMenuItemSel(editMenu, "Cut", "x", "cut:")
@@ -1301,6 +1372,8 @@ just run {
   cocoaMenuItemSel(editMenu, "Paste", "v", "paste:")
   cocoaMenuItemSel(editMenu, "Select All", "a", "selectAll:")
   cocoaMenuItemSel(editMenu, "Find", "f", "performTextFinderAction:")
+  let runMenu = cocoaMenuAdd(bar, "Run")
+  cocoaMenuItem(runMenu, "Run File", "r", funcptr(onRun))
 
   cocoaTVSetString(editor, "// brain — click a file on the left; terminal below\n")
   cocoaReload(table)
@@ -1325,6 +1398,20 @@ just run {
       let ci2 = indexOf(curp, ",")
       msg_1(ts, "setAttributedString:", renderSnapshot(gridRender(st, cols, rows), tfg, tmono, toInt(substring(curp, 0, ci2)), toInt(substring(curp, ci2 + 1, len(curp)))))
       msg_1(term, "scrollToEndOfDocument:", 0)
+    }
+    // auto save: every ~5s if enabled, write the current tab to disk
+    if i - (i / 625) * 625 == 0 {
+      let asv = cocoaGetAssocKey(app, "brain.autosave")
+      if asv != 0 { if cocoaNumberVal(asv) == 1 {
+        let cp = cocoaGetAssocKey(app, "brain.curpath")
+        if cp != 0 {
+          let cpath = msg(cp, "UTF8String")
+          if indexOf(cpath, "untitled-") < 0 {
+            saveCurTab()
+            writeFile(cpath, cocoaTVGetString(cocoaGetAssocKey(app, "brain.editor")))
+          }
+        }
+      } }
     }
     sleepUs(0, 8000)
     i = i + 1
