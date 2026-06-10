@@ -55,7 +55,11 @@ func irIsNumeric(s) {
 func passDeadCode(ir) {
     let lines = ir
     let count = lineCount(lines)
-    let out = ""
+    // Use a string builder (amortized O(1) append) instead of `out = out + line`.
+    // The naive concat is O(n^2) alloc and, with the bump-only heap (no free),
+    // exhausts the heap on large IR (>~3000 lines) → SIGSEGV. sb doubles capacity.
+    let out = sbNew()
+    let wrote = 0
     let dead = 0
     let i = 0
     while i < count {
@@ -66,8 +70,9 @@ func passDeadCode(ir) {
             dead = 0
         }
         if dead == 0 {
-            if len(out) > 0 { out = out + "\n" }
-            out = out + line
+            if wrote { out = sbAppend(out, "\n") }
+            out = sbAppend(out, line)
+            wrote = 1
         }
         // Mark dead after unconditional jumps and returns
         if op == "RETURN" || op == "JUMP" {
@@ -75,7 +80,7 @@ func passDeadCode(ir) {
         }
         i += 1
     }
-    emit out
+    emit sbToString(out)
 }
 
 // ── Pass 2: Constant Folding ──────────────────────────────────────
@@ -84,7 +89,8 @@ func passDeadCode(ir) {
 func passFold(ir) {
     let lines = ir
     let count = lineCount(lines)
-    let out = ""
+    let out = sbNew()
+    let wrote = 0
     let i = 0
     while i < count {
         let line = getLine(lines, i)
@@ -107,32 +113,38 @@ func passFold(ir) {
                     if arithOp == "MUL" { folded = av * bv + "" }
                     if arithOp == "DIV" && bv != 0 { folded = av / bv + "" }
                     if len(folded) > 0 {
-                        if len(out) > 0 { out = out + "\n" }
-                        out = out + "PUSH " + folded
+                        if wrote { out = sbAppend(out, "\n") }
+                        out = sbAppend(out, "PUSH ")
+                        out = sbAppend(out, folded)
+                        wrote = 1
                         i = i + 3
                         // don't add line, skip to next
                     } else {
-                        if len(out) > 0 { out = out + "\n" }
-                        out = out + line
+                        if wrote { out = sbAppend(out, "\n") }
+                        out = sbAppend(out, line)
+                        wrote = 1
                         i += 1
                     }
                 } else {
-                    if len(out) > 0 { out = out + "\n" }
-                    out = out + line
+                    if wrote { out = sbAppend(out, "\n") }
+                    out = sbAppend(out, line)
+                    wrote = 1
                     i += 1
                 }
             } else {
-                if len(out) > 0 { out = out + "\n" }
-                out = out + line
+                if wrote { out = sbAppend(out, "\n") }
+                out = sbAppend(out, line)
+                wrote = 1
                 i += 1
             }
         } else {
-            if len(out) > 0 { out = out + "\n" }
-            out = out + line
+            if wrote { out = sbAppend(out, "\n") }
+            out = sbAppend(out, line)
+            wrote = 1
             i += 1
         }
     }
-    emit out
+    emit sbToString(out)
 }
 
 // ── Pass 3: Strength Reduction ────────────────────────────────────
@@ -141,7 +153,8 @@ func passFold(ir) {
 func passStrength(ir) {
     let lines = ir
     let count = lineCount(lines)
-    let out = ""
+    let out = sbNew()
+    let wrote = 0
     let i = 0
     while i < count {
         let line = getLine(lines, i)
@@ -164,12 +177,13 @@ func passStrength(ir) {
             // skip both PUSH and the op
             i = i + 2
         } else {
-            if len(out) > 0 { out = out + "\n" }
-            out = out + line
+            if wrote { out = sbAppend(out, "\n") }
+            out = sbAppend(out, line)
+            wrote = 1
             i += 1
         }
     }
-    emit out
+    emit sbToString(out)
 }
 
 // ── Pass 4: STORE/LOAD Elimination (disabled — STORE pops the stack) ────────
@@ -179,7 +193,8 @@ func passStoreLoad(ir) {
     // Pass-through: do not remove LOAD after STORE (STORE consumes the value).
     let lines = ir
     let count = lineCount(lines)
-    let out = ""
+    let out = sbNew()
+    let wrote = 0
     let i = 0
     while i < count {
         let line = getLine(lines, i)
@@ -191,16 +206,18 @@ func passStoreLoad(ir) {
             let nextVar = irGetArg1(nextLine)
             // Previously: skip LOAD after STORE (wrong — STORE pops the value).
             // Now: always emit both instructions.
-            if len(out) > 0 { out = out + "\n" }
-            out = out + line
+            if wrote { out = sbAppend(out, "\n") }
+            out = sbAppend(out, line)
+            wrote = 1
             i += 1
         } else {
-            if len(out) > 0 { out = out + "\n" }
-            out = out + line
+            if wrote { out = sbAppend(out, "\n") }
+            out = sbAppend(out, line)
+            wrote = 1
             i += 1
         }
     }
-    emit out
+    emit sbToString(out)
 }
 
 // ── Pass 5: Empty Block Elimination ──────────────────────────────
@@ -209,7 +226,8 @@ func passStoreLoad(ir) {
 func passEmptyJump(ir) {
     let lines = ir
     let count = lineCount(lines)
-    let out = ""
+    let out = sbNew()
+    let wrote = 0
     let i = 0
     while i < count {
         let line = getLine(lines, i)
@@ -223,17 +241,19 @@ func passEmptyJump(ir) {
             if nextOp == "LABEL" && nextLabel == target {
                 i += 1
             } else {
-                if len(out) > 0 { out = out + "\n" }
-                out = out + line
+                if wrote { out = sbAppend(out, "\n") }
+                out = sbAppend(out, line)
+                wrote = 1
                 i += 1
             }
         } else {
-            if len(out) > 0 { out = out + "\n" }
-            out = out + line
+            if wrote { out = sbAppend(out, "\n") }
+            out = sbAppend(out, line)
+            wrote = 1
             i += 1
         }
     }
-    emit out
+    emit sbToString(out)
 }
 
 // ── Pass 6: Unused LOCAL Removal ─────────────────────────────────
@@ -257,7 +277,8 @@ func passUnusedLocals(ir) {
         i += 1
     }
     // Second pass: emit everything except unused LOCALs
-    let out = ""
+    let out = sbNew()
+    let wrote = 0
     i = 0
     while i < count {
         let line = getLine(lines, i)
@@ -270,12 +291,13 @@ func passUnusedLocals(ir) {
             }
         }
         if keep {
-            if len(out) > 0 { out = out + "\n" }
-            out = out + line
+            if wrote { out = sbAppend(out, "\n") }
+            out = sbAppend(out, line)
+            wrote = 1
         }
         i += 1
     }
-    emit out
+    emit sbToString(out)
 }
 
 // ── Optimizer Pipeline ────────────────────────────────────────────
