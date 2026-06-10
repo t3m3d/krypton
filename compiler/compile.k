@@ -2187,11 +2187,12 @@ func irScanStructTypesOnce(tokens, ntoks, sizeHints) {
 // emitting LOADs/INDEXes. Only LEXICAL scope is captured — names are
 // added regardless of nesting (good enough for typed-pointer lowering;
 // shadowing / scope-precise tracking is future work).
-func irScanFuncTypes(tokens, bodyStart) {
+func irScanFuncTypes(tokens, bodyStart, ntoks) {
     if tokAt(tokens, bodyStart) != "LBRACE" { emit "" }
     let p = bodyStart + 1
     let depth = 1
-    let nTok = lineCount(tokens)
+    // ntoks passed in (was lineCount(tokens) — an O(ntoks) rescan per function).
+    let nTok = ntoks
     let sb = sbNew()
     while p < nTok && depth > 0 {
         let tk = tokAt(tokens, p)
@@ -2309,15 +2310,21 @@ func irLambdaIR(tokens, pos, ntoks, lambdaName) {
         }
     }
 
-    let funcTypes = irScanStructTypes(tokens, ntoks) + irScanFuncTypes(tokens, p) + paramTypes + captureTypes
+    let funcTypes = irScanStructTypes(tokens, ntoks) + irScanFuncTypes(tokens, p, ntoks) + paramTypes + captureTypes
     let bp = irBlockIR(tokens, p, ntoks, 0, "1", funcTypes)
     let bodyCode = pairVal(bp)
     p = pairPos(bp)
     emit "FUNC " + lambdaName + " " + pc + "\n" + allParams + bodyCode + "RETURN\nEND\n\n," + p
 }
 
-func irFuncIR(tokens, pos, ntoks) {
+func irFuncIR(tokens, pos, ntoks, structTypes) {
     // pos is at KW:func
+    // structTypes: whole-stream struct-type scan, precomputed ONCE by the
+    // caller and threaded in. Previously irFuncIR called
+    // irScanStructTypes(tokens, ntoks) itself — a 16-iteration fixpoint over
+    // the ENTIRE token stream — once per function, making IR emission
+    // O(ntoks * nfuncs) (elf.k: ~16 min). Hoisting it out makes that term
+    // O(ntoks) total.
     let fname = tokVal(tokAt(tokens, pos + 1))
     let p = pos + 3
     let params = ""
@@ -2348,7 +2355,9 @@ func irFuncIR(tokens, pos, ntoks) {
     // whole token stream so `*Vec3.field` lowers to a typed offset
     // read. paramTypes appended last so typed params (e.g. `cb: fp`)
     // route through callPtr in irCall.
-    let funcTypes = irScanStructTypes(tokens, ntoks) + irScanFuncTypes(tokens, p) + paramTypes
+    // structTypes is precomputed once by the caller (was an O(n*nfuncs)
+    // whole-stream rescan per function here).
+    let funcTypes = structTypes + irScanFuncTypes(tokens, p, ntoks) + paramTypes
     let bp = irBlockIR(tokens, p, ntoks, 0, "1", funcTypes)
     let bodyCode = pairVal(bp)
     p = pairPos(bp)
@@ -2802,13 +2811,14 @@ just run {
                     if irMode == 1 {
                         let iIRi = 0
                         let iIRinJxt = 0
+                        let iStructTypes = irScanStructTypes(iToks, iNtoks)
                         while iIRi < iNtoks {
                             let iIRtok = tokAt(iToks, iIRi)
                             if iIRtok == "KW:jxt" {
                                 // skip entire jxt block
                                 iIRi = skipBlock(iToks, iIRi + 1)
                             } else if (iIRtok == "KW:func" || iIRtok == "KW:fn") {
-                                let iIRfp = irFuncIR(iToks, iIRi, iNtoks)
+                                let iIRfp = irFuncIR(iToks, iIRi, iNtoks, iStructTypes)
                                 importedIR = importedIR + pairVal(iIRfp)
                                 iIRi = pairPos(iIRfp)
                             } else {
@@ -3168,17 +3178,18 @@ just run {
             sbIRlib = sbAppend(sbIRlib, "; Krypton IR\n; Source: " + file + "\n\n")
             sbIRlib = sbAppend(sbIRlib, importedIR)
             let irlibI = 0
+            let libStructTypes = irScanStructTypes(tokens, ntoks)
             while irlibI < ntoks {
                 let irlibTok = tokAt(tokens, irlibI)
                 if irlibTok == "KW:func" || irlibTok == "KW:fn" {
-                    let irlibFp = irFuncIR(tokens, irlibI, ntoks)
+                    let irlibFp = irFuncIR(tokens, irlibI, ntoks, libStructTypes)
                     sbIRlib = sbAppend(sbIRlib, pairVal(irlibFp))
                     irlibI = pairPos(irlibFp)
                 } else if irlibTok == "KW:export" {
                     let irlibNext = tokAt(tokens, irlibI + 1)
                     if irlibNext == "KW:func" || irlibNext == "KW:fn" {
                         let irlibFname = tokVal(tokAt(tokens, irlibI + 2))
-                        let irlibFp = irFuncIR(tokens, irlibI + 1, ntoks)
+                        let irlibFp = irFuncIR(tokens, irlibI + 1, ntoks, libStructTypes)
                         sbIRlib = sbAppend(sbIRlib, "EXPORT " + irlibFname + "\n")
                         sbIRlib = sbAppend(sbIRlib, pairVal(irlibFp))
                         irlibI = pairPos(irlibFp)
@@ -3225,17 +3236,18 @@ just run {
         // home without a dedicated .bss region in the ELF backend.
         let sbGlobInit = sbNew()
         let iri = 0
+        let mainStructTypes = irScanStructTypes(tokens, ntoks)
         while iri < ntoks {
             let irtok = tokAt(tokens, iri)
             if irtok == "KW:func" || irtok == "KW:fn" {
-                let fp = irFuncIR(tokens, iri, ntoks)
+                let fp = irFuncIR(tokens, iri, ntoks, mainStructTypes)
                 sbIR = sbAppend(sbIR, pairVal(fp))
                 iri = pairPos(fp)
             } else if irtok == "KW:export" {
                 let expNext = tokAt(tokens, iri + 1)
                 if expNext == "KW:func" || expNext == "KW:fn" {
                     let expFname = tokVal(tokAt(tokens, iri + 2))
-                    let efp = irFuncIR(tokens, iri + 1, ntoks)
+                    let efp = irFuncIR(tokens, iri + 1, ntoks, mainStructTypes)
                     sbIR = sbAppend(sbIR, "EXPORT " + expFname + "\n")
                     sbIR = sbAppend(sbIR, pairVal(efp))
                     iri = pairPos(efp)
@@ -3260,7 +3272,7 @@ just run {
                     if st == "LBRACE" { scanDepth += 1; scanP += 1 }
                     else if st == "RBRACE" { scanDepth -= 1; scanP += 1 }
                     else if (st == "KW:func" || st == "KW:fn") && tokType(tokAt(tokens, scanP + 1)) == "ID" {
-                        let nfp = irFuncIR(tokens, scanP, ntoks)
+                        let nfp = irFuncIR(tokens, scanP, ntoks, mainStructTypes)
                         sbIR = sbAppend(sbIR, pairVal(nfp))
                         scanP = pairPos(nfp)
                     } else {
@@ -3321,7 +3333,7 @@ just run {
 
         let irEntry = findEntry(tokens, ntoks)
         if irEntry >= 0 {
-            let mainTypes = irScanStructTypes(tokens, ntoks) + irScanFuncTypes(tokens, irEntry)
+            let mainTypes = irScanStructTypes(tokens, ntoks) + irScanFuncTypes(tokens, irEntry, ntoks)
             let ep = irBlockIR(tokens, irEntry, ntoks, 0, "0", mainTypes)
             // 2.0-alpha-3 GC stage 3: same shadow-stack save/restore wrap
             // as irFuncIR applies to __main__'s body (and prepended global
