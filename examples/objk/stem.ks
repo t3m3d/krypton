@@ -827,14 +827,18 @@ func appendRunTo(acc, text, fg, bg, font) {
 
 // Parse a gridRender snapshot (text + ESC[..m) -> a coloured NSMutableAttributedString.
 // Tracks fg (NSColor) + bg (NSBackgroundColor, 0 = none) so powerline segments fill.
-func renderSnapshot(snap, deflt, font) {
+func renderSnapshot(snap, deflt, font, cr, cc) {
   let acc = msg(msg(cls("NSMutableAttributedString"), "alloc"), "init")
   let esc = fromCharCode(27)
+  let nl = fromCharCode(10)
   let n = len(snap)
   let i = 0
   let run = ""
   let fg = deflt
   let bg = 0
+  let vrow = 0
+  let vcol = 0
+  let curStart = 0 - 1
   while i < n {
     let c = snap[i]
     if c == esc {
@@ -863,9 +867,24 @@ func renderSnapshot(snap, deflt, font) {
           }
         }
       }
-    } else { run = run + c  i = i + 1 }
+    } else {
+      if c == nl { run = run + c  vrow = vrow + 1  vcol = 0  i = i + 1 }
+      else {
+        let cont = 0
+        let code = charCode(c)
+        if code >= 128 { if code < 192 { cont = 1 } }
+        if cont == 0 {
+          if vrow == cr { if vcol == cc { if len(run) > 0 { appendRunTo(acc, run, fg, bg, font)  run = "" }  curStart = msg(acc, "length") } }
+          vcol = vcol + 1
+        }
+        run = run + c
+        i = i + 1
+      }
+    }
   }
   if len(run) > 0 { appendRunTo(acc, run, fg, bg, font) }
+  // clean underline cursor on the cursor cell (no layout change)
+  if curStart >= 0 { msg_4(acc, "addAttribute:value:range:", nsString("NSUnderline"), cocoaNumber(1), curStart, 1) }
   emit acc
 }
 
@@ -969,7 +988,9 @@ just run {
       let safe = gridSafeLen(buf)
       pending = substring(buf, safe, len(buf))
       st = gridFeed(st, substring(buf, 0, safe), cols, rows)
-      msg_1(ts, "setAttributedString:", renderSnapshot(gridRender(st, cols, rows), fg, mono))
+      let curp = gridCursor(st, cols, rows)
+      let ci2 = indexOf(curp, ",")
+      msg_1(ts, "setAttributedString:", renderSnapshot(gridRender(st, cols, rows), fg, mono, toInt(substring(curp, 0, ci2)), toInt(substring(curp, ci2 + 1, len(curp)))))
       msg_1(view, "scrollToEndOfDocument:", 0)
     }
     sleepUs(0, 8000)
