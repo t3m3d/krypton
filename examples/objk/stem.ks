@@ -40,12 +40,15 @@ func sgrColor(body, deflt) {
   emit deflt
 }
 
-// Append `text` to the storage `ts` coloured `color`.
-func appendRun(ts, text, color) {
+// Append `text` to the storage `ts` coloured `color` in `font` (mono — without
+// a font attribute the run renders proportional and breaks column alignment).
+func appendRun(ts, text, color, font) {
   if len(text) == 0 { emit "1" }
   let start = msg(ts, "length")
   msg_1(ts, "appendAttributedString:", msg_1(msg(cls("NSAttributedString"), "alloc"), "initWithString:", nsString(text)))
-  msg_4(ts, "addAttribute:value:range:", nsString("NSColor"), color, start, msg(ts, "length") - start)
+  let span = msg(ts, "length") - start
+  msg_4(ts, "addAttribute:value:range:", nsString("NSColor"), color, start, span)
+  msg_4(ts, "addAttribute:value:range:", nsString("NSFont"), font, start, span)
   emit "1"
 }
 func tsLen(ts) { emit msg(ts, "length") }
@@ -53,7 +56,7 @@ func delLast(ts) { let L = msg(ts, "length")  if L > 0 { msg_2(ts, "deleteCharac
 func clearTs(ts) { msg_2(ts, "deleteCharactersInRange:", 0, msg(ts, "length"))  emit "1" }
 
 // Parse a raw chunk into coloured runs appended to `ts`; returns the new colour.
-func processChunk(ts, chunk, curColor, deflt) {
+func processChunk(ts, chunk, curColor, deflt, font) {
   let esc = fromCharCode(27)
   let bs = fromCharCode(8)
   let del = fromCharCode(127)
@@ -65,7 +68,7 @@ func processChunk(ts, chunk, curColor, deflt) {
   while i < n {
     let c = chunk[i]
     if c == esc {
-      if len(run) > 0 { appendRun(ts, run, color)  run = "" }
+      if len(run) > 0 { appendRun(ts, run, color, font)  run = "" }
       i = i + 1
       if i < n {
         if chunk[i] == "[" {
@@ -101,14 +104,14 @@ func processChunk(ts, chunk, curColor, deflt) {
       }
     }
   }
-  if len(run) > 0 { appendRun(ts, run, color) }
+  if len(run) > 0 { appendRun(ts, run, color, font) }
   emit color
 }
 
 just run {
   let m = ptyMaster("/dev/ptmx")
   let slave = ptySlaveName(m)
-  ptyForkExec(slave, "/bin/sh")
+  ptyForkExec(slave, "/bin/zsh")
   fdSetNonblock(m)
   let setup = "export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; clear\n"
   fdWrite(m, setup, len(setup))
@@ -118,7 +121,8 @@ just run {
   let view = cocoaScrollText(win, 0, 0, 760, 500)
   msg_1(view, "setEditable:", 0)
   msg_1(view, "setSelectable:", 0)
-  cocoaSetFont(view, cocoaMonoFont(13))
+  let mono = cocoaMonoFont(13)
+  cocoaSetFont(view, mono)
   let fg = cocoaColorNamed("whiteColor")
   let bg = cocoaColorNamed("darkGrayColor")
   if isDarkMode(app) == 1 { bg = cocoaColorNamed("blackColor") }
@@ -148,10 +152,10 @@ just run {
     let chunk = fdRead(m, 4096)
     if len(chunk) > 0 {
       if hasCursor == 1 { delLast(ts)  hasCursor = 0 }
-      curColor = processChunk(ts, chunk, curColor, fg)
+      curColor = processChunk(ts, chunk, curColor, fg, mono)
       let L = tsLen(ts)
       if L > 16000 { msg_2(ts, "deleteCharactersInRange:", 0, L - 16000) }
-      appendRun(ts, "█", fg)
+      appendRun(ts, "█", fg, mono)
       hasCursor = 1
       msg_1(view, "scrollToEndOfDocument:", 0)
     }
