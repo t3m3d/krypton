@@ -392,9 +392,26 @@ func cocoaSubmenuIn(menu, title) {
     msg_1(menu, "addItem:", item)
     emit sub
 }
-// Add an action item to a menu, wired to a Krypton handler (one class per fn).
+// objc-class-name-safe form of a string (alnum kept, rest -> '_').
+func _classSafe(s) {
+    let out = ""
+    let n = len(s)
+    let i = 0
+    while i < n {
+        let c = charCode(substring(s, i, i + 1))
+        if (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) { out = out + substring(s, i, i + 1) }
+        else { out = out + "_" }
+        i = i + 1
+    }
+    emit out
+}
+// Add an action item to a menu, wired to a Krypton handler.
 func cocoaMenuItem(menu, title, key, fnPtr) {
-    let nm = "KryptonObjkMenuCB" + ("" + fnPtr)
+    // Key the synth class by title, NOT ("" + fnPtr): a funcptr is a raw
+    // pointer whose high bytes are NUL, so "" + fnPtr truncates to the SAME
+    // string for every handler -> all items collapse onto one class and fire
+    // the first handler. Title-keying gives each item its own class + IMP.
+    let nm = "KryptonObjkMenuCB_" + _classSafe(title) + "_" + len(title)
     let c = objc_lookUpClass(nm)
     if c == 0 {
         c = objc_allocateClassPair(cls("NSObject"), nm, 0)
