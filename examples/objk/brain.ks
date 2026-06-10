@@ -922,34 +922,128 @@ func lineAt(s, idx) {
 }
 
 // ── syntax highlighting (operates on the storage the delegate receives) ──
-func hlWord(ts, src, word, color) {
-  let n = len(src)  let wl = len(word)  let pos = 0
+func isIdentCh(c) {
+  if c >= 48 { if c <= 57 { emit 1 } }
+  if c >= 65 { if c <= 90 { emit 1 } }
+  if c >= 97 { if c <= 122 { emit 1 } }
+  if c == 95 { emit 1 }
+  emit 0
+}
+func extOf(path) {
+  let n = len(path)
+  let i = n - 1
+  while i >= 0 {
+    let ch = substring(path, i, i + 1)
+    if ch == "." { emit substring(path, i + 1, n) }
+    if ch == "/" { emit "" }
+    i = i - 1
+  }
+  emit ""
+}
+// keyword sets per file extension
+func langKeywords(ext) {
+  if ext == "k" { emit "func let if else while return emit import module const just run for break continue true false" }
+  if ext == "ks" { emit "func let if else while return emit import module const just run for break continue true false" }
+  if ext == "js" { emit "function let const var if else while for return class new this import export from default async await yield try catch finally throw typeof instanceof true false null undefined" }
+  if ext == "ts" { emit "function let const var if else while for return class new this import export from default async await interface type enum public private readonly true false null undefined" }
+  if ext == "py" { emit "def class if elif else while for return import from as try except finally with lambda async await pass break continue yield global nonlocal raise assert True False None and or not in is" }
+  if ext == "c" { emit "int char void float double long short if else while for return struct typedef const static unsigned signed sizeof switch case break continue default enum union goto extern" }
+  if ext == "h" { emit "int char void float double long short if else while for return struct typedef const static unsigned signed sizeof switch case break continue default enum union extern" }
+  if ext == "go" { emit "func var const if else for range return package import type struct interface map chan go defer select switch case break continue true false nil" }
+  if ext == "rs" { emit "fn let mut if else while for loop match return struct enum impl trait pub use mod crate self where as ref move true false" }
+  if ext == "sh" { emit "if then else elif fi for while until do done case esac function return export local echo read source" }
+  if ext == "bash" { emit "if then else elif fi for while until do done case esac function return export local echo read source" }
+  if ext == "rb" { emit "def class module if elsif else end while for return require do begin rescue ensure yield true false nil" }
+  if ext == "json" { emit "true false null" }
+  if ext == "html" { emit "html head body div span script style link meta title a img" }
+  if ext == "css" { emit "color background margin padding border font display position width height" }
+  if ext == "sql" { emit "select from where insert update delete create table drop alter join on group by order having and or not null" }
+  emit "func let if else while return import class def function"
+}
+func lineCommentPrefix(ext) {
+  if ext == "py" { emit "#" }
+  if ext == "sh" { emit "#" }
+  if ext == "bash" { emit "#" }
+  if ext == "rb" { emit "#" }
+  if ext == "yml" { emit "#" }
+  if ext == "yaml" { emit "#" }
+  if ext == "lua" { emit "--" }
+  if ext == "sql" { emit "--" }
+  emit "//"
+}
+// word-boundary keyword colouring
+func hlWordB(ts, src, word, color) {
+  let n = len(src)
+  let wl = len(word)
+  let pos = 0
   while pos < n {
     let i = indexOf(substring(src, pos, n), word)
     if i < 0 { emit "1" }
-    cocoaTSColorRange(ts, color, pos + i, wl)
-    pos = pos + i + wl
+    let at = pos + i
+    let bOk = 1
+    if at > 0 { if isIdentCh(charCode(substring(src, at - 1, at))) == 1 { bOk = 0 } }
+    let aIdx = at + wl
+    let aOk = 1
+    if aIdx < n { if isIdentCh(charCode(substring(src, aIdx, aIdx + 1))) == 1 { aOk = 0 } }
+    if bOk == 1 { if aOk == 1 { cocoaTSColorRange(ts, color, at, wl) } }
+    pos = at + wl
   }
   emit "1"
 }
-func hlStrings(ts, src, color) {
-  let n = len(src)  let pos = 0
+func hlKeywords(ts, src, kws, color) {
+  let n = len(kws)
+  let start = 0
+  let i = 0
+  while i <= n {
+    let sep = 0
+    if i == n { sep = 1 }
+    else { if substring(kws, i, i + 1) == " " { sep = 1 } }
+    if sep == 1 { if i > start { hlWordB(ts, src, substring(kws, start, i), color) }  start = i + 1 }
+    i = i + 1
+  }
+  emit "1"
+}
+func hlNumbers(ts, src, color) {
+  let n = len(src)
+  let i = 0
+  while i < n {
+    let c = charCode(substring(src, i, i + 1))
+    let before = 0
+    if i > 0 { before = charCode(substring(src, i - 1, i)) }
+    if c >= 48 { if c <= 57 { if isIdentCh(before) == 0 {
+      let j = i + 1
+      let go = 1
+      while go == 1 {
+        if j >= n { go = 0 }
+        else { let d = charCode(substring(src, j, j + 1))  if (d >= 48 && d <= 57) || d == 46 { j = j + 1 } else { go = 0 } }
+      }
+      cocoaTSColorRange(ts, color, i, j - i)
+      i = j - 1
+    } } }
+    i = i + 1
+  }
+  emit "1"
+}
+func hlDelim(ts, src, q, color) {
+  let n = len(src)
+  let pos = 0
   while pos < n {
-    let i = indexOf(substring(src, pos, n), "\"")
+    let i = indexOf(substring(src, pos, n), q)
     if i < 0 { emit "1" }
     let start = pos + i
-    let j = indexOf(substring(src, start + 1, n), "\"")
-    if j < 0 { emit "1" }
+    let j = indexOf(substring(src, start + 1, n), q)
+    if j < 0 { cocoaTSColorRange(ts, color, start, n - start)  emit "1" }
     let end = start + 1 + j + 1
     cocoaTSColorRange(ts, color, start, end - start)
     pos = end
   }
   emit "1"
 }
-func hlComments(ts, src, color) {
-  let n = len(src)  let pos = 0
+func hlLineComment(ts, src, prefix, color) {
+  let n = len(src)
+  let pos = 0
   while pos < n {
-    let i = indexOf(substring(src, pos, n), "//")
+    let i = indexOf(substring(src, pos, n), prefix)
     if i < 0 { emit "1" }
     let start = pos + i
     let nl = indexOf(substring(src, start, n), "\n")
@@ -960,22 +1054,23 @@ func hlComments(ts, src, color) {
   }
   emit "1"
 }
-func highlightTS(ts, src) {
-  let kw = cocoaColorNamed("purpleColor")
-  hlWord(ts, src, "func", kw)  hlWord(ts, src, "let", kw)  hlWord(ts, src, "if", kw)
-  hlWord(ts, src, "else", kw)  hlWord(ts, src, "while", kw) hlWord(ts, src, "return", kw)
-  hlWord(ts, src, "emit", kw)  hlWord(ts, src, "import", kw) hlWord(ts, src, "module", kw)
-  hlWord(ts, src, "const", kw) hlWord(ts, src, "just", kw)   hlWord(ts, src, "run", kw)
-  hlWord(ts, src, "kp", cocoaColorNamed("blueColor"))
-  hlStrings(ts, src, cocoaColorNamed("greenColor"))
-  hlComments(ts, src, cocoaColorNamed("grayColor"))
+func highlightLang(ts, src, ext) {
+  hlKeywords(ts, src, langKeywords(ext), cocoaColorNamed("systemPurpleColor"))
+  hlNumbers(ts, src, cocoaColorNamed("systemOrangeColor"))
+  hlDelim(ts, src, "\"", cocoaColorNamed("systemGreenColor"))
+  hlDelim(ts, src, "'", cocoaColorNamed("systemGreenColor"))
+  hlLineComment(ts, src, lineCommentPrefix(ext), cocoaColorNamed("systemGrayColor"))
   emit "1"
 }
 func reHL(self, cmd, notif) {
   let ts = msg(notif, "object")
   if cocoaTSEditedChars(ts) == 0 { emit "1" }
   cocoaTSClearColor(ts)
-  highlightTS(ts, cocoaTSString(ts))
+  let lang = cocoaGetAssocKey(appH(), "brain.lang")
+  let ext = ""
+  if lang != 0 { ext = msg(lang, "UTF8String") }
+  highlightLang(ts, cocoaTSString(ts), ext)
+  emit "1"
 }
 
 // ── tabs ────────────────────────────────────────────────────────────────
@@ -1065,9 +1160,10 @@ func selectTab(idx) {
   let texts = cocoaGetAssocKey(app, "brain.tabtexts")
   if idx < 0 { emit "1" }
   if idx >= cocoaArrayCount(texts) { emit "1" }
-  cocoaTVSetString(cocoaGetAssocKey(app, "brain.editor"), msg(cocoaArrayGet(texts, idx), "UTF8String"))
   cocoaSetAssocKey(app, "brain.curtab", cocoaNumber(idx))
   cocoaSetAssocKey(app, "brain.curpath", cocoaArrayGet(paths, idx))
+  cocoaSetAssocKey(app, "brain.lang", nsString(extOf(msg(cocoaArrayGet(paths, idx), "UTF8String"))))
+  cocoaTVSetString(cocoaGetAssocKey(app, "brain.editor"), msg(cocoaArrayGet(texts, idx), "UTF8String"))
   msg_1(cocoaGetAssocKey(app, "brain.win"), "setTitle:", nsString("brain — " + msg(cocoaArrayGet(paths, idx), "UTF8String")))
   rebuildTabs()
   emit "1"
