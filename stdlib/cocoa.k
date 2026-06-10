@@ -101,8 +101,13 @@ func cocoaAlert(title, message) {
 // x0/x1/x2 = Krypton's register calling convention, so a Krypton
 // `func onClick(self, cmd, sender)` works directly. One synthesised target
 // class per distinct handler (named from the funcptr).
-func cocoaOnClick(control, fnPtr) {
-    let nm = "KryptonObjkCB" + ("" + fnPtr)
+// Wire a control to a handler, the synth class keyed by `keyName` (a funcptr
+// is a raw pointer with NUL high bytes — "" + fnPtr collapses all handlers to
+// one class; an explicit key keeps distinct handlers distinct). Many controls
+// may share one keyName (= one class, the same handler) and read which one
+// fired off `sender` via associated state.
+func cocoaOnClickKeyed(control, keyName, fnPtr) {
+    let nm = "KryptonObjkCB_" + _classSafe(keyName)
     let c = objc_lookUpClass(nm)
     if c == 0 {
         c = objc_allocateClassPair(cls("NSObject"), nm, 0)
@@ -114,6 +119,7 @@ func cocoaOnClick(control, fnPtr) {
     msg_1(control, "setAction:", sel("objk_dispatch:"))
     emit "1"
 }
+func cocoaOnClick(control, fnPtr) { emit cocoaOnClickKeyed(control, "default", fnPtr) }
 
 // ── Associated state (closure-capture equivalent) ──────────────────────
 // Attach a value to a control; the handler reads it back off `sender`.
