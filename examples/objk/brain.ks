@@ -1173,7 +1173,7 @@ just run {
   let term = cocoaScrollText(win, 0, 0, 940, 246)
   msg_1(term, "setEditable:", 0)
   msg_1(term, "setSelectable:", 0)
-  let tmono = cocoaMonoFont(12)
+  let tmono = cocoaFontFamily(cocoaMonoFont(12), "JetBrainsMono Nerd Font Mono")
   cocoaSetFont(term, tmono)
   let tfg = cocoaColorNamed("whiteColor")
   cocoaSetBg(term, cocoaColorNamed("blackColor"))
