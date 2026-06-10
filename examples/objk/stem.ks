@@ -52,7 +52,7 @@ func applyChunk(screen, chunk) {
     let handled = 0
     if c == bs  { if len(out) > 0 { out = substring(out, 0, len(out) - 1) }  handled = 1 }
     if c == del { if len(out) > 0 { out = substring(out, 0, len(out) - 1) }  handled = 1 }
-    if c == cr  { out = substring(out, 0, lastNl(out) + 1)  handled = 1 }
+    if c == cr  { handled = 1 }   // drop CR; in CRLF the LF makes the newline (clearing here ate kryofetch's text)
     if c == esc {
       handled = 1
       i = i + 1
@@ -103,6 +103,10 @@ just run {
   if isDarkMode(app) == 1 { bg = cocoaColorNamed("blackColor") }
   cocoaSetBg(view, bg)
   cocoaSetTextColor(view, cocoaColorNamed("whiteColor"))
+  // window chrome matches: dark-styled titlebar + border showing the bg colour
+  msg_1(win, "setBackgroundColor:", bg)
+  msg_1(win, "setTitlebarAppearsTransparent:", 1)
+  msg_1(win, "setAppearance:", msg_1(cls("NSAppearance"), "appearanceNamed:", nsString("NSAppearanceNameDarkAqua")))
 
   let kc = cocoaViewClassNew("StemKeys")
   cocoaClassAddMethod(kc, "keyDown:", funcptr(onKey), "v@:@")
@@ -123,7 +127,7 @@ just run {
     if len(chunk) > 0 {
       screen = applyChunk(screen, chunk)
       if len(screen) > 12000 { screen = substring(screen, len(screen) - 12000, len(screen)) }
-      cocoaTVSetString(view, screen)
+      cocoaTVSetString(view, screen + "█")    // block cursor at the input position
       msg_1(view, "scrollToEndOfDocument:", 0)
     }
     sleepUs(0, 8000)
