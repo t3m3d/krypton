@@ -1498,6 +1498,10 @@ just run {
   let table = cocoaTable(win, 0, 252, 240, 388)
   let editor = cocoaScrollText(win, 240, 252, 700, 356)
   cocoaSetFont(editor, cocoaMonoFont(13))
+  // dark editor theme: dark bg, light base text (token colours stay)
+  cocoaSetBg(editor, cocoaRGB(30, 30, 30))
+  cocoaSetTextColor(editor, cocoaRGB(212, 212, 212))
+  msg_1(editor, "setInsertionPointColor:", cocoaRGB(220, 220, 220))
   msg_1(editor, "setAllowsUndo:", 1)
   msg_1(editor, "setUsesFindBar:", 1)
 
