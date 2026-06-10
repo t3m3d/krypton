@@ -375,6 +375,17 @@ func cocoaMenuItemSel(menu, title, key, selName) {
     msg_1(menu, "addItem:", item)
     emit "1"
 }
+// A separator line in a menu.
+func cocoaMenuSeparator(menu) { msg_1(menu, "addItem:", msg(cls("NSMenuItem"), "separatorItem"))  emit "1" }
+// A submenu inside `menu` — returns the submenu to add items to.
+func cocoaSubmenuIn(menu, title) {
+    let item = msg_3(msg(cls("NSMenuItem"), "alloc"), "initWithTitle:action:keyEquivalent:",
+        nsString(title), 0, nsString(""))
+    let sub = msg_1(msg(cls("NSMenu"), "alloc"), "initWithTitle:", nsString(title))
+    msg_1(item, "setSubmenu:", sub)
+    msg_1(menu, "addItem:", item)
+    emit sub
+}
 // Add an action item to a menu, wired to a Krypton handler (one class per fn).
 func cocoaMenuItem(menu, title, key, fnPtr) {
     let nm = "KryptonObjkMenuCB" + ("" + fnPtr)

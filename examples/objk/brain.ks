@@ -1011,8 +1011,28 @@ func selectTab(idx) {
   msg_1(cocoaGetAssocKey(app, "brain.win"), "setTitle:", nsString("brain — " + msg(cocoaArrayGet(paths, idx), "UTF8String")))
   emit "1"
 }
+// ── recent files/folders (~/.config/brain/{files,folders}, newest first) ──
+func recentAdd(name, path) {
+  exec("mkdir -p \"" + environ("HOME") + "/.config/brain\"")
+  let f = environ("HOME") + "/.config/brain/" + name
+  let cur = readFile(f)
+  let out = path + "\n"
+  let n = nlines(cur)
+  let i = 0
+  let kept = 0
+  while i < n {
+    let ln = lineAt(cur, i)
+    if ln != path { if len(ln) > 0 { if kept < 9 { out = out + ln + "\n"  kept = kept + 1 } } }
+    i = i + 1
+  }
+  writeFile(f, out)
+  emit "1"
+}
+func dirOf(p) { let n = len(p)  let i = n - 1  while i >= 0 { if p[i] == "/" { emit substring(p, 0, i) }  i = i - 1 }  emit p }
+
 func openTab(path) {
   let app = appH()
+  recentAdd("files", path)
   saveCurTab()
   let paths = cocoaGetAssocKey(app, "brain.tabpaths")
   let texts = cocoaGetAssocKey(app, "brain.tabtexts")
@@ -1109,9 +1129,48 @@ func dsSelect(self, cmd, notif) {
   openTab(msg(cocoaGetAssocKey(self, "dir"), "UTF8String") + "/" + fname)
 }
 
+// ── File-menu handlers ──────────────────────────────────────────────────
+func newUntitled(ext) {
+  let app = appH()
+  saveCurTab()
+  let paths = cocoaGetAssocKey(app, "brain.tabpaths")
+  let texts = cocoaGetAssocKey(app, "brain.tabtexts")
+  cocoaArrayAdd(paths, nsString(projDir() + "/untitled-" + cocoaArrayCount(paths) + ext))
+  cocoaArrayAdd(texts, nsString(""))
+  rebuildTabs()
+  selectTab(cocoaArrayCount(paths) - 1)
+  emit "1"
+}
+func onNewText(self, cmd, sender)  { newUntitled(".txt") }
+func onNewFile(self, cmd, sender)  { newUntitled(".k") }
+func onNewWindow(self, cmd, sender){ exec("open -n /Applications/brain.app")  emit "1" }
+func onOpenFolder(self, cmd, sender) {
+  let p = msg(cls("NSOpenPanel"), "openPanel")
+  msg_1(p, "setCanChooseDirectories:", 1)
+  msg_1(p, "setCanChooseFiles:", 0)
+  if msg(p, "runModal") == 1 {
+    let d = msg(msg(msg_1(msg(p, "URLs"), "objectAtIndex:", 0), "path"), "UTF8String")
+    recentAdd("folders", d)
+    exec("open -n /Applications/brain.app --args \"" + d + "\"")
+  }
+}
+func onOpenWorkspace(self, cmd, sender) {
+  let p = msg(cls("NSOpenPanel"), "openPanel")
+  if msg(p, "runModal") == 1 {
+    let d = dirOf(msg(msg(msg_1(msg(p, "URLs"), "objectAtIndex:", 0), "path"), "UTF8String"))
+    recentAdd("folders", d)
+    exec("open -n /Applications/brain.app --args \"" + d + "\"")
+  }
+}
+func onOpenRecentFolder(self, cmd, sender) {
+  exec("open -n /Applications/brain.app --args \"" + msg(msg(sender, "title"), "UTF8String") + "\"")
+  emit "1"
+}
+func onOpenRecentFile(self, cmd, sender) { openTab(msg(msg(sender, "title"), "UTF8String")) }
 
 just run {
   let dir = projDir()
+  recentAdd("folders", dir)
   let cfg = readFile(environ("HOME") + "/.config/stem/config")
 
   // terminal pty (bottom pane)
@@ -1213,11 +1272,28 @@ just run {
   cocoaSegOnChange(tabseg, funcptr(onTabChange))
 
   let fileMenu = cocoaMenuAdd(bar, "File")
-  cocoaMenuItem(fileMenu, "New", "n", funcptr(onNew))
+  cocoaMenuItem(fileMenu, "New Text File", "t", funcptr(onNewText))
+  cocoaMenuItem(fileMenu, "New File", "n", funcptr(onNewFile))
+  cocoaMenuItem(fileMenu, "New Window", "N", funcptr(onNewWindow))
+  cocoaMenuSeparator(fileMenu)
   cocoaMenuItem(fileMenu, "Open", "o", funcptr(onOpen))
-  cocoaMenuItem(fileMenu, "Close Tab", "w", funcptr(onClose))
+  cocoaMenuItem(fileMenu, "Open Folder", "O", funcptr(onOpenFolder))
+  cocoaMenuItem(fileMenu, "Open Workspace from File", "", funcptr(onOpenWorkspace))
+  let recentMenu = cocoaSubmenuIn(fileMenu, "Open Recent")
+  let rf = readFile(environ("HOME") + "/.config/brain/folders")
+  let rfn = nlines(rf)
+  let ri = 0
+  while ri < rfn { let ln = lineAt(rf, ri)  if len(ln) > 0 { cocoaMenuItem(recentMenu, ln, "", funcptr(onOpenRecentFolder)) }  ri = ri + 1 }
+  cocoaMenuSeparator(fileMenu)
+  let rfiles = readFile(environ("HOME") + "/.config/brain/files")
+  let rfin = nlines(rfiles)
+  if rfin > 3 { rfin = 3 }
+  let rfi = 0
+  while rfi < rfin { let lnf = lineAt(rfiles, rfi)  if len(lnf) > 0 { cocoaMenuItem(fileMenu, lnf, "", funcptr(onOpenRecentFile)) }  rfi = rfi + 1 }
+  cocoaMenuSeparator(fileMenu)
   cocoaMenuItem(fileMenu, "Save", "s", funcptr(onSave))
   cocoaMenuItem(fileMenu, "Run", "r", funcptr(onRun))
+  cocoaMenuItem(fileMenu, "Close Tab", "w", funcptr(onClose))
   let editMenu = cocoaMenuAdd(bar, "Edit")
   cocoaMenuItemSel(editMenu, "Undo", "z", "undo:")
   cocoaMenuItemSel(editMenu, "Cut", "x", "cut:")
