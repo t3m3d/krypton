@@ -190,6 +190,12 @@ func _consumeOther(s, start) {
     emit n
 }
 
+// HARDCODED to bypass any module-mutable-global flake. Per
+// feedback_module_mutable_globals.md module-level mutable lets read
+// back garbage on cross-func access. We always pass "ffffff" for now
+// to verify the rest of the pipeline.
+func _fgOrDefault() { emit "ffffff" }
+
 // Walk input, flush coloured text chunks via guiRichAppend.
 func appendOutput(s) {
     let n = len(s)
@@ -203,7 +209,7 @@ func appendOutput(s) {
             i = i + 1
         } else {
             if len(buf) > 0 {
-                guiRichAppend(g_output, buf, g_curFg, g_curBold)
+                guiRichAppend(g_output, buf, _fgOrDefault(), g_curBold)
                 buf = ""
             }
             i = i + 1
@@ -216,7 +222,7 @@ func appendOutput(s) {
         }
     }
     if len(buf) > 0 {
-        guiRichAppend(g_output, buf, g_curFg, g_curBold)
+        guiRichAppend(g_output, buf, _fgOrDefault(), g_curBold)
     }
     emit "1"
 }
