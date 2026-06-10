@@ -866,7 +866,6 @@ just run {
   msg_1(view, "setSelectable:", 0)
   let mono = cocoaFontFamily(cocoaMonoFont(13), "JetBrainsMono Nerd Font Mono")
   cocoaSetFont(view, mono)
-  cocoaTVNoWrap(view)
   let fg = cocoaColorNamed("whiteColor")
   let bg = cocoaColorNamed("darkGrayColor")
   if isDarkMode(app) == 1 { bg = cocoaColorNamed("blackColor") }
