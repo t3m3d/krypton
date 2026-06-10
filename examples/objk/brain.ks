@@ -1515,9 +1515,15 @@ just run {
 
   let win = cocoaWindow(app, "brain — " + dir, 940, 640)
   msg_1(win, "setAppearance:", msg_1(cls("NSAppearance"), "appearanceNamed:", nsString("NSAppearanceNameDarkAqua")))
+  // teal theme on the window chrome (titlebar + tab-row bg)
+  msg_1(win, "setBackgroundColor:", cocoaRGB(21, 37, 43))
+  msg_1(win, "setTitlebarAppearsTransparent:", 1)
 
   // top: tree + editor + tabs ; bottom: terminal
   let table = cocoaTable(win, 0, 252, 240, 388)
+  cocoaSetBg(table, cocoaRGB(20, 36, 42))
+  msg_1(msg(table, "enclosingScrollView"), "setDrawsBackground:", 1)
+  cocoaSetBg(msg(table, "enclosingScrollView"), cocoaRGB(20, 36, 42))
   let editor = cocoaScrollText(win, 240, 252, 700, 356)
   cocoaSetFont(editor, cocoaMonoFont(13))
   // dark theme
