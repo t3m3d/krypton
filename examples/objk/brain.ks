@@ -1463,6 +1463,94 @@ func onZoomIn(self, cmd, sender)    { let s = brainFlag("brain.fontsize", 13) + 
 func onZoomOut(self, cmd, sender)   { let s = brainFlag("brain.fontsize", 13) - 1  if s < 7 { s = 7 }  brainSetFontSize(s) }
 func onZoomReset(self, cmd, sender) { brainSetFontSize(13) }
 
+// ── file operations (tree) ──────────────────────────────────────────────
+func curDir() { emit msg(cocoaGetAssocKey(appH(), "brain.dir"), "UTF8String") }
+func promptText(label, def) {
+  emit trim(exec("osascript -e 'try' -e 'text returned of (display dialog \"" + label + "\" default answer \"" + def + "\")' -e 'end try' 2>/dev/null"))
+}
+func selectedTreeName() {
+  let table = cocoaGetAssocKey(appH(), "brain.table")
+  let row = msg(table, "selectedRow")
+  if row < 0 { emit "" }
+  let files = cocoaGetAssocKey(cocoaGetAssocKey(appH(), "brain.ds"), "files")
+  if row >= cocoaArrayCount(files) { emit "" }
+  let nm = msg(cocoaArrayGet(files, row), "UTF8String")
+  if nm == ".." { emit "" }
+  // strip trailing '/' on dirs
+  if substring(nm, len(nm) - 1, len(nm)) == "/" { emit substring(nm, 0, len(nm) - 1) }
+  emit nm
+}
+func onNewFileFs(self, cmd, sender) {
+  let name = promptText("New file name:", "untitled.txt")
+  if len(name) > 0 {
+    let path = curDir() + "/" + name
+    exec("touch \"" + path + "\"")
+    loadFolder(curDir())
+    openTab(path)
+  }
+  emit "1"
+}
+func onNewFolderFs(self, cmd, sender) {
+  let name = promptText("New folder name:", "new-folder")
+  if len(name) > 0 { exec("mkdir -p \"" + curDir() + "/" + name + "\"")  loadFolder(curDir()) }
+  emit "1"
+}
+func onRenameFs(self, cmd, sender) {
+  let old = selectedTreeName()
+  if len(old) == 0 { emit "1" }
+  let name = promptText("Rename to:", old)
+  if len(name) > 0 { if name != old {
+    exec("mv \"" + curDir() + "/" + old + "\" \"" + curDir() + "/" + name + "\"")
+    loadFolder(curDir())
+  } }
+  emit "1"
+}
+func onDeleteFs(self, cmd, sender) {
+  let f = selectedTreeName()
+  if len(f) == 0 { emit "1" }
+  let ans = trim(exec("osascript -e 'button returned of (display dialog \"Delete " + f + "?\" buttons {\"Cancel\", \"Delete\"} default button \"Cancel\")' 2>/dev/null"))
+  if ans == "Delete" { exec("rm -rf \"" + curDir() + "/" + f + "\"")  loadFolder(curDir()) }
+  emit "1"
+}
+
+// ── Go / Run ────────────────────────────────────────────────────────────
+func onGoToLine(self, cmd, sender) {
+  let ed = cocoaGetAssocKey(appH(), "brain.editor")
+  let ln = toInt(promptText("Go to line:", "1"))
+  if ln < 1 { emit "1" }
+  let s = cocoaTVGetString(ed)
+  let n = len(s)
+  let off = n
+  let cur = 1
+  let i = 0
+  let done = 0
+  while i < n {
+    if done == 0 {
+      if cur == ln { off = i  done = 1 }
+      else { if substring(s, i, i + 1) == "\n" { cur = cur + 1 } }
+    }
+    i = i + 1
+  }
+  msg_2(ed, "setSelectedRange:", off, 0)
+  msg_2(ed, "scrollRangeToVisible:", off, 0)
+  cocoaMakeFirstResponder(cocoaGetAssocKey(appH(), "brain.win"), ed)
+  emit "1"
+}
+func onGoToFile(self, cmd, sender) {
+  let f = trim(exec("osascript -e 'try' -e 'POSIX path of (choose file default location (POSIX file \"" + curDir() + "/\"))' -e 'end try' 2>/dev/null"))
+  if len(f) > 0 { openTab(f) }
+  emit "1"
+}
+func onRunInTerm(self, cmd, sender) {
+  let cp = cocoaGetAssocKey(appH(), "brain.curpath")
+  if cp == 0 { emit "1" }
+  let path = msg(cp, "UTF8String")
+  let m = cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.master"))
+  let line = "kcc --native \"" + path + "\" -o /tmp/brainrun && /tmp/brainrun\n"
+  fdWrite(m, line, len(line))
+  emit "1"
+}
+
 just run {
   let dir = projDir()
   recentAdd("folders", dir)
@@ -1584,6 +1672,11 @@ just run {
   cocoaMenuItem(fileMenu, "New File", "n", funcptr(onNewFile))
   cocoaMenuItem(fileMenu, "New Window", "N", funcptr(onNewWindow))
   cocoaMenuSeparator(fileMenu)
+  cocoaMenuItem(fileMenu, "New File in Folder", "", funcptr(onNewFileFs))
+  cocoaMenuItem(fileMenu, "New Folder", "", funcptr(onNewFolderFs))
+  cocoaMenuItem(fileMenu, "Rename", "", funcptr(onRenameFs))
+  cocoaMenuItem(fileMenu, "Delete", "", funcptr(onDeleteFs))
+  cocoaMenuSeparator(fileMenu)
   cocoaMenuItem(fileMenu, "Open", "o", funcptr(onOpen))
   cocoaMenuItem(fileMenu, "Open Folder", "O", funcptr(onOpenFolder))
   cocoaMenuItem(fileMenu, "Open Workspace from File", "", funcptr(onOpenWorkspace))
@@ -1634,8 +1727,12 @@ just run {
   cocoaMenuItem(viewMenu, "Zoom In", "=", funcptr(onZoomIn))
   cocoaMenuItem(viewMenu, "Zoom Out", "-", funcptr(onZoomOut))
   cocoaMenuItem(viewMenu, "Reset Zoom", "0", funcptr(onZoomReset))
+  let goMenu = cocoaMenuAdd(bar, "Go")
+  cocoaMenuItem(goMenu, "Go to File", "p", funcptr(onGoToFile))
+  cocoaMenuItem(goMenu, "Go to Line", "l", funcptr(onGoToLine))
   let runMenu = cocoaMenuAdd(bar, "Run")
   cocoaMenuItem(runMenu, "Run File", "r", funcptr(onRun))
+  cocoaMenuItem(runMenu, "Run in Terminal", "R", funcptr(onRunInTerm))
 
   cocoaTVSetString(editor, "// brain — click a file on the left; terminal below\n")
   cocoaReload(table)
