@@ -25,6 +25,11 @@ func onKey(self, cmd, event) {
 }
 func acceptsFR(self, cmd) { emit 1 }
 
+// Dark mode? effectiveAppearance name contains "Dark".
+func isDarkMode(app) {
+  emit indexOf(msg(msg(msg(app, "effectiveAppearance"), "name"), "UTF8String"), "Dark") >= 0
+}
+
 // Is `ch` a CSI final byte (0x40..0x7e)? Ends an ESC[ … sequence.
 func isCsiFinal(ch) { emit indexOf("@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~", ch) >= 0 }
 // Index of the last newline in `s` (-1 if none).
@@ -83,6 +88,9 @@ just run {
   let slave = ptySlaveName(m)
   ptyForkExec(slave, "/bin/sh")
   fdSetNonblock(m)
+  // GUI apps launch with a minimal PATH; add Homebrew + common bins, then clear.
+  let setup = "export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; clear\n"
+  fdWrite(m, setup, len(setup))
 
   let app = cocoaInit()
   let win = cocoaWindow(app, "stem — pure-Krypton terminal on objk", 760, 500)
@@ -90,6 +98,11 @@ just run {
   msg_1(view, "setEditable:", 0)
   msg_1(view, "setSelectable:", 0)
   cocoaSetFont(view, cocoaMonoFont(13))
+  // gloss black in dark mode, dark grey in light mode; light text on top
+  let bg = cocoaColorNamed("darkGrayColor")
+  if isDarkMode(app) == 1 { bg = cocoaColorNamed("blackColor") }
+  cocoaSetBg(view, bg)
+  cocoaSetTextColor(view, cocoaColorNamed("whiteColor"))
 
   let kc = cocoaViewClassNew("StemKeys")
   cocoaClassAddMethod(kc, "keyDown:", funcptr(onKey), "v@:@")
