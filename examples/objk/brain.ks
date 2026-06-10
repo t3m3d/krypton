@@ -987,7 +987,9 @@ func curTabIdx() {
 func saveCurTab() {
   let idx = curTabIdx()
   if idx < 0 { emit "1" }
-  cocoaArraySet(cocoaGetAssocKey(appH(), "brain.tabtexts"), idx,
+  let texts = cocoaGetAssocKey(appH(), "brain.tabtexts")
+  if idx >= cocoaArrayCount(texts) { emit "1" }
+  cocoaArraySet(texts, idx,
     nsString(cocoaTVGetString(cocoaGetAssocKey(appH(), "brain.editor"))))
   emit "1"
 }
@@ -1061,6 +1063,8 @@ func selectTab(idx) {
   let app = appH()
   let paths = cocoaGetAssocKey(app, "brain.tabpaths")
   let texts = cocoaGetAssocKey(app, "brain.tabtexts")
+  if idx < 0 { emit "1" }
+  if idx >= cocoaArrayCount(texts) { emit "1" }
   cocoaTVSetString(cocoaGetAssocKey(app, "brain.editor"), msg(cocoaArrayGet(texts, idx), "UTF8String"))
   cocoaSetAssocKey(app, "brain.curtab", cocoaNumber(idx))
   cocoaSetAssocKey(app, "brain.curpath", cocoaArrayGet(paths, idx))
