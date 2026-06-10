@@ -1398,13 +1398,12 @@ just run {
   let rfn = nlines(rf)
   let ri = 0
   while ri < rfn { let ln = lineAt(rf, ri)  if len(ln) > 0 { cocoaMenuItem(recentMenu, ln, "", funcptr(onOpenRecentFolder)) }  ri = ri + 1 }
-  cocoaMenuSeparator(fileMenu)
+  cocoaMenuSeparator(recentMenu)
   let rfiles = readFile(environ("HOME") + "/.config/brain/files")
   let rfin = nlines(rfiles)
   if rfin > 3 { rfin = 3 }
   let rfi = 0
-  while rfi < rfin { let lnf = lineAt(rfiles, rfi)  if len(lnf) > 0 { cocoaMenuItem(fileMenu, lnf, "", funcptr(onOpenRecentFile)) }  rfi = rfi + 1 }
-  cocoaMenuSeparator(fileMenu)
+  while rfi < rfin { let lnf = lineAt(rfiles, rfi)  if len(lnf) > 0 { cocoaMenuItem(recentMenu, lnf, "", funcptr(onOpenRecentFile)) }  rfi = rfi + 1 }
   cocoaMenuSeparator(fileMenu)
   cocoaMenuItem(fileMenu, "Add Folder to Workspace", "", funcptr(onAddFolder))
   cocoaMenuItem(fileMenu, "Save Workspace As", "", funcptr(onSaveWorkspaceAs))
