@@ -37,7 +37,7 @@ func scaffoldCSS() {
          ".card{border:1px solid #ddd;border-radius:8px;padding:20px;margin:12px 0}"
 }
 
-func scaffoldSite(projectName) {
+func scaffoldSite(projectName, which) {
     let NL = fromCharCode(10)
     let DQ = fromCharCode(34)
 
@@ -98,7 +98,14 @@ func scaffoldSite(projectName) {
         "Header set Referrer-Policy " + DQ + "strict-origin-when-cross-origin" + DQ + NL +
         "Header set Strict-Transport-Security " + DQ + "max-age=31536000; includeSubDomains" + DQ + NL
 
-    emit siteK + fromCharCode(0) + exportK + fromCharCode(0) + htaccess
+    // Return one file at a time. (Previously all three were packed into one
+    // string with NUL separators + splitBy — broken: fromCharCode(0) is an
+    // empty/terminating separator in NUL-terminated strings, and splitBy's
+    // comma-joined result collided with commas in the content. Every scaffold
+    // file came out 0 bytes.)
+    if which == "site" { emit siteK }
+    if which == "export" { emit exportK }
+    emit htaccess
 }
 
 func doInit(projectName) {
@@ -106,17 +113,9 @@ func doInit(projectName) {
     let cmd = "mkdir -p " + projectName + "/dist"
     shellRun(cmd)
 
-    let scaffold = scaffoldSite(projectName)
-
-    // Split on NUL separator
-    let parts = splitBy(scaffold, fromCharCode(0))
-    let siteContent = split(parts, 0)
-    let exportContent = split(parts, 1)
-    let htaccessContent = split(parts, 2)
-
-    writeFile(projectName + "/site.htk", siteContent)
-    writeFile(projectName + "/export.htk", exportContent)
-    writeFile(projectName + "/dist/.htaccess", htaccessContent)
+    writeFile(projectName + "/site.htk", scaffoldSite(projectName, "site"))
+    writeFile(projectName + "/export.htk", scaffoldSite(projectName, "export"))
+    writeFile(projectName + "/dist/.htaccess", scaffoldSite(projectName, "htaccess"))
 
     printErr("kweb: created project " + projectName + "/")
     printErr("")
@@ -131,21 +130,30 @@ func doInit(projectName) {
     printErr("  khtk site.htk --run")
 }
 
+// Resolve a writable temp dir cross-platform. TEMP is Windows-only — on
+// POSIX it's unset, which used to leave the path as "/kweb_build.c" (root,
+// not writable). Prefer TMPDIR (macOS/Linux), then TEMP (Windows), else /tmp.
+// Trailing slash trimmed so "<dir>/kweb_build" never doubles up.
+func tmpDir() {
+    let d = environ("TMPDIR")
+    if d == "" { d = environ("TEMP") }
+    if d == "" { d = "/tmp" }
+    while len(d) > 1 && d[len(d) - 1] == "/" { d = substring(d, 0, len(d) - 1) }
+    emit d
+}
+
 func doBuild() {
     printErr("kweb: building...")
-    let cmd = "kcc export.htk > " + environ("TEMP") + "/kweb_build.c 2>&1"
+    // Native compile — kcc emits a binary directly (no C, no gcc). export.htk
+    // is the static-site generator; running it writes dist/.
+    let bin = tmpDir() + "/kweb_build"
+    let cmd = "kcc export.htk -o " + bin + " 2>&1"
     let rc = shellRun(cmd)
     if rc != "0" {
         printErr("kweb: compile failed")
         emit 1
     }
-    let cmd2 = "gcc " + environ("TEMP") + "/kweb_build.c -o " + environ("TEMP") + "/kweb_build.exe -w 2>&1"
-    let rc2 = shellRun(cmd2)
-    if rc2 != "0" {
-        printErr("kweb: link failed")
-        emit 1
-    }
-    let out = exec(environ("TEMP") + "/kweb_build.exe")
+    let out = exec(bin)
     print(out)
     printErr("kweb: build complete")
 }
