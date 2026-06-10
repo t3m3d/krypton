@@ -1144,28 +1144,39 @@ func newUntitled(ext) {
 func onNewText(self, cmd, sender)  { newUntitled(".txt") }
 func onNewFile(self, cmd, sender)  { newUntitled(".k") }
 func onNewWindow(self, cmd, sender){ exec("open -n /Applications/brain.app")  emit "1" }
+// reload the file tree in-place to folder `d`
+func loadFolder(d) {
+  let app = appH()
+  recentAdd("folders", d)
+  let ds = cocoaGetAssocKey(app, "brain.ds")
+  let files = cocoaArray()
+  let listing = exec("ls -1 \"" + d + "\"")
+  let n = nlines(listing)
+  let i = 0
+  while i < n { cocoaArrayAdd(files, nsString(lineAt(listing, i)))  i = i + 1 }
+  cocoaSetAssocKey(ds, "files", files)
+  cocoaSetAssocKey(ds, "dir", nsString(d))
+  cocoaSetAssocKey(app, "brain.dir", nsString(d))
+  cocoaReload(cocoaGetAssocKey(app, "brain.table"))
+  msg_1(cocoaGetAssocKey(app, "brain.win"), "setTitle:", nsString("brain — " + d))
+  emit "1"
+}
 func onOpenFolder(self, cmd, sender) {
   let p = msg(cls("NSOpenPanel"), "openPanel")
   msg_1(p, "setCanChooseDirectories:", 1)
   msg_1(p, "setCanChooseFiles:", 0)
+  msg_1(p, "setAllowsMultipleSelection:", 0)
   if msg(p, "runModal") == 1 {
-    let d = msg(msg(msg_1(msg(p, "URLs"), "objectAtIndex:", 0), "path"), "UTF8String")
-    recentAdd("folders", d)
-    exec("open -n /Applications/brain.app --args \"" + d + "\"")
+    loadFolder(msg(msg(msg_1(msg(p, "URLs"), "objectAtIndex:", 0), "path"), "UTF8String"))
   }
 }
 func onOpenWorkspace(self, cmd, sender) {
   let p = msg(cls("NSOpenPanel"), "openPanel")
   if msg(p, "runModal") == 1 {
-    let d = dirOf(msg(msg(msg_1(msg(p, "URLs"), "objectAtIndex:", 0), "path"), "UTF8String"))
-    recentAdd("folders", d)
-    exec("open -n /Applications/brain.app --args \"" + d + "\"")
+    loadFolder(dirOf(msg(msg(msg_1(msg(p, "URLs"), "objectAtIndex:", 0), "path"), "UTF8String")))
   }
 }
-func onOpenRecentFolder(self, cmd, sender) {
-  exec("open -n /Applications/brain.app --args \"" + msg(msg(sender, "title"), "UTF8String") + "\"")
-  emit "1"
-}
+func onOpenRecentFolder(self, cmd, sender) { loadFolder(msg(msg(sender, "title"), "UTF8String")) }
 func onOpenRecentFile(self, cmd, sender) { openTab(msg(msg(sender, "title"), "UTF8String")) }
 
 // workspace (brain's "workspace" = the opened folder)
@@ -1317,6 +1328,8 @@ just run {
   cocoaClassAddMethod(dsc, "textStorageDidProcessEditing:", funcptr(reHL), "v@:@")
   cocoaClassRegister(dsc)
   let ds = cocoaNew(dsc)
+  cocoaSetAssocKey(app, "brain.ds", ds)
+  cocoaSetAssocKey(app, "brain.table", table)
   cocoaSetAssocKey(ds, "files", files)
   cocoaSetAssocKey(ds, "dir", nsString(dir))
   cocoaSetDataSource(table, ds)
