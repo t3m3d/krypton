@@ -56,41 +56,168 @@ func osIsLightMode() {
 
 // ── ui helpers ────────────────────────────────────────────────────────
 
-// Strip ANSI escape sequences from text before display. exec()'d shells
-// often emit VT codes (colors, cursor moves) that RichEdit would render
-// as literal "←[31m" garbage. v0.2 will parse + apply these via
-// guiRichSetFmt; for v0.1 we just hide them. Drops everything between
-// ESC (0x1b) and the next letter or '~' (handles CSI + most OSC).
-func stripAnsi(s) {
-    let n = len(s)
-    let out = ""
+// ── ANSI colour rendering ─────────────────────────────────────────────
+// SGR colour state, updated as we walk the input. v0.1 stripped these
+// out entirely; v0.1.2 parses standard 16-colour + truecolor (38;2;r;g;b)
+// fg and applies via guiRichAppend's per-chunk style. Background
+// colours and 256-palette are intentionally skipped — most shell tools
+// only use the 16 + truecolor paths.
+let g_curFg   = ""    // hex colour for next chunk; "" = default (theme fg)
+let g_curBold = 0
+
+// Standard 8 + bright 8. Visually-balanced palette tuned for the dark
+// stem theme (gloss black / dark grey bg). Maps SGR 30..37 / 90..97.
+func sgrBaseColor(n) {
+    if n == 30 { emit "1e1e1e" }   // dark grey, not pure black — still visible on bg
+    if n == 31 { emit "f14c4c" }
+    if n == 32 { emit "23d18b" }
+    if n == 33 { emit "f5f543" }
+    if n == 34 { emit "3b8eea" }
+    if n == 35 { emit "d670d6" }
+    if n == 36 { emit "29b8db" }
+    if n == 37 { emit "e5e5e5" }
+    if n == 90 { emit "666666" }
+    if n == 91 { emit "f14c4c" }
+    if n == 92 { emit "23d18b" }
+    if n == 93 { emit "f5f543" }
+    if n == 94 { emit "3b8eea" }
+    if n == 95 { emit "d670d6" }
+    if n == 96 { emit "29b8db" }
+    if n == 97 { emit "ffffff" }
+    emit ""
+}
+
+// Parse one ';'-separated integer from params starting at i; returns the
+// integer (as string) and updates *iOut. Skips empty fields → 0.
+func _intAt(params, i) {
+    let n = len(params)
+    let start = i
+    while i < n {
+        let c = params[i]
+        if c == ";" { emit substring(params, start, i) }
+        i = i + 1
+    }
+    emit substring(params, start, n)
+}
+func _afterSemi(params, i) {
+    let n = len(params)
+    while i < n { if params[i] == ";" { emit i + 1 }  i = i + 1 }
+    emit n
+}
+
+// Apply a CSI ...m param list. Mutates g_curFg / g_curBold.
+func applySgr(params) {
+    if len(params) == 0 {
+        g_curFg = ""  g_curBold = 0  emit "1"
+    }
     let i = 0
+    let n = len(params)
+    while i < n {
+        let tok = _intAt(params, i)
+        let code = toInt(tok)
+        if code == 0  { g_curFg = ""  g_curBold = 0 }
+        if code == 1  { g_curBold = 1 }
+        if code == 22 { g_curBold = 0 }
+        if code == 39 { g_curFg = "" }
+        if code >= 30 { if code <= 37 { g_curFg = sgrBaseColor(code) } }
+        if code >= 90 { if code <= 97 { g_curFg = sgrBaseColor(code) } }
+        if code == 38 {
+            // 38;2;R;G;B truecolor; 38;5;n indexed (we skip indexed for now)
+            let j = _afterSemi(params, i)
+            if j < n {
+                let mode = toInt(_intAt(params, j))
+                if mode == 2 {
+                    let j1 = _afterSemi(params, j)
+                    if j1 < n {
+                        let r = toInt(_intAt(params, j1))
+                        let j2 = _afterSemi(params, j1)
+                        let g = toInt(_intAt(params, j2))
+                        let j3 = _afterSemi(params, j2)
+                        let b = toInt(_intAt(params, j3))
+                        g_curFg = _rgbHex(r, g, b)
+                        // advance i past the consumed fields
+                        i = _afterSemi(params, j3) - 1
+                    }
+                }
+            }
+        }
+        i = _afterSemi(params, i)
+    }
+    emit "1"
+}
+
+// Pad an int 0..255 to two hex chars and concat → 6-char hex.
+func _hex2(n) {
+    let H = "0123456789abcdef"
+    let hi = n / 16
+    let lo = n - hi * 16
+    emit substring(H, hi, hi + 1) + substring(H, lo, lo + 1)
+}
+func _rgbHex(r, g, b) { emit _hex2(r) + _hex2(g) + _hex2(b) }
+
+// Parse one CSI sequence starting AFTER the "ESC [". Returns the index
+// just past the final byte; consumes params + final and applies SGR.
+func _consumeCSI(s, start) {
+    let n = len(s)
+    let i = start
+    let params = ""
+    while i < n {
+        let cc = s[i]
+        let code = charCode(cc)
+        let isFinal = 0
+        if code >= 64 { if code <= 126 { isFinal = 1 } }
+        if isFinal == 1 {
+            if cc == "m" { applySgr(params) }
+            emit i + 1
+        }
+        params = params + cc
+        i = i + 1
+    }
+    emit n
+}
+
+// Parse one OSC or other non-CSI ESC sequence; returns index past it.
+func _consumeOther(s, start) {
+    let n = len(s)
+    let i = start
+    while i < n {
+        let cc = s[i]
+        let code = charCode(cc)
+        if cc == fromCharCode(7) { emit i + 1 }
+        if code >= 64 { if code <= 126 { emit i + 1 } }
+        i = i + 1
+    }
+    emit n
+}
+
+// Walk input, flush coloured text chunks via guiRichAppend.
+func appendOutput(s) {
+    let n = len(s)
+    let buf = ""
+    let i = 0
+    let ESC = fromCharCode(27)
     while i < n {
         let c = s[i]
-        if c != fromCharCode(27) {
-            out = out + c
+        if c != ESC {
+            buf = buf + c
             i = i + 1
         } else {
-            // Skip ESC, then skip until the terminating byte. CSI ends
-            // on a letter (A-Z / a-z); OSC ends on BEL (0x07) or ST.
+            if len(buf) > 0 {
+                guiRichAppend(g_output, buf, g_curFg, g_curBold)
+                buf = ""
+            }
             i = i + 1
-            // optional "[" or "]" intermediate byte
-            if i < n { if s[i] == "[" { i = i + 1 }  }
-            while i < n {
-                let cc = s[i]
-                let code = charCode(cc)
-                if cc == fromCharCode(7) { i = i + 1  break }
-                if code >= 64 { if code <= 126 { i = i + 1  break } }
+            if i < n {
+                let kind = s[i]
                 i = i + 1
+                if kind == "[" { i = _consumeCSI(s, i) }
+                else          { i = _consumeOther(s, i) }
             }
         }
     }
-    emit out
-}
-
-func appendOutput(s) {
-    let cur = guiGetText(g_output)
-    guiSetText(g_output, cur + stripAnsi(s))
+    if len(buf) > 0 {
+        guiRichAppend(g_output, buf, g_curFg, g_curBold)
+    }
     emit "1"
 }
 
@@ -256,10 +383,10 @@ just run {
     guiOnClick(g_cmdline, funcptr(onCmd))
 
     refreshTitle()
-    appendOutput("stem v0.1.1 — pure-Krypton terminal (objk/Win32).\n")
+    appendOutput("stem v0.1.2 — pure-Krypton terminal (objk/Win32).\n")
     appendOutput("builtins: clear / cls / exit. cd persists across commands.\n")
-    appendOutput("ANSI escape sequences in output are filtered (v0.2 will\n")
-    appendOutput("render colour via guiRichSetFmt).\n\n")
+    appendOutput("ANSI colours (standard 16 + 38;2;r;g;b truecolor) render\n")
+    appendOutput("inline via guiRichAppend.\n\n")
 
     guiShow(g_win)
     guiRun()
