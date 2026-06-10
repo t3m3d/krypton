@@ -1009,13 +1009,13 @@ func rebuildTabs() {
     let nm = baseName(msg(cocoaArrayGet(paths, i), "UTF8String"))
     let w = 64 + len(nm) * 7
     if w > 200 { w = 200 }
-    let nameb = cocoaButton(win, nm, x, 612, w, 26)
+    let nameb = cocoaButton(win, nm, x, 610, w, 26)
     msg_1(nameb, "setBezelStyle:", 1)
     if i == cur { msg_1(nameb, "setState:", 1) }
     cocoaSetAssocKey(nameb, "idx", cocoaNumber(i))
     cocoaOnClickKeyed(nameb, "tabsel", funcptr(onTabSelect))
     cocoaArrayAdd(btns, nameb)
-    let closeb = cocoaButton(win, "✕", x + w + 1, 612, 22, 26)
+    let closeb = cocoaButton(win, "✕", x + w + 1, 610, 22, 26)
     msg_1(closeb, "setBezelStyle:", 1)
     cocoaSetAssocKey(closeb, "idx", cocoaNumber(i))
     cocoaOnClickKeyed(closeb, "tabclose", funcptr(onTabClose))
@@ -1327,7 +1327,7 @@ just run {
 
   // top: tree + editor + tabs ; bottom: terminal
   let table = cocoaTable(win, 0, 252, 240, 388)
-  let editor = cocoaScrollText(win, 240, 252, 700, 388)
+  let editor = cocoaScrollText(win, 240, 252, 700, 356)
   cocoaSetFont(editor, cocoaMonoFont(13))
   msg_1(editor, "setAllowsUndo:", 1)
   msg_1(editor, "setUsesFindBar:", 1)
