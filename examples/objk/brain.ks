@@ -1019,7 +1019,7 @@ func rebuildTabs() {
     cocoaArrayAdd(btns, nameb)
     // round ✕ button overlaid on the tab's right edge (on top -> captures its clicks).
     // Layer-drawn circle (exact size) instead of NSBezelStyleCircular (fixed-min, too big).
-    let closeb = cocoaButton(win, "✕", x + w - 24, 615, 16, 16)
+    let closeb = cocoaButton(win, "✕", x + w - 26, 617, 16, 16)
     msg_1(closeb, "setBordered:", 0)
     cocoaSetFont(closeb, cocoaMonoFont(11))
     msg_1(closeb, "setWantsLayer:", 1)
