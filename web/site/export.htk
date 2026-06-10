@@ -342,7 +342,7 @@ func siteNav(active) {
          htA("/docs.html", "Docs") +
          htA("/programs.html", "Programs") +
          htA("/kcode.html", "kcode") +
-         htA("/kryoterm.html", "kryoterm") +
+         htA("/stem.html", "stem") +
          htA("/downloads.html", "Downloads") +
          htA("/contact.html", "Contact") +
          "</div></div></nav>" +
@@ -574,10 +574,10 @@ func pagePrograms() {
         "</div>" +
         "<div class=" + DQ() + "card" + DQ() + " style=" + DQ() + "margin:24px 0" + DQ() + ">" +
         "<span class=" + DQ() + "tag" + DQ() + ">New</span>" +
-        htH2("kryoterm") +
+        htH2("stem") +
         htP("A terminal emulator being built in pure Krypton plus KryptScript " + DASH() + " no Qt, no GTK, no libX11. The window comes from stdlib/x11.k (the Krypton X11 wire-protocol client speaking directly over a socket); the binary is a static syscall-only ELF.") +
-        htP("Phase 0 shipped: spawns a child process via shellRun and echoes its output. Phase 1 (X11 window) and Phase 2 (in-window rendering) follow as stdlib/x11.k gains CreateWindow + ImageText8. Sibling project to terk (Qt6/C++) " + DASH() + " kryoterm exists to retire that C++ surface once feature parity lands.") +
-        htP(htA("https://github.com/t3m3d/kryoterm", "View on GitHub")) +
+        htP("Phase 0 shipped: spawns a child process via shellRun and echoes its output. Phase 1 (X11 window) and Phase 2 (in-window rendering) follow as stdlib/x11.k gains CreateWindow + ImageText8. Sibling project to terk (Qt6/C++) " + DASH() + " stem exists to retire that C++ surface once feature parity lands.") +
+        htP(htA("https://github.com/t3m3d/stem", "View on GitHub")) +
         htP(htEm("Linux x86_64 " + DOT() + " 4126-byte static ELF (phase 0). Linux aarch64 once that backend finishes Milestone 4 (string-concat).")) +
         "</div>" +
         htH2("More") +
@@ -1297,7 +1297,7 @@ func buildSitemap() {
         _sitemapUrl("/blog.html") +
         _sitemapUrl("/programs.html") +
         _sitemapUrl("/kcode.html") +
-        _sitemapUrl("/kryoterm.html") +
+        _sitemapUrl("/stem.html") +
         _sitemapUrl("/downloads.html") +
         _sitemapUrl("/kryptscript.html") +
         _sitemapUrl("/contact.html") +
@@ -1405,28 +1405,25 @@ func kcodePrice() { emit "$29" }
 
 func krCard(t, b) { emit "<div class=" + DQ() + "card" + DQ() + ">" + htH3(t) + htP(b) + "</div>" }
 
-func pageKryoterm() {
+func pageStem() {
     let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
         "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
-        htImgA(htSrc("/kryoterm.png") + htAttr("alt", "kryoterm app icon") +
+        htImgA(htSrc("/stem.png") + htAttr("alt", "stem app icon") +
                htAttr("style", "width:132px;height:132px;border-radius:24%;box-shadow:0 12px 40px rgba(0,0,0,.45);margin-bottom:20px")) +
         "<span class=" + DQ() + "tag" + DQ() + ">macOS arm64 " + DASH() + " free</span>" +
-        htH1("kryoterm") +
+        htH1("stem") +
         htP("A terminal emulator whose engine is " + htEm("pure Krypton") + " " + DASH() +
-            " no C, no C++, no Qt. The shell, the pseudo-terminal, and the ANSI/grid renderer are all native Krypton; only a thin, temporary macOS window shim remains.") +
+            " no C, no C++, no Obj-C. The shell, the pseudo-terminal, the ANSI grid renderer AND the macOS window/keyboard/colour are all native Krypton, via the objk Objective-C FFI.") +
         "<a href=" + DQ() + "#install" + DQ() + " class=" + DQ() + "btn primary" + DQ() + ">Install via Homebrew</a>" +
-        "<a href=" + DQ() + "https://github.com/t3m3d/kryoterm" + DQ() + " class=" + DQ() + "btn outline" + DQ() + ">View Source</a>" +
+        "<a href=" + DQ() + "https://github.com/t3m3d/stem" + DQ() + " class=" + DQ() + "btn outline" + DQ() + ">View Source</a>" +
         "</div>"
 
     let features = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
         htH2("A real terminal, written in Krypton") +
         htP("Live " + htCode("zsh") + " sourcing your full " + htCode("~/.zshrc") + " (powerlevel10k, history, aliases), truecolor, scrollback, selection/copy, find, resize reflow, and a configurable theme/font/cursor.") +
         "<div class=" + DQ() + "grid" + DQ() + ">" +
-        krCard("Pure-Krypton engine", "The grid (" + htCode("term.k") + ") and the pty bridge run on macho " + htCode("svc") + " syscall builtins. The only non-Krypton code is a small window shim, marked for deletion once AppKit FFI lands in the backend.") +
-        krCard("Multi-pane", "Splits (&#8984;D / File menu), native macOS tabs (&#8984;T), and multiple windows " + DASH() + " each pane runs its own shell.") +
+        krCard("Pure-Krypton engine", "The grid (" + htCode("term.k") + ") and the pty bridge run on macho " + htCode("svc") + " syscall builtins. The whole app is pure Krypton on the objk FFI " + DASH() + " no Obj-C source at all.") +
         krCard("Runs full TUIs", "Mouse reporting (X10/SGR-1006), alternate screen, cursor shape &amp; visibility, bracketed paste, focus events " + DASH() + " vim, htop, less, and tmux all work.") +
-        krCard("Native menus", "Full menu bar: File / Edit / View / Window / Help, with Writing Tools, Contacts AutoFill, Emoji &amp; Symbols, and Dictation.") +
-        krCard("Find, select, scroll", "Search scrollback (&#8984;F), word/line selection, copy-on-select, scroll-wheel history with a position thumb, and &#8984;-click to open URLs.") +
         krCard("Tiny &amp; self-contained", "A single Mach-O, ad-hoc signed, with no runtime dependency. Installs from a Homebrew tap " + DASH() + " CLI or a clickable app.") +
         "</div>" +
         "</div></section>"
@@ -1434,13 +1431,11 @@ func pageKryoterm() {
     let install = "<section class=" + DQ() + "dotbg" + DQ() + " id=" + DQ() + "install" + DQ() + "><div class=" + DQ() + "wrap" + DQ() + " style=" + DQ() + "text-align:center" + DQ() + ">" +
         htH2("Install") +
         htP("macOS on Apple Silicon (Tahoe). Add the tap, then install the CLI, the clickable app, or both.") +
-        htPre("brew tap t3m3d/krypton" + NL() +
-              "brew install kryoterm          # the kryoterm command" + NL() +
-              "brew install --cask kryoterm   # OR a clickable kryoterm.app in /Applications") +
-        htP(htEm("A " + htA("https://www.nerdfonts.com/", "JetBrainsMono Nerd Font") + " is recommended for powerline / icon glyphs (configurable in " + htCode("~/.config/kryoterm/config") + ").")) +
+        htPre("brew install --cask t3m3d/krypton/stem") +
+        htP(htEm("A " + htA("https://www.nerdfonts.com/", "JetBrainsMono Nerd Font") + " is recommended for powerline / icon glyphs (configurable in " + htCode("~/.config/stem/config") + ").")) +
         "</div></section>"
 
-    emit sitePage("kryoterm", hero + features + install)
+    emit sitePage("stem", hero + features + install)
 }
 
 func pageKcode() {
@@ -1715,7 +1710,7 @@ just run {
     writePage(dist + "/kryptscript.html", pageKryptScript())
     writePage(dist + "/contact.html", pageContact())
     writePage(dist + "/kcode.html", pageKcode())
-    writePage(dist + "/kryoterm.html", pageKryoterm())
+    writePage(dist + "/stem.html", pageStem())
     writePage(dist + "/sponsor.html", pageSponsor())
     writePage(dist + "/playground.html", pagePlayground())
     writePage(dist + "/blog.html", pageBlog())
