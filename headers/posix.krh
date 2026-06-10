@@ -7,7 +7,9 @@ jxt {
     func ptsname(fd)                // -> char* slave device path
     func fork()                     // -> pid (0 in child)
     func setsid()
+    func open(path, flags)
+    func close(fd)
     func dup2(oldfd, newfd)
-    func execl(path, arg0, term)    // varargs; pass 0 terminator
+    func execl(path, arg0, a1, a2, term)   // varargs; first 0 terminates argv
     func _exit(code)
 }
