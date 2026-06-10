@@ -106,4 +106,9 @@ jxt {
     // (GetSystemMetrics already declared in windows.krh)
     func MapWindowPoints(from, to, points, count)
     func AdjustWindowRectEx(rect, style, hasMenu, exStyle)
+
+    // ── Focus + activation ───────────────────────────────────────
+    func SetFocus(hwnd)
+    func SetForegroundWindow(hwnd)
+    func BringWindowToTop(hwnd)
 }
