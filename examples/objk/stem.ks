@@ -111,7 +111,7 @@ func processChunk(ts, chunk, curColor, deflt, font) {
 just run {
   let m = ptyMaster("/dev/ptmx")
   let slave = ptySlaveName(m)
-  ptyForkExec(slave, "/bin/zsh")
+  ptyForkExec(slave, "/bin/sh")
   fdSetNonblock(m)
   let setup = "export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; clear\n"
   fdWrite(m, setup, len(setup))
