@@ -1551,6 +1551,63 @@ func onRunInTerm(self, cmd, sender) {
   emit "1"
 }
 
+// ── Terminal menu ───────────────────────────────────────────────────────
+func termWrite(s) { fdWrite(cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.master")), s, len(s))  emit "1" }
+func showTermPane(vis) { cocoaSetAssocKey(appH(), "brain.terminal", cocoaNumber(vis))  relayout()  emit "1" }
+func focusTerm() { cocoaMakeFirstResponder(cocoaGetAssocKey(appH(), "brain.win"), cocoaGetAssocKey(appH(), "brain.kview"))  emit "1" }
+func runInTerm(c) { showTermPane(1)  termWrite(c + "\n")  cocoaSetAssocKey(appH(), "brain.lastrun", nsString(c))  focusTerm()  emit "1" }
+
+func onNewTerminal(self, cmd, sender)    { showTermPane(1)  termWrite("clear\n")  focusTerm()  emit "1" }
+func onSplitTerminal(self, cmd, sender)  { exec("open -na stem")  emit "1" }
+func onNewTermWindow(self, cmd, sender)  { exec("open -na stem")  emit "1" }
+func onRunTask(self, cmd, sender)        { let c = promptText("Run task (shell command):", "")  if len(c) > 0 { runInTerm(c) }  emit "1" }
+func onRunBuildTask(self, cmd, sender) {
+  let bf = environ("HOME") + "/.config/brain/build"
+  let b = trim(readFile(bf))
+  if len(b) == 0 {
+    b = promptText("Default build command:", "./build.sh")
+    if len(b) > 0 { exec("mkdir -p \"" + environ("HOME") + "/.config/brain\"")  writeFile(bf, b + "\n") }
+  }
+  if len(b) > 0 { runInTerm("cd \"" + curDir() + "\" && " + b) }
+  emit "1"
+}
+func onRunActiveFile(self, cmd, sender) {
+  let cp = cocoaGetAssocKey(appH(), "brain.curpath")
+  if cp == 0 { emit "1" }
+  let path = msg(cp, "UTF8String")
+  runInTerm("kcc --native \"" + path + "\" -o /tmp/brainrun && /tmp/brainrun")
+  emit "1"
+}
+func onRunSelected(self, cmd, sender) {
+  msg_1(cocoaGetAssocKey(appH(), "brain.editor"), "copy:", 0)
+  let sel = trim(exec("pbpaste"))
+  if len(sel) > 0 { runInTerm(sel) }
+  emit "1"
+}
+func onShowRunningTask(self, cmd, sender)  { showTermPane(1)  focusTerm()  emit "1" }
+func onRestartTask(self, cmd, sender) {
+  termWrite(fromCharCode(3))
+  let lr = cocoaGetAssocKey(appH(), "brain.lastrun")
+  if lr != 0 { termWrite(msg(lr, "UTF8String") + "\n") }
+  showTermPane(1)  focusTerm()
+  emit "1"
+}
+func onTerminateTask(self, cmd, sender)    { termWrite(fromCharCode(3))  emit "1" }
+func onConfigTasks(self, cmd, sender) {
+  let f = environ("HOME") + "/.config/brain/tasks.sh"
+  exec("mkdir -p \"" + environ("HOME") + "/.config/brain\"; [ -f \"" + f + "\" ] || printf '# brain tasks — shell commands\\n' > \"" + f + "\"")
+  openTab(f)
+  emit "1"
+}
+func onConfigBuild(self, cmd, sender) {
+  let f = environ("HOME") + "/.config/brain/build"
+  exec("mkdir -p \"" + environ("HOME") + "/.config/brain\"; [ -f \"" + f + "\" ] || printf './build.sh\\n' > \"" + f + "\"")
+  openTab(f)
+  emit "1"
+}
+func onShowTerm(self, cmd, sender) { showTermPane(1)  emit "1" }
+func onHideTerm(self, cmd, sender) { showTermPane(0)  emit "1" }
+
 just run {
   let dir = projDir()
   recentAdd("folders", dir)
@@ -1734,6 +1791,25 @@ just run {
   let runMenu = cocoaMenuAdd(bar, "Run")
   cocoaMenuItem(runMenu, "Run File", "r", funcptr(onRun))
   cocoaMenuItem(runMenu, "Run in Terminal", "R", funcptr(onRunInTerm))
+  let termMenu = cocoaMenuAdd(bar, "Terminal")
+  cocoaMenuItem(termMenu, "New Terminal", "", funcptr(onNewTerminal))
+  cocoaMenuItem(termMenu, "Split Terminal", "", funcptr(onSplitTerminal))
+  cocoaMenuItem(termMenu, "New Terminal Window", "", funcptr(onNewTermWindow))
+  cocoaMenuSeparator(termMenu)
+  cocoaMenuItem(termMenu, "Run Task", "", funcptr(onRunTask))
+  cocoaMenuItem(termMenu, "Run Build Task", "", funcptr(onRunBuildTask))
+  cocoaMenuItem(termMenu, "Run Active File", "", funcptr(onRunActiveFile))
+  cocoaMenuItem(termMenu, "Run Selected Text", "", funcptr(onRunSelected))
+  cocoaMenuSeparator(termMenu)
+  cocoaMenuItem(termMenu, "Show Running Task", "", funcptr(onShowRunningTask))
+  cocoaMenuItem(termMenu, "Restart Running Task", "", funcptr(onRestartTask))
+  cocoaMenuItem(termMenu, "Terminate Task", "", funcptr(onTerminateTask))
+  cocoaMenuSeparator(termMenu)
+  cocoaMenuItem(termMenu, "Configure Tasks", "", funcptr(onConfigTasks))
+  cocoaMenuItem(termMenu, "Configure Default Build Task", "", funcptr(onConfigBuild))
+  cocoaMenuSeparator(termMenu)
+  cocoaMenuItem(termMenu, "Show Terminal", "", funcptr(onShowTerm))
+  cocoaMenuItem(termMenu, "Hide Terminal", "", funcptr(onHideTerm))
 
   cocoaTVSetString(editor, "// brain — click a file on the left; terminal below\n")
   cocoaReload(table)
