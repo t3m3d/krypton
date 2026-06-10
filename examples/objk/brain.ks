@@ -1518,7 +1518,7 @@ just run {
   let table = cocoaTable(win, 0, 252, 240, 388)
   let editor = cocoaScrollText(win, 240, 252, 700, 356)
   cocoaSetFont(editor, cocoaMonoFont(13))
-  cocoaSetBg(editor, cocoaRGB(210, 232, 224))
+  cocoaSetBg(editor, cocoaRGB(168, 206, 184))
   msg_1(editor, "setAllowsUndo:", 1)
   msg_1(editor, "setUsesFindBar:", 1)
 
