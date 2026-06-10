@@ -177,76 +177,82 @@ func _packCoord(cols, rows) { emit cols + rows * 65536 }
 // g_inWrite, g_outRead, g_hProc and g_alive on success. Returns "1" on
 // success, "" on any failure (caller falls back to non-interactive mode).
 func ptySpawn(cmd, cols, rows) {
-    let SA  = bufNew(24)
-    bufSetDword(SA, 24)          // nLength
-    bufSetQwordAt(SA, 8,  "0")    // lpSecurityDescriptor = NULL
-    bufSetDword(SA, 16)          // bInheritHandle: lo byte; set =1 below
-    bufSetByte(SA, 16, 1)
+    appendOutput("[isolation] entering ptySpawn\n")
+    appendOutput("[isolation] returning early to confirm window survives\n")
+    emit ""    // bail before any Win32 calls
+    appendOutput("[ptySpawn] step 1: SECURITY_ATTRIBUTES\n")
+    let SA  = bufNew("24")
+    bufSetDword(SA, "24")              // nLength = 24
+    bufSetQwordAt(SA, "8",  "0")        // lpSecurityDescriptor = NULL
+    bufSetDwordAt(SA, "16", "1")       // bInheritHandle = TRUE
 
-    // input pipe: inputRead → ConPTY, inputWrite → us
+    appendOutput("[ptySpawn] step 2: CreatePipe x2\n")
     let inR = bufNew(8)
     let inW = bufNew(8)
-    if CreatePipe(inR, inW, SA, "0") == "0" { emit "" }
-    // output pipe: outRead → us, outWrite → ConPTY
+    if CreatePipe(inR, inW, SA, "0") == "0" {
+        appendOutput("[ptySpawn] CreatePipe(input) failed\n")
+        emit ""
+    }
     let outR = bufNew(8)
     let outW = bufNew(8)
     if CreatePipe(outR, outW, SA, "0") == "0" {
+        appendOutput("[ptySpawn] CreatePipe(output) failed\n")
         CloseHandle(bufGetQword(inR))  CloseHandle(bufGetQword(inW))
         emit ""
     }
 
-    let hInR = bufGetQword(inR)
-    let hInW = bufGetQword(inW)
+    let hInR  = bufGetQword(inR)
+    let hInW  = bufGetQword(inW)
     let hOutR = bufGetQword(outR)
     let hOutW = bufGetQword(outW)
+    appendOutput("[ptySpawn] step 3: CreatePseudoConsole\n")
 
     let hPCBuf = bufNew(8)
     let size = _packCoord(cols, rows)
-    let hr = CreatePseudoConsole(size + "", hInR, hOutW, "0", hPCBuf)
-    // ConPTY took ownership of inR + outW; close our copies.
-    CloseHandle(hInR)
-    CloseHandle(hOutW)
+    let hr = CreatePseudoConsole(size + "", hInR + "", hOutW + "", "0", hPCBuf)
+    CloseHandle(hInR + "")
+    CloseHandle(hOutW + "")
     if hr != "0" {
-        CloseHandle(hInW)  CloseHandle(hOutR)
+        appendOutput("[ptySpawn] CreatePseudoConsole hr=" + hr + "\n")
+        CloseHandle(hInW + "")  CloseHandle(hOutR + "")
         emit ""
     }
     let hPC = bufGetQword(hPCBuf)
 
-    // Build the PROC_THREAD attribute list carrying hPC.
+    appendOutput("[ptySpawn] step 4: attribute list size probe\n")
     let sizeBuf = bufNew(8)
     bufSetQword(sizeBuf, "0")
     InitializeProcThreadAttributeList(toHandle("0"), "1", "0", sizeBuf)
     let attrSize = toInt(bufGetQword(sizeBuf))
     if attrSize == 0 {
-        ClosePseudoConsole(hPC)  CloseHandle(hInW)  CloseHandle(hOutR)
+        appendOutput("[ptySpawn] attrSize is 0\n")
+        ClosePseudoConsole(hPC + "")  CloseHandle(hInW + "")  CloseHandle(hOutR + "")
         emit ""
     }
+    appendOutput("[ptySpawn] step 5: InitializeProcThreadAttributeList\n")
     let attrs = bufNew(attrSize + "")
     bufSetQword(sizeBuf, attrSize + "")
     if InitializeProcThreadAttributeList(attrs, "1", "0", sizeBuf) == "0" {
-        ClosePseudoConsole(hPC)  CloseHandle(hInW)  CloseHandle(hOutR)
+        appendOutput("[ptySpawn] Initialize failed\n")
+        ClosePseudoConsole(hPC + "")  CloseHandle(hInW + "")  CloseHandle(hOutR + "")
         emit ""
     }
-    // PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE_HANDLE = 0x00020016 = 131094.
-    // lpValue is a pointer-to-value, not the value itself — Windows copies
-    // cbSize bytes starting at lpValue into the attribute storage. So we
-    // BOX hPC into an 8-byte buf and pass the buf address.
+    appendOutput("[ptySpawn] step 6: UpdateProcThreadAttribute\n")
     let hPCBox = bufNew(8)
     bufSetQword(hPCBox, hPC + "")
     if UpdateProcThreadAttribute(attrs, "0", "131094", hPCBox, "8",
                                   toHandle("0"), toHandle("0")) == "0" {
+        appendOutput("[ptySpawn] UpdateProcThreadAttribute failed\n")
         DeleteProcThreadAttributeList(attrs)
-        ClosePseudoConsole(hPC)  CloseHandle(hInW)  CloseHandle(hOutR)
+        ClosePseudoConsole(hPC + "")  CloseHandle(hInW + "")  CloseHandle(hOutR + "")
         emit ""
     }
 
-    // STARTUPINFOEXA = STARTUPINFOA (104B) + LPVOID lpAttributeList (8B) = 112B
+    appendOutput("[ptySpawn] step 7: STARTUPINFOEX + CreateProcessA\n")
     let si = bufNew(112)
-    bufSetDword(si, 112)                 // cb = sizeof(STARTUPINFOEXA)
-    bufSetQwordAt(si, 104, ptrToInt(attrs) + "")
+    bufSetDword(si, "112")
+    bufSetQwordAt(si, "104", ptrToInt(attrs) + "")
     let pi = bufNew(24)
-
-    // CreateProcessA with EXTENDED_STARTUPINFO_PRESENT = 0x00080000 = 524288.
     let cmdBuf = bufNew(len(cmd) + 1)
     let ci = 0
     while ci < len(cmd) { bufSetByte(cmdBuf, ci, charCode(cmd[ci]))  ci = ci + 1 }
@@ -255,11 +261,13 @@ func ptySpawn(cmd, cols, rows) {
     if CreateProcessA(toHandle("0"), cmdBuf, toHandle("0"), toHandle("0"),
                       "0", "524288", toHandle("0"), toHandle("0"),
                       si, pi) == "0" {
+        appendOutput("[ptySpawn] CreateProcessA failed\n")
         DeleteProcThreadAttributeList(attrs)
-        ClosePseudoConsole(hPC)  CloseHandle(hInW)  CloseHandle(hOutR)
+        ClosePseudoConsole(hPC + "")  CloseHandle(hInW + "")  CloseHandle(hOutR + "")
         emit ""
     }
 
+    appendOutput("[ptySpawn] step 8: handle plumbing done — shell is live\n")
     g_hPC     = hPC + ""
     g_inWrite = hInW + ""
     g_outRead = hOutR + ""
