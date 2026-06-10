@@ -166,6 +166,7 @@ func cocoaScrollText(win, x, y, w, h) {
     let tv = msg_frame(msg(cls("NSTextView"), "alloc"), "initWithFrame:", 0, 0, w, h)
     msg_1(tv, "setRichText:", 0)
     msg_1(sv, "setDocumentView:", tv)
+    msg_1(sv, "setAutoresizingMask:", 18)   // width+height sizable -> follow the window
     _addToContentView(win, sv)
     emit tv
 }
@@ -268,6 +269,7 @@ func cocoaDrawText(str, x, y, w, h, attrs) {
 // Instantiate a custom view with a frame and add it to the window.
 func cocoaCustomView(win, c, x, y, w, h) {
     let v = msg_frame(msg(c, "alloc"), "initWithFrame:", x, y, w, h)
+    msg_1(v, "setAutoresizingMask:", 18)   // width+height sizable -> follow the window
     _addToContentView(win, v)
     emit v
 }
