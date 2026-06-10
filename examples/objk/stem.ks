@@ -113,7 +113,7 @@ just run {
   let slave = ptySlaveName(m)
   ptyForkExec(slave, "/bin/sh")
   fdSetNonblock(m)
-  let setup = "export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; clear\n"
+  let setup = "export TERM_PROGRAM=stem; export TERM_PROGRAM_VERSION=0.1; export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; clear\n"
   fdWrite(m, setup, len(setup))
 
   let app = cocoaInit()
