@@ -12,16 +12,27 @@ import "head:objc"
 func appH() { emit msg(cls("NSApplication"), "sharedApplication") }
 
 func onKey(self, cmd, event) {
-  let chars = msg(msg(event, "characters"), "UTF8String")
-  fdWrite(cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.master")), chars, len(chars))
+  let m = cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.master"))
+  let esc = fromCharCode(27)
+  let kc = msg(event, "keyCode")
+  let seq = ""
+  if kc == 126 { seq = esc + "[A" }       // up
+  if kc == 125 { seq = esc + "[B" }       // down
+  if kc == 124 { seq = esc + "[C" }       // right
+  if kc == 123 { seq = esc + "[D" }       // left
+  if seq == "" { seq = msg(msg(event, "characters"), "UTF8String") }
+  fdWrite(m, seq, len(seq))
 }
 func acceptsFR(self, cmd) { emit 1 }
 
 // Is `ch` a CSI final byte (0x40..0x7e)? Ends an ESC[ … sequence.
 func isCsiFinal(ch) { emit indexOf("@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~", ch) >= 0 }
+// Index of the last newline in `s` (-1 if none).
+func lastNl(s) { let i = len(s) - 1  while i >= 0 { if s[i] == "\n" { emit i }  i = i - 1 }  emit 0 - 1 }
 
 // Apply a raw pty chunk to the on-screen string: backspace/DEL erase the last
-// char, CR is dropped, ESC[ … sequences are stripped, everything else appends.
+// char, CR clears the current line (shells redraw the line after \r), ESC[ …
+// CSI is stripped (ESC[2J clears the screen), everything else appends.
 // (Line-mode terminal: handles shell editing; full-screen apps need a grid.)
 func applyChunk(screen, chunk) {
   let bs = fromCharCode(8)
@@ -36,20 +47,25 @@ func applyChunk(screen, chunk) {
     let handled = 0
     if c == bs  { if len(out) > 0 { out = substring(out, 0, len(out) - 1) }  handled = 1 }
     if c == del { if len(out) > 0 { out = substring(out, 0, len(out) - 1) }  handled = 1 }
-    if c == cr  { handled = 1 }
+    if c == cr  { out = substring(out, 0, lastNl(out) + 1)  handled = 1 }
     if c == esc {
       handled = 1
       i = i + 1
       if i < n {
         if chunk[i] == "[" {
           i = i + 1
+          let body = ""
           let done = 0
           while done == 0 {
             if i >= n { done = 1 }
             if done == 0 {
-              let fin = isCsiFinal(chunk[i])
+              let ch = chunk[i]
               i = i + 1
-              if fin { done = 1 }
+              if isCsiFinal(ch) {
+                if ch == "J" { if indexOf(body, "2") >= 0 { out = "" } }
+                done = 1
+              }
+              if done == 0 { body = body + ch }
             }
           }
           i = i - 1
