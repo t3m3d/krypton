@@ -36,6 +36,24 @@ fi
 # Compiler sources
 install -D -m0644 compiler/compile.k  "$ROOT/compiler/compile.k"
 [[ -f compiler/optimize.k ]] && install -D -m0644 compiler/optimize.k "$ROOT/compiler/optimize.k"
+# kweb — Krypton Web Framework CLI. Build a native Linux ELF from web/kweb.htk
+# with the just-staged toolchain (no C compiler). k:htmk/k:server/k:fs compile
+# in; stdlib + headers are bundled below for any runtime import.
+if [[ -f web/kweb.htk ]]; then
+  echo "building kweb (web/kweb.htk -> native ELF) ..."
+  mkdir -p "$ROOT/web"
+  KWIR=$(mktemp /tmp/_kweb_XXXXXX.ir)
+  if KRYPTON_ROOT="$PWD" compiler/linux_x86/kcc-x64 --ir web/kweb.htk > "$KWIR" 2>/dev/null \
+     && [[ -s "$KWIR" ]] \
+     && compiler/linux_x86/elf_host "$KWIR" "$ROOT/web/kweb" 2>/dev/null; then
+    chmod 0755 "$ROOT/web/kweb"
+    install -D -m0644 web/kweb.htk "$ROOT/web/kweb.htk"
+    echo "  bundled web/kweb ($(wc -c < "$ROOT/web/kweb") bytes)"
+  else
+    echo "build_tarball_linux: WARNING — kweb build failed, shipping without kweb" >&2
+  fi
+  rm -f "$KWIR"
+fi
 # Runtime support trees the FE/programs need
 cp -R stdlib  "$ROOT/stdlib"
 cp -R headers "$ROOT/headers"
@@ -57,6 +75,16 @@ echo "installing Krypton to $PREFIX ..."
 $SUDO rm -rf "$PREFIX"; $SUDO mkdir -p "$PREFIX"; $SUDO cp -R "$HERE"/. "$PREFIX"/
 $SUDO mkdir -p "$BIN"
 $SUDO ln -sf "$PREFIX/bootstrap/kcc_driver_linux_${ARCH}" "$BIN/kcc"
+# kweb (Krypton Web Framework) — native ELF, wrapped so KRYPTON_ROOT resolves
+# stdlib/headers (kweb build shells out to kcc).
+if [[ -f "$PREFIX/web/kweb" ]]; then
+  $SUDO tee "$BIN/kweb" >/dev/null <<KWEB
+#!/usr/bin/env bash
+export KRYPTON_ROOT="$PREFIX"
+exec "$PREFIX/web/kweb" "\$@"
+KWEB
+  $SUDO chmod 0755 "$BIN/kweb"
+fi
 echo "done. 'kcc --version':"; KRYPTON_ROOT="$PREFIX" "$BIN/kcc" --version
 INST
 chmod 0755 "$ROOT/install.sh"
@@ -67,6 +95,7 @@ Install:  ./install.sh            (symlinks kcc into /usr/local/bin)
 Use:      kcc hello.k -o hello && ./hello
           kcc --aarch64 hello.k -o hello   (cross-compile to aarch64 ELF)
           kcc --version
+          kweb init mysite                 (Krypton Web Framework CLI)
 No C compiler, no clone needed — prebuilt static binaries.
 RME
 
@@ -75,6 +104,7 @@ RME
 find "$ROOT" -type f \( -name elf_host -o -name "kcc-*" -o -name "kcc_*" \) -exec touch {} +
 sleep 1; find "$ROOT" -type f \( -name elf_host -o -name "kcc-*" -o -name "kcc_*" \) -exec touch {} +
 
+mkdir -p releases
 OUT="releases/${NAME}.tar.gz"
 tar -czf "$OUT" -C "$STAGE" "$NAME"
 echo "wrote $OUT ($(du -h "$OUT" | cut -f1))"
