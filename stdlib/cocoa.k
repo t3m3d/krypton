@@ -227,7 +227,7 @@ func cocoaTVLength(tv) { emit msg(msg(tv, "textStorage"), "length") }
 func cocoaTVSetStorageDelegate(tv, d) { msg_1(msg(tv, "textStorage"), "setDelegate:", d)  emit "1" }
 func cocoaTSString(ts)     { emit msg(msg(ts, "string"), "UTF8String") }
 func cocoaTSLength(ts)     { emit msg(ts, "length") }
-func cocoaTSEditedChars(ts){ emit bitAnd(msg(ts, "editedMask"), 1) }   // 1 = characters changed
+func cocoaTSEditedChars(ts){ emit bitAnd(msg(ts, "editedMask"), 2) }   // 2 = NSTextStorageEditedCharacters (1 = attributes)
 func cocoaTSClearColor(ts) {
     msg_3(ts, "removeAttribute:range:", nsString("NSColor"), 0, msg(ts, "length"))
     emit "1"
