@@ -1007,20 +1007,23 @@ func rebuildTabs() {
   let i = 0
   while i < n {
     let nm = baseName(msg(cocoaArrayGet(paths, i), "UTF8String"))
-    let w = 64 + len(nm) * 7
-    if w > 200 { w = 200 }
+    // tab width includes room for the ✕ on the right
+    let w = 70 + len(nm) * 7 + 22
+    if w > 220 { w = 220 }
     let nameb = cocoaButton(win, nm, x, 610, w, 26)
     msg_1(nameb, "setBezelStyle:", 1)
+    msg_1(nameb, "setAlignment:", 0)
     if i == cur { msg_1(nameb, "setState:", 1) }
     cocoaSetAssocKey(nameb, "idx", cocoaNumber(i))
     cocoaOnClickKeyed(nameb, "tabsel", funcptr(onTabSelect))
     cocoaArrayAdd(btns, nameb)
-    let closeb = cocoaButton(win, "✕", x + w + 1, 610, 22, 26)
-    msg_1(closeb, "setBezelStyle:", 1)
+    // borderless ✕ overlaid on the tab's right edge (on top -> captures its clicks)
+    let closeb = cocoaButton(win, "✕", x + w - 22, 612, 20, 22)
+    msg_1(closeb, "setBordered:", 0)
     cocoaSetAssocKey(closeb, "idx", cocoaNumber(i))
     cocoaOnClickKeyed(closeb, "tabclose", funcptr(onTabClose))
     cocoaArrayAdd(btns, closeb)
-    x = x + w + 27
+    x = x + w + 6
     i = i + 1
   }
   emit "1"
