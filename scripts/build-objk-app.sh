@@ -33,8 +33,14 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>CFBundleIconFile</key><string>$NAME</string>
   <key>NSDocumentsFolderUsageDescription</key><string>$NAME edits files in your Documents.</string>
 </dict></plist>
 PLIST
+# bundle icon if present (examples/objk/<name>.icns)
+if [ -f "$ROOT/examples/objk/$NAME.icns" ]; then
+  mkdir -p "$APP/Contents/Resources"
+  cp "$ROOT/examples/objk/$NAME.icns" "$APP/Contents/Resources/$NAME.icns"
+fi
 codesign -s - -f "$APP/Contents/MacOS/$NAME" >/dev/null 2>&1 || true
 echo "==> built $APP (pure Krypton, no Obj-C source)"
