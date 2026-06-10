@@ -1,0 +1,147 @@
+// stem_win.ks — Windows port of stem (the terminal that pairs with brain).
+//
+// v0.1 matches what m shipped as "stem v0.1" inside brain.ks: a
+// command-runner with output pane. Type a command, Enter, see output.
+// Interactive ConPTY (long-running shell + live keystroke forwarding)
+// is the v0.2 lift — ConPTY itself is already exposed in head:windows
+// (CreatePseudoConsole / ResizePseudoConsole / ClosePseudoConsole, see
+// headers/windows.krh:269).
+//
+// Build (from krypton/):
+//   kcc.exe examples/objk/stem_win.ks -o stem.exe
+//   .\stem.exe
+//
+// Pair / lineage:
+//   examples/objk/brain_win.ks — has stem-v0.1 embedded as its console pane
+//   examples/objk/brain.ks     — macOS sibling, same stem-v0.1 inside
+//   This file                  — stem as a standalone window
+//
+// Why "objk" (Objective-K) on Windows: same KryptScript + GUI-binding
+// pattern m uses on macOS. On Windows the binding stdlib is k:gui
+// (Win32) instead of k:cocoa (Cocoa). No new runtime, no extra DLLs —
+// just KryptScript + the existing gui.k.
+
+import "k:gui"
+
+let g_win       = 0
+let g_output    = 0     // RichEdit, read-only, full transcript
+let g_cmdline   = 0     // text input — type cmd, Enter to run
+let g_cwd       = ""    // tracked working directory; changes follow `cd`
+
+// ── ui helpers ────────────────────────────────────────────────────────
+
+func appendOutput(s) {
+    let cur = guiGetText(g_output)
+    guiSetText(g_output, cur + s)
+    emit "1"
+}
+
+// Update the title bar with the active cwd so users see where they are.
+func refreshTitle() {
+    guiSetText(g_win, "stem — " + g_cwd)
+    emit "1"
+}
+
+// ── command runner ────────────────────────────────────────────────────
+
+// Returns the text following an initial "cd " (with surrounding spaces
+// stripped), or "" when the line isn't a cd. We intercept cd here
+// because exec() spawns a fresh cmd per call — directory changes inside
+// that cmd are gone the moment it exits. We instead keep g_cwd in
+// module state and prepend "cd <g_cwd> &&" to every run.
+func parseCd(line) {
+    let n = len(line)  let i = 0
+    while i < n { if line[i] != " " { i = n + 1 }  i = i + 1 }
+    let start = i - 1
+    if start < 0 { emit "" }
+    if start + 3 > n { emit "" }
+    if substring(line, start, start + 3) != "cd " { emit "" }
+    let arg = substring(line, start + 3, n)
+    // trim trailing spaces
+    let e = len(arg)
+    while e > 0 {
+        let lc = e - 1
+        if arg[lc] != " " { emit substring(arg, 0, e) }
+        e = e - 1
+    }
+    emit ""
+}
+
+// Normalise a cd target. Absolute paths replace cwd; bare names join.
+// ".." pops one segment. No drive-letter handling beyond verbatim use.
+func resolveCd(target) {
+    if len(target) == 0 { emit g_cwd }
+    // absolute on Windows: starts with drive letter or "\"
+    if len(target) >= 2 { if target[1] == ":" { emit target } }
+    if target[0] == "\\" { emit target }
+    if target[0] == "/"  { emit target }
+    if target == ".."    {
+        let n = len(g_cwd)  let i = n - 1
+        while i >= 0 {
+            if g_cwd[i] == "\\" { emit substring(g_cwd, 0, i) }
+            if g_cwd[i] == "/"  { emit substring(g_cwd, 0, i) }
+            i = i - 1
+        }
+        emit g_cwd
+    }
+    emit g_cwd + "\\" + target
+}
+
+func runCommand(line) {
+    let cdTarget = parseCd(line)
+    if len(cdTarget) > 0 {
+        g_cwd = resolveCd(cdTarget)
+        appendOutput("$ " + line + "\n")
+        refreshTitle()
+        emit "1"
+    }
+    let full = "cd /d " + g_cwd + " && " + line + " 2>&1"
+    let out = exec(full)
+    appendOutput("$ " + line + "\n" + out + "\n")
+    emit "1"
+}
+
+func onCmd() {
+    let line = guiGetText(g_cmdline)
+    if len(line) == 0 { emit "1" }
+    runCommand(line)
+    guiSetText(g_cmdline, "")
+}
+
+// ── app entry ─────────────────────────────────────────────────────────
+
+just run {
+    g_cwd = arg(0)
+    if len(g_cwd) == 0 {
+        // fall back to %USERPROFILE% so launching from Explorer feels natural
+        g_cwd = exec("cmd /c echo %USERPROFILE%")
+        // exec output trails with a newline; strip it
+        let n = len(g_cwd)
+        while n > 0 {
+            let lc = n - 1
+            if g_cwd[lc] != "\n" { if g_cwd[lc] != "\r" { g_cwd = substring(g_cwd, 0, n)  n = 0 - 1 } }
+            n = n - 1
+        }
+    }
+
+    guiInit()
+    g_win = guiWindow("stem", 900, 600)
+
+    g_output  = guiRichEdit(g_win,  0,   0, 900, 560)
+    g_cmdline = guiTextInput(g_win, 0, 560, 900,  40)
+    guiRichSetMonoFont(g_output, "Cascadia Mono", 11)
+    guiRichReadOnly(g_output, 1)
+
+    // Enter on the text input fires guiOnClick in gui.k. Same shape as
+    // brain.ks's cmdfield + onCmd handler.
+    guiOnClick(g_cmdline, funcptr(onCmd))
+
+    refreshTitle()
+    appendOutput("stem v0.1 — pure-Krypton terminal (objk/Win32).\n")
+    appendOutput("v0.1 runs one command per Enter via exec(); v0.2 will\n")
+    appendOutput("lift to interactive ConPTY (CreatePseudoConsole +\n")
+    appendOutput("CreateProcessW + async ReadFile loop).\n\n")
+
+    guiShow(g_win)
+    guiRun()
+}
