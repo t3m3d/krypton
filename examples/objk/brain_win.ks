@@ -268,7 +268,7 @@ func highlightEditor() {
     // it's simpler to repaint EVERY token below and accept that any cell
     // not painted as a token stays default (cleared each frame by the
     // overlapping per-token writes).
-    guiRichSetFmt(g_editor, "0", n + "", "e8e8e8", "0")
+    guiRichSetFmt(g_editor, "0", n + "", "0xe8e8e8", "0")
     let i = 0
     while i < n {
         let c = src[i]
@@ -283,7 +283,7 @@ func highlightEditor() {
                         else                { end = end + 1 }
                     }
                     if end >= n + 1000 { end = end - 1000 }
-                    guiRichSetFmt(g_editor, i + "", end + "", "6a9955", "0")
+                    guiRichSetFmt(g_editor, i + "", end + "", "0x6a9955", "0")
                     i = end
                 }
             }
@@ -303,7 +303,7 @@ func highlightEditor() {
                 }
             }
             if end >= n + 1000 { end = end - 1000 }
-            guiRichSetFmt(g_editor, i + "", end + "", "ce9178", "0")
+            guiRichSetFmt(g_editor, i + "", end + "", "0xce9178", "0")
             i = end
         }
         if i >= n { i = n }
@@ -316,7 +316,7 @@ func highlightEditor() {
                 else                          { end = n + 1000 }
             }
             if end >= n + 1000 { end = end - 1000 }
-            guiRichSetFmt(g_editor, i + "", end + "", "b5cea8", "0")
+            guiRichSetFmt(g_editor, i + "", end + "", "0xb5cea8", "0")
             i = end
         }
         if i >= n { i = n }
@@ -331,7 +331,7 @@ func highlightEditor() {
             if end >= n + 1000 { end = end - 1000 }
             let word = substring(src, i, end)
             if _isKeyword(word) == "1" {
-                guiRichSetFmt(g_editor, i + "", end + "", "c586c0", "1")
+                guiRichSetFmt(g_editor, i + "", end + "", "0xc586c0", "1")
             }
             i = end
         }
@@ -351,22 +351,22 @@ let g_curFg      = ""
 let g_curBold    = 0
 
 func _sgrBaseColor(n) {
-    if n == 30 { emit "1e1e1e" }
-    if n == 31 { emit "f14c4c" }
-    if n == 32 { emit "23d18b" }
-    if n == 33 { emit "f5f543" }
-    if n == 34 { emit "3b8eea" }
-    if n == 35 { emit "d670d6" }
-    if n == 36 { emit "29b8db" }
-    if n == 37 { emit "e5e5e5" }
+    if n == 30 { emit "0x1e1e1e" }
+    if n == 31 { emit "0xf14c4c" }
+    if n == 32 { emit "0x23d18b" }
+    if n == 33 { emit "0xf5f543" }
+    if n == 34 { emit "0x3b8eea" }
+    if n == 35 { emit "0xd670d6" }
+    if n == 36 { emit "0x29b8db" }
+    if n == 37 { emit "0xe5e5e5" }
     if n == 90 { emit "666666" }
-    if n == 91 { emit "f14c4c" }
-    if n == 92 { emit "23d18b" }
-    if n == 93 { emit "f5f543" }
-    if n == 94 { emit "3b8eea" }
-    if n == 95 { emit "d670d6" }
-    if n == 96 { emit "29b8db" }
-    if n == 97 { emit "ffffff" }
+    if n == 91 { emit "0xf14c4c" }
+    if n == 92 { emit "0x23d18b" }
+    if n == 93 { emit "0xf5f543" }
+    if n == 94 { emit "0x3b8eea" }
+    if n == 95 { emit "0xd670d6" }
+    if n == 96 { emit "0x29b8db" }
+    if n == 97 { emit "0xffffff" }
     emit ""
 }
 func _hex2(n) {
@@ -542,8 +542,8 @@ just run {
     guiRichSetMonoFont(g_console, "Cascadia Mono", 11)
     // Make the console pane visually a terminal — dark bg + off-white fg,
     // same palette as stem_win so the two read as the same kind of thing.
-    guiRichSetBg(g_console, "0a0a0a")
-    guiRichSetFgDefault(g_console, "e8e8e8")
+    guiRichSetBg(g_console, "0x0a0a0a")
+    guiRichSetFgDefault(g_console, "0xe8e8e8")
     guiRichReadOnly(g_console, 1)
 
     // Populate file tree.
