@@ -1024,6 +1024,9 @@ func hlNumbers(ts, src, color) {
   }
   emit "1"
 }
+// colour quoted strings, bounded to a SINGLE line — an unterminated quote
+// (apostrophe in a comment, contraction, regex) must not green-out the rest
+// of the file.
 func hlDelim(ts, src, q, color) {
   let n = len(src)
   let pos = 0
@@ -1031,11 +1034,28 @@ func hlDelim(ts, src, q, color) {
     let i = indexOf(substring(src, pos, n), q)
     if i < 0 { emit "1" }
     let start = pos + i
-    let j = indexOf(substring(src, start + 1, n), q)
-    if j < 0 { cocoaTSColorRange(ts, color, start, n - start)  emit "1" }
-    let end = start + 1 + j + 1
-    cocoaTSColorRange(ts, color, start, end - start)
-    pos = end
+    let rest = substring(src, start + 1, n)
+    let j = indexOf(rest, q)
+    let nl = indexOf(rest, "\n")
+    let closeAbs = 0 - 1
+    if j >= 0 { closeAbs = start + 1 + j }
+    let nlAbs = 0 - 1
+    if nl >= 0 { nlAbs = start + 1 + nl }
+    let useClose = 0
+    if closeAbs >= 0 {
+      if nlAbs < 0 { useClose = 1 }
+      else { if closeAbs < nlAbs { useClose = 1 } }
+    }
+    if useClose == 1 {
+      let end = closeAbs + 1
+      cocoaTSColorRange(ts, color, start, end - start)
+      pos = end
+    } else {
+      let end = n
+      if nlAbs >= 0 { end = nlAbs }
+      cocoaTSColorRange(ts, color, start, end - start)
+      pos = end + 1
+    }
   }
   emit "1"
 }
