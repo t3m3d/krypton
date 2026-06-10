@@ -773,40 +773,39 @@ func color256(n) {
 }
 
 // One ESC[...m body -> new fg colour (0 reset; 38;5;N -> 256; bg/other kept).
-func sgrUpdate(body, cur, deflt) {
-  if body == "0" { emit deflt }
-  if indexOf(body, "38;5;") == 0 {
-    let rest = substring(body, 5, len(body))
-    let semi = indexOf(rest, ";")
-    let ns = rest
-    if semi >= 0 { ns = substring(rest, 0, semi) }
-    emit color256(toInt(ns))
-  }
-  emit cur
+// 256 index from a "38;5;N" / "48;5;N" body (after the 5-char prefix).
+func sgrIndex(body) {
+  let rest = substring(body, 5, len(body))
+  let semi = indexOf(rest, ";")
+  if semi >= 0 { emit toInt(substring(rest, 0, semi)) }
+  emit toInt(rest)
 }
 
-func appendRunTo(acc, text, color, font) {
+func appendRunTo(acc, text, fg, bg, font) {
   if len(text) == 0 { emit "1" }
   let start = msg(acc, "length")
   msg_1(acc, "appendAttributedString:", msg_1(msg(cls("NSAttributedString"), "alloc"), "initWithString:", nsString(text)))
   let span = msg(acc, "length") - start
-  msg_4(acc, "addAttribute:value:range:", nsString("NSColor"), color, start, span)
+  msg_4(acc, "addAttribute:value:range:", nsString("NSColor"), fg, start, span)
   msg_4(acc, "addAttribute:value:range:", nsString("NSFont"), font, start, span)
+  if bg != 0 { msg_4(acc, "addAttribute:value:range:", nsString("NSBackgroundColor"), bg, start, span) }
   emit "1"
 }
 
 // Parse a gridRender snapshot (text + ESC[..m) -> a coloured NSMutableAttributedString.
+// Tracks fg (NSColor) + bg (NSBackgroundColor, 0 = none) so powerline segments fill.
 func renderSnapshot(snap, deflt, font) {
   let acc = msg(msg(cls("NSMutableAttributedString"), "alloc"), "init")
   let esc = fromCharCode(27)
   let n = len(snap)
   let i = 0
   let run = ""
-  let color = deflt
+  let fg = deflt
+  let bg = 0
   while i < n {
     let c = snap[i]
     if c == esc {
-      if len(run) > 0 { appendRunTo(acc, run, color, font)  run = "" }
+      if len(run) > 0 { appendRunTo(acc, run, fg, bg, font)  run = "" }
       i = i + 1
       if i < n {
         if snap[i] == "[" {
@@ -819,7 +818,11 @@ func renderSnapshot(snap, deflt, font) {
               let ch = snap[i]
               i = i + 1
               if isCsiFinal(ch) {
-                if ch == "m" { color = sgrUpdate(body, color, deflt) }
+                if ch == "m" {
+                  if body == "0" { fg = deflt  bg = 0 }
+                  if indexOf(body, "38;5;") == 0 { fg = color256(sgrIndex(body)) }
+                  if indexOf(body, "48;5;") == 0 { bg = color256(sgrIndex(body)) }
+                }
                 done = 1
               }
               if done == 0 { body = body + ch }
@@ -829,7 +832,7 @@ func renderSnapshot(snap, deflt, font) {
       }
     } else { run = run + c  i = i + 1 }
   }
-  if len(run) > 0 { appendRunTo(acc, run, color, font) }
+  if len(run) > 0 { appendRunTo(acc, run, fg, bg, font) }
   emit acc
 }
 
