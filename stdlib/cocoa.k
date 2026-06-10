@@ -235,6 +235,11 @@ func cocoaSetTextColor(tv, color) { msg_1(tv, "setTextColor:", color)          e
 // ── Fonts ──────────────────────────────────────────────────────────────
 // [NSFont userFixedPitchFontOfSize:n] — monospaced (size in pt, int is fine).
 func cocoaMonoFont(size)     { emit msg_d1(cls("NSFont"), "userFixedPitchFontOfSize:", size) }
+// Refamily a font (keeps size/metrics) — e.g. to a Nerd Font for powerline glyphs.
+// Returns `base` unchanged if the family isn't installed. No double arg needed.
+func cocoaFontFamily(base, family) {
+    emit msg_2(msg(cls("NSFontManager"), "sharedFontManager"), "convertFont:toFamily:", base, nsString(family))
+}
 func cocoaSetFont(view, font){ msg_1(view, "setFont:", font)  emit "1" }
 
 // ── Runtime class synthesis (delegates / data sources) ─────────────────
