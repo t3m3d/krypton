@@ -1085,7 +1085,9 @@ func highlightLang(ts, src, ext) {
 func reHL(self, cmd, notif) {
   let ts = msg(notif, "object")
   if cocoaTSEditedChars(ts) == 0 { emit "1" }
-  cocoaTSClearColor(ts)
+  // paint base text light first; token colours overlay (removeAttribute would
+  // fall back to black on the dark bg).
+  cocoaTSColorRange(ts, cocoaRGB(212, 212, 212), 0, cocoaTSLength(ts))
   let lang = cocoaGetAssocKey(appH(), "brain.lang")
   let ext = ""
   if lang != 0 { ext = msg(lang, "UTF8String") }
@@ -1518,7 +1520,10 @@ just run {
   let table = cocoaTable(win, 0, 252, 240, 388)
   let editor = cocoaScrollText(win, 240, 252, 700, 356)
   cocoaSetFont(editor, cocoaMonoFont(13))
-  cocoaSetBg(editor, cocoaRGB(168, 206, 184))
+  // dark theme
+  cocoaSetBg(editor, cocoaRGB(30, 30, 30))
+  cocoaSetTextColor(editor, cocoaRGB(212, 212, 212))
+  msg_1(editor, "setInsertionPointColor:", cocoaRGB(220, 220, 220))
   msg_1(editor, "setAllowsUndo:", 1)
   msg_1(editor, "setUsesFindBar:", 1)
 
