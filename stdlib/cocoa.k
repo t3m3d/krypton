@@ -229,6 +229,8 @@ func cocoaTSColorRange(ts, color, loc, len) {
 
 // ── Colors (named — Krypton has no float literals for colorWithRed:…) ───
 func cocoaColorNamed(name)        { emit msg(cls("NSColor"), name) }
+// True NSColor from 0-255 RGB (exact 256-colour/truecolor; named colours are the basic 16).
+func cocoaRGB(r, g, b) { emit msg_rgb(cls("NSColor"), "colorWithRed:green:blue:alpha:", r, g, b) }
 func cocoaSetBg(view, color)      { msg_1(view, "setBackgroundColor:", color)  emit "1" }
 func cocoaSetTextColor(tv, color) { msg_1(tv, "setTextColor:", color)          emit "1" }
 

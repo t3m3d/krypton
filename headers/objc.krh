@@ -59,6 +59,7 @@ jxt {
     func objc_msgSend_d1(self, sel, n)              // one CGFloat arg -> d0
     func objc_msgSend_rectp(self, sel, x, y, w, h, p)  // NSRect d0..d3 + ptr x2 (drawInRect:withAttributes:)
     func objc_msgSend_timer(self, sel, ms, target, actsel, info, rep)  // scheduledTimer: ms/1000->d0 + x2..x5
+    func objc_msgSend_rgb(self, sel, r, g, b)       // colorWithRed:green:blue:alpha: r/g/b/255->d0..d2, 1.0->d3
 
     // ── Class introspection (rarely needed at runtime) ─────────────────
     func class_getName(cls)
