@@ -3552,6 +3552,18 @@ func opByteSize(op) {
     // as a string (kr_str_int). Counts MUST equal the emit blocks byte-for-byte.
     if op == "BUILTIN_EXEC"        { emit 265 }
     if op == "BUILTIN_SHELLRUN"    { emit 142 }
+    // PTY / fd / process builtins (stem terminal). Inline x86-64 syscalls, no C.
+    // Counts MUST equal the emit blocks in emitFuncCode exactly (or offsets desync).
+    if op == "BUILTIN_FDREAD"      { emit 43 }  // alloc n+1; read(fd,buf,n); NUL-term; return buf
+    if op == "BUILTIN_FDWRITE"     { emit 11 }  // write(fd,buf,len)=1  (== SOCKSEND)
+    if op == "BUILTIN_FDCLOSE"     { emit 9 }   // close(fd)=3          (== SOCKCLOSE)
+    if op == "BUILTIN_FDSETNB"     { emit 19 }  // fcntl(fd,F_SETFL,O_NONBLOCK)=72
+    if op == "BUILTIN_SLEEPUS"     { emit 39 }  // nanosleep({sec,usec*1000},NULL)=35
+    if op == "BUILTIN_WAITCHILD"   { emit 28 }  // wait4(pid,&st,WNOHANG,0)=61
+    if op == "BUILTIN_PROCALIVE"   { emit 20 }  // kill(pid,0)=62 -> 1 if alive else 0
+    if op == "BUILTIN_PTYMASTER"   { emit 53 }  // open(/dev/ptmx,O_RDWR|O_NOCTTY)+ioctl(TIOCSPTLCK)
+    if op == "BUILTIN_PTYSLAVENAME"{ emit 73 }  // ioctl(TIOCGPTN); "/dev/pts/"+itoa(n)
+    if op == "BUILTIN_PTYFORKEXEC" { emit 151 } // fork+setsid+open(slave)+TIOCSCTTY+dup2+execve
     if op == "POP"        { emit 1 }
     if op == "LABEL"      { emit 0 }
     if op == "JUMP"       { emit 5 }    // E9 + d32
@@ -3960,6 +3972,26 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_EXEC")
                 } else if bname == "shellRun" {
                     opSb = sbAppend(opSb, "BUILTIN_SHELLRUN")
+                } else if bname == "fdRead" {
+                    opSb = sbAppend(opSb, "BUILTIN_FDREAD")
+                } else if bname == "fdWrite" {
+                    opSb = sbAppend(opSb, "BUILTIN_FDWRITE")
+                } else if bname == "fdClose" {
+                    opSb = sbAppend(opSb, "BUILTIN_FDCLOSE")
+                } else if bname == "fdSetNonblock" {
+                    opSb = sbAppend(opSb, "BUILTIN_FDSETNB")
+                } else if bname == "sleepUs" {
+                    opSb = sbAppend(opSb, "BUILTIN_SLEEPUS")
+                } else if bname == "waitChild" {
+                    opSb = sbAppend(opSb, "BUILTIN_WAITCHILD")
+                } else if bname == "procAlive" {
+                    opSb = sbAppend(opSb, "BUILTIN_PROCALIVE")
+                } else if bname == "ptyMaster" {
+                    opSb = sbAppend(opSb, "BUILTIN_PTYMASTER")
+                } else if bname == "ptySlaveName" {
+                    opSb = sbAppend(opSb, "BUILTIN_PTYSLAVENAME")
+                } else if bname == "ptyForkExec" {
+                    opSb = sbAppend(opSb, "BUILTIN_PTYFORKEXEC")
                 } else {
                     // Unknown builtin: emit a marker and leave the stack
                     // alone. Programs that hit this are already incorrect;
@@ -4997,6 +5029,176 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             let wbDisp = (krWritefileVAddr + 66) - (funcStartVAddr + off + 7)
             c = sbAppend(c, hexByte(0xE8) + hexDword(wbDisp))
             c = sbAppend(c, hexByte(0x50))
+        } else if op == "BUILTIN_FDWRITE" {
+            // fdWrite(fd, buf, len) -> write(fd, buf, len)=1. TOS=len,buf,fd. (11 bytes)
+            c = sbAppend(c, hexByte(0x5A))                  // pop rdx (len)
+            c = sbAppend(c, hexByte(0x5E))                  // pop rsi (buf)
+            c = sbAppend(c, hexByte(0x5F))                  // pop rdi (fd)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(1))    // mov eax,1 (SYS_write)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))  // syscall
+            c = sbAppend(c, hexByte(0x50))                  // push rax (nbytes)
+        } else if op == "BUILTIN_FDCLOSE" {
+            // fdClose(fd) -> close(fd)=3. TOS=fd. (9 bytes)
+            c = sbAppend(c, hexByte(0x5F))                  // pop rdi (fd)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(3))    // mov eax,3 (SYS_close)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))  // syscall
+            c = sbAppend(c, hexByte(0x50))                  // push rax
+        } else if op == "BUILTIN_FDREAD" {
+            // fdRead(fd, n): kr_alloc n+1, read(fd,buf,n), NUL-term, return buf.
+            // TOS=n, next=fd. RBX=n, R13=fd, R12=buf survive kr_alloc & syscall. (43 bytes)
+            c = sbAppend(c, hexByte(0x5B))                                  // [0]  pop rbx (n)
+            c = sbAppend(c, hexByte(0x41) + hexByte(0x5D))                  // [1]  pop r13 (fd)
+            c = sbAppend(c, hexByte(0x8D) + hexByte(0x7B) + hexByte(0x01))  // [3]  lea edi,[rbx+1] (alloc n+1)
+            let frDisp = krAllocVAddr - (funcStartVAddr + off + 11)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(frDisp))               // [6]  call kr_alloc -> rax=buf
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x89) + hexByte(0xC4))  // [11] mov r12,rax (buf)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xEF))  // [14] mov rdi,r13 (fd)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xC6))  // [17] mov rsi,rax (buf)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xDA))  // [20] mov rdx,rbx (n)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xC0))                  // [23] xor eax,eax (SYS_read=0)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                  // [25] syscall -> rax=nread
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x85) + hexByte(0xC0))  // [27] test rax,rax
+            c = sbAppend(c, hexByte(0x79) + hexByte(0x02))                  // [30] jns +2
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xC0))                  // [32] xor eax,eax (clamp neg)
+            c = sbAppend(c, hexByte(0x41) + hexByte(0xC6) + hexByte(0x04) + hexByte(0x04) + hexByte(0x00)) // [34] mov byte [r12+rax],0
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xE0))  // [39] mov rax,r12 (return buf)
+            c = sbAppend(c, hexByte(0x50))                                  // [42] push rax
+        } else if op == "BUILTIN_FDSETNB" {
+            // fdSetNonblock(fd) -> fcntl(fd, F_SETFL=4, O_NONBLOCK=2048)=72. TOS=fd. (19 bytes)
+            c = sbAppend(c, hexByte(0x5F))                  // pop rdi (fd)
+            c = sbAppend(c, hexByte(0xBE) + hexDword(4))    // mov esi,4 (F_SETFL)
+            c = sbAppend(c, hexByte(0xBA) + hexDword(2048)) // mov edx,2048 (O_NONBLOCK)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(72))   // mov eax,72 (SYS_fcntl)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))  // syscall
+            c = sbAppend(c, hexByte(0x50))                  // push rax
+        } else if op == "BUILTIN_SLEEPUS" {
+            // sleepUs(sec, usec) -> nanosleep({sec, usec*1000}, NULL)=35. TOS=usec,sec. (39 bytes)
+            c = sbAppend(c, hexByte(0x58))                  // pop rax (usec)
+            c = sbAppend(c, hexByte(0x59))                  // pop rcx (sec)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x69) + hexByte(0xC0) + hexDword(1000)) // imul rax,rax,1000
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xEC) + hexByte(0x10))  // sub rsp,16
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x0C) + hexByte(0x24))  // mov [rsp],rcx (tv_sec)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x44) + hexByte(0x24) + hexByte(0x08)) // mov [rsp+8],rax (tv_nsec)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xE7))  // mov rdi,rsp (&ts)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xF6))  // xor esi,esi (rem=NULL)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(35))   // mov eax,35 (SYS_nanosleep)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))  // syscall
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xC4) + hexByte(0x10))  // add rsp,16
+            c = sbAppend(c, hexByte(0x50))                  // push rax
+        } else if op == "BUILTIN_WAITCHILD" {
+            // waitChild(pid) -> wait4(pid,&status,WNOHANG=1,NULL)=61. Returns pid if
+            // exited, 0 if still alive. TOS=pid. (28 bytes)
+            c = sbAppend(c, hexByte(0x5F))                  // pop rdi (pid)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xEC) + hexByte(0x08))  // sub rsp,8 (status)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xE6))  // mov rsi,rsp (&status)
+            c = sbAppend(c, hexByte(0xBA) + hexDword(1))    // mov edx,1 (WNOHANG)
+            c = sbAppend(c, hexByte(0x45) + hexByte(0x31) + hexByte(0xD2))  // xor r10d,r10d (rusage=NULL)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(61))   // mov eax,61 (SYS_wait4)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))  // syscall
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xC4) + hexByte(0x08))  // add rsp,8
+            c = sbAppend(c, hexByte(0x50))                  // push rax
+        } else if op == "BUILTIN_PROCALIVE" {
+            // procAlive(pid) -> kill(pid,0)=62; return 1 if alive (rax==0) else 0. TOS=pid. (20 bytes)
+            c = sbAppend(c, hexByte(0x5F))                  // pop rdi (pid)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xF6))  // xor esi,esi (sig 0)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(62))   // mov eax,62 (SYS_kill)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))  // syscall
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x85) + hexByte(0xC0))  // test rax,rax
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x94) + hexByte(0xC0))  // sete al
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0xB6) + hexByte(0xC0))  // movzx eax,al
+            c = sbAppend(c, hexByte(0x50))                  // push rax
+        } else if op == "BUILTIN_PTYMASTER" {
+            // ptyMaster(path) -> open(path, O_RDWR|O_NOCTTY=0x102)=2; ioctl(fd,
+            // TIOCSPTLCK=0x40045431, &0)=16 (unlockpt); return fd. TOS=path. (53 bytes)
+            c = sbAppend(c, hexByte(0x5F))                                  // [0]  pop rdi (path)
+            c = sbAppend(c, hexByte(0xBE) + hexDword(258))                  // [1]  mov esi,0x102 (O_RDWR|O_NOCTTY)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xD2))                  // [6]  xor edx,edx (mode 0)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(2))                    // [8]  mov eax,2 (SYS_open)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                  // [13] syscall -> rax=master fd
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xC3))  // [15] mov rbx,rax (save fd)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xEC) + hexByte(0x08)) // [18] sub rsp,8
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xC9))                  // [22] xor ecx,ecx
+            c = sbAppend(c, hexByte(0x89) + hexByte(0x0C) + hexByte(0x24))  // [24] mov [rsp],ecx (lock=0)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xDF))  // [27] mov rdi,rbx (fd)
+            c = sbAppend(c, hexByte(0xBE) + hexByte(0x31) + hexByte(0x54) + hexByte(0x04) + hexByte(0x40)) // [30] mov esi,0x40045431 (TIOCSPTLCK)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xE2))  // [35] mov rdx,rsp (&lock)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(16))                   // [38] mov eax,16 (SYS_ioctl)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                  // [43] syscall
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xC4) + hexByte(0x08)) // [45] add rsp,8
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xD8))  // [49] mov rax,rbx (return fd)
+            c = sbAppend(c, hexByte(0x50))                                  // [52] push rax
+        } else if op == "BUILTIN_PTYSLAVENAME" {
+            // ptySlaveName(master) -> ioctl(master, TIOCGPTN=0x80045430, &n)=16;
+            // return "/dev/pts/" + itoa(n) via kr_str_int + kr_concat. TOS=master. (73 bytes)
+            c = sbAppend(c, hexByte(0x5F))                                  // [0]  pop rdi (master)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xEC) + hexByte(0x20)) // [1]  sub rsp,32
+            c = sbAppend(c, hexByte(0xBE) + hexByte(0x30) + hexByte(0x54) + hexByte(0x04) + hexByte(0x80)) // [5]  mov esi,0x80045430 (TIOCGPTN)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x8D) + hexByte(0x14) + hexByte(0x24)) // [10] lea rdx,[rsp] (&n)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(16))                   // [14] mov eax,16 (SYS_ioctl)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                  // [19] syscall -> [rsp]=n
+            c = sbAppend(c, hexByte(0x8B) + hexByte(0x3C) + hexByte(0x24))  // [21] mov edi,[rsp] (n)
+            let snDisp = krStrIntVAddr - (funcStartVAddr + off + 29)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(snDisp))              // [24] call kr_str_int -> rax="n"
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xC3))  // [29] mov rbx,rax (n-string)
+            c = sbAppend(c, hexByte(0xC7) + hexByte(0x44) + hexByte(0x24) + hexByte(0x08) + hexByte(0x2F) + hexByte(0x64) + hexByte(0x65) + hexByte(0x76)) // [32] mov dword [rsp+8],"/dev"
+            c = sbAppend(c, hexByte(0xC7) + hexByte(0x44) + hexByte(0x24) + hexByte(0x0C) + hexByte(0x2F) + hexByte(0x70) + hexByte(0x74) + hexByte(0x73)) // [40] mov dword [rsp+12],"/pts"
+            c = sbAppend(c, hexByte(0x66) + hexByte(0xC7) + hexByte(0x44) + hexByte(0x24) + hexByte(0x10) + hexByte(0x2F) + hexByte(0x00)) // [48] mov word [rsp+16],"/\0"
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x8D) + hexByte(0x7C) + hexByte(0x24) + hexByte(0x08)) // [55] lea rdi,[rsp+8] (prefix)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xDE))  // [60] mov rsi,rbx (n-string)
+            let scDisp = krConcatVAddr - (funcStartVAddr + off + 68)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(scDisp))              // [63] call kr_concat -> rax="/dev/pts/N"
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xC4) + hexByte(0x20)) // [68] add rsp,32
+            c = sbAppend(c, hexByte(0x50))                                  // [72] push rax
+        } else if op == "BUILTIN_PTYFORKEXEC" {
+            // ptyForkExec(slavePath, shell): fork; child setsid + open(slave) + TIOCSCTTY
+            // + dup2 0/1/2 + execve(shell,[shell,0],envp); parent returns child pid.
+            // TOS=shell, next=slavePath. R13=shell, R12=slave. (151 bytes)
+            c = sbAppend(c, hexByte(0x41) + hexByte(0x5D))                  // [0]  pop r13 (shell)
+            c = sbAppend(c, hexByte(0x41) + hexByte(0x5C))                  // [2]  pop r12 (slave path)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(57))                   // [4]  mov eax,57 (SYS_fork)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                  // [9]  syscall
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x85) + hexByte(0xC0))  // [11] test rax,rax
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x85) + hexDword(130))  // [14] jnz .parent (+130)
+            // --- CHILD (20) ---
+            c = sbAppend(c, hexByte(0xB8) + hexDword(112))                  // [20] mov eax,112 (SYS_setsid)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                  // [25] syscall
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xE7))  // [27] mov rdi,r12 (slave path)
+            c = sbAppend(c, hexByte(0xBE) + hexDword(2))                    // [30] mov esi,2 (O_RDWR)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xD2))                  // [35] xor edx,edx
+            c = sbAppend(c, hexByte(0xB8) + hexDword(2))                    // [37] mov eax,2 (SYS_open)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                  // [42] syscall -> rax=slave fd
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xC3))  // [44] mov rbx,rax (slave fd)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xDF))  // [47] mov rdi,rbx
+            c = sbAppend(c, hexByte(0xBE) + hexDword(21518))                // [50] mov esi,0x540E (TIOCSCTTY)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xD2))                  // [55] xor edx,edx
+            c = sbAppend(c, hexByte(0xB8) + hexDword(16))                   // [57] mov eax,16 (SYS_ioctl)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                  // [62] syscall
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xDF))  // [64] mov rdi,rbx
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xF6))                  // [67] xor esi,esi (fd 0)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(33))                   // [69] mov eax,33 (SYS_dup2)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                  // [74] syscall
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xDF))  // [76] mov rdi,rbx
+            c = sbAppend(c, hexByte(0xBE) + hexDword(1))                    // [79] mov esi,1
+            c = sbAppend(c, hexByte(0xB8) + hexDword(33))                   // [84] mov eax,33 (dup2)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                  // [89] syscall
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xDF))  // [91] mov rdi,rbx
+            c = sbAppend(c, hexByte(0xBE) + hexDword(2))                    // [94] mov esi,2
+            c = sbAppend(c, hexByte(0xB8) + hexDword(33))                   // [99] mov eax,33 (dup2)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                  // [104] syscall
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xEC) + hexByte(0x10)) // [106] sub rsp,16
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0x2C) + hexByte(0x24)) // [110] mov [rsp],r13 (argv0=shell)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xC0))                  // [114] xor eax,eax
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x44) + hexByte(0x24) + hexByte(0x08)) // [116] mov [rsp+8],rax (argv1=NULL)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0xEF))  // [121] mov rdi,r13 (shell path)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xE6))  // [124] mov rsi,rsp (argv)
+            c = sbAppend(c, hexByte(0x49) + hexByte(0x8B) + hexByte(0x56) + hexByte(0x10)) // [127] mov rdx,[r14+16] (envp)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(59))                   // [131] mov eax,59 (SYS_execve)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                  // [136] syscall
+            c = sbAppend(c, hexByte(0xBF) + hexDword(127))                  // [138] mov edi,127
+            c = sbAppend(c, hexByte(0xB8) + hexDword(60))                   // [143] mov eax,60 (SYS_exit)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                  // [148] syscall
+            // --- PARENT (150) ---
+            c = sbAppend(c, hexByte(0x50))                                  // [150] push rax (child pid)
         } else if op == "BUILTIN_PRINTERR" {
             // POP RDI ; CALL kr_printerr ; PUSH 0  (8 bytes)
             c = sbAppend(c, hexByte(0x5F))
