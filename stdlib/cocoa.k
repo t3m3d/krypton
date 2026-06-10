@@ -311,6 +311,12 @@ func cocoaPumpEvent(app) {
     let ev = msg_4(app, "nextEventMatchingMask:untilDate:inMode:dequeue:",
         0 - 1, 0, nsString("kCFRunLoopDefaultMode"), 1)
     if ev == 0 { emit 0 }
+    // key-down with a modifier: let the main menu claim ⌘-shortcuts first
+    // ([NSApp run] does this automatically; the manual pump must do it itself).
+    if msg(ev, "type") == 10 {
+        let mm = msg(app, "mainMenu")
+        if mm != 0 { if msg_1(mm, "performKeyEquivalent:", ev) == 1 { emit 1 } }
+    }
     msg_1(app, "sendEvent:", ev)
     emit 1
 }
