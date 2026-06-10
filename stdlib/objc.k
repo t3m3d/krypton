@@ -136,3 +136,8 @@ func drainPool(pool) {
 func msg_rgb(obj, selName, r, g, b) {
     emit objc_msgSend_rgb(obj, sel(selName), r, g, b)
 }
+
+// NSSize arg (a->d0, b->d1) — e.g. setSize:/setMaxSize:.
+func msg_d2(obj, selName, a, b) {
+    emit objc_msgSend_d2(obj, sel(selName), a, b)
+}
