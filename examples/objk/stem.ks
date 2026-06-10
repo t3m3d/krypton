@@ -750,26 +750,31 @@ func onKey(self, cmd, event) {
   fdWrite(m, seq, len(seq))
 }
 
-// 256-colour index -> NSColor (basic 16 exact; cube/grey approximate for now).
+// xterm-256 cube channel level (0->0, 1..5 -> 95,135,175,215,255).
+func cubeLvl(v) { if v == 0 { emit 0 }  emit v * 40 + 55 }
+
+// True 256-colour index -> NSColor (exact RGB): 0-15 ANSI palette, 16-231 the
+// 6x6x6 cube, 232-255 greyscale ramp.
 func color256(n) {
-  if n == 0  { emit cocoaColorNamed("darkGrayColor") }
-  if n == 1  { emit cocoaColorNamed("systemRedColor") }
-  if n == 2  { emit cocoaColorNamed("systemGreenColor") }
-  if n == 3  { emit cocoaColorNamed("systemYellowColor") }
-  if n == 4  { emit cocoaColorNamed("systemBlueColor") }
-  if n == 5  { emit cocoaColorNamed("systemPurpleColor") }
-  if n == 6  { emit cocoaColorNamed("systemTealColor") }
-  if n == 7  { emit cocoaColorNamed("whiteColor") }
-  if n == 8  { emit cocoaColorNamed("grayColor") }
-  if n == 9  { emit cocoaColorNamed("systemRedColor") }
-  if n == 10 { emit cocoaColorNamed("systemGreenColor") }
-  if n == 11 { emit cocoaColorNamed("systemYellowColor") }
-  if n == 12 { emit cocoaColorNamed("systemBlueColor") }
-  if n == 13 { emit cocoaColorNamed("systemPurpleColor") }
-  if n == 14 { emit cocoaColorNamed("systemTealColor") }
-  if n == 15 { emit cocoaColorNamed("whiteColor") }
-  if n >= 232 { emit cocoaColorNamed("lightGrayColor") }
-  emit cocoaColorNamed("whiteColor")
+  if n == 0  { emit cocoaRGB(0, 0, 0) }
+  if n == 1  { emit cocoaRGB(205, 49, 49) }
+  if n == 2  { emit cocoaRGB(13, 188, 121) }
+  if n == 3  { emit cocoaRGB(229, 229, 16) }
+  if n == 4  { emit cocoaRGB(36, 114, 200) }
+  if n == 5  { emit cocoaRGB(188, 63, 188) }
+  if n == 6  { emit cocoaRGB(17, 168, 205) }
+  if n == 7  { emit cocoaRGB(229, 229, 229) }
+  if n == 8  { emit cocoaRGB(102, 102, 102) }
+  if n == 9  { emit cocoaRGB(241, 76, 76) }
+  if n == 10 { emit cocoaRGB(35, 209, 139) }
+  if n == 11 { emit cocoaRGB(245, 245, 67) }
+  if n == 12 { emit cocoaRGB(59, 142, 234) }
+  if n == 13 { emit cocoaRGB(214, 112, 214) }
+  if n == 14 { emit cocoaRGB(41, 184, 219) }
+  if n == 15 { emit cocoaRGB(255, 255, 255) }
+  if n >= 232 { let g = (n - 232) * 10 + 8  emit cocoaRGB(g, g, g) }
+  let i = n - 16
+  emit cocoaRGB(cubeLvl((i / 36) % 6), cubeLvl((i / 6) % 6), cubeLvl(i % 6))
 }
 
 // One ESC[...m body -> new fg colour (0 reset; 38;5;N -> 256; bg/other kept).

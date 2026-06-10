@@ -301,6 +301,7 @@ func cfCount(cname, argc) {
     if cname == "objc_msgSend_d1" { emit 6 }        // (obj,sel,n): one CGFloat arg -> d0
     if cname == "objc_msgSend_rectp" { emit 13 }    // (obj,sel,x,y,w,h,p): NSRect d0..d3 + ptr x2
     if cname == "objc_msgSend_timer" { emit 13 }    // (self,sel,ms,target,actsel,info,rep): ms/1000->d0 + x2..x5
+    if cname == "objc_msgSend_rgb" { emit 17 }      // (self,sel,r,g,b): r/g/b/255->d0..d2, 1.0->d3 (colorWithRed:green:blue:alpha:)
     emit argc + 2
 }
 // 0-based index of foreign symbol "_"+name in g_FORSYMS, or -1 if not foreign.
@@ -5045,6 +5046,26 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
                 s = sbAppend(s, arm64_pop(0))  instrIdx = instrIdx + 1   // self
                 let tti = textSz / 4 + foreignIdx("objc_msgSend_timer") * 3
                 s = sbAppend(s, arm64_bl(tti - instrIdx))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_push(0))  instrIdx = instrIdx + 1
+            } else if cname == "objc_msgSend_rgb" {
+                // (self,sel,r,g,b): r/255->d0, g/255->d1, b/255->d2, alpha 1.0->d3
+                s = sbAppend(s, arm64_pop(9))  instrIdx = instrIdx + 1   // b
+                s = sbAppend(s, arm64_scvtf_d_x(2, 9))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_pop(9))  instrIdx = instrIdx + 1   // g
+                s = sbAppend(s, arm64_scvtf_d_x(1, 9))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_pop(9))  instrIdx = instrIdx + 1   // r
+                s = sbAppend(s, arm64_scvtf_d_x(0, 9))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_movz_x_imm(10, 255))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_scvtf_d_x(3, 10))  instrIdx = instrIdx + 1   // d3 = 255.0
+                s = sbAppend(s, arm64_fdiv_d(0, 0, 3))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_fdiv_d(1, 1, 3))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_fdiv_d(2, 2, 3))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_movz_x_imm(10, 1))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_scvtf_d_x(3, 10))  instrIdx = instrIdx + 1   // d3 = 1.0 (alpha)
+                s = sbAppend(s, arm64_pop(1))  instrIdx = instrIdx + 1   // sel
+                s = sbAppend(s, arm64_pop(0))  instrIdx = instrIdx + 1   // self
+                let rgi = textSz / 4 + foreignIdx("objc_msgSend_rgb") * 3
+                s = sbAppend(s, arm64_bl(rgi - instrIdx))  instrIdx = instrIdx + 1
                 s = sbAppend(s, arm64_push(0))  instrIdx = instrIdx + 1
             } else {
             // Pop args in reverse: x(argc-1) first (TOS), down to x0 (deepest)
