@@ -172,6 +172,14 @@ func cocoaScrollText(win, x, y, w, h) {
 }
 func cocoaTVSetString(tv, s) { msg_1(tv, "setString:", nsString(s))  emit "1" }
 func cocoaTVGetString(tv)    { emit msg(msg(tv, "string"), "UTF8String") }
+// Disable soft-wrap: the grid / source defines line breaks (terminal behaviour).
+func cocoaTVNoWrap(tv) {
+    let tc = msg(tv, "textContainer")
+    msg_1(tc, "setWidthTracksTextView:", 0)
+    msg_d2(tc, "setSize:", 1000000, 1000000)
+    msg_1(tv, "setHorizontallyResizable:", 1)
+    emit "1"
+}
 // Append without rebuilding the whole document (for streaming output, e.g. a pty).
 func cocoaTVAppend(tv, s) {
     let astr = msg_1(msg(cls("NSAttributedString"), "alloc"), "initWithString:", nsString(s))
