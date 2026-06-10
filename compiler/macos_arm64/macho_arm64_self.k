@@ -302,7 +302,7 @@ func cfCount(cname, argc) {
     if cname == "objc_msgSend_rectp" { emit 13 }    // (obj,sel,x,y,w,h,p): NSRect d0..d3 + ptr x2
     if cname == "objc_msgSend_timer" { emit 13 }    // (self,sel,ms,target,actsel,info,rep): ms/1000->d0 + x2..x5
     if cname == "objc_msgSend_rgb" { emit 17 }      // (self,sel,r,g,b): r/g/b/255->d0..d2, 1.0->d3 (colorWithRed:green:blue:alpha:)
-    if cname == "objc_msgSend_d2" { emit 7 }        // (self,sel,a,b): NSSize a->d0, b->d1 (setSize:/setMaxSize:)
+    if cname == "objc_msgSend_d2" { emit 8 }        // (self,sel,a,b): NSSize a->d0, b->d1 (setSize:/setMaxSize:)
     emit argc + 2
 }
 // 0-based index of foreign symbol "_"+name in g_FORSYMS, or -1 if not foreign.
