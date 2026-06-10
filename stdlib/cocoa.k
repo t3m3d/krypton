@@ -389,6 +389,14 @@ func cocoaMenuItemSel(menu, title, key, selName) {
 }
 // A separator line in a menu.
 func cocoaMenuSeparator(menu) { msg_1(menu, "addItem:", msg(cls("NSMenuItem"), "separatorItem"))  emit "1" }
+// Selector-action item carrying a tag (e.g. performTextFinderAction: reads sender.tag).
+func cocoaMenuItemSelTag(menu, title, key, selName, tag) {
+    let item = msg_3(msg(cls("NSMenuItem"), "alloc"), "initWithTitle:action:keyEquivalent:",
+        nsString(title), sel(selName), nsString(key))
+    msg_1(item, "setTag:", tag)
+    msg_1(menu, "addItem:", item)
+    emit "1"
+}
 // A submenu inside `menu` — returns the submenu to add items to.
 func cocoaSubmenuIn(menu, title) {
     let item = msg_3(msg(cls("NSMenuItem"), "alloc"), "initWithTitle:action:keyEquivalent:",
