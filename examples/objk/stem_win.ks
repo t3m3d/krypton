@@ -28,6 +28,32 @@ let g_output    = 0     // RichEdit, read-only, full transcript
 let g_cmdline   = 0     // text input — type cmd, Enter to run
 let g_cwd       = ""    // tracked working directory; changes follow `cd`
 
+// ── OS theme detection (HKCU AppsUseLightTheme) ───────────────────────
+// Returns "1" when Windows is in light mode, "0" when dark mode.
+// stem inverts its bg from the OS: dark OS → gloss black, light OS →
+// dark grey. So in either OS theme stem is the punchier dark surface.
+func regReadDword(path, name) {
+    let HKCU = "2147483649"
+    let kread = "131097"
+    let phResult = bufNew("8")
+    let r = RegOpenKeyExA(HKCU, path, "0", kread, phResult)
+    if r != "0" { emit "" }
+    let hk = bufGetQword(phResult)
+    let buf = bufNew("4")
+    let sz  = bufNew("4")
+    bufSetDword(sz, "4")
+    RegQueryValueExA(hk, name, toHandle("0"), toHandle("0"), buf, sz)
+    RegCloseKey(hk)
+    emit bufGetDword(buf)
+}
+func osIsLightMode() {
+    let v = regReadDword("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                         "AppsUseLightTheme")
+    if v == "" { emit "1" }   // default to light if the key is missing
+    if v == "1" { emit "1" }
+    emit "0"
+}
+
 // ── ui helpers ────────────────────────────────────────────────────────
 
 func appendOutput(s) {
@@ -124,12 +150,22 @@ just run {
         }
     }
 
+    // Theme: gloss black under dark OS, dark grey under light OS.
+    // Either way the chrome reads as a deliberately darker surface than
+    // its surroundings. Foreground stays a soft off-white for legibility.
+    let bg = "2d2d2d"
+    if osIsLightMode() == "0" { bg = "0a0a0a" }
+    let fg = "e8e8e8"
+    guiSetWindowBg(bg)
+
     guiInit()
     g_win = guiWindow("stem", 900, 600)
 
     g_output  = guiRichEdit(g_win,  0,   0, 900, 560)
     g_cmdline = guiTextInput(g_win, 0, 560, 900,  40)
     guiRichSetMonoFont(g_output, "Cascadia Mono", 11)
+    guiRichSetBg(g_output, bg)
+    guiRichSetFgDefault(g_output, fg)
     guiRichReadOnly(g_output, 1)
 
     // Enter on the text input fires guiOnClick in gui.k. Same shape as
