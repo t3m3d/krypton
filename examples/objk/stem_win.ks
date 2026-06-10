@@ -56,9 +56,41 @@ func osIsLightMode() {
 
 // ── ui helpers ────────────────────────────────────────────────────────
 
+// Strip ANSI escape sequences from text before display. exec()'d shells
+// often emit VT codes (colors, cursor moves) that RichEdit would render
+// as literal "←[31m" garbage. v0.2 will parse + apply these via
+// guiRichSetFmt; for v0.1 we just hide them. Drops everything between
+// ESC (0x1b) and the next letter or '~' (handles CSI + most OSC).
+func stripAnsi(s) {
+    let n = len(s)
+    let out = ""
+    let i = 0
+    while i < n {
+        let c = s[i]
+        if c != fromCharCode(27) {
+            out = out + c
+            i = i + 1
+        } else {
+            // Skip ESC, then skip until the terminating byte. CSI ends
+            // on a letter (A-Z / a-z); OSC ends on BEL (0x07) or ST.
+            i = i + 1
+            // optional "[" or "]" intermediate byte
+            if i < n { if s[i] == "[" { i = i + 1 }  }
+            while i < n {
+                let cc = s[i]
+                let code = charCode(cc)
+                if cc == fromCharCode(7) { i = i + 1  break }
+                if code >= 64 { if code <= 126 { i = i + 1  break } }
+                i = i + 1
+            }
+        }
+    }
+    emit out
+}
+
 func appendOutput(s) {
     let cur = guiGetText(g_output)
-    guiSetText(g_output, cur + s)
+    guiSetText(g_output, cur + stripAnsi(s))
     emit "1"
 }
 
@@ -127,9 +159,60 @@ func runCommand(line) {
     emit "1"
 }
 
+// Trim leading + trailing ASCII whitespace.
+func isWs(c) {
+    if c == " "  { emit "1" }
+    if c == "\t" { emit "1" }
+    if c == "\r" { emit "1" }
+    if c == "\n" { emit "1" }
+    emit ""
+}
+func trimSpaces(s) {
+    let n = len(s)
+    let a = 0
+    while a < n {
+        if isWs(s[a]) == "1" { a = a + 1 }
+        else {
+            // found first non-ws at a; now find last non-ws walking from end
+            let b = n
+            while b > a {
+                if isWs(s[b - 1]) == "1" { b = b - 1 }
+                else { emit substring(s, a, b) }
+            }
+            emit ""
+        }
+    }
+    emit ""
+}
+
+// Builtin commands handled in-process so they don't require spawning
+// a subshell. Returns "1" if the line was a builtin (caller skips
+// runCommand), "" otherwise.
+func tryBuiltin(line) {
+    let l = trimSpaces(line)
+    if l == "clear" {
+        guiSetText(g_output, "")
+        guiSetText(g_cmdline, "")
+        emit "1"
+    }
+    if l == "cls" {
+        guiSetText(g_output, "")
+        guiSetText(g_cmdline, "")
+        emit "1"
+    }
+    if l == "exit" {
+        // Hard exit — cleaner than tearing down the message loop
+        // manually, and shells universally do this anyway.
+        ExitProcess("0")
+        emit "1"
+    }
+    emit ""
+}
+
 func onCmd() {
     let line = guiGetText(g_cmdline)
     if len(line) == 0 { emit "1" }
+    if tryBuiltin(line) == "1" { emit "1" }
     runCommand(line)
     guiSetText(g_cmdline, "")
 }
@@ -173,10 +256,10 @@ just run {
     guiOnClick(g_cmdline, funcptr(onCmd))
 
     refreshTitle()
-    appendOutput("stem v0.1 — pure-Krypton terminal (objk/Win32).\n")
-    appendOutput("v0.1 runs one command per Enter via exec(); v0.2 will\n")
-    appendOutput("lift to interactive ConPTY (CreatePseudoConsole +\n")
-    appendOutput("CreateProcessW + async ReadFile loop).\n\n")
+    appendOutput("stem v0.1.1 — pure-Krypton terminal (objk/Win32).\n")
+    appendOutput("builtins: clear / cls / exit. cd persists across commands.\n")
+    appendOutput("ANSI escape sequences in output are filtered (v0.2 will\n")
+    appendOutput("render colour via guiRichSetFmt).\n\n")
 
     guiShow(g_win)
     guiRun()
