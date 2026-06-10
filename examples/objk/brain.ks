@@ -1177,11 +1177,24 @@ func onCmd(self, cmd, sender) {
 // ── file tree ──────────────────────────────────────────────────────────
 func dsRows(self, cmd, tv) { emit cocoaArrayCount(cocoaGetAssocKey(self, "files")) }
 func dsValue(self, cmd, tv, col, row) { emit cocoaArrayGet(cocoaGetAssocKey(self, "files"), row) }
+// fill a tree array: ".." then `ls -1p` (dirs end with '/').
+func fillFiles(files, d) {
+  cocoaArrayAdd(files, nsString(".."))
+  let listing = exec("ls -1p \"" + d + "\"")
+  let n = nlines(listing)
+  let i = 0
+  while i < n { let ln = lineAt(listing, i)  if len(ln) > 0 { cocoaArrayAdd(files, nsString(ln)) }  i = i + 1 }
+  emit "1"
+}
 func dsSelect(self, cmd, notif) {
   let row = msg(msg(notif, "object"), "selectedRow")
   if row < 0 { emit "1" }
   let fname = msg(cocoaArrayGet(cocoaGetAssocKey(self, "files"), row), "UTF8String")
-  openTab(msg(cocoaGetAssocKey(self, "dir"), "UTF8String") + "/" + fname)
+  let dir = msg(cocoaGetAssocKey(self, "dir"), "UTF8String")
+  if fname == ".." { loadFolder(dirOf(dir))  emit "1" }
+  let last = substring(fname, len(fname) - 1, len(fname))
+  if last == "/" { loadFolder(dir + "/" + substring(fname, 0, len(fname) - 1))  emit "1" }
+  openTab(dir + "/" + fname)
 }
 
 // ── File-menu handlers ──────────────────────────────────────────────────
@@ -1205,10 +1218,7 @@ func loadFolder(d) {
   recentAdd("folders", d)
   let ds = cocoaGetAssocKey(app, "brain.ds")
   let files = cocoaArray()
-  let listing = exec("ls -1 \"" + d + "\"")
-  let n = nlines(listing)
-  let i = 0
-  while i < n { cocoaArrayAdd(files, nsString(lineAt(listing, i)))  i = i + 1 }
+  fillFiles(files, d)
   cocoaSetAssocKey(ds, "files", files)
   cocoaSetAssocKey(ds, "dir", nsString(d))
   cocoaSetAssocKey(app, "brain.dir", nsString(d))
@@ -1326,6 +1336,14 @@ func onToggleTerminal(self, cmd, sender) {
   relayout()
   emit "1"
 }
+func brainSetFontSize(sz) {
+  cocoaSetAssocKey(appH(), "brain.fontsize", cocoaNumber(sz))
+  cocoaSetFont(cocoaGetAssocKey(appH(), "brain.editor"), cocoaMonoFont(sz))
+  emit "1"
+}
+func onZoomIn(self, cmd, sender)    { let s = brainFlag("brain.fontsize", 13) + 1  if s > 40 { s = 40 }  brainSetFontSize(s) }
+func onZoomOut(self, cmd, sender)   { let s = brainFlag("brain.fontsize", 13) - 1  if s < 7 { s = 7 }  brainSetFontSize(s) }
+func onZoomReset(self, cmd, sender) { brainSetFontSize(13) }
 
 just run {
   let dir = projDir()
@@ -1409,10 +1427,7 @@ just run {
 
   // file tree data
   let files = cocoaArray()
-  let listing = exec("ls -1 " + dir)
-  let nf = nlines(listing)
-  let fi = 0
-  while fi < nf { cocoaArrayAdd(files, nsString(lineAt(listing, fi)))  fi = fi + 1 }
+  fillFiles(files, dir)
 
   let dsc = cocoaClassNew("BrainDelegate")
   cocoaClassAddMethod(dsc, "numberOfRowsInTableView:", funcptr(dsRows), "q@:@")
@@ -1487,6 +1502,10 @@ just run {
   let viewMenu = cocoaMenuAdd(bar, "View")
   cocoaMenuItem(viewMenu, "Toggle Sidebar", "b", funcptr(onToggleSidebar))
   cocoaMenuItem(viewMenu, "Toggle Terminal", "j", funcptr(onToggleTerminal))
+  cocoaMenuSeparator(viewMenu)
+  cocoaMenuItem(viewMenu, "Zoom In", "=", funcptr(onZoomIn))
+  cocoaMenuItem(viewMenu, "Zoom Out", "-", funcptr(onZoomOut))
+  cocoaMenuItem(viewMenu, "Reset Zoom", "0", funcptr(onZoomReset))
   let runMenu = cocoaMenuAdd(bar, "Run")
   cocoaMenuItem(runMenu, "Run File", "r", funcptr(onRun))
 
