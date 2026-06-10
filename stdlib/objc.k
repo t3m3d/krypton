@@ -131,3 +131,8 @@ func drainPool(pool) {
     msg(pool, "drain")
     emit ""
 }
+
+// colorWithRed:green:blue:alpha: — r/g/b as 0-255 ints (/255 -> d0..d2, alpha 1.0).
+func msg_rgb(obj, selName, r, g, b) {
+    emit objc_msgSend_rgb(obj, sel(selName), r, g, b)
+}
