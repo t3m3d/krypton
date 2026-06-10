@@ -856,7 +856,7 @@ just run {
   let view = cocoaScrollText(win, 0, 0, 760, 500)
   msg_1(view, "setEditable:", 0)
   msg_1(view, "setSelectable:", 0)
-  let mono = cocoaMonoFont(13)
+  let mono = cocoaFontFamily(cocoaMonoFont(13), "JetBrainsMono Nerd Font Mono")
   cocoaSetFont(view, mono)
   let fg = cocoaColorNamed("whiteColor")
   let bg = cocoaColorNamed("darkGrayColor")
