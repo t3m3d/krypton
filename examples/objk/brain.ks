@@ -992,23 +992,71 @@ func saveCurTab() {
   emit "1"
 }
 func rebuildTabs() {
-  let seg = cocoaGetAssocKey(appH(), "brain.tabseg")
-  let paths = cocoaGetAssocKey(appH(), "brain.tabpaths")
+  let app = appH()
+  let win = cocoaGetAssocKey(app, "brain.win")
+  let old = cocoaGetAssocKey(app, "brain.tabbtns")
+  let oc = cocoaArrayCount(old)
+  let oi = 0
+  while oi < oc { msg(cocoaArrayGet(old, oi), "removeFromSuperview")  oi = oi + 1 }
+  let btns = cocoaArray()
+  cocoaSetAssocKey(app, "brain.tabbtns", btns)
+  let paths = cocoaGetAssocKey(app, "brain.tabpaths")
   let n = cocoaArrayCount(paths)
-  cocoaSegCount(seg, n)
+  let cur = curTabIdx()
+  let x = 244
   let i = 0
-  while i < n { cocoaSegLabel(seg, baseName(msg(cocoaArrayGet(paths, i), "UTF8String")), i)  i = i + 1 }
+  while i < n {
+    let nm = baseName(msg(cocoaArrayGet(paths, i), "UTF8String"))
+    let w = 64 + len(nm) * 7
+    if w > 200 { w = 200 }
+    let nameb = cocoaButton(win, nm, x, 612, w, 26)
+    msg_1(nameb, "setBezelStyle:", 1)
+    if i == cur { msg_1(nameb, "setState:", 1) }
+    cocoaSetAssocKey(nameb, "idx", cocoaNumber(i))
+    cocoaOnClickKeyed(nameb, "tabsel", funcptr(onTabSelect))
+    cocoaArrayAdd(btns, nameb)
+    let closeb = cocoaButton(win, "✕", x + w + 1, 612, 22, 26)
+    msg_1(closeb, "setBezelStyle:", 1)
+    cocoaSetAssocKey(closeb, "idx", cocoaNumber(i))
+    cocoaOnClickKeyed(closeb, "tabclose", funcptr(onTabClose))
+    cocoaArrayAdd(btns, closeb)
+    x = x + w + 27
+    i = i + 1
+  }
   emit "1"
+}
+func onTabSelect(self, cmd, sender) {
+  saveCurTab()
+  selectTab(cocoaNumberVal(cocoaGetAssocKey(sender, "idx")))
+}
+func onTabClose(self, cmd, sender) {
+  let app = appH()
+  let idx = cocoaNumberVal(cocoaGetAssocKey(sender, "idx"))
+  let paths = cocoaGetAssocKey(app, "brain.tabpaths")
+  let texts = cocoaGetAssocKey(app, "brain.tabtexts")
+  if idx == curTabIdx() { saveCurTab() }
+  cocoaArrayRemove(paths, idx)
+  cocoaArrayRemove(texts, idx)
+  cocoaSetAssocKey(app, "brain.curtab", cocoaNumber(0 - 1))
+  let n = cocoaArrayCount(paths)
+  if n == 0 {
+    cocoaTVSetString(cocoaGetAssocKey(app, "brain.editor"), "// no file open\n")
+    rebuildTabs()
+    emit "1"
+  }
+  let pick = idx
+  if pick >= n { pick = n - 1 }
+  selectTab(pick)
 }
 func selectTab(idx) {
   let app = appH()
-  cocoaSegSelect(cocoaGetAssocKey(app, "brain.tabseg"), idx)
   let paths = cocoaGetAssocKey(app, "brain.tabpaths")
   let texts = cocoaGetAssocKey(app, "brain.tabtexts")
   cocoaTVSetString(cocoaGetAssocKey(app, "brain.editor"), msg(cocoaArrayGet(texts, idx), "UTF8String"))
   cocoaSetAssocKey(app, "brain.curtab", cocoaNumber(idx))
   cocoaSetAssocKey(app, "brain.curpath", cocoaArrayGet(paths, idx))
   msg_1(cocoaGetAssocKey(app, "brain.win"), "setTitle:", nsString("brain — " + msg(cocoaArrayGet(paths, idx), "UTF8String")))
+  rebuildTabs()
   emit "1"
 }
 // ── recent files/folders (~/.config/brain/{files,folders}, newest first) ──
@@ -1283,7 +1331,6 @@ just run {
   cocoaSetFont(editor, cocoaMonoFont(13))
   msg_1(editor, "setAllowsUndo:", 1)
   msg_1(editor, "setUsesFindBar:", 1)
-  let tabseg = cocoaSegmented(win, 240, 614, 700, 24)
 
   let term = cocoaScrollText(win, 0, 0, 940, 246)
   msg_1(term, "setEditable:", 0)
@@ -1325,10 +1372,9 @@ just run {
   cocoaSetAssocKey(app, "brain.editor", editor)
   cocoaSetAssocKey(app, "brain.dir", nsString(dir))
   cocoaSetAssocKey(app, "brain.win", win)
-  cocoaSetAssocKey(app, "brain.tabseg", tabseg)
+  cocoaSetAssocKey(app, "brain.tabbtns", cocoaArray())
   cocoaSetAssocKey(app, "brain.tabpaths", cocoaArray())
   cocoaSetAssocKey(app, "brain.tabtexts", cocoaArray())
-  cocoaSegOnChange(tabseg, funcptr(onTabChange))
 
   let fileMenu = cocoaMenuAdd(bar, "File")
   cocoaMenuItem(fileMenu, "New Text File", "t", funcptr(onNewText))
