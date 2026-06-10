@@ -1415,6 +1415,7 @@ func pageStem() {
         htP("A terminal emulator whose engine is " + htEm("pure Krypton") + " " + DASH() +
             " no C, no C++, no Obj-C. The shell, the pseudo-terminal, the ANSI grid renderer AND the macOS window/keyboard/colour are all native Krypton, via the objk Objective-C FFI.") +
         "<a href=" + DQ() + "#install" + DQ() + " class=" + DQ() + "btn primary" + DQ() + ">Install via Homebrew</a>" +
+        "<a href=" + DQ() + "https://github.com/t3m3d/stem/releases/latest" + DQ() + " class=" + DQ() + "btn primary" + DQ() + ">Download DMG</a>" +
         "<a href=" + DQ() + "https://github.com/t3m3d/stem" + DQ() + " class=" + DQ() + "btn outline" + DQ() + ">View Source</a>" +
         "</div>"
 
