@@ -1,37 +1,37 @@
-// stem_win.ks — Windows port of stem (the terminal that pairs with brain).
+// stem_win.ks -- Windows port of stem, the terminal that pairs with brain.
 //
-// v0.1 matches what m shipped as "stem v0.1" inside brain.ks: a
-// command-runner with output pane. Type a command, Enter, see output.
-// Interactive ConPTY (long-running shell + live keystroke forwarding)
-// is the v0.2 lift — ConPTY itself is already exposed in head:windows
-// (CreatePseudoConsole / ResizePseudoConsole / ClosePseudoConsole, see
-// headers/windows.krh:269).
+// v0.1.3 -- rewritten on guiStateSet/Get because module-level mutable
+// lets read garbage across function boundaries (the
+// feedback_module_mutable_globals.md flake).  All widget handles and
+// mutable state live in the gui state table.  Colours are 0x-prefixed
+// per gui.k's _guiHexToInt contract.
 //
-// Build (from krypton/):
-//   kcc.exe examples/objk/stem_win.ks -o stem.exe
-//   .\stem.exe
+// Build:  kcc.exe examples/objk/stem_win.ks -o stem.exe
+// Then patch PE subsystem CUI→GUI to suppress the console window.
 //
 // Pair / lineage:
-//   examples/objk/brain_win.ks — has stem-v0.1 embedded as its console pane
-//   examples/objk/brain.ks     — macOS sibling, same stem-v0.1 inside
-//   This file                  — stem as a standalone window
-//
-// Why "objk" (Objective-K) on Windows: same KryptScript + GUI-binding
-// pattern m uses on macOS. On Windows the binding stdlib is k:gui
-// (Win32) instead of k:cocoa (Cocoa). No new runtime, no extra DLLs —
-// just KryptScript + the existing gui.k.
+//   examples/objk/brain_win.ks  -- IDE with stem inside its console pane
+//   examples/objk/brain.ks      -- macOS sibling (Cocoa)
+//   examples/objk/stem_win_pty.ks -- v0.2 ConPTY spike (parked)
 
 import "k:gui"
+import "head:windows"
 
-let g_win       = 0
-let g_output    = 0     // RichEdit, read-only, full transcript
-let g_cmdline   = 0     // text input — type cmd, Enter to run
-let g_cwd       = ""    // tracked working directory; changes follow `cd`
+// ── state accessors (workaround for module-mutable-globals) ──────────
 
-// ── OS theme detection (HKCU AppsUseLightTheme) ───────────────────────
-// Returns "1" when Windows is in light mode, "0" when dark mode.
-// stem inverts its bg from the OS: dark OS → gloss black, light OS →
-// dark grey. So in either OS theme stem is the punchier dark surface.
+func _o()       { emit guiStateGet("stem.output") }
+func _ci()      { emit guiStateGet("stem.cmdline") }
+func _wh()      { emit guiStateGet("stem.win") }
+func _cwdG()    { emit guiStateGet("stem.cwd") }
+func _cwdS(v)   { guiStateSet("stem.cwd", v)  emit "1" }
+func _fgG()     { emit guiStateGet("stem.curFg") }
+func _fgS(v)    { guiStateSet("stem.curFg", v)  emit "1" }
+func _boldGet() { if guiStateGet("stem.curBold") == "1" { emit "1" }  emit "0" }
+func _boldSet1() { guiStateSet("stem.curBold", "1")  emit "1" }
+func _boldSet0() { guiStateSet("stem.curBold", "0")  emit "1" }
+
+// ── theme detection ──────────────────────────────────────────────────
+
 func regReadDword(path, name) {
     let HKCU = "2147483649"
     let kread = "131097"
@@ -49,54 +49,43 @@ func regReadDword(path, name) {
 func osIsLightMode() {
     let v = regReadDword("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
                          "AppsUseLightTheme")
-    if v == "" { emit "1" }   // default to light if the key is missing
+    if v == "" { emit "1" }
     if v == "1" { emit "1" }
     emit "0"
 }
 
-// ── ui helpers ────────────────────────────────────────────────────────
+// ── ANSI colour rendering ────────────────────────────────────────────
 
-// ── ANSI colour rendering ─────────────────────────────────────────────
-// SGR colour state, updated as we walk the input. v0.1 stripped these
-// out entirely; v0.1.2 parses standard 16-colour + truecolor (38;2;r;g;b)
-// fg and applies via guiRichAppend's per-chunk style. Background
-// colours and 256-palette are intentionally skipped — most shell tools
-// only use the 16 + truecolor paths.
-let g_curFg   = ""    // hex colour for next chunk; "" = default (theme fg)
-let g_curBold = 0
-
-// Standard 8 + bright 8. Visually-balanced palette tuned for the dark
-// stem theme (gloss black / dark grey bg). Maps SGR 30..37 / 90..97.
 func sgrBaseColor(n) {
-    if n == 30 { emit "1e1e1e" }   // dark grey, not pure black — still visible on bg
-    if n == 31 { emit "f14c4c" }
-    if n == 32 { emit "23d18b" }
-    if n == 33 { emit "f5f543" }
-    if n == 34 { emit "3b8eea" }
-    if n == 35 { emit "d670d6" }
-    if n == 36 { emit "29b8db" }
-    if n == 37 { emit "e5e5e5" }
-    if n == 90 { emit "666666" }
-    if n == 91 { emit "f14c4c" }
-    if n == 92 { emit "23d18b" }
-    if n == 93 { emit "f5f543" }
-    if n == 94 { emit "3b8eea" }
-    if n == 95 { emit "d670d6" }
-    if n == 96 { emit "29b8db" }
-    if n == 97 { emit "ffffff" }
+    if n == 30 { emit "0x1e1e1e" }
+    if n == 31 { emit "0xf14c4c" }
+    if n == 32 { emit "0x23d18b" }
+    if n == 33 { emit "0xf5f543" }
+    if n == 34 { emit "0x3b8eea" }
+    if n == 35 { emit "0xd670d6" }
+    if n == 36 { emit "0x29b8db" }
+    if n == 37 { emit "0xe5e5e5" }
+    if n == 90 { emit "0x666666" }
+    if n == 91 { emit "0xf14c4c" }
+    if n == 92 { emit "0x23d18b" }
+    if n == 93 { emit "0xf5f543" }
+    if n == 94 { emit "0x3b8eea" }
+    if n == 95 { emit "0xd670d6" }
+    if n == 96 { emit "0x29b8db" }
+    if n == 97 { emit "0xffffff" }
     emit ""
 }
+func _hex2(n) {
+    let H = "0123456789abcdef"
+    let hi = n / 16
+    let lo = n - hi * 16
+    emit substring(H, hi, hi + 1) + substring(H, lo, lo + 1)
+}
+func _rgbHex(r, g, b) { emit "0x" + _hex2(r) + _hex2(g) + _hex2(b) }
 
-// Parse one ';'-separated integer from params starting at i; returns the
-// integer (as string) and updates *iOut. Skips empty fields → 0.
 func _intAt(params, i) {
-    let n = len(params)
-    let start = i
-    while i < n {
-        let c = params[i]
-        if c == ";" { emit substring(params, start, i) }
-        i = i + 1
-    }
+    let n = len(params)  let start = i
+    while i < n { if params[i] == ";" { emit substring(params, start, i) }  i = i + 1 }
     emit substring(params, start, n)
 }
 func _afterSemi(params, i) {
@@ -105,39 +94,30 @@ func _afterSemi(params, i) {
     emit n
 }
 
-// Apply a CSI ...m param list. Mutates g_curFg / g_curBold.
 func applySgr(params) {
-    if len(params) == 0 {
-        g_curFg = ""  g_curBold = 0  emit "1"
-    }
-    let i = 0
+    if len(params) == 0 { _fgS("")  _boldSet0()  emit "1" }
     let n = len(params)
+    let i = 0
     while i < n {
-        let tok = _intAt(params, i)
-        let code = toInt(tok)
-        if code == 0  { g_curFg = ""  g_curBold = 0 }
-        if code == 1  { g_curBold = 1 }
-        if code == 22 { g_curBold = 0 }
-        if code == 39 { g_curFg = "" }
-        if code >= 30 { if code <= 37 { g_curFg = sgrBaseColor(code) } }
-        if code >= 90 { if code <= 97 { g_curFg = sgrBaseColor(code) } }
+        let code = toInt(_intAt(params, i))
+        if code == 0  { _fgS("")  _boldSet0() }
+        if code == 1  { _boldSet1() }
+        if code == 22 { _boldSet0() }
+        if code == 39 { _fgS("") }
+        if code >= 30 { if code <= 37 { _fgS(sgrBaseColor(code)) } }
+        if code >= 90 { if code <= 97 { _fgS(sgrBaseColor(code)) } }
         if code == 38 {
-            // 38;2;R;G;B truecolor; 38;5;n indexed (we skip indexed for now)
             let j = _afterSemi(params, i)
             if j < n {
-                let mode = toInt(_intAt(params, j))
-                if mode == 2 {
+                if toInt(_intAt(params, j)) == 2 {
                     let j1 = _afterSemi(params, j)
-                    if j1 < n {
-                        let r = toInt(_intAt(params, j1))
-                        let j2 = _afterSemi(params, j1)
-                        let g = toInt(_intAt(params, j2))
-                        let j3 = _afterSemi(params, j2)
-                        let b = toInt(_intAt(params, j3))
-                        g_curFg = _rgbHex(r, g, b)
-                        // advance i past the consumed fields
-                        i = _afterSemi(params, j3) - 1
-                    }
+                    let r = toInt(_intAt(params, j1))
+                    let j2 = _afterSemi(params, j1)
+                    let g = toInt(_intAt(params, j2))
+                    let j3 = _afterSemi(params, j2)
+                    let b = toInt(_intAt(params, j3))
+                    _fgS(_rgbHex(r, g, b))
+                    i = _afterSemi(params, j3) - 1
                 }
             }
         }
@@ -145,58 +125,36 @@ func applySgr(params) {
     }
     emit "1"
 }
-
-// Pad an int 0..255 to two hex chars and concat → 6-char hex.
-func _hex2(n) {
-    let H = "0123456789abcdef"
-    let hi = n / 16
-    let lo = n - hi * 16
-    emit substring(H, hi, hi + 1) + substring(H, lo, lo + 1)
-}
-func _rgbHex(r, g, b) { emit _hex2(r) + _hex2(g) + _hex2(b) }
-
-// Parse one CSI sequence starting AFTER the "ESC [". Returns the index
-// just past the final byte; consumes params + final and applies SGR.
 func _consumeCSI(s, start) {
-    let n = len(s)
-    let i = start
-    let params = ""
+    let n = len(s)  let i = start  let params = ""
     while i < n {
-        let cc = s[i]
-        let code = charCode(cc)
-        let isFinal = 0
-        if code >= 64 { if code <= 126 { isFinal = 1 } }
-        if isFinal == 1 {
+        let cc = s[i]  let code = charCode(cc)
+        if code >= 64 { if code <= 126 {
             if cc == "m" { applySgr(params) }
             emit i + 1
-        }
+        } }
         params = params + cc
         i = i + 1
     }
     emit n
 }
-
-// Parse one OSC or other non-CSI ESC sequence; returns index past it.
 func _consumeOther(s, start) {
-    let n = len(s)
-    let i = start
+    let n = len(s)  let i = start
     while i < n {
-        let cc = s[i]
-        let code = charCode(cc)
+        let cc = s[i]  let code = charCode(cc)
         if cc == fromCharCode(7) { emit i + 1 }
         if code >= 64 { if code <= 126 { emit i + 1 } }
         i = i + 1
     }
     emit n
 }
-
-// HARDCODED to bypass any module-mutable-global flake. Per
-// feedback_module_mutable_globals.md module-level mutable lets read
-// back garbage on cross-func access. We always pass "ffffff" for now
-// to verify the rest of the pipeline.
-func _fgOrDefault() { emit "ffffff" }
-
-// Walk input, flush coloured text chunks via guiRichAppend.
+// guiRichAppend resolves "" to COLORREF 0 = black, invisible on dark
+// bg.  Substitute the theme default when curFg blank.
+func _fgOrDefault() {
+    let f = _fgG()
+    if len(f) == 0 { emit "0xe8e8e8" }
+    emit f
+}
 func appendOutput(s) {
     let n = len(s)
     let buf = ""
@@ -209,7 +167,7 @@ func appendOutput(s) {
             i = i + 1
         } else {
             if len(buf) > 0 {
-                guiRichAppend(g_output, buf, _fgOrDefault(), g_curBold)
+                guiRichAppend(_o(), buf, _fgOrDefault(), _boldGet())
                 buf = ""
             }
             i = i + 1
@@ -222,25 +180,21 @@ func appendOutput(s) {
         }
     }
     if len(buf) > 0 {
-        guiRichAppend(g_output, buf, _fgOrDefault(), g_curBold)
+        guiRichAppend(_o(), buf, _fgOrDefault(), _boldGet())
     }
     emit "1"
 }
 
-// Update the title bar with the active cwd so users see where they are.
+// ── title bar shows cwd ──────────────────────────────────────────────
+
 func refreshTitle() {
-    guiSetText(g_win, "stem — " + g_cwd)
+    guiSetText(_wh(), "stem -- " + _cwdG())
     emit "1"
 }
 
-// ── command runner ────────────────────────────────────────────────────
+// ── cwd persistence across exec() ────────────────────────────────────
 
-// Returns the text following an initial "cd " (with surrounding spaces
-// stripped), or "" when the line isn't a cd. We intercept cd here
-// because exec() spawns a fresh cmd per call — directory changes inside
-// that cmd are gone the moment it exits. We instead keep g_cwd in
-// module state and prepend "cd <g_cwd> &&" to every run.
-func parseCd(line) {
+func _parseCd(line) {
     let n = len(line)  let i = 0
     while i < n { if line[i] != " " { i = n + 1 }  i = i + 1 }
     let start = i - 1
@@ -248,52 +202,43 @@ func parseCd(line) {
     if start + 3 > n { emit "" }
     if substring(line, start, start + 3) != "cd " { emit "" }
     let arg = substring(line, start + 3, n)
-    // trim trailing spaces
     let e = len(arg)
-    while e > 0 {
-        let lc = e - 1
-        if arg[lc] != " " { emit substring(arg, 0, e) }
-        e = e - 1
-    }
+    while e > 0 { if arg[e - 1] != " " { emit substring(arg, 0, e) }  e = e - 1 }
     emit ""
 }
-
-// Normalise a cd target. Absolute paths replace cwd; bare names join.
-// ".." pops one segment. No drive-letter handling beyond verbatim use.
-func resolveCd(target) {
-    if len(target) == 0 { emit g_cwd }
-    // absolute on Windows: starts with drive letter or "\"
+func _resolveCd(target) {
+    let cwd = _cwdG()
+    if len(target) == 0 { emit cwd }
     if len(target) >= 2 { if target[1] == ":" { emit target } }
     if target[0] == "\\" { emit target }
     if target[0] == "/"  { emit target }
-    if target == ".."    {
-        let n = len(g_cwd)  let i = n - 1
+    if target == ".." {
+        let n = len(cwd)  let i = n - 1
         while i >= 0 {
-            if g_cwd[i] == "\\" { emit substring(g_cwd, 0, i) }
-            if g_cwd[i] == "/"  { emit substring(g_cwd, 0, i) }
+            if cwd[i] == "\\" { emit substring(cwd, 0, i) }
+            if cwd[i] == "/"  { emit substring(cwd, 0, i) }
             i = i - 1
         }
-        emit g_cwd
+        emit cwd
     }
-    emit g_cwd + "\\" + target
+    emit cwd + "\\" + target
 }
 
 func runCommand(line) {
-    let cdTarget = parseCd(line)
+    let cdTarget = _parseCd(line)
     if len(cdTarget) > 0 {
-        g_cwd = resolveCd(cdTarget)
+        _cwdS(_resolveCd(cdTarget))
         appendOutput("$ " + line + "\n")
         refreshTitle()
         emit "1"
     }
-    let full = "cd /d " + g_cwd + " && " + line + " 2>&1"
+    let full = "cd /d " + _cwdG() + " && " + line + " 2>&1"
     let out = exec(full)
     appendOutput("$ " + line + "\n" + out + "\n")
     emit "1"
 }
 
-// Trim leading + trailing ASCII whitespace.
-func isWs(c) {
+func _isWs(c) {
     if c == " "  { emit "1" }
     if c == "\t" { emit "1" }
     if c == "\r" { emit "1" }
@@ -304,12 +249,11 @@ func trimSpaces(s) {
     let n = len(s)
     let a = 0
     while a < n {
-        if isWs(s[a]) == "1" { a = a + 1 }
+        if _isWs(s[a]) == "1" { a = a + 1 }
         else {
-            // found first non-ws at a; now find last non-ws walking from end
             let b = n
             while b > a {
-                if isWs(s[b - 1]) == "1" { b = b - 1 }
+                if _isWs(s[b - 1]) == "1" { b = b - 1 }
                 else { emit substring(s, a, b) }
             }
             emit ""
@@ -318,82 +262,75 @@ func trimSpaces(s) {
     emit ""
 }
 
-// Builtin commands handled in-process so they don't require spawning
-// a subshell. Returns "1" if the line was a builtin (caller skips
-// runCommand), "" otherwise.
 func tryBuiltin(line) {
     let l = trimSpaces(line)
     if l == "clear" {
-        guiSetText(g_output, "")
-        guiSetText(g_cmdline, "")
+        guiSetText(_o(), "")
+        guiSetText(_ci(), "")
         emit "1"
     }
     if l == "cls" {
-        guiSetText(g_output, "")
-        guiSetText(g_cmdline, "")
+        guiSetText(_o(), "")
+        guiSetText(_ci(), "")
         emit "1"
     }
-    if l == "exit" {
-        // Hard exit — cleaner than tearing down the message loop
-        // manually, and shells universally do this anyway.
-        ExitProcess("0")
-        emit "1"
-    }
+    if l == "exit" { ExitProcess("0")  emit "1" }
     emit ""
 }
 
 func onCmd() {
-    let line = guiGetText(g_cmdline)
+    let line = guiGetText(_ci())
     if len(line) == 0 { emit "1" }
     if tryBuiltin(line) == "1" { emit "1" }
     runCommand(line)
-    guiSetText(g_cmdline, "")
+    guiSetText(_ci(), "")
 }
 
-// ── app entry ─────────────────────────────────────────────────────────
+// ── entry ────────────────────────────────────────────────────────────
 
 just run {
-    g_cwd = arg(0)
-    if len(g_cwd) == 0 {
-        // fall back to %USERPROFILE% so launching from Explorer feels natural
-        g_cwd = exec("cmd /c echo %USERPROFILE%")
-        // exec output trails with a newline; strip it
-        let n = len(g_cwd)
-        while n > 0 {
-            let lc = n - 1
-            if g_cwd[lc] != "\n" { if g_cwd[lc] != "\r" { g_cwd = substring(g_cwd, 0, n)  n = 0 - 1 } }
-            n = n - 1
+    let cwd = arg(0)
+    if len(cwd) == 0 {
+        cwd = exec("cmd /c echo %USERPROFILE%")
+        let nlen = len(cwd)
+        while nlen > 0 {
+            let lc = nlen - 1
+            if cwd[lc] != "\n" {
+                if cwd[lc] != "\r" { cwd = substring(cwd, 0, nlen)  nlen = 0 - 1 }
+            }
+            nlen = nlen - 1
         }
     }
+    _cwdS(cwd)
+    _fgS("")
+    _boldSet0()
 
-    // Theme: gloss black under dark OS, dark grey under light OS.
-    // Either way the chrome reads as a deliberately darker surface than
-    // its surroundings. Foreground stays a soft off-white for legibility.
-    let bg = "2d2d2d"
-    if osIsLightMode() == "0" { bg = "0a0a0a" }
-    let fg = "e8e8e8"
+    let bg = "0x2d2d2d"
+    if osIsLightMode() == "0" { bg = "0x0a0a0a" }
+    let fg = "0xe8e8e8"
     guiSetWindowBg(bg)
 
     guiInit()
-    g_win = guiWindow("stem", 900, 600)
+    let win = guiWindow("stem", 900, 600)
+    guiStateSet("stem.win", win + "")
 
-    g_output  = guiRichEdit(g_win,  0,   0, 900, 560)
-    g_cmdline = guiTextInput(g_win, 0, 560, 900,  40)
-    guiRichSetMonoFont(g_output, "Cascadia Mono", 11)
-    guiRichSetBg(g_output, bg)
-    guiRichSetFgDefault(g_output, fg)
-    guiRichReadOnly(g_output, 1)
+    let output  = guiRichEdit(win,  0,   0, 900, 560)
+    let cmdline = guiTextInput(win, 0, 560, 900,  40)
+    guiStateSet("stem.output",  output + "")
+    guiStateSet("stem.cmdline", cmdline + "")
 
-    // Enter on the text input fires guiOnClick in gui.k. Same shape as
-    // brain.ks's cmdfield + onCmd handler.
-    guiOnClick(g_cmdline, funcptr(onCmd))
+    guiRichSetMonoFont(output, "Cascadia Mono", 11)
+    guiRichSetBg(output, bg)
+    guiRichSetFgDefault(output, fg)
+    guiRichReadOnly(output, 1)
+    guiOnClick(cmdline, funcptr(onCmd))
 
     refreshTitle()
-    appendOutput("stem v0.1.2 — pure-Krypton terminal (objk/Win32).\n")
+    appendOutput("\x1b[36mstem v0.1.3\x1b[0m -- pure-Krypton terminal (objk/Win32).\n")
     appendOutput("builtins: clear / cls / exit. cd persists across commands.\n")
-    appendOutput("ANSI colours (standard 16 + 38;2;r;g;b truecolor) render\n")
-    appendOutput("inline via guiRichAppend.\n\n")
+    appendOutput("ANSI colours render inline via guiRichAppend.\n")
+    appendOutput("\x1b[90mcwd: " + cwd + "\x1b[0m\n\n")
 
-    guiShow(g_win)
+    guiShow(win)
     guiRun()
 }

@@ -42,22 +42,22 @@ let g_curBold   = 0
 // ── ANSI colour rendering (carried over from v0.1.2) ──────────────────
 
 func sgrBaseColor(n) {
-    if n == 30 { emit "1e1e1e" }
-    if n == 31 { emit "f14c4c" }
-    if n == 32 { emit "23d18b" }
-    if n == 33 { emit "f5f543" }
-    if n == 34 { emit "3b8eea" }
-    if n == 35 { emit "d670d6" }
-    if n == 36 { emit "29b8db" }
-    if n == 37 { emit "e5e5e5" }
+    if n == 30 { emit "0x1e1e1e" }
+    if n == 31 { emit "0xf14c4c" }
+    if n == 32 { emit "0x23d18b" }
+    if n == 33 { emit "0xf5f543" }
+    if n == 34 { emit "0x3b8eea" }
+    if n == 35 { emit "0xd670d6" }
+    if n == 36 { emit "0x29b8db" }
+    if n == 37 { emit "0xe5e5e5" }
     if n == 90 { emit "666666" }
-    if n == 91 { emit "f14c4c" }
-    if n == 92 { emit "23d18b" }
-    if n == 93 { emit "f5f543" }
-    if n == 94 { emit "3b8eea" }
-    if n == 95 { emit "d670d6" }
-    if n == 96 { emit "29b8db" }
-    if n == 97 { emit "ffffff" }
+    if n == 91 { emit "0xf14c4c" }
+    if n == 92 { emit "0x23d18b" }
+    if n == 93 { emit "0xf5f543" }
+    if n == 94 { emit "0x3b8eea" }
+    if n == 95 { emit "0xd670d6" }
+    if n == 96 { emit "0x29b8db" }
+    if n == 97 { emit "0xffffff" }
     emit ""
 }
 func _hex2(n) {
@@ -364,9 +364,9 @@ func osIsLightMode() {
 // ── entry ─────────────────────────────────────────────────────────────
 
 just run {
-    let bg = "2d2d2d"
-    if osIsLightMode() == "0" { bg = "0a0a0a" }
-    let fg = "e8e8e8"
+    let bg = "0x2d2d2d"
+    if osIsLightMode() == "0" { bg = "0x0a0a0a" }
+    let fg = "0xe8e8e8"
     guiSetWindowBg(bg)
 
     guiInit()
