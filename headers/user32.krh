@@ -101,6 +101,11 @@ jxt {
     func EnableMenuItem(menu, idEnable, enable) -> BOOL
     func SetMenuItemInfoA(menu, item, byPosition, info) -> BOOL
     func GetMenuItemInfoA(menu, item, byPosition, info) -> BOOL
+    // SetMenuInfo / GetMenuInfo accept a MENUINFO struct (40 bytes on
+    // x64).  MIM_BACKGROUND (0x00000002) + hbrBack lets us tint the
+    // menu strip dark instead of the system-default light.
+    func SetMenuInfo(menu, info) -> BOOL
+    func GetMenuInfo(menu, info) -> BOOL
 
     // ── Misc ──────────────────────────────────────────────────────
     // (GetSystemMetrics already declared in windows.krh)
