@@ -903,6 +903,13 @@ func renderSnapshot(snap, deflt, font, cr, cc) {
   emit acc
 }
 
+// ── menu handlers ───────────────────────────────────────────────────────
+func stemMaster() { emit cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.master")) }
+func onStemNewWin(self, cmd, sender) { exec("open -na stem")  emit "1" }
+func onStemClear(self, cmd, sender)  { fdWrite(stemMaster(), fromCharCode(12), 1)  emit "1" }
+func onStemPaste(self, cmd, sender)  { let s = exec("pbpaste")  fdWrite(stemMaster(), s, len(s))  emit "1" }
+func onStemReset(self, cmd, sender)  { let s = "reset\n"  fdWrite(stemMaster(), s, len(s))  emit "1" }
+
 func defaultConfig() {
   emit "# stem config — key = value, # comments. Restart stem to apply.\nshell = /bin/zsh\nfont = JetBrainsMono Nerd Font Mono\nfont_size = 13\ncols = 92\nrows = 28\nwidth = 760\nheight = 500\ntitle = stem\n# colours as #RRGGBB\nfg = #ffffff\nbg = #000000\ncolor0 = #000000\ncolor1 = #cd3131\ncolor2 = #0dbc79\ncolor3 = #e5e510\ncolor4 = #2472c8\ncolor5 = #bc3fbc\ncolor6 = #11a8cd\ncolor7 = #e5e5e5\ncolor8 = #666666\ncolor9 = #f14c4c\ncolor10 = #23d18b\ncolor11 = #f5f567\ncolor12 = #3b8eea\ncolor13 = #d670d6\ncolor14 = #29b8db\ncolor15 = #ffffff\n"
 }
@@ -939,6 +946,13 @@ just run {
   fdWrite(m, setup, len(setup))
 
   let app = cocoaInit()
+  let bar = cocoaMenuBar(app)
+  let shMenu = cocoaMenuAdd(bar, "Shell")
+  cocoaMenuItem(shMenu, "New Window", "n", funcptr(onStemNewWin))
+  cocoaMenuItem(shMenu, "Clear", "k", funcptr(onStemClear))
+  cocoaMenuItem(shMenu, "Reset", "", funcptr(onStemReset))
+  let edMenu = cocoaMenuAdd(bar, "Edit")
+  cocoaMenuItem(edMenu, "Paste", "v", funcptr(onStemPaste))
 
   // palette cache (0-15 from config, 16-255 computed)
   let pal = cocoaArray()
