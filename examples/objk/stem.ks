@@ -1020,7 +1020,6 @@ func stemMakePaneView(m, x, y, w, h, pcols, prows) {
   msg_1(view, "setEditable:", 0)
   msg_1(view, "setSelectable:", 0)
   cocoaSetFont(view, cocoaGetAssocKey(app, "stem.mono"))
-  msg_d2(view, "setTextContainerInset:", 4, 14)
   cocoaSetBg(view, cocoaGetAssocKey(app, "stem.bgc"))
   cocoaSetTextColor(view, cocoaGetAssocKey(app, "stem.fgc"))
   let kview = cocoaCustomView(win, stemKeyClass(), x, y, w, h)
@@ -1532,6 +1531,7 @@ just run {
         let curp = gridCursor(st, c, r)
         let ci2 = indexOf(curp, ",")
         msg_1(cocoaArrayGet(pviews, p), "setAttributedString:", renderSnapshot(gridRender(st, c, r), fg, mono, toInt(substring(curp, 0, ci2)), toInt(substring(curp, ci2 + 1, len(curp)))))
+        msg_1(cocoaArrayGet(pdocs, p), "scrollToEndOfDocument:", 0)
       }
       p = p + 1
     }
