@@ -738,7 +738,10 @@ func isCsiFinal(ch) { emit indexOf("@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghij
 
 // Raw key -> pty (arrows -> ESC[ABCD).
 func onKey(self, cmd, event) {
+  // each terminal pane's key-view stores its own pty fd
+  let pf = cocoaGetAssocKey(self, "ptyfd")
   let m = cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.master"))
+  if pf != 0 { m = cocoaNumberVal(pf) }
   let esc = fromCharCode(27)
   let kc = msg(event, "keyCode")
   let seq = ""
@@ -1433,8 +1436,17 @@ func relayout() {
   msg_frame(cocoaGetAssocKey(app, "brain.treesv"), "setFrame:", 0, topB, 240, 640 - topB)
   let termHidden = 1
   if tm == 1 { termHidden = 0 }
-  msg_1(cocoaGetAssocKey(app, "brain.termsv"), "setHidden:", termHidden)
-  msg_1(cocoaGetAssocKey(app, "brain.kview"), "setHidden:", termHidden)
+  let scrolls = cocoaGetAssocKey(app, "brain.tscrolls")
+  let kviews = cocoaGetAssocKey(app, "brain.tkviews")
+  if scrolls != 0 {
+    let pc = cocoaArrayCount(scrolls)
+    let p = 0
+    while p < pc {
+      msg_1(cocoaArrayGet(scrolls, p), "setHidden:", termHidden)
+      msg_1(cocoaArrayGet(kviews, p), "setHidden:", termHidden)
+      p = p + 1
+    }
+  }
   msg_frame(cocoaGetAssocKey(app, "brain.editorsv"), "setFrame:", sbw, topB, 940 - sbw, 608 - topB)
   emit "1"
 }
@@ -1558,7 +1570,23 @@ func focusTerm() { cocoaMakeFirstResponder(cocoaGetAssocKey(appH(), "brain.win")
 func runInTerm(c) { showTermPane(1)  termWrite(c + "\n")  cocoaSetAssocKey(appH(), "brain.lastrun", nsString(c))  focusTerm()  emit "1" }
 
 func onNewTerminal(self, cmd, sender)    { showTermPane(1)  termWrite("clear\n")  focusTerm()  emit "1" }
-func onSplitTerminal(self, cmd, sender)  { showTermPane(1)  focusTerm()  emit "1" }
+func onSplitTerminal(self, cmd, sender) {
+  let app = appH()
+  let masters = cocoaGetAssocKey(app, "brain.tmasters")
+  showTermPane(1)
+  if cocoaArrayCount(masters) >= 2 { focusTerm()  emit "1" }
+  // shrink pane 0 to the left half, reset its grid to the new column count
+  let rows = 14
+  let half = 55
+  msg_frame(cocoaArrayGet(cocoaGetAssocKey(app, "brain.tscrolls"), 0), "setFrame:", 0, 0, 468, 246)
+  msg_frame(cocoaArrayGet(cocoaGetAssocKey(app, "brain.tkviews"), 0), "setFrame:", 0, 0, 468, 246)
+  ptySetSize(cocoaNumberVal(cocoaArrayGet(masters, 0)), rows, half)
+  cocoaArraySet(cocoaGetAssocKey(app, "brain.tcols"), 0, cocoaNumber(half))
+  cocoaSetAssocKey(app, "brain.splitdirty", cocoaNumber(1))
+  let kv = makePane(472, 468, half)
+  cocoaMakeFirstResponder(cocoaGetAssocKey(app, "brain.win"), kv)
+  emit "1"
+}
 func onNewTermWindow(self, cmd, sender)  { exec("open -na stem")  emit "1" }
 func onRunTask(self, cmd, sender)        { let c = promptText("Run task (shell command):", "")  if len(c) > 0 { runInTerm(c) }  emit "1" }
 func onRunBuildTask(self, cmd, sender) {
@@ -1608,26 +1636,55 @@ func onConfigBuild(self, cmd, sender) {
 func onShowTerm(self, cmd, sender) { showTermPane(1)  emit "1" }
 func onHideTerm(self, cmd, sender) { showTermPane(0)  emit "1" }
 
-just run {
-  let dir = projDir()
-  recentAdd("folders", dir)
-  let cfg = readFile(environ("HOME") + "/.config/stem/config")
-
-  // terminal pty (bottom pane)
+// ── terminal panes (1..2, real split) ───────────────────────────────────
+func termKeyClass() {
+  let c = objc_lookUpClass("BrainTermKeys")
+  if c == 0 {
+    c = cocoaViewClassNew("BrainTermKeys")
+    cocoaClassAddMethod(c, "keyDown:", funcptr(onKey), "v@:@")
+    cocoaClassAddMethod(c, "acceptsFirstResponder", funcptr(acceptsFR), "c@:")
+    cocoaClassRegister(c)
+  }
+  emit c
+}
+// spawn a terminal pane (pty + grid view + key view) at frame x,0,w,246.
+func makePane(x, w, paneCols) {
+  let app = appH()
+  let win = cocoaGetAssocKey(app, "brain.win")
+  let dir = msg(cocoaGetAssocKey(app, "brain.dir"), "UTF8String")
+  let rows = 14
   let m = ptyMaster("/dev/ptmx")
   let slave = ptySlaveName(m)
   ptyForkExec(slave, "/bin/zsh")
-  let cols = 112
-  let rows = 14
   let tries = 0
   let szd = 0
   while tries < 60 {
-    if szd == 0 { if ptySetSize(m, rows, cols) == 0 { szd = 1 } else { sleepUs(0, 10000)  tries = tries + 1 } }
+    if szd == 0 { if ptySetSize(m, rows, paneCols) == 0 { szd = 1 } else { sleepUs(0, 10000)  tries = tries + 1 } }
     else { tries = 60 }
   }
   fdSetNonblock(m)
   let setup = "cd \"" + dir + "\"; export TERM=xterm-256color; export TERM_PROGRAM=stem; export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; clear\n"
   fdWrite(m, setup, len(setup))
+  let term = cocoaScrollText(win, x, 0, w, 246)
+  msg_1(term, "setEditable:", 0)
+  msg_1(term, "setSelectable:", 0)
+  cocoaSetFont(term, cocoaGetAssocKey(app, "brain.tmono"))
+  cocoaSetBg(term, cocoaColorNamed("blackColor"))
+  cocoaSetTextColor(term, cocoaGetAssocKey(app, "brain.tfg"))
+  let kview = cocoaCustomView(win, termKeyClass(), x, 0, w, 246)
+  cocoaSetAssocKey(kview, "ptyfd", cocoaNumber(m))
+  cocoaArrayAdd(cocoaGetAssocKey(app, "brain.tmasters"), cocoaNumber(m))
+  cocoaArrayAdd(cocoaGetAssocKey(app, "brain.tscrolls"), msg(term, "enclosingScrollView"))
+  cocoaArrayAdd(cocoaGetAssocKey(app, "brain.tviews"), msg(term, "textStorage"))
+  cocoaArrayAdd(cocoaGetAssocKey(app, "brain.tcols"), cocoaNumber(paneCols))
+  cocoaArrayAdd(cocoaGetAssocKey(app, "brain.tkviews"), kview)
+  emit kview
+}
+
+just run {
+  let dir = projDir()
+  recentAdd("folders", dir)
+  let cfg = readFile(environ("HOME") + "/.config/stem/config")
 
   let app = cocoaInit()
   let bar = cocoaMenuBar(app)
@@ -1679,24 +1736,20 @@ just run {
   msg_1(editor, "setAllowsUndo:", 1)
   msg_1(editor, "setUsesFindBar:", 1)
 
-  let term = cocoaScrollText(win, 0, 0, 940, 246)
-  msg_1(term, "setEditable:", 0)
-  msg_1(term, "setSelectable:", 0)
+  // terminal panes (1..2). Font + fg shared; makePane spawns pty + grid view.
   let tmono = cocoaFontFamily(cocoaMonoFont(12), "JetBrainsMono Nerd Font Mono")
-  cocoaSetFont(term, tmono)
-  let tfg = cocoaColorNamed("whiteColor")
-  cocoaSetBg(term, cocoaColorNamed("blackColor"))
-  cocoaSetTextColor(term, tfg)
-  let kc = cocoaViewClassNew("BrainTermKeys")
-  cocoaClassAddMethod(kc, "keyDown:", funcptr(onKey), "v@:@")
-  cocoaClassAddMethod(kc, "acceptsFirstResponder", funcptr(acceptsFR), "c@:")
-  cocoaClassRegister(kc)
-  let kview = cocoaCustomView(win, kc, 0, 0, 940, 246)
-  cocoaSetAssocKey(app, "stem.master", cocoaNumber(m))
+  cocoaSetAssocKey(app, "brain.tmono", tmono)
+  cocoaSetAssocKey(app, "brain.tfg", cocoaColorNamed("whiteColor"))
+  cocoaSetAssocKey(app, "brain.tmasters", cocoaArray())
+  cocoaSetAssocKey(app, "brain.tscrolls", cocoaArray())
+  cocoaSetAssocKey(app, "brain.tviews", cocoaArray())
+  cocoaSetAssocKey(app, "brain.tcols", cocoaArray())
+  cocoaSetAssocKey(app, "brain.tkviews", cocoaArray())
+  let kview = makePane(0, 940, 112)
+  cocoaSetAssocKey(app, "stem.master", cocoaArrayGet(cocoaGetAssocKey(app, "brain.tmasters"), 0))
   // view refs for View-menu toggles
   cocoaSetAssocKey(app, "brain.treesv", msg(table, "enclosingScrollView"))
   cocoaSetAssocKey(app, "brain.editorsv", msg(editor, "enclosingScrollView"))
-  cocoaSetAssocKey(app, "brain.termsv", msg(term, "enclosingScrollView"))
   cocoaSetAssocKey(app, "brain.kview", kview)
 
   // file tree data
@@ -1817,23 +1870,56 @@ just run {
   cocoaMakeFirstResponder(win, kview)
   cocoaFinishLaunching(app)
 
-  // manual loop: pump UI events + stream the pty into the terminal grid
-  let ts = msg(term, "textStorage")
-  let st = gridNew(cols, rows)
-  let pending = ""
+  // manual loop: pump UI events + stream each pane's pty into its grid view.
+  // Grid state is a packed (non-UTF-8) Krypton string -> kept in locals st0/st1
+  // (can't live in an NSMutableArray). Up to 2 panes.
+  let rows = 14
+  let tfg = cocoaGetAssocKey(app, "brain.tfg")
+  let tmono = cocoaGetAssocKey(app, "brain.tmono")
+  let cols0 = cocoaNumberVal(cocoaArrayGet(cocoaGetAssocKey(app, "brain.tcols"), 0))
+  let st0 = gridNew(cols0, rows)
+  let pend0 = ""
+  let st1 = ""
+  let pend1 = ""
+  let p1init = 0
   let i = 0
   while i < 2000000000 {
     cocoaPumpEvents(app)
-    let chunk = fdRead(m, 4096)
-    if len(chunk) > 0 {
-      let buf = pending + chunk
+    let masters = cocoaGetAssocKey(app, "brain.tmasters")
+    let tcols = cocoaGetAssocKey(app, "brain.tcols")
+    let tviews = cocoaGetAssocKey(app, "brain.tviews")
+    let pc = cocoaArrayCount(masters)
+    if brainFlag("brain.splitdirty", 0) == 1 {
+      cocoaSetAssocKey(app, "brain.splitdirty", cocoaNumber(0))
+      cols0 = cocoaNumberVal(cocoaArrayGet(tcols, 0))
+      st0 = gridNew(cols0, rows)  pend0 = ""
+      p1init = 0
+    }
+    // pane 0
+    let chunk0 = fdRead(cocoaNumberVal(cocoaArrayGet(masters, 0)), 4096)
+    if len(chunk0) > 0 {
+      let buf = pend0 + chunk0
       let safe = gridSafeLen(buf)
-      pending = substring(buf, safe, len(buf))
-      st = gridFeed(st, substring(buf, 0, safe), cols, rows)
-      let curp = gridCursor(st, cols, rows)
+      pend0 = substring(buf, safe, len(buf))
+      st0 = gridFeed(st0, substring(buf, 0, safe), cols0, rows)
+      let curp = gridCursor(st0, cols0, rows)
       let ci2 = indexOf(curp, ",")
-      msg_1(ts, "setAttributedString:", renderSnapshot(gridRender(st, cols, rows), tfg, tmono, toInt(substring(curp, 0, ci2)), toInt(substring(curp, ci2 + 1, len(curp)))))
-      msg_1(term, "scrollToEndOfDocument:", 0)
+      msg_1(cocoaArrayGet(tviews, 0), "setAttributedString:", renderSnapshot(gridRender(st0, cols0, rows), tfg, tmono, toInt(substring(curp, 0, ci2)), toInt(substring(curp, ci2 + 1, len(curp)))))
+    }
+    // pane 1 (after split)
+    if pc >= 2 {
+      let cols1 = cocoaNumberVal(cocoaArrayGet(tcols, 1))
+      if p1init == 0 { st1 = gridNew(cols1, rows)  pend1 = ""  p1init = 1 }
+      let chunk1 = fdRead(cocoaNumberVal(cocoaArrayGet(masters, 1)), 4096)
+      if len(chunk1) > 0 {
+        let buf1 = pend1 + chunk1
+        let safe1 = gridSafeLen(buf1)
+        pend1 = substring(buf1, safe1, len(buf1))
+        st1 = gridFeed(st1, substring(buf1, 0, safe1), cols1, rows)
+        let curp1 = gridCursor(st1, cols1, rows)
+        let cj = indexOf(curp1, ",")
+        msg_1(cocoaArrayGet(tviews, 1), "setAttributedString:", renderSnapshot(gridRender(st1, cols1, rows), tfg, tmono, toInt(substring(curp1, 0, cj)), toInt(substring(curp1, cj + 1, len(curp1)))))
+      }
     }
     // auto save: every ~5s if enabled, write the current tab to disk
     if i - (i / 625) * 625 == 0 {
