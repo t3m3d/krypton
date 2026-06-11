@@ -922,6 +922,45 @@ func onStemZoomOut(self, cmd, sender)   { let s = cocoaNumberVal(cocoaGetAssocKe
 func onStemZoomReset(self, cmd, sender) { cocoaSetAssocKey(appH(), "stem.fontsize", cocoaNumber(13))  stemApplyFont() }
 func onStemFull(self, cmd, sender)      { msg_1(cocoaGetAssocKey(appH(), "stem.win"), "toggleFullScreen:", 0)  emit "1" }
 func onStemHelp(self, cmd, sender)      { exec("open https://krypton-lang.org/programs/stem.html")  emit "1" }
+func onStemConfig(self, cmd, sender)    { exec("open -t \"" + environ("HOME") + "/.config/stem/config\"")  emit "1" }
+func onStemReload(self, cmd, sender) {
+  let cfg = readFile(environ("HOME") + "/.config/stem/config")
+  cocoaSetAssocKey(appH(), "stem.fontsize", cocoaNumber(toInt(cfgVal(cfg, "font_size", "13"))))
+  cocoaSetAssocKey(appH(), "stem.fontfam", nsString(cfgVal(cfg, "font", "JetBrainsMono Nerd Font Mono")))
+  stemApplyFont()
+  msg_1(cocoaGetAssocKey(appH(), "stem.win"), "setTitle:", nsString(cfgVal(cfg, "title", "stem")))
+  emit "1"
+}
+func onStemAbout(self, cmd, sender) { exec("osascript -e 'display dialog \"stem " + fromCharCode(8212) + " a pure-Krypton terminal on the objk Objective-C FFI. No Obj-C source.\\n\\nkrypton-lang.org/programs/stem.html\" buttons {\"OK\"} default button \"OK\" with title \"About stem\"' >/dev/null 2>&1 &")  emit "1" }
+// strip ANSI CSI sequences for plain-text copy
+func stemStripAnsi(s) {
+  let out = ""
+  let n = len(s)
+  let i = 0
+  let esc = fromCharCode(27)
+  while i < n {
+    let ch = substring(s, i, i + 1)
+    if ch == esc {
+      i = i + 1
+      if i < n { if substring(s, i, i + 1) == "[" {
+        i = i + 1
+        let go = 1
+        while go == 1 {
+          if i >= n { go = 0 }
+          else { let c = charCode(substring(s, i, i + 1))  i = i + 1  if c >= 64 { if c <= 126 { go = 0 } } }
+        }
+      } }
+    } else { out = out + ch  i = i + 1 }
+  }
+  emit out
+}
+func onStemCopy(self, cmd, sender) {
+  let r = cocoaGetAssocKey(appH(), "stem.lastrender")
+  if r == 0 { emit "1" }
+  writeFile("/tmp/stemcopy", stemStripAnsi(msg(r, "UTF8String")))
+  exec("pbcopy < /tmp/stemcopy")
+  emit "1"
+}
 
 func defaultConfig() {
   emit "# stem config — key = value, # comments. Restart stem to apply.\nshell = /bin/zsh\nfont = JetBrainsMono Nerd Font Mono\nfont_size = 13\ncols = 92\nrows = 28\nwidth = 760\nheight = 500\ntitle = stem\n# colours as #RRGGBB\nfg = #ffffff\nbg = #000000\ncolor0 = #000000\ncolor1 = #cd3131\ncolor2 = #0dbc79\ncolor3 = #e5e510\ncolor4 = #2472c8\ncolor5 = #bc3fbc\ncolor6 = #11a8cd\ncolor7 = #e5e5e5\ncolor8 = #666666\ncolor9 = #f14c4c\ncolor10 = #23d18b\ncolor11 = #f5f567\ncolor12 = #3b8eea\ncolor13 = #d670d6\ncolor14 = #29b8db\ncolor15 = #ffffff\n"
@@ -962,6 +1001,11 @@ just run {
   let bar = cocoaMenuBar(app)
   // app menu (system bolds the first menu as the app name)
   let appMenu = cocoaMenuAdd(bar, "stem")
+  cocoaMenuItem(appMenu, "About stem", "", funcptr(onStemAbout))
+  cocoaMenuSeparator(appMenu)
+  cocoaMenuItem(appMenu, "Settings", ",", funcptr(onStemConfig))
+  cocoaMenuItem(appMenu, "Reload Config", "", funcptr(onStemReload))
+  cocoaMenuSeparator(appMenu)
   cocoaMenuItemSel(appMenu, "Hide stem", "h", "hide:")
   cocoaMenuItemSel(appMenu, "Quit stem", "q", "terminate:")
   let shMenu = cocoaMenuAdd(bar, "Shell")
@@ -972,6 +1016,7 @@ just run {
   cocoaMenuSeparator(shMenu)
   cocoaMenuItemSel(shMenu, "Close Window", "w", "performClose:")
   let edMenu = cocoaMenuAdd(bar, "Edit")
+  cocoaMenuItem(edMenu, "Copy", "c", funcptr(onStemCopy))
   cocoaMenuItem(edMenu, "Paste", "v", funcptr(onStemPaste))
   cocoaMenuItemSel(edMenu, "Select All", "a", "selectAll:")
   let viewMenu = cocoaMenuAdd(bar, "View")
@@ -1056,7 +1101,9 @@ just run {
       st = gridFeed(st, substring(buf, 0, safe), cols, rows)
       let curp = gridCursor(st, cols, rows)
       let ci2 = indexOf(curp, ",")
-      msg_1(ts, "setAttributedString:", renderSnapshot(gridRender(st, cols, rows), fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(curp, 0, ci2)), toInt(substring(curp, ci2 + 1, len(curp)))))
+      let rendered = gridRender(st, cols, rows)
+      cocoaSetAssocKey(app, "stem.lastrender", nsString(rendered))
+      msg_1(ts, "setAttributedString:", renderSnapshot(rendered, fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(curp, 0, ci2)), toInt(substring(curp, ci2 + 1, len(curp)))))
       msg_1(view, "scrollToEndOfDocument:", 0)
     }
     sleepUs(0, 8000)
