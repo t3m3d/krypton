@@ -1159,7 +1159,7 @@ func rebuildTabBar() {
   let inactive = cocoaRGB(64, 70, 76)
   let tw = 132
   let gap = 7
-  let x = 12
+  let x = 82
   let i = 0
   while i < tc {
     let b = cocoaCustomView(win, stemTabClass(), x, H - barH + 4, tw, barH - 4)
@@ -1466,6 +1466,10 @@ just run {
   cocoaSetAssocKey(app, "stem.shell", nsString(shell))
   cocoaSetAssocKey(app, "stem.tree", mkLeaf(0))
   msg_1(win, "setBackgroundColor:", tabHue)
+  // full-size content view (15 | NSWindowStyleMaskFullSizeContentView 32768)
+  // so the content fills the window and the tab strip at the top isn't clipped
+  // above the title bar.
+  msg_1(win, "setStyleMask:", 32783)
   msg_1(win, "setTitlebarAppearsTransparent:", 1)
   msg_1(win, "setTitleVisibility:", 1)
   msg_1(win, "setTabbingMode:", 2)
