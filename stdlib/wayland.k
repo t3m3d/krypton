@@ -284,6 +284,30 @@ func fbBlitBGRA(px, fbW, fbH, dx, dy, src, sw, sh) {
     }
 }
 
+// filled circle centered at (cx,cy) radius r — replaces X11 FillArc(...,0,23040).
+func fbFillCircle(px, fbW, fbH, cx, cy, r, color) {
+    let dy = 0 - r
+    while dy <= r {
+        let py = cy + dy
+        if py >= 0 && py < fbH {
+            // half-width at this row: floor(sqrt(r*r - dy*dy))
+            let rem = r * r - dy * dy
+            let hw = 0
+            while (hw + 1) * (hw + 1) <= rem { hw += 1 }
+            fbFillRect(px, fbW, cx - hw, py, hw + hw + 1, 1, color)
+        }
+        dy += 1
+    }
+}
+// filled rounded rectangle (corner radius rr) — for pills/selection.
+func fbRoundRect(px, fbW, fbH, x, y, w, h, rr, color) {
+    fbFillRect(px, fbW, x + rr, y, w - rr - rr, h, color)
+    fbFillRect(px, fbW, x, y + rr, w, h - rr - rr, color)
+    fbFillCircle(px, fbW, fbH, x + rr, y + rr, rr, color)
+    fbFillCircle(px, fbW, fbH, x + w - rr - 1, y + rr, rr, color)
+    fbFillCircle(px, fbW, fbH, x + rr, y + h - rr - 1, rr, color)
+    fbFillCircle(px, fbW, fbH, x + w - rr - 1, y + h - rr - 1, rr, color)
+}
 // read a pixel's packed 0xRRGGBB (for tests / verification)
 func fbGetPixel(px, fbW, x, y) {
     let o = (y * fbW + x) * 4
@@ -370,6 +394,11 @@ func wlCreatePool(fd, shmId, poolId, memfd, size) {
     sockSendFd(fd, m, 16, memfd)
     emit 1
 }
+// wl_buffer.destroy (opcode 0) / wl_shm_pool.destroy (opcode 1). Destroy the
+// previous frame's buffer+pool before creating the next (ids are not reused;
+// keep allocating fresh increasing ids). Close the memfd separately.
+func wlBufferDestroy(fd, bufId) { emit _wlSend0(fd, bufId, 0) }
+func wlPoolDestroy(fd, poolId)  { emit _wlSend0(fd, poolId, 1) }
 // wl_shm_pool.create_buffer (opcode 0): new_id buf, int offset,w,h,stride,format
 func wlPoolCreateBuffer(fd, poolId, bufId, offset, w, h, stride, fmt) {
     let m = bufNew(32)
