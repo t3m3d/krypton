@@ -286,6 +286,26 @@ func onCmd() {
     guiSetText(_ci(), "")
 }
 
+// Re-apply the dock layout so RichEdit fills the (possibly resized)
+// window.  Called on every guiSetTimer tick.
+func onResizeTick() {
+    let d = guiStateGet("stem.dock")
+    if d != "" { guiDockApply(d) }
+    emit "1"
+}
+
+// Snap the caret + selection to the end of the buffer.  Any time we
+// modify content programmatically we call this so the cursor doesn't
+// stay where the user last clicked.  EM_SETSEL=177; passing (len,len)
+// is an empty selection at the end.
+func snapToEnd() {
+    let h = _o()
+    let n = SendMessageA(h, "14", "0", "0")     // WM_GETTEXTLENGTH
+    SendMessageA(h, "177", n + "", n + "")      // EM_SETSEL(end, end)
+    SendMessageA(h, "183", "0", "0")            // EM_SCROLLCARET
+    emit "1"
+}
+
 // Inline-prompt handler.  Fires on every EN_CHANGE of the RichEdit.
 // We only act when:
 //   - re-entry guard is off  (so guiRichAppend below doesn't loop)
@@ -298,7 +318,15 @@ func onRichChange() {
     let text = guiGetText(_o())
     let n = len(text)
     if n == 0 { emit "1" }
-    if text[n - 1] != "\n" { emit "1" }
+    // Buffer didn't end with \n -> user just typed a char or clicked
+    // somewhere. Force cursor back to the end so typing always extends
+    // the active prompt line.
+    if text[n - 1] != "\n" {
+        guiStateSet("stem.inHandler", "1")
+        snapToEnd()
+        guiStateSet("stem.inHandler", "0")
+        emit "1"
+    }
     // find last "$ " (search backwards for '$' then check next char)
     let i = n - 2
     let promptAt = 0 - 1
@@ -312,12 +340,14 @@ func onRichChange() {
     let cmd = substring(text, promptAt + 2, n - 1)
     guiStateSet("stem.inHandler", "1")
     if tryBuiltin(cmd) == "1" {
-        guiStateSet("stem.inHandler", "0")
         appendOutput("$ ")
+        snapToEnd()
+        guiStateSet("stem.inHandler", "0")
         emit "1"
     }
     runCommand(cmd)
     appendOutput("$ ")
+    snapToEnd()
     guiStateSet("stem.inHandler", "0")
     emit "1"
 }
@@ -344,15 +374,18 @@ just run {
     let bg = "0x2d2d2d"
     if osIsLightMode() == "0" { bg = "0x0a0a0a" }
     let fg = "0xe8e8e8"
-    guiSetWindowBg(bg)
-    // Tells gui.k's WM_CTLCOLOREDIT/STATIC handler what fg to use,
-    // and the stored window-bg brush becomes the bg for EDIT/STATIC.
-    // Without this the cmdline EDIT renders white-on-white default.
-    guiSetUiTextColor(fg)
 
     guiInit()
     let win = guiWindow("stem", 900, 600)
     guiStateSet("stem.win", win + "")
+    // ORDER MATTERS: window must exist for guiSetWindowBg to wire the
+    // class-bg brush.  Called before guiWindow it's a no-op (the white
+    // strip under the title bar comes back).
+    guiSetWindowBg(bg)
+    guiSetUiTextColor(fg)
+    // DWMWA_USE_IMMERSIVE_DARK_MODE + DarkMode_Explorer theme — paints
+    // the title bar, frame, and scrollbars dark on Win10 1809+/Win11.
+    guiEnableDarkMode()
 
     // Single RichEdit pane — output and input share the same buffer,
     // terminal-style.  RichEdit is editable; an onChange handler
@@ -360,15 +393,24 @@ just run {
     // extracts the command between the last "$ " prompt marker and
     // the newline.  Re-entry guarded because guiRichAppend also fires
     // EN_CHANGE.
-    let output  = guiRichEdit(win, 0, 0, 900, 600)
+    // Create RichEdit oversized so any window resize still has it
+    // covering the client area.  gui.k has no WM_SIZE dispatch, so a
+    // dock-on-timer is the only "real" answer; overshooting the child
+    // is a cheap hack that visually works (RichEdit gets clipped by
+    // the window rect, no leftover bg shows).
+    let output = guiRichEdit(win, 0, 0, 4000, 3000)
     guiStateSet("stem.output", output + "")
-    guiStateSet("stem.cmdline", output + "")   // alias so existing code paths still resolve
+    guiStateSet("stem.cmdline", output + "")
 
     guiRichSetMonoFont(output, "Cascadia Mono", 11)
     guiRichSetBg(output, bg)
     guiRichSetFgDefault(output, fg)
-    // Editable — user can type at the end of the buffer.
-    guiOnClick(output, funcptr(onRichChange))   // EN_CHANGE per keystroke
+    guiOnClick(output, funcptr(onRichChange))
+    // Enable EN_SELCHANGE notifications so arrow-key + click cursor
+    // moves also fire onRichChange (our snap-to-end logic catches
+    // them and pulls cursor back to the prompt).
+    // EM_SETEVENTMASK = 1093 (0x0445); ENM_SELCHANGE = 524288 (0x80000).
+    SendMessageA(output + "", "1093", "0", "524288")
 
     refreshTitle()
     // Banner first — guard prevents onRichChange from firing on each
@@ -378,6 +420,7 @@ just run {
     appendOutput("builtins: clear / cls / exit. cd persists across commands.\n")
     appendOutput("\x1b[90mcwd: " + cwd + "\x1b[0m\n\n")
     appendOutput("$ ")
+    snapToEnd()
     guiStateSet("stem.inHandler", "0")
 
     guiShow(win)
