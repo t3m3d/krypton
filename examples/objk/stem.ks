@@ -738,7 +738,10 @@ func isCsiFinal(ch) { emit indexOf("@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghij
 
 // Raw key -> pty (arrows -> ESC[ABCD).
 func onKey(self, cmd, event) {
+  let pf = cocoaGetAssocKey(self, "ptyfd")
   let m = cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.master"))
+  if pf != 0 { m = cocoaNumberVal(pf) }
+  cocoaSetAssocKey(appH(), "stem.focus", self)
   let esc = fromCharCode(27)
   let kc = msg(event, "keyCode")
   let seq = ""
@@ -983,6 +986,133 @@ func brainFlagS(key, def) {
   emit cocoaNumberVal(v)
 }
 
+// ── panes / splits (2-pane) ─────────────────────────────────────────────
+func stemKeyClass() {
+  let c = objc_lookUpClass("StemKeys")
+  if c == 0 {
+    c = cocoaViewClassNew("StemKeys")
+    cocoaClassAddMethod(c, "keyDown:", funcptr(onKey), "v@:@")
+    cocoaClassAddMethod(c, "acceptsFirstResponder", funcptr(acceptsFR), "c@:")
+    cocoaClassRegister(c)
+  }
+  emit c
+}
+func stemForkPty(pcols, prows, shell) {
+  let m = ptyMaster("/dev/ptmx")
+  let slave = ptySlaveName(m)
+  ptyForkExec(slave, shell)
+  let tries = 0
+  let szd = 0
+  while tries < 60 {
+    if szd == 0 { if ptySetSize(m, prows, pcols) == 0 { szd = 1 } else { sleepUs(0, 10000)  tries = tries + 1 } }
+    else { tries = 60 }
+  }
+  fdSetNonblock(m)
+  let setup = "export TERM=xterm-256color; export TERM_PROGRAM=stem; export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; clear\n"
+  fdWrite(m, setup, len(setup))
+  emit m
+}
+func stemMakePaneView(m, x, y, w, h, pcols, prows) {
+  let app = appH()
+  let win = cocoaGetAssocKey(app, "stem.win")
+  let view = cocoaScrollText(win, x, y, w, h)
+  msg_1(view, "setEditable:", 0)
+  msg_1(view, "setSelectable:", 0)
+  cocoaSetFont(view, cocoaGetAssocKey(app, "stem.mono"))
+  cocoaSetBg(view, cocoaGetAssocKey(app, "stem.bgc"))
+  cocoaSetTextColor(view, cocoaGetAssocKey(app, "stem.fgc"))
+  let kview = cocoaCustomView(win, stemKeyClass(), x, y, w, h)
+  cocoaSetAssocKey(kview, "ptyfd", cocoaNumber(m))
+  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pmasters"), cocoaNumber(m))
+  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pscrolls"), msg(view, "enclosingScrollView"))
+  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pviews"), msg(view, "textStorage"))
+  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pdocs"), view)
+  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pcols"), cocoaNumber(pcols))
+  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.prows"), cocoaNumber(prows))
+  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pkviews"), kview)
+  emit kview
+}
+func paneCount() { emit cocoaArrayCount(cocoaGetAssocKey(appH(), "stem.pmasters")) }
+// reframe pane 0 (scroll + key view) + resize its pty
+func reframePane0(x, y, w, h, pcols, prows) {
+  let app = appH()
+  msg_frame(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pscrolls"), 0), "setFrame:", x, y, w, h)
+  msg_frame(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), 0), "setFrame:", x, y, w, h)
+  ptySetSize(cocoaNumberVal(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pmasters"), 0)), prows, pcols)
+  cocoaArraySet(cocoaGetAssocKey(app, "stem.pcols"), 0, cocoaNumber(pcols))
+  cocoaArraySet(cocoaGetAssocKey(app, "stem.prows"), 0, cocoaNumber(prows))
+  emit "1"
+}
+// dir: 1=right 2=left 3=top 4=bottom
+func doSplit(dir) {
+  let app = appH()
+  if paneCount() >= 2 { emit "1" }
+  let W = cocoaNumberVal(cocoaGetAssocKey(app, "stem.w"))
+  let H = cocoaNumberVal(cocoaGetAssocKey(app, "stem.h"))
+  let C = cocoaNumberVal(cocoaGetAssocKey(app, "stem.cols"))
+  let R = cocoaNumberVal(cocoaGetAssocKey(app, "stem.rows"))
+  let spare = cocoaNumberVal(cocoaGetAssocKey(app, "stem.spare"))
+  let hw = W / 2
+  let hh = H / 2
+  let hc = C / 2
+  let hr = R / 2
+  let kv = 0
+  if dir == 1 { reframePane0(0, 0, hw, H, hc, R)  ptySetSize(spare, R, hc)  kv = stemMakePaneView(spare, hw, 0, hw, H, hc, R) }
+  if dir == 2 { reframePane0(hw, 0, hw, H, hc, R)  ptySetSize(spare, R, hc)  kv = stemMakePaneView(spare, 0, 0, hw, H, hc, R) }
+  if dir == 3 { reframePane0(0, 0, W, hh, C, hr)   ptySetSize(spare, hr, C)  kv = stemMakePaneView(spare, 0, hh, W, hh, C, hr) }
+  if dir == 4 { reframePane0(0, hh, W, hh, C, hr)  ptySetSize(spare, hr, C)  kv = stemMakePaneView(spare, 0, 0, W, hh, C, hr) }
+  cocoaSetAssocKey(app, "stem.splitdirty", cocoaNumber(1))
+  cocoaSetAssocKey(app, "stem.focus", kv)
+  cocoaMakeFirstResponder(cocoaGetAssocKey(app, "stem.win"), kv)
+  emit "1"
+}
+func onSplitRight(self, cmd, sender)  { doSplit(1)  emit "1" }
+func onSplitLeft(self, cmd, sender)   { doSplit(2)  emit "1" }
+func onSplitTop(self, cmd, sender)    { doSplit(3)  emit "1" }
+func onSplitBottom(self, cmd, sender) { doSplit(4)  emit "1" }
+func focusedIdx() {
+  let f = cocoaGetAssocKey(appH(), "stem.focus")
+  if f == 0 { emit 0 }
+  let kvs = cocoaGetAssocKey(appH(), "stem.pkviews")
+  let n = cocoaArrayCount(kvs)
+  let i = 0
+  while i < n { if cocoaArrayGet(kvs, i) == f { emit i }  i = i + 1 }
+  emit 0
+}
+func onNewTab(self, cmd, sender)  { exec("open -na stem")  emit "1" }
+func onCloseAll(self, cmd, sender){ msg(appH(), "terminate:")  emit "1" }
+// close focused pane; if last pane, close the window
+func onClosePane(self, cmd, sender) {
+  let app = appH()
+  if paneCount() <= 1 { msg_1(cocoaGetAssocKey(app, "stem.win"), "performClose:", 0)  emit "1" }
+  let fi = focusedIdx()
+  let other = 1 - fi
+  let W = cocoaNumberVal(cocoaGetAssocKey(app, "stem.w"))
+  let H = cocoaNumberVal(cocoaGetAssocKey(app, "stem.h"))
+  let C = cocoaNumberVal(cocoaGetAssocKey(app, "stem.cols"))
+  let R = cocoaNumberVal(cocoaGetAssocKey(app, "stem.rows"))
+  // expand the surviving pane to full
+  msg_frame(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pscrolls"), other), "setFrame:", 0, 0, W, H)
+  msg_frame(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), other), "setFrame:", 0, 0, W, H)
+  ptySetSize(cocoaNumberVal(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pmasters"), other)), R, C)
+  // drop the closed pane's views + array entries
+  msg(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pscrolls"), fi), "removeFromSuperview")
+  msg(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), fi), "removeFromSuperview")
+  cocoaArrayRemove(cocoaGetAssocKey(app, "stem.pmasters"), fi)
+  cocoaArrayRemove(cocoaGetAssocKey(app, "stem.pscrolls"), fi)
+  cocoaArrayRemove(cocoaGetAssocKey(app, "stem.pviews"), fi)
+  cocoaArrayRemove(cocoaGetAssocKey(app, "stem.pdocs"), fi)
+  cocoaArrayRemove(cocoaGetAssocKey(app, "stem.pcols"), fi)
+  cocoaArrayRemove(cocoaGetAssocKey(app, "stem.prows"), fi)
+  cocoaArrayRemove(cocoaGetAssocKey(app, "stem.pkviews"), fi)
+  cocoaArraySet(cocoaGetAssocKey(app, "stem.pcols"), 0, cocoaNumber(C))
+  cocoaArraySet(cocoaGetAssocKey(app, "stem.prows"), 0, cocoaNumber(R))
+  cocoaSetAssocKey(app, "stem.focus", cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), 0))
+  cocoaMakeFirstResponder(cocoaGetAssocKey(app, "stem.win"), cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), 0))
+  cocoaSetAssocKey(app, "stem.splitdirty", cocoaNumber(1))
+  emit "1"
+}
+
 func defaultConfig() {
   emit "# stem config — key = value, # comments. Restart stem to apply.\nshell = /bin/zsh\nfont = JetBrainsMono Nerd Font Mono\nfont_size = 13\ncols = 92\nrows = 28\nwidth = 760\nheight = 500\ntitle = stem\n# colours as #RRGGBB\nfg = #ffffff\nbg = #000000\ncolor0 = #000000\ncolor1 = #cd3131\ncolor2 = #0dbc79\ncolor3 = #e5e510\ncolor4 = #2472c8\ncolor5 = #bc3fbc\ncolor6 = #11a8cd\ncolor7 = #e5e5e5\ncolor8 = #666666\ncolor9 = #f14c4c\ncolor10 = #23d18b\ncolor11 = #f5f567\ncolor12 = #3b8eea\ncolor13 = #d670d6\ncolor14 = #29b8db\ncolor15 = #ffffff\n"
 }
@@ -1003,20 +1133,10 @@ just run {
   let height = toInt(cfgVal(cfg, "height", "500"))
   let shell = cfgVal(cfg, "shell", "/bin/zsh")
 
-  let m = ptyMaster("/dev/ptmx")
-  let slave = ptySlaveName(m)
-  ptyForkExec(slave, shell)
-  let tries = 0
-  let szdone = 0
-  while tries < 60 {
-    if szdone == 0 {
-      if ptySetSize(m, rows, cols) == 0 { szdone = 1 }
-      else { sleepUs(0, 10000)  tries = tries + 1 }
-    } else { tries = 60 }
-  }
-  fdSetNonblock(m)
-  let setup = "export TERM=xterm-256color; export TERM_PROGRAM=stem; export TERM_PROGRAM_VERSION=0.2; export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; clear\n"
-  fdWrite(m, setup, len(setup))
+  // fork pane 0 + one spare pty BEFORE cocoaInit (fork after AppKit init
+  // leaves later-created views invisible). spare is used by the first split.
+  let m0 = stemForkPty(cols, rows, shell)
+  let spare = stemForkPty(cols, rows, shell)
 
   let app = cocoaInit()
   let bar = cocoaMenuBar(app)
@@ -1038,13 +1158,22 @@ just run {
   cocoaMenuItemSel(appMenu, "Show All", "", "unhideAllApplications:")
   cocoaMenuSeparator(appMenu)
   cocoaMenuItemSel(appMenu, "Quit stem", "q", "terminate:")
+  let fileMenu = cocoaMenuAdd(bar, "File")
+  cocoaMenuItem(fileMenu, "New Window", "n", funcptr(onStemNewWin))
+  cocoaMenuItem(fileMenu, "New Tab", "t", funcptr(onNewTab))
+  cocoaMenuSeparator(fileMenu)
+  cocoaMenuItem(fileMenu, "Split Right", "d", funcptr(onSplitRight))
+  cocoaMenuItem(fileMenu, "Split Left", "D", funcptr(onSplitLeft))
+  cocoaMenuItem(fileMenu, "Split Top", "", funcptr(onSplitTop))
+  cocoaMenuItem(fileMenu, "Split Bottom", "", funcptr(onSplitBottom))
+  cocoaMenuSeparator(fileMenu)
+  cocoaMenuItem(fileMenu, "Close", "", funcptr(onClosePane))
+  cocoaMenuItem(fileMenu, "Close Tab", "", funcptr(onClosePane))
+  cocoaMenuItemSel(fileMenu, "Close Window", "w", "performClose:")
+  cocoaMenuItem(fileMenu, "Close All Windows", "", funcptr(onCloseAll))
   let shMenu = cocoaMenuAdd(bar, "Shell")
-  cocoaMenuItem(shMenu, "New Window", "n", funcptr(onStemNewWin))
-  cocoaMenuSeparator(shMenu)
   cocoaMenuItem(shMenu, "Clear", "k", funcptr(onStemClear))
   cocoaMenuItem(shMenu, "Reset", "", funcptr(onStemReset))
-  cocoaMenuSeparator(shMenu)
-  cocoaMenuItemSel(shMenu, "Close Window", "w", "performClose:")
   let edMenu = cocoaMenuAdd(bar, "Edit")
   cocoaMenuItem(edMenu, "Copy", "c", funcptr(onStemCopy))
   cocoaMenuItem(edMenu, "Paste", "v", funcptr(onStemPaste))
@@ -1088,53 +1217,87 @@ just run {
   cocoaSetAssocKey(app, "stem.pal", pal)
 
   let win = cocoaWindow(app, cfgVal(cfg, "title", "stem"), width, height)
-  let view = cocoaScrollText(win, 0, 0, width, height)
-  msg_1(view, "setEditable:", 0)
-  msg_1(view, "setSelectable:", 0)
-  let mono = cocoaFontFamily(cocoaMonoFont(toInt(cfgVal(cfg, "font_size", "13"))), cfgVal(cfg, "font", "JetBrainsMono Nerd Font Mono"))
-  cocoaSetFont(view, mono)
   cocoaSetAssocKey(app, "stem.win", win)
-  cocoaSetAssocKey(app, "stem.view", view)
+  let mono = cocoaFontFamily(cocoaMonoFont(toInt(cfgVal(cfg, "font_size", "13"))), cfgVal(cfg, "font", "JetBrainsMono Nerd Font Mono"))
+  let fg = cfgRGB(cfg, "fg", 255, 255, 255)
+  let bg = cfgRGB(cfg, "bg", 0, 0, 0)
   cocoaSetAssocKey(app, "stem.mono", mono)
   cocoaSetAssocKey(app, "stem.fontsize", cocoaNumber(toInt(cfgVal(cfg, "font_size", "13"))))
   cocoaSetAssocKey(app, "stem.fontfam", nsString(cfgVal(cfg, "font", "JetBrainsMono Nerd Font Mono")))
-  let fg = cfgRGB(cfg, "fg", 255, 255, 255)
-  let bg = cfgRGB(cfg, "bg", 0, 0, 0)
-  cocoaSetBg(view, bg)
-  cocoaSetTextColor(view, fg)
+  cocoaSetAssocKey(app, "stem.fgc", fg)
+  cocoaSetAssocKey(app, "stem.bgc", bg)
+  cocoaSetAssocKey(app, "stem.w", cocoaNumber(width))
+  cocoaSetAssocKey(app, "stem.h", cocoaNumber(height))
+  cocoaSetAssocKey(app, "stem.cols", cocoaNumber(cols))
+  cocoaSetAssocKey(app, "stem.rows", cocoaNumber(rows))
+  cocoaSetAssocKey(app, "stem.spare", cocoaNumber(spare))
   msg_1(win, "setBackgroundColor:", bg)
   msg_1(win, "setTitlebarAppearsTransparent:", 1)
   msg_1(win, "setAppearance:", msg_1(cls("NSAppearance"), "appearanceNamed:", nsString("NSAppearanceNameDarkAqua")))
-
-  let kc = cocoaViewClassNew("StemKeys")
-  cocoaClassAddMethod(kc, "keyDown:", funcptr(onKey), "v@:@")
-  cocoaClassAddMethod(kc, "acceptsFirstResponder", funcptr(acceptsFR), "c@:")
-  cocoaClassRegister(kc)
-  let kview = cocoaCustomView(win, kc, 0, 0, width, height)
-
-  cocoaSetAssocKey(app, "stem.master", cocoaNumber(m))
+  cocoaSetAssocKey(app, "stem.pmasters", cocoaArray())
+  cocoaSetAssocKey(app, "stem.pscrolls", cocoaArray())
+  cocoaSetAssocKey(app, "stem.pviews", cocoaArray())
+  cocoaSetAssocKey(app, "stem.pdocs", cocoaArray())
+  cocoaSetAssocKey(app, "stem.pcols", cocoaArray())
+  cocoaSetAssocKey(app, "stem.prows", cocoaArray())
+  cocoaSetAssocKey(app, "stem.pkviews", cocoaArray())
+  let kview = stemMakePaneView(m0, 0, 0, width, height, cols, rows)
+  cocoaSetAssocKey(app, "stem.master", cocoaNumber(m0))
+  cocoaSetAssocKey(app, "stem.focus", kview)
   cocoaShow(win, app)
   cocoaMakeFirstResponder(win, kview)
   cocoaFinishLaunching(app)
 
-  let ts = msg(view, "textStorage")
-  let st = gridNew(cols, rows)
-  let pending = ""
+  // manual loop: up to 2 panes; grid state kept in locals (packed != UTF-8)
+  let st0 = gridNew(cols, rows)
+  let pend0 = ""
+  let st1 = ""
+  let pend1 = ""
+  let p1init = 0
   let i = 0
   while i < 2000000000 {
     cocoaPumpEvents(app)
-    let chunk = fdRead(m, 4096)
-    if len(chunk) > 0 {
-      let buf = pending + chunk
+    let masters = cocoaGetAssocKey(app, "stem.pmasters")
+    let pviews = cocoaGetAssocKey(app, "stem.pviews")
+    let pdocs = cocoaGetAssocKey(app, "stem.pdocs")
+    let pcolsA = cocoaGetAssocKey(app, "stem.pcols")
+    let prowsA = cocoaGetAssocKey(app, "stem.prows")
+    let pc = cocoaArrayCount(masters)
+    if brainFlagS("stem.splitdirty", 0) == 1 {
+      cocoaSetAssocKey(app, "stem.splitdirty", cocoaNumber(0))
+      st0 = gridNew(cocoaNumberVal(cocoaArrayGet(pcolsA, 0)), cocoaNumberVal(cocoaArrayGet(prowsA, 0)))  pend0 = ""
+      p1init = 0
+    }
+    let c0 = cocoaNumberVal(cocoaArrayGet(pcolsA, 0))
+    let r0 = cocoaNumberVal(cocoaArrayGet(prowsA, 0))
+    let chunk0 = fdRead(cocoaNumberVal(cocoaArrayGet(masters, 0)), 4096)
+    if len(chunk0) > 0 {
+      let buf = pend0 + chunk0
       let safe = gridSafeLen(buf)
-      pending = substring(buf, safe, len(buf))
-      st = gridFeed(st, substring(buf, 0, safe), cols, rows)
-      let curp = gridCursor(st, cols, rows)
+      pend0 = substring(buf, safe, len(buf))
+      st0 = gridFeed(st0, substring(buf, 0, safe), c0, r0)
+      let curp = gridCursor(st0, c0, r0)
       let ci2 = indexOf(curp, ",")
-      let rendered = gridRender(st, cols, rows)
+      let rendered = gridRender(st0, c0, r0)
       cocoaSetAssocKey(app, "stem.lastrender", nsString(rendered))
-      msg_1(ts, "setAttributedString:", renderSnapshot(rendered, fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(curp, 0, ci2)), toInt(substring(curp, ci2 + 1, len(curp)))))
-      msg_1(view, "scrollToEndOfDocument:", 0)
+      msg_1(cocoaArrayGet(pviews, 0), "setAttributedString:", renderSnapshot(rendered, fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(curp, 0, ci2)), toInt(substring(curp, ci2 + 1, len(curp)))))
+      msg_1(cocoaArrayGet(pdocs, 0), "scrollToEndOfDocument:", 0)
+    }
+    if pc >= 2 {
+      let c1 = cocoaNumberVal(cocoaArrayGet(pcolsA, 1))
+      let r1 = cocoaNumberVal(cocoaArrayGet(prowsA, 1))
+      if p1init == 0 { st1 = gridNew(c1, r1)  pend1 = ""  p1init = 1 }
+      let chunk1 = fdRead(cocoaNumberVal(cocoaArrayGet(masters, 1)), 4096)
+      if len(chunk1) > 0 {
+        let buf1 = pend1 + chunk1
+        let safe1 = gridSafeLen(buf1)
+        pend1 = substring(buf1, safe1, len(buf1))
+        st1 = gridFeed(st1, substring(buf1, 0, safe1), c1, r1)
+        let curp1 = gridCursor(st1, c1, r1)
+        let cj = indexOf(curp1, ",")
+        msg_1(cocoaArrayGet(pviews, 1), "setAttributedString:", renderSnapshot(gridRender(st1, c1, r1), fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(curp1, 0, cj)), toInt(substring(curp1, cj + 1, len(curp1)))))
+        msg_1(cocoaArrayGet(pdocs, 1), "scrollToEndOfDocument:", 0)
+      }
     }
     sleepUs(0, 8000)
     i = i + 1
