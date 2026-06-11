@@ -3531,6 +3531,9 @@ func opByteSize(op) {
     if op == "BUILTIN_SOCKCONNECT" { emit 77 } // connect(fd,&sa,16)=42; sockaddr_in with IP a.b.c.d on stack
     if op == "BUILTIN_SOCKRECVSTR" { emit 57 } // kr_alloc 64K, recvfrom, NUL-term, return buf
     if op == "BUILTIN_UNIXCONNECT" { emit 90 } // socket(AF_UNIX,STREAM,0)+connect(&sockaddr_un{path}); for X11/Wayland
+    if op == "BUILTIN_MEMFDCREATE" { emit 35 } // memfd_create("",0)=319 + ftruncate(fd,size)=77; returns fd
+    if op == "BUILTIN_MMAPSHARED"  { emit 27 } // mmap(0,size,RW,MAP_SHARED,fd,0)=9; returns addr (usable as buf)
+    if op == "BUILTIN_SOCKSENDFD"  { emit 120 } // sendmsg(sock,&msg,0)=46 w/ SCM_RIGHTS fd + iov{buf,len}; returns nbytes
     // Byte-buffer builtins (Phase C parity from x64.k, but inline/C-free) — for binary
     // wire protocols (X11) that NUL-laden Krypton C-strings can't hold. buf ptr is a
     // kr_alloc'd heap pointer; offsets index it directly. (kr_bufgetdwordat result may
@@ -3952,6 +3955,12 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_SOCKRECVSTR")
                 } else if bname == "unixConnect" {
                     opSb = sbAppend(opSb, "BUILTIN_UNIXCONNECT")
+                } else if bname == "memfdCreate" {
+                    opSb = sbAppend(opSb, "BUILTIN_MEMFDCREATE")
+                } else if bname == "mmapShared" {
+                    opSb = sbAppend(opSb, "BUILTIN_MMAPSHARED")
+                } else if bname == "sockSendFd" {
+                    opSb = sbAppend(opSb, "BUILTIN_SOCKSENDFD")
                 } else if bname == "bufNew" {
                     opSb = sbAppend(opSb, "BUILTIN_BUFNEW")
                 } else if bname == "bufSetByte" {
@@ -5765,6 +5774,72 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             c = sbAppend(c, hexByte(0xFF) + hexByte(0xD0))                                 // CALL RAX
             c = sbAppend(c, hexByte(0x48) + hexByte(0x81) + hexByte(0xC4) + hexDword(cargc * 8)) // ADD RSP, cargc*8
             c = sbAppend(c, hexByte(0x50))                                                 // PUSH RAX
+        } else if op == "BUILTIN_MEMFDCREATE" {
+            // memfdCreate(size) -> fd = memfd_create("",0); ftruncate(fd,size); return fd.
+            // TOS = size. 35 bytes — MUST equal opSize BUILTIN_MEMFDCREATE. rbx scratch.
+            c = sbAppend(c, hexByte(0x5B))                                  // pop rbx (size)
+            c = sbAppend(c, hexByte(0x6A) + hexByte(0x00))                  // push 0 (empty name "\0" @ rsp)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xE7))  // mov rdi,rsp (name="")
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xF6))                  // xor esi,esi (flags=0)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(319))                  // mov eax,319 (memfd_create)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                  // syscall -> rax=fd
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xC4) + hexByte(0x08)) // add rsp,8 (pop name)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xC7))  // mov rdi,rax (fd)
+            c = sbAppend(c, hexByte(0x50))                                  // push rax (save fd)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0xDE))  // mov rsi,rbx (length)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(77))                   // mov eax,77 (ftruncate)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                  // syscall
+            c = sbAppend(c, hexByte(0x58))                                  // pop rax (restore fd)
+            c = sbAppend(c, hexByte(0x50))                                  // push rax (return fd)
+        } else if op == "BUILTIN_MMAPSHARED" {
+            // mmapShared(fd, size) -> mmap(0,size,PROT_RW=3,MAP_SHARED=1,fd,0)=9.
+            // Returns the mapping address (usable directly as a Krypton buf pointer).
+            // TOS=size, next=fd. 27 bytes — MUST equal opSize BUILTIN_MMAPSHARED.
+            c = sbAppend(c, hexByte(0x5E))                                  // pop rsi (size=length, arg2)
+            c = sbAppend(c, hexByte(0x41) + hexByte(0x58))                  // pop r8 (fd, arg5)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xFF))                  // xor edi,edi (addr=0, arg1)
+            c = sbAppend(c, hexByte(0xBA) + hexDword(3))                    // mov edx,3 (PROT_READ|WRITE, arg3)
+            c = sbAppend(c, hexByte(0x41) + hexByte(0xBA) + hexDword(1))    // mov r10d,1 (MAP_SHARED, arg4)
+            c = sbAppend(c, hexByte(0x45) + hexByte(0x31) + hexByte(0xC9))  // xor r9d,r9d (offset=0, arg6)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(9))                    // mov eax,9 (mmap)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                  // syscall -> rax=addr
+            c = sbAppend(c, hexByte(0x50))                                  // push rax (addr)
+        } else if op == "BUILTIN_SOCKSENDFD" {
+            // sockSendFd(sock, buf, len, passfd) -> sendmsg(sock,&msg,0)=46,
+            // passing one fd via SCM_RIGHTS ancillary + buf[0..len] as the iov.
+            // TOS=passfd, then len, buf, sock. Builds on a 96-byte stack frame:
+            //   iovec   @ rsp+0  : base(8)=buf, len(8)
+            //   control @ rsp+16 : cmsg_len(8)=20, level(4)=SOL_SOCKET, type(4)=SCM_RIGHTS, fd(4)
+            //   msghdr  @ rsp+40 : name=0, namelen=0, iov=&iovec, iovlen=1,
+            //                      control=&control, controllen=20, flags=0
+            // 120 bytes — MUST equal opSize BUILTIN_SOCKSENDFD. r9/r10 scratch.
+            c = sbAppend(c, hexByte(0x58))                                  // pop rax (passfd)
+            c = sbAppend(c, hexByte(0x5A))                                  // pop rdx (len)
+            c = sbAppend(c, hexByte(0x5E))                                  // pop rsi (buf)
+            c = sbAppend(c, hexByte(0x5F))                                  // pop rdi (sock)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xEC) + hexByte(0x60)) // sub rsp,96
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x34) + hexByte(0x24)) // mov [rsp+0],rsi (iov_base=buf)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x89) + hexByte(0x54) + hexByte(0x24) + hexByte(0x08)) // mov [rsp+8],rdx (iov_len)
+            c = sbAppend(c, hexByte(0x89) + hexByte(0x44) + hexByte(0x24) + hexByte(0x20)) // mov [rsp+32],eax (fd)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0xC7) + hexByte(0x44) + hexByte(0x24) + hexByte(0x10) + hexDword(20)) // mov qword [rsp+16],20 (cmsg_len)
+            c = sbAppend(c, hexByte(0xC7) + hexByte(0x44) + hexByte(0x24) + hexByte(0x18) + hexDword(1)) // mov dword [rsp+24],1 (SOL_SOCKET)
+            c = sbAppend(c, hexByte(0xC7) + hexByte(0x44) + hexByte(0x24) + hexByte(0x1C) + hexDword(1)) // mov dword [rsp+28],1 (SCM_RIGHTS)
+            c = sbAppend(c, hexByte(0x45) + hexByte(0x31) + hexByte(0xC9)) // xor r9d,r9d (zero)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0x4C) + hexByte(0x24) + hexByte(0x28)) // mov [rsp+40],r9 (msg_name=0)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0x4C) + hexByte(0x24) + hexByte(0x30)) // mov [rsp+48],r9 (msg_namelen=0+pad)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x8D) + hexByte(0x14) + hexByte(0x24)) // lea r10,[rsp+0] (&iovec)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0x54) + hexByte(0x24) + hexByte(0x38)) // mov [rsp+56],r10 (msg_iov)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0xC7) + hexByte(0x44) + hexByte(0x24) + hexByte(0x40) + hexDword(1)) // mov qword [rsp+64],1 (msg_iovlen)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x8D) + hexByte(0x54) + hexByte(0x24) + hexByte(0x10)) // lea r10,[rsp+16] (&control)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0x54) + hexByte(0x24) + hexByte(0x48)) // mov [rsp+72],r10 (msg_control)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0xC7) + hexByte(0x44) + hexByte(0x24) + hexByte(0x50) + hexDword(20)) // mov qword [rsp+80],20 (msg_controllen)
+            c = sbAppend(c, hexByte(0x4C) + hexByte(0x89) + hexByte(0x4C) + hexByte(0x24) + hexByte(0x58)) // mov [rsp+88],r9 (msg_flags=0+pad)
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x8D) + hexByte(0x74) + hexByte(0x24) + hexByte(0x28)) // lea rsi,[rsp+40] (&msghdr)
+            c = sbAppend(c, hexByte(0x31) + hexByte(0xD2))                  // xor edx,edx (flags=0)
+            c = sbAppend(c, hexByte(0xB8) + hexDword(46))                   // mov eax,46 (sendmsg)
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x05))                  // syscall -> rax=nbytes
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x83) + hexByte(0xC4) + hexByte(0x60)) // add rsp,96
+            c = sbAppend(c, hexByte(0x50))                                  // push rax (nbytes)
         } else if op == "POP" {
             c = sbAppend(c, hexByte(0x5F))
         } else if op == "END_FUNC" {
