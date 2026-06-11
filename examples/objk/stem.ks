@@ -1020,7 +1020,7 @@ func stemMakePaneView(m, x, y, w, h, pcols, prows) {
   msg_1(view, "setEditable:", 0)
   msg_1(view, "setSelectable:", 0)
   cocoaSetFont(view, cocoaGetAssocKey(app, "stem.mono"))
-  msg_d2(view, "setTextContainerInset:", 4, 18)
+  msg_d2(view, "setTextContainerInset:", 4, 14)
   cocoaSetBg(view, cocoaGetAssocKey(app, "stem.bgc"))
   cocoaSetTextColor(view, cocoaGetAssocKey(app, "stem.fgc"))
   let kview = cocoaCustomView(win, stemKeyClass(), x, y, w, h)
@@ -1368,10 +1368,10 @@ just run {
   // fork ALL 4 pane shells BEFORE cocoaInit + render them warm from frame 0
   // (only the original, warm, pre-init pane reflows correctly on resize). Split
   // just reveals + sizes a pre-warmed pane.
-  let m0 = stemForkPty(cols, rows - 2, shell)
-  let m1 = stemForkPty(cols, rows - 2, shell)
-  let m2 = stemForkPty(cols, rows - 2, shell)
-  let m3 = stemForkPty(cols, rows - 2, shell)
+  let m0 = stemForkPty(cols, rows, shell)
+  let m1 = stemForkPty(cols, rows, shell)
+  let m2 = stemForkPty(cols, rows, shell)
+  let m3 = stemForkPty(cols, rows, shell)
 
   let app = cocoaInit()
   let bar = cocoaMenuBar(app)
@@ -1480,10 +1480,10 @@ just run {
   // 4 warm single-terminal panes = up to 4 tabs; each fills the area below the
   // 30px tab bar. Only the active tab's pane is shown.
   let paneH = height - 30
-  let kview = stemMakePaneView(m0, 0, 0, width, paneH, cols, rows - 2)
-  let kv1 = stemMakePaneView(m1, 0, 0, width, paneH, cols, rows - 2)
-  let kv2 = stemMakePaneView(m2, 0, 0, width, paneH, cols, rows - 2)
-  let kv3 = stemMakePaneView(m3, 0, 0, width, paneH, cols, rows - 2)
+  let kview = stemMakePaneView(m0, 0, 0, width, paneH, cols, rows)
+  let kv1 = stemMakePaneView(m1, 0, 0, width, paneH, cols, rows)
+  let kv2 = stemMakePaneView(m2, 0, 0, width, paneH, cols, rows)
+  let kv3 = stemMakePaneView(m3, 0, 0, width, paneH, cols, rows)
   cocoaSetAssocKey(app, "stem.master", cocoaNumber(m0))
   let tabpanes = cocoaArray()
   cocoaArrayAdd(tabpanes, cocoaNumber(0))
@@ -1532,7 +1532,6 @@ just run {
         let curp = gridCursor(st, c, r)
         let ci2 = indexOf(curp, ",")
         msg_1(cocoaArrayGet(pviews, p), "setAttributedString:", renderSnapshot(gridRender(st, c, r), fg, mono, toInt(substring(curp, 0, ci2)), toInt(substring(curp, ci2 + 1, len(curp)))))
-        msg_1(cocoaArrayGet(pdocs, p), "scrollToEndOfDocument:", 0)
       }
       p = p + 1
     }
