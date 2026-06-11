@@ -1128,6 +1128,10 @@ func retile(axis) {
     msg_1(cocoaArrayGet(kviews, i), "setHidden:", hid)
     i = i + 1
   }
+  // repaint each visible pane's prompt at its new size (the grid was rebuilt)
+  let masters = cocoaGetAssocKey(app, "stem.pmasters")
+  let k = 0
+  while k < ln { fdWrite(cocoaNumberVal(cocoaArrayGet(masters, cocoaNumberVal(cocoaArrayGet(leaves, k)))), fromCharCode(12), 1)  k = k + 1 }
   cocoaSetAssocKey(app, "stem.splitdirty", cocoaNumber(1))
   emit "1"
 }
