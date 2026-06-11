@@ -1088,23 +1088,52 @@ func stemTabClass() {
   }
   emit c
 }
-func onTabClick(self, cmd, event) { switchTab(cocoaNumberVal(cocoaGetAssocKey(self, "tabidx")))  emit "1" }
-func switchTab(n) {
+func onTabClick(self, cmd, event)  { switchTab(cocoaNumberVal(cocoaGetAssocKey(self, "tabidx")))  emit "1" }
+func onTabCloseBtn(self, cmd, sender) { closeTab(cocoaNumberVal(cocoaGetAssocKey(self, "tabidx")))  emit "1" }
+func tabPanes() { emit cocoaGetAssocKey(appH(), "stem.tabpanes") }
+func paneFree() {
+  let tp = tabPanes()
+  let n = cocoaArrayCount(tp)
+  let i = 0
+  while i < 4 {
+    let used = 0
+    let j = 0
+    while j < n { if cocoaNumberVal(cocoaArrayGet(tp, j)) == i { used = 1 }  j = j + 1 }
+    if used == 0 { emit i }
+    i = i + 1
+  }
+  emit 0 - 1
+}
+func switchTab(pos) {
   let app = appH()
-  cocoaSetAssocKey(app, "stem.curtab", cocoaNumber(n))
-  cocoaSetAssocKey(app, "stem.focusidx", cocoaNumber(n))
+  let tp = tabPanes()
+  if pos < 0 { emit "1" }
+  if pos >= cocoaArrayCount(tp) { emit "1" }
+  let pane = cocoaNumberVal(cocoaArrayGet(tp, pos))
+  cocoaSetAssocKey(app, "stem.curtab", cocoaNumber(pos))
+  cocoaSetAssocKey(app, "stem.focusidx", cocoaNumber(pane))
   let scrolls = cocoaGetAssocKey(app, "stem.pscrolls")
   let kviews = cocoaGetAssocKey(app, "stem.pkviews")
   let i = 0
   while i < 4 {
     let hid = 1
-    if i == n { hid = 0 }
+    if i == pane { hid = 0 }
     msg_1(cocoaArrayGet(scrolls, i), "setHidden:", hid)
     msg_1(cocoaArrayGet(kviews, i), "setHidden:", hid)
     i = i + 1
   }
   rebuildTabBar()
-  cocoaMakeFirstResponder(cocoaGetAssocKey(app, "stem.win"), cocoaArrayGet(kviews, n))
+  cocoaMakeFirstResponder(cocoaGetAssocKey(app, "stem.win"), cocoaArrayGet(kviews, pane))
+  emit "1"
+}
+func closeTab(pos) {
+  let app = appH()
+  let tp = tabPanes()
+  if cocoaArrayCount(tp) <= 1 { msg_1(cocoaGetAssocKey(app, "stem.win"), "performClose:", 0)  emit "1" }
+  cocoaArrayRemove(tp, pos)
+  let np = pos
+  if np >= cocoaArrayCount(tp) { np = cocoaArrayCount(tp) - 1 }
+  switchTab(np)
   emit "1"
 }
 func rebuildTabBar() {
@@ -1113,7 +1142,8 @@ func rebuildTabBar() {
   let H = cocoaNumberVal(cocoaGetAssocKey(app, "stem.h"))
   let barH = 30
   let cur = cocoaNumberVal(cocoaGetAssocKey(app, "stem.curtab"))
-  let tc = cocoaNumberVal(cocoaGetAssocKey(app, "stem.tabcount"))
+  let tp = tabPanes()
+  let tc = cocoaArrayCount(tp)
   let old = cocoaGetAssocKey(app, "stem.tabbtns")
   let oc = cocoaArrayCount(old)
   let oi = 0
@@ -1137,6 +1167,17 @@ func rebuildTabBar() {
     if i == cur { col = active }
     msg_1(lay, "setBackgroundColor:", msg(col, "CGColor"))
     cocoaArrayAdd(btns, b)
+    // circular ✕ close button at the tab's right edge
+    let xb = cocoaButton(win, "✕", x + tw - 22, H - barH + 9, 16, 16)
+    msg_1(xb, "setBordered:", 0)
+    cocoaSetFont(xb, cocoaMonoFont(9))
+    msg_1(xb, "setWantsLayer:", 1)
+    let xlay = msg(xb, "layer")
+    msg_d1(xlay, "setCornerRadius:", 8)
+    msg_1(xlay, "setBackgroundColor:", msg(cocoaColorNamed("grayColor"), "CGColor"))
+    cocoaSetAssocKey(xb, "tabidx", cocoaNumber(i))
+    cocoaOnClickKeyed(xb, "stemtabclose", funcptr(onTabCloseBtn))
+    cocoaArrayAdd(btns, xb)
     x = x + tw + gap
     i = i + 1
   }
@@ -1291,23 +1332,15 @@ func onMouse(self, cmd, event) {
   emit "1"
 }
 func onNewTab(self, cmd, sender) {
-  let app = appH()
-  let tc = cocoaNumberVal(cocoaGetAssocKey(app, "stem.tabcount"))
-  if tc >= 4 { emit "1" }
-  cocoaSetAssocKey(app, "stem.tabcount", cocoaNumber(tc + 1))
-  switchTab(tc)
+  let free = paneFree()
+  if free < 0 { emit "1" }
+  cocoaArrayAdd(tabPanes(), cocoaNumber(free))
+  switchTab(cocoaArrayCount(tabPanes()) - 1)
   emit "1"
 }
 func onCloseAll(self, cmd, sender){ msg(appH(), "terminate:")  emit "1" }
 // close focused pane; if last pane, close the window
-func onClosePane(self, cmd, sender) {
-  let app = appH()
-  let tc = cocoaNumberVal(cocoaGetAssocKey(app, "stem.tabcount"))
-  if tc <= 1 { msg_1(cocoaGetAssocKey(app, "stem.win"), "performClose:", 0)  emit "1" }
-  cocoaSetAssocKey(app, "stem.tabcount", cocoaNumber(tc - 1))
-  switchTab(0)
-  emit "1"
-}
+func onClosePane(self, cmd, sender) { closeTab(cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.curtab")))  emit "1" }
 
 func defaultConfig() {
   emit "# stem config — key = value, # comments. Restart stem to apply.\nshell = /bin/zsh\nfont = JetBrainsMono Nerd Font Mono\nfont_size = 13\ncols = 92\nrows = 28\nwidth = 760\nheight = 500\ntitle = stem\n# colours as #RRGGBB\nfg = #ffffff\nbg = #000000\ncolor0 = #000000\ncolor1 = #cd3131\ncolor2 = #0dbc79\ncolor3 = #e5e510\ncolor4 = #2472c8\ncolor5 = #bc3fbc\ncolor6 = #11a8cd\ncolor7 = #e5e5e5\ncolor8 = #666666\ncolor9 = #f14c4c\ncolor10 = #23d18b\ncolor11 = #f5f567\ncolor12 = #3b8eea\ncolor13 = #d670d6\ncolor14 = #29b8db\ncolor15 = #ffffff\n"
@@ -1449,7 +1482,9 @@ just run {
   let kv2 = stemMakePaneView(m2, 0, 0, width, paneH, cols, rows)
   let kv3 = stemMakePaneView(m3, 0, 0, width, paneH, cols, rows)
   cocoaSetAssocKey(app, "stem.master", cocoaNumber(m0))
-  cocoaSetAssocKey(app, "stem.tabcount", cocoaNumber(1))
+  let tabpanes = cocoaArray()
+  cocoaArrayAdd(tabpanes, cocoaNumber(0))
+  cocoaSetAssocKey(app, "stem.tabpanes", tabpanes)
   cocoaSetAssocKey(app, "stem.curtab", cocoaNumber(0))
   cocoaSetAssocKey(app, "stem.tabbtns", cocoaArray())
   switchTab(0)
