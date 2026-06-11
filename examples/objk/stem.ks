@@ -1020,6 +1020,7 @@ func stemMakePaneView(m, x, y, w, h, pcols, prows) {
   msg_1(view, "setEditable:", 0)
   msg_1(view, "setSelectable:", 0)
   cocoaSetFont(view, cocoaGetAssocKey(app, "stem.mono"))
+  msg_d2(view, "setTextContainerInset:", 4, 7)
   cocoaSetBg(view, cocoaGetAssocKey(app, "stem.bgc"))
   cocoaSetTextColor(view, cocoaGetAssocKey(app, "stem.fgc"))
   let kview = cocoaCustomView(win, stemKeyClass(), x, y, w, h)
@@ -1476,7 +1477,7 @@ just run {
   cocoaSetAssocKey(app, "stem.pending", cocoaArray())
   // 4 warm single-terminal panes = up to 4 tabs; each fills the area below the
   // 30px tab bar. Only the active tab's pane is shown.
-  let paneH = height - 38
+  let paneH = height - 30
   let kview = stemMakePaneView(m0, 0, 0, width, paneH, cols, rows)
   let kv1 = stemMakePaneView(m1, 0, 0, width, paneH, cols, rows)
   let kv2 = stemMakePaneView(m2, 0, 0, width, paneH, cols, rows)
