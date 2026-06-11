@@ -1032,6 +1032,8 @@ func stemMakePaneView(m, x, y, w, h, pcols, prows) {
   cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pcols"), cocoaNumber(pcols))
   cocoaArrayAdd(cocoaGetAssocKey(app, "stem.prows"), cocoaNumber(prows))
   cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pkviews"), kview)
+  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.states"), nsString(hexEnc(gridNew(pcols, prows))))
+  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pending"), nsString(""))
   emit kview
 }
 func paneCount() { emit cocoaArrayCount(treeLeaves()) }
@@ -1053,6 +1055,40 @@ func setPane(idx, x, y, w, h) {
   cocoaArraySet(cocoaGetAssocKey(app, "stem.prows"), idx, cocoaNumber(prows))
   emit "1"
 }
+// ── hex codec (pack non-UTF-8 grid state into an NSArray-storable string) ──
+func hexEnc(s) {
+  let hexd = "0123456789abcdef"
+  let out = sbNew()
+  let n = len(s)
+  let i = 0
+  while i < n {
+    let c = charCode(substring(s, i, i + 1))
+    let hi = c / 16
+    let lo = c - hi * 16
+    out = sbAppend(out, substring(hexd, hi, hi + 1))
+    out = sbAppend(out, substring(hexd, lo, lo + 1))
+    i = i + 1
+  }
+  emit sbToString(out)
+}
+func hexNibV(ch) {
+  let c = charCode(ch)
+  if c >= 48 { if c <= 57 { emit c - 48 } }
+  if c >= 97 { if c <= 102 { emit c - 97 + 10 } }
+  emit 0
+}
+func hexDec(s) {
+  let out = sbNew()
+  let n = len(s)
+  let i = 0
+  while i + 1 < n {
+    let v = hexNibV(substring(s, i, i + 1)) * 16 + hexNibV(substring(s, i + 1, i + 2))
+    out = sbAppend(out, fromCharCode(v))
+    i = i + 2
+  }
+  emit sbToString(out)
+}
+
 // ── split tree ──────────────────────────────────────────────────────────
 // node = NSArray. leaf: [0, paneIdx]. split: [1, axis, childA, childB]
 // (axis 1 = side-by-side columns, 2 = stacked rows; A = left/top, B = right/bottom)
@@ -1313,6 +1349,8 @@ just run {
   cocoaSetAssocKey(app, "stem.pcols", cocoaArray())
   cocoaSetAssocKey(app, "stem.prows", cocoaArray())
   cocoaSetAssocKey(app, "stem.pkviews", cocoaArray())
+  cocoaSetAssocKey(app, "stem.states", cocoaArray())
+  cocoaSetAssocKey(app, "stem.pending", cocoaArray())
   // all 4 panes created + warm; only pane 0 shown until split
   let kview = stemMakePaneView(m0, 0, 0, width, height, cols, rows)
   let kv1 = stemMakePaneView(m1, 0, 0, width, height, cols, rows)
@@ -1333,17 +1371,7 @@ just run {
   cocoaFinishLaunching(app)
 
   // manual loop: up to 2 panes; grid state kept in locals (packed != UTF-8)
-  let st0 = gridNew(cols, rows)
-  let pend0 = ""
-  let st1 = ""
-  let pend1 = ""
-  let st2 = ""
-  let pend2 = ""
-  let st3 = ""
-  let pend3 = ""
-  let p1init = 0
-  let p2init = 0
-  let p3init = 0
+  let mono = cocoaGetAssocKey(app, "stem.mono")
   let i = 0
   while i < 2000000000 {
     cocoaPumpEvents(app)
@@ -1352,74 +1380,36 @@ just run {
     let pdocs = cocoaGetAssocKey(app, "stem.pdocs")
     let pcolsA = cocoaGetAssocKey(app, "stem.pcols")
     let prowsA = cocoaGetAssocKey(app, "stem.prows")
+    let statesA = cocoaGetAssocKey(app, "stem.states")
+    let pendingA = cocoaGetAssocKey(app, "stem.pending")
     let pc = cocoaArrayCount(masters)
     if brainFlagS("stem.splitdirty", 0) == 1 {
       cocoaSetAssocKey(app, "stem.splitdirty", cocoaNumber(0))
-      st0 = gridNew(cocoaNumberVal(cocoaArrayGet(pcolsA, 0)), cocoaNumberVal(cocoaArrayGet(prowsA, 0)))  pend0 = ""
-      p1init = 0  p2init = 0  p3init = 0
-    }
-    let c0 = cocoaNumberVal(cocoaArrayGet(pcolsA, 0))
-    let r0 = cocoaNumberVal(cocoaArrayGet(prowsA, 0))
-    let chunk0 = fdRead(cocoaNumberVal(cocoaArrayGet(masters, 0)), 4096)
-    if len(chunk0) > 0 {
-      let buf = pend0 + chunk0
-      let safe = gridSafeLen(buf)
-      pend0 = substring(buf, safe, len(buf))
-      st0 = gridFeed(st0, substring(buf, 0, safe), c0, r0)
-      let curp = gridCursor(st0, c0, r0)
-      let ci2 = indexOf(curp, ",")
-      let rendered = gridRender(st0, c0, r0)
-      cocoaSetAssocKey(app, "stem.lastrender", nsString(rendered))
-      msg_1(cocoaArrayGet(pviews, 0), "setAttributedString:", renderSnapshot(rendered, fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(curp, 0, ci2)), toInt(substring(curp, ci2 + 1, len(curp)))))
-      msg_1(cocoaArrayGet(pdocs, 0), "scrollToEndOfDocument:", 0)
-    }
-    if pc >= 2 {
-      let c1 = cocoaNumberVal(cocoaArrayGet(pcolsA, 1))
-      let r1 = cocoaNumberVal(cocoaArrayGet(prowsA, 1))
-      if p1init == 0 { st1 = gridNew(c1, r1)  pend1 = ""  p1init = 1 }
-      let chunk1 = fdRead(cocoaNumberVal(cocoaArrayGet(masters, 1)), 4096)
-      if len(chunk1) > 0 {
-        let buf1 = pend1 + chunk1
-        let safe1 = gridSafeLen(buf1)
-        pend1 = substring(buf1, safe1, len(buf1))
-        st1 = gridFeed(st1, substring(buf1, 0, safe1), c1, r1)
-        let curp1 = gridCursor(st1, c1, r1)
-        let cj = indexOf(curp1, ",")
-        msg_1(cocoaArrayGet(pviews, 1), "setAttributedString:", renderSnapshot(gridRender(st1, c1, r1), fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(curp1, 0, cj)), toInt(substring(curp1, cj + 1, len(curp1)))))
-        msg_1(cocoaArrayGet(pdocs, 1), "scrollToEndOfDocument:", 0)
+      // rebuild every pane's grid at its (new) size
+      let q = 0
+      while q < pc {
+        cocoaArraySet(statesA, q, nsString(hexEnc(gridNew(cocoaNumberVal(cocoaArrayGet(pcolsA, q)), cocoaNumberVal(cocoaArrayGet(prowsA, q))))))
+        cocoaArraySet(pendingA, q, nsString(""))
+        q = q + 1
       }
     }
-    if pc >= 3 {
-      let c2 = cocoaNumberVal(cocoaArrayGet(pcolsA, 2))
-      let r2 = cocoaNumberVal(cocoaArrayGet(prowsA, 2))
-      if p2init == 0 { st2 = gridNew(c2, r2)  pend2 = ""  p2init = 1 }
-      let chunk2 = fdRead(cocoaNumberVal(cocoaArrayGet(masters, 2)), 4096)
-      if len(chunk2) > 0 {
-        let buf2 = pend2 + chunk2
-        let safe2 = gridSafeLen(buf2)
-        pend2 = substring(buf2, safe2, len(buf2))
-        st2 = gridFeed(st2, substring(buf2, 0, safe2), c2, r2)
-        let curp2 = gridCursor(st2, c2, r2)
-        let ck = indexOf(curp2, ",")
-        msg_1(cocoaArrayGet(pviews, 2), "setAttributedString:", renderSnapshot(gridRender(st2, c2, r2), fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(curp2, 0, ck)), toInt(substring(curp2, ck + 1, len(curp2)))))
-        msg_1(cocoaArrayGet(pdocs, 2), "scrollToEndOfDocument:", 0)
+    let p = 0
+    while p < pc {
+      let chunk = fdRead(cocoaNumberVal(cocoaArrayGet(masters, p)), 4096)
+      if len(chunk) > 0 {
+        let c = cocoaNumberVal(cocoaArrayGet(pcolsA, p))
+        let r = cocoaNumberVal(cocoaArrayGet(prowsA, p))
+        let buf = hexDec(msg(cocoaArrayGet(pendingA, p), "UTF8String")) + chunk
+        let safe = gridSafeLen(buf)
+        cocoaArraySet(pendingA, p, nsString(hexEnc(substring(buf, safe, len(buf)))))
+        let st = gridFeed(hexDec(msg(cocoaArrayGet(statesA, p), "UTF8String")), substring(buf, 0, safe), c, r)
+        cocoaArraySet(statesA, p, nsString(hexEnc(st)))
+        let curp = gridCursor(st, c, r)
+        let ci2 = indexOf(curp, ",")
+        msg_1(cocoaArrayGet(pviews, p), "setAttributedString:", renderSnapshot(gridRender(st, c, r), fg, mono, toInt(substring(curp, 0, ci2)), toInt(substring(curp, ci2 + 1, len(curp)))))
+        msg_1(cocoaArrayGet(pdocs, p), "scrollToEndOfDocument:", 0)
       }
-    }
-    if pc >= 4 {
-      let c3 = cocoaNumberVal(cocoaArrayGet(pcolsA, 3))
-      let r3 = cocoaNumberVal(cocoaArrayGet(prowsA, 3))
-      if p3init == 0 { st3 = gridNew(c3, r3)  pend3 = ""  p3init = 1 }
-      let chunk3 = fdRead(cocoaNumberVal(cocoaArrayGet(masters, 3)), 4096)
-      if len(chunk3) > 0 {
-        let buf3 = pend3 + chunk3
-        let safe3 = gridSafeLen(buf3)
-        pend3 = substring(buf3, safe3, len(buf3))
-        st3 = gridFeed(st3, substring(buf3, 0, safe3), c3, r3)
-        let curp3 = gridCursor(st3, c3, r3)
-        let cl = indexOf(curp3, ",")
-        msg_1(cocoaArrayGet(pviews, 3), "setAttributedString:", renderSnapshot(gridRender(st3, c3, r3), fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(curp3, 0, cl)), toInt(substring(curp3, cl + 1, len(curp3)))))
-        msg_1(cocoaArrayGet(pdocs, 3), "scrollToEndOfDocument:", 0)
-      }
+      p = p + 1
     }
     sleepUs(0, 8000)
     i = i + 1
