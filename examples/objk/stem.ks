@@ -1174,7 +1174,7 @@ func rebuildTabBar() {
     msg_1(xb, "setWantsLayer:", 1)
     let xlay = msg(xb, "layer")
     msg_d1(xlay, "setCornerRadius:", 8)
-    msg_1(xlay, "setBackgroundColor:", msg(cocoaColorNamed("grayColor"), "CGColor"))
+    msg_1(xlay, "setBackgroundColor:", msg(cocoaRGB(48, 55, 62), "CGColor"))
     cocoaSetAssocKey(xb, "tabidx", cocoaNumber(i))
     cocoaOnClickKeyed(xb, "stemtabclose", funcptr(onTabCloseBtn))
     cocoaArrayAdd(btns, xb)
@@ -1476,7 +1476,7 @@ just run {
   cocoaSetAssocKey(app, "stem.pending", cocoaArray())
   // 4 warm single-terminal panes = up to 4 tabs; each fills the area below the
   // 30px tab bar. Only the active tab's pane is shown.
-  let paneH = height - 30
+  let paneH = height - 38
   let kview = stemMakePaneView(m0, 0, 0, width, paneH, cols, rows)
   let kv1 = stemMakePaneView(m1, 0, 0, width, paneH, cols, rows)
   let kv2 = stemMakePaneView(m2, 0, 0, width, paneH, cols, rows)
