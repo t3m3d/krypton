@@ -1036,6 +1036,29 @@ func stemMakePaneView(m, x, y, w, h, pcols, prows) {
   cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pending"), nsString(""))
   emit kview
 }
+// a single full-window terminal pane in `win` (used for tab windows)
+func stemMakeTabPane(m, win, w, h, pcols, prows) {
+  let app = appH()
+  let view = cocoaScrollText(win, 0, 0, w, h)
+  msg_1(view, "setEditable:", 0)
+  msg_1(view, "setSelectable:", 0)
+  cocoaSetFont(view, cocoaGetAssocKey(app, "stem.mono"))
+  cocoaSetBg(view, cocoaGetAssocKey(app, "stem.bgc"))
+  cocoaSetTextColor(view, cocoaGetAssocKey(app, "stem.fgc"))
+  let kview = cocoaCustomView(win, stemKeyClass(), 0, 0, w, h)
+  cocoaSetAssocKey(kview, "ptyfd", cocoaNumber(m))
+  cocoaSetAssocKey(kview, "paneidx", cocoaNumber(cocoaArrayCount(cocoaGetAssocKey(app, "stem.pkviews"))))
+  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pmasters"), cocoaNumber(m))
+  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pscrolls"), msg(view, "enclosingScrollView"))
+  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pviews"), msg(view, "textStorage"))
+  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pdocs"), view)
+  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pcols"), cocoaNumber(pcols))
+  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.prows"), cocoaNumber(prows))
+  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pkviews"), kview)
+  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.states"), nsString(hexEnc(gridNew(pcols, prows))))
+  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pending"), nsString(""))
+  emit kview
+}
 func paneCount() { emit cocoaArrayCount(treeLeaves()) }
 // set pane idx's frame + pty size + stored cols/rows
 func setPane(idx, x, y, w, h) {
@@ -1203,7 +1226,16 @@ func onMouse(self, cmd, event) {
   cocoaMakeFirstResponder(cocoaGetAssocKey(appH(), "stem.win"), self)
   emit "1"
 }
-func onNewTab(self, cmd, sender)  { exec("open -na stem")  emit "1" }
+func onNewTab(self, cmd, sender) {
+  let app = appH()
+  let shown = cocoaNumberVal(cocoaGetAssocKey(app, "stem.tabshown"))
+  if shown >= 2 { emit "1" }
+  let tw = cocoaArrayGet(cocoaGetAssocKey(app, "stem.tabwins"), shown)
+  msg_2(cocoaGetAssocKey(app, "stem.win"), "addTabbedWindow:ordered:", tw, 1)
+  msg_1(tw, "makeKeyAndOrderFront:", 0)
+  cocoaSetAssocKey(app, "stem.tabshown", cocoaNumber(shown + 1))
+  emit "1"
+}
 func onCloseAll(self, cmd, sender){ msg(appH(), "terminate:")  emit "1" }
 // close focused pane; if last pane, close the window
 func onClosePane(self, cmd, sender) {
@@ -1244,6 +1276,8 @@ just run {
   let m1 = stemForkPty(cols, rows, shell)
   let m2 = stemForkPty(cols, rows, shell)
   let m3 = stemForkPty(cols, rows, shell)
+  let mt1 = stemForkPty(cols, rows, shell)
+  let mt2 = stemForkPty(cols, rows, shell)
 
   let app = cocoaInit()
   let bar = cocoaMenuBar(app)
@@ -1366,6 +1400,23 @@ just run {
   }
   cocoaSetAssocKey(app, "stem.master", cocoaNumber(m0))
   cocoaSetAssocKey(app, "stem.focus", kview)
+  // 2 extra tab windows (single terminal each), created now but not shown
+  // until New Tab; macOS native tabbing groups them.
+  let win1 = cocoaWindow(app, cfgVal(cfg, "title", "stem"), width, height)
+  msg_1(win1, "setBackgroundColor:", bg)
+  msg_1(win1, "setTitlebarAppearsTransparent:", 1)
+  msg_1(win1, "setAppearance:", msg_1(cls("NSAppearance"), "appearanceNamed:", nsString("NSAppearanceNameDarkAqua")))
+  stemMakeTabPane(mt1, win1, width, height, cols, rows)
+  let win2 = cocoaWindow(app, cfgVal(cfg, "title", "stem"), width, height)
+  msg_1(win2, "setBackgroundColor:", bg)
+  msg_1(win2, "setTitlebarAppearsTransparent:", 1)
+  msg_1(win2, "setAppearance:", msg_1(cls("NSAppearance"), "appearanceNamed:", nsString("NSAppearanceNameDarkAqua")))
+  stemMakeTabPane(mt2, win2, width, height, cols, rows)
+  let tabwins = cocoaArray()
+  cocoaArrayAdd(tabwins, win1)
+  cocoaArrayAdd(tabwins, win2)
+  cocoaSetAssocKey(app, "stem.tabwins", tabwins)
+  cocoaSetAssocKey(app, "stem.tabshown", cocoaNumber(0))
   cocoaShow(win, app)
   cocoaMakeFirstResponder(win, kview)
   cocoaFinishLaunching(app)
