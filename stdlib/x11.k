@@ -265,6 +265,83 @@ func x11MapWindow(fd, wid) {
     sockSend(fd, r, 8)
 }
 
+// ── OpenFont (opcode 45) ──────────────────────────────────────────────
+// Load a font by name (e.g. "fixed", always available) into resource `fid`.
+func x11OpenFont(fd, fid, name) {
+    let n = len(name)
+    let np = (n + 3) / 4 * 4                          // name padded to 4
+    let total = 12 + np
+    let r = bufNew(total)
+    bufSetByte(r, 0, 45)
+    bufSetByte(r, 1, 0)
+    _x11PutW(r, 2, 3 + np / 4)        // request length in units
+    _x11PutD(r, 4, fid)
+    _x11PutW(r, 8, n)                 // name length
+    _x11PutW(r, 10, 0)               // pad
+    let i = 0
+    while i < n {
+        bufSetByte(r, 12 + i, charCode(name[i]))
+        i += 1
+    }
+    sockSend(fd, r, total)
+}
+
+// ── CreateGC (opcode 55) ──────────────────────────────────────────────
+// Graphics context on `drawable` with foreground, background and font set.
+// value-mask: foreground(bit2=0x4) | background(bit3=0x8) | font(bit14=0x4000)
+// = 0x400C; value-list [fg, bg, font] in ascending bit order.
+func x11CreateGC(fd, gc, drawable, fg, bg, font) {
+    let r = bufNew(28)
+    bufSetByte(r, 0, 55)
+    bufSetByte(r, 1, 0)
+    _x11PutW(r, 2, 7)                 // 4 fixed + 3 values
+    _x11PutD(r, 4, gc)
+    _x11PutD(r, 8, drawable)
+    _x11PutD(r, 12, 16396)           // 0x400C
+    _x11PutD(r, 16, fg)
+    _x11PutD(r, 20, bg)
+    _x11PutD(r, 24, font)
+    sockSend(fd, r, 28)
+}
+
+// ── PolyFillRectangle (opcode 70) — one rect ──────────────────────────
+func x11FillRect(fd, drawable, gc, x, y, w, h) {
+    let r = bufNew(20)
+    bufSetByte(r, 0, 70)
+    bufSetByte(r, 1, 0)
+    _x11PutW(r, 2, 5)                 // 3 fixed + 2 (one rect)
+    _x11PutD(r, 4, drawable)
+    _x11PutD(r, 8, gc)
+    _x11PutW(r, 12, x)
+    _x11PutW(r, 14, y)
+    _x11PutW(r, 16, w)
+    _x11PutW(r, 18, h)
+    sockSend(fd, r, 20)
+}
+
+// ── ImageText8 (opcode 76) ────────────────────────────────────────────
+// Draw `text` at (x,y) baseline, filling the character cells with the GC
+// background (so no separate clear needed). Max 255 chars.
+func x11ImageText8(fd, drawable, gc, x, y, text) {
+    let n = len(text)
+    let np = (n + 3) / 4 * 4
+    let total = 16 + np
+    let r = bufNew(total)
+    bufSetByte(r, 0, 76)
+    bufSetByte(r, 1, n)              // string length
+    _x11PutW(r, 2, 4 + np / 4)
+    _x11PutD(r, 4, drawable)
+    _x11PutD(r, 8, gc)
+    _x11PutW(r, 12, x)
+    _x11PutW(r, 14, y)
+    let i = 0
+    while i < n {
+        bufSetByte(r, 16 + i, charCode(text[i]))
+        i += 1
+    }
+    sockSend(fd, r, total)
+}
+
 // ── event read ────────────────────────────────────────────────────────
 // Core events/replies/errors are 32 bytes. Reads one into `ev` (a 32-byte
 // buf). Returns the byte count (0/-1 on EOF/error). type = byte0 & 0x7f
