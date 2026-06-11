@@ -1430,7 +1430,7 @@ just run {
   msg_1(win, "setBackgroundColor:", tabHue)
   msg_1(win, "setTitlebarAppearsTransparent:", 1)
   msg_1(win, "setTitleVisibility:", 1)
-  msg_1(win, "setTabbingMode:", 0)
+  msg_1(win, "setTabbingMode:", 2)
   msg_1(win, "setAppearance:", msg_1(cls("NSAppearance"), "appearanceNamed:", nsString("NSAppearanceNameDarkAqua")))
   cocoaSetAssocKey(app, "stem.pmasters", cocoaArray())
   cocoaSetAssocKey(app, "stem.pscrolls", cocoaArray())
