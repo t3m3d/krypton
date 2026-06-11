@@ -342,6 +342,36 @@ func x11ImageText8(fd, drawable, gc, x, y, text) {
     sockSend(fd, r, total)
 }
 
+// ── PutImage (opcode 72) ──────────────────────────────────────────────
+// Blit a ZPixmap into `drawable` at (x,y). `pix` holds w*h*4 bytes, one
+// pixel per 4 bytes B,G,R,X (depth-24 / 32bpp, LSB-first server). The image
+// must be pre-composited onto the destination background (PutImage overwrites,
+// it does not alpha-blend). `gc` is required but unused for ZPixmap colour.
+func x11PutImage(fd, drawable, gc, x, y, w, h, pix) {
+    let dlen = w * h * 4
+    let total = 24 + dlen
+    let r = bufNew(total)
+    bufSetByte(r, 0, 72)
+    bufSetByte(r, 1, 2)              // format = ZPixmap
+    _x11PutW(r, 2, 6 + dlen / 4)     // request length (units)
+    _x11PutD(r, 4, drawable)
+    _x11PutD(r, 8, gc)
+    _x11PutW(r, 12, w)
+    _x11PutW(r, 14, h)
+    _x11PutW(r, 16, x)
+    _x11PutW(r, 18, y)
+    bufSetByte(r, 20, 0)             // left-pad
+    bufSetByte(r, 21, 24)            // depth
+    bufSetByte(r, 22, 0)
+    bufSetByte(r, 23, 0)
+    let i = 0
+    while i < dlen {
+        bufSetByte(r, 24 + i, bufGetByte(pix, i))
+        i += 1
+    }
+    sockSend(fd, r, total)
+}
+
 // ── event read ────────────────────────────────────────────────────────
 // Core events/replies/errors are 32 bytes. Reads one into `ev` (a 32-byte
 // buf). Returns the byte count (0/-1 on EOF/error). type = byte0 & 0x7f
