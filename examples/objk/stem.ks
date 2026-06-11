@@ -1183,6 +1183,16 @@ func rebuildTabBar() {
     cocoaSetAssocKey(xb, "tabidx", cocoaNumber(i))
     cocoaOnClickKeyed(xb, "stemtabclose", funcptr(onTabCloseBtn))
     cocoaArrayAdd(btns, xb)
+    // tab label as a CATextLayer sublayer (clicks still hit the StemTab below)
+    let tl = msg(cls("CATextLayer"), "layer")
+    msg_1(tl, "setString:", nsString("Terminal " + ("" + (i + 1))))
+    msg_d1(tl, "setFontSize:", 11)
+    msg_d1(tl, "setContentsScale:", 2)
+    let lc = cocoaRGB(150, 158, 165)
+    if i == cur { lc = cocoaRGB(225, 230, 235) }
+    msg_1(tl, "setForegroundColor:", msg(lc, "CGColor"))
+    msg_frame(tl, "setFrame:", 13, 5, tw - 38, 15)
+    msg_1(lay, "addSublayer:", tl)
     x = x + tw + gap
     i = i + 1
   }
