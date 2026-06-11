@@ -1205,8 +1205,11 @@ just run {
   // plain shell sources ~/.zshrc with `$(brew --prefix)` failing -> bare prompt.
   // Write a tiny wrapper that exec's a LOGIN shell (sources ~/.zprofile -> PATH),
   // then fork the wrapper. No typed setup string in the pty -> no echo to clean.
+  // p10k's gitstatusd can't exec under the ad-hoc-signed app bundle (AMFI), so
+  // p10k hangs forever waiting for it -> blank prompt. Disable gitstatus +
+  // instant-prompt so p10k draws immediately (loses only the git segment).
   let wrapper = environ("HOME") + "/.config/stem/launch.zsh"
-  writeFile(wrapper, "#!" + shell + "\nexport TERM=xterm-256color\nexport TERM_PROGRAM=stem\nexec " + shell + " -l\n")
+  writeFile(wrapper, "#!" + shell + "\nexport TERM=xterm-256color\nexport TERM_PROGRAM=stem\nexport POWERLEVEL9K_DISABLE_GITSTATUS=true\nexport POWERLEVEL9K_INSTANT_PROMPT=off\nexec " + shell + " -l\n")
   exec("/bin/chmod +x " + wrapper)
 
   // fork ALL 4 pane shells BEFORE cocoaInit + render them warm from frame 0
