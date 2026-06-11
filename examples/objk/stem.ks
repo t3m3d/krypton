@@ -1078,20 +1078,18 @@ func doSplit(dir) {
   let app = appH()
   let n = paneCount()
   if n >= 4 { emit "1" }
-  let spares = cocoaGetAssocKey(app, "stem.spares")
-  let m = cocoaNumberVal(cocoaArrayGet(spares, cocoaNumberVal(cocoaGetAssocKey(app, "stem.spareidx"))))
-  cocoaSetAssocKey(app, "stem.spareidx", cocoaNumber(cocoaNumberVal(cocoaGetAssocKey(app, "stem.spareidx")) + 1))
+  let idx = cocoaNumberVal(cocoaGetAssocKey(app, "stem.spareidx"))
+  let m = cocoaNumberVal(cocoaArrayGet(cocoaGetAssocKey(app, "stem.spares"), idx))
+  let slave = msg(cocoaArrayGet(cocoaGetAssocKey(app, "stem.spareslaves"), idx), "UTF8String")
+  cocoaSetAssocKey(app, "stem.spareidx", cocoaNumber(idx + 1))
   let kv = stemMakePaneView(m, 0, 0, 100, 100, 20, 6)
   let axis = 1
   if dir >= 3 { axis = 2 }
-  retile(axis)
-  // The spare shell started before its winsize was set (defaults to ~80 cols)
-  // and won't reflow. Drain its stale output, then re-exec a fresh shell which
-  // reads the now-correct winsize from the resized pty.
-  sleepUs(0, 120000)
-  let d = fdRead(m, 65536)
-  while len(d) > 0 { d = fdRead(m, 65536) }
-  fdWrite(m, "exec " + msg(cocoaGetAssocKey(app, "stem.shell"), "UTF8String") + "\n", len("exec " + msg(cocoaGetAssocKey(app, "stem.shell"), "UTF8String") + "\n"))
+  retile(axis)   // sets the new pty's winsize (no shell yet)
+  // fork the shell NOW, at the final winsize -> born at the right width
+  ptyForkExec(slave, msg(cocoaGetAssocKey(app, "stem.shell"), "UTF8String"))
+  let setup = "export TERM=xterm-256color; export TERM_PROGRAM=stem; export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; clear\n"
+  fdWrite(m, setup, len(setup))
   cocoaSetAssocKey(app, "stem.focus", kv)
   cocoaMakeFirstResponder(cocoaGetAssocKey(app, "stem.win"), kv)
   emit "1"
@@ -1151,12 +1149,13 @@ just run {
   let height = toInt(cfgVal(cfg, "height", "500"))
   let shell = cfgVal(cfg, "shell", "/bin/zsh")
 
-  // fork pane 0 + 3 spare ptys BEFORE cocoaInit (fork after AppKit init leaves
-  // later-created views invisible). spares feed splits (up to 4 panes).
+  // fork pane 0 BEFORE cocoaInit. Spares: pre-OPEN the pty pairs (no fork); the
+  // shell is forked on split at the final size, so it is born at the right
+  // width (a pre-forked idle shell draws its prompt wrong and won't reflow).
   let m0 = stemForkPty(cols, rows, shell)
-  let sp1 = stemForkPty(cols, rows, shell)
-  let sp2 = stemForkPty(cols, rows, shell)
-  let sp3 = stemForkPty(cols, rows, shell)
+  let sm1 = ptyMaster("/dev/ptmx")  let ss1 = ptySlaveName(sm1)  fdSetNonblock(sm1)
+  let sm2 = ptyMaster("/dev/ptmx")  let ss2 = ptySlaveName(sm2)  fdSetNonblock(sm2)
+  let sm3 = ptyMaster("/dev/ptmx")  let ss3 = ptySlaveName(sm3)  fdSetNonblock(sm3)
 
   let app = cocoaInit()
   let bar = cocoaMenuBar(app)
@@ -1251,10 +1250,15 @@ just run {
   cocoaSetAssocKey(app, "stem.cols", cocoaNumber(cols))
   cocoaSetAssocKey(app, "stem.rows", cocoaNumber(rows))
   let spares = cocoaArray()
-  cocoaArrayAdd(spares, cocoaNumber(sp1))
-  cocoaArrayAdd(spares, cocoaNumber(sp2))
-  cocoaArrayAdd(spares, cocoaNumber(sp3))
+  cocoaArrayAdd(spares, cocoaNumber(sm1))
+  cocoaArrayAdd(spares, cocoaNumber(sm2))
+  cocoaArrayAdd(spares, cocoaNumber(sm3))
   cocoaSetAssocKey(app, "stem.spares", spares)
+  let slaves = cocoaArray()
+  cocoaArrayAdd(slaves, nsString(ss1))
+  cocoaArrayAdd(slaves, nsString(ss2))
+  cocoaArrayAdd(slaves, nsString(ss3))
+  cocoaSetAssocKey(app, "stem.spareslaves", slaves)
   cocoaSetAssocKey(app, "stem.spareidx", cocoaNumber(0))
   cocoaSetAssocKey(app, "stem.shell", nsString(shell))
   msg_1(win, "setBackgroundColor:", bg)
