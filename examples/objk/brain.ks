@@ -1729,6 +1729,7 @@ just run {
   cocoaSetAssocKey(app, "stem.pal", pal)
 
   let win = cocoaWindow(app, "brain — " + dir, 940, 640)
+  cocoaSetAssocKey(app, "brain.win", win)
   msg_1(win, "setAppearance:", msg_1(cls("NSAppearance"), "appearanceNamed:", nsString("NSAppearanceNameDarkAqua")))
   // teal theme on the window chrome (titlebar + tab-row bg)
   msg_1(win, "setBackgroundColor:", cocoaRGB(21, 37, 43))
