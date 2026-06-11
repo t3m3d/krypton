@@ -1125,6 +1125,8 @@ func switchTab(pos) {
   }
   rebuildTabBar()
   cocoaMakeFirstResponder(cocoaGetAssocKey(app, "stem.win"), cocoaArrayGet(kviews, pane))
+  // nudge the shell to repaint its prompt into the (possibly stale) grid
+  fdWrite(cocoaNumberVal(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pmasters"), pane)), fromCharCode(12), 1)
   emit "1"
 }
 func closeTab(pos) {
