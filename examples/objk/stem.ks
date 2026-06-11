@@ -1406,6 +1406,10 @@ just run {
       let ck = indexOf(cp, ",")
       msg_1(cocoaArrayGet(pviews, 0), "setAttributedString:", renderSnapshot(gridRender(st0, c0, r0), fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(cp, 0, ck)), toInt(substring(cp, ck + 1, len(cp)))))
       msg_1(cocoaArrayGet(pdocs, 0), "scrollToEndOfDocument:", 0)
+      // force the deferred draw (what a dock re-focus does): mark dirty + display
+      msg_1(cocoaArrayGet(pdocs, 0), "setNeedsDisplay:", 1)
+      msg(cocoaArrayGet(pdocs, 0), "display")
+      msg(cocoaGetAssocKey(app, "stem.win"), "displayIfNeeded")
     } }
     if pc >= 2 {
       let c1 = cocoaNumberVal(cocoaArrayGet(pcolsA, 1))
