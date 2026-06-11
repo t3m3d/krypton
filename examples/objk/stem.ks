@@ -1009,11 +1009,8 @@ func stemForkPty(pcols, prows, shell) {
     else { tries = 60 }
   }
   fdSetNonblock(m)
-  // re-exec as a LOGIN shell so it sources the user's profile (full PATH/env);
-  // launched via Finder the app only has launchd's minimal env, so p10k would
-  // otherwise fall back to a bare prompt.
-  let setup = "export TERM=xterm-256color; export TERM_PROGRAM=stem; exec " + shell + " -l\n"
-  fdWrite(m, setup, len(setup))
+  // env + login handled by the wrapper script we exec (see just-run); nothing
+  // typed into the pty, so the prompt comes up clean.
   emit m
 }
 func stemMakePaneView(m, x, y, w, h, pcols, prows) {
@@ -1204,13 +1201,21 @@ just run {
   let height = toInt(cfgVal(cfg, "height", "500"))
   let shell = cfgVal(cfg, "shell", "/bin/zsh")
 
+  // Finder-launched apps inherit launchd's minimal env (no Homebrew PATH), so a
+  // plain shell sources ~/.zshrc with `$(brew --prefix)` failing -> bare prompt.
+  // Write a tiny wrapper that exec's a LOGIN shell (sources ~/.zprofile -> PATH),
+  // then fork the wrapper. No typed setup string in the pty -> no echo to clean.
+  let wrapper = environ("HOME") + "/.config/stem/launch.zsh"
+  writeFile(wrapper, "#!" + shell + "\nexport TERM=xterm-256color\nexport TERM_PROGRAM=stem\nexec " + shell + " -l\n")
+  exec("/bin/chmod +x " + wrapper)
+
   // fork ALL 4 pane shells BEFORE cocoaInit + render them warm from frame 0
   // (only the original, warm, pre-init pane reflows correctly on resize). Split
   // just reveals + sizes a pre-warmed pane.
-  let m0 = stemForkPty(cols, rows, shell)
-  let m1 = stemForkPty(cols, rows, shell)
-  let m2 = stemForkPty(cols, rows, shell)
-  let m3 = stemForkPty(cols, rows, shell)
+  let m0 = stemForkPty(cols, rows, wrapper)
+  let m1 = stemForkPty(cols, rows, wrapper)
+  let m2 = stemForkPty(cols, rows, wrapper)
+  let m3 = stemForkPty(cols, rows, wrapper)
 
   let app = cocoaInit()
   let bar = cocoaMenuBar(app)
@@ -1356,12 +1361,6 @@ just run {
     let pcolsA = cocoaGetAssocKey(app, "stem.pcols")
     let prowsA = cocoaGetAssocKey(app, "stem.prows")
     let pc = cocoaArrayCount(masters)
-    // once p10k has loaded, Ctrl-L each shell to wipe the echoed login-exec
-    // setup line and redraw a clean prompt.
-    if i == 300 {
-      let k = 0
-      while k < pc { fdWrite(cocoaNumberVal(cocoaArrayGet(masters, k)), fromCharCode(12), 1)  k = k + 1 }
-    }
     if brainFlagS("stem.splitdirty", 0) == 1 {
       cocoaSetAssocKey(app, "stem.splitdirty", cocoaNumber(0))
       st0 = gridNew(cocoaNumberVal(cocoaArrayGet(pcolsA, 0)), cocoaNumberVal(cocoaArrayGet(prowsA, 0)))  pend0 = ""
