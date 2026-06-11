@@ -14,6 +14,12 @@
 // Writes pack bytes one at a time (bufSetWordAt/bufSetDwordAt are no-op stubs
 // in the Linux backend — see krypton-linux-native-bugs); reads use the
 // implemented bufGet*At LE getters.
+//
+// CRITICAL: client-chosen object ids (new_id args) MUST be allocated
+// SEQUENTIALLY with NO forward gaps, in creation order. display=1, registry=2,
+// then 3,4,5,... as you create each object. Skipping ids (e.g. binding to 11
+// while 6..10 are unused) makes the compositor reject the request with
+// "invalid arguments". Bind/create in the order the ids increase.
 
 // ── little-endian byte packing (writes) ─────────────────────────────────
 func _wlPutU32(buf, off, v) {
@@ -86,6 +92,35 @@ func wlBind(fd, registryId, name, iface, version, newId) {
     _wlPutU32(m, voff + 4, newId)
     sockSend(fd, m, size)
     emit 1
+}
+
+// ── input (wl_seat: keyboard + pointer) ─────────────────────────────────────
+// wl_seat.get_pointer (opcode 0) / get_keyboard (opcode 1): new_id.
+func wlGetPointer(fd, seatId, ptrId)  { emit _wlSend1(fd, seatId, 0, ptrId) }
+func wlGetKeyboard(fd, seatId, kbId)  { emit _wlSend1(fd, seatId, 1, kbId) }
+// NOTE: wl_keyboard.keymap (event op 0) carries an xkb-keymap fd via SCM_RIGHTS.
+// cortex doesn't need it: Wayland `key` events deliver raw evdev codes, and
+// X11 keycodes (what cortex's keymap uses) are just evdev+8 -> see wlKeyToKc.
+// Reading events with plain sockRecv discards the dangling fd (MSG_CTRUNC) and
+// still delivers the message bytes, so no sockRecvFd is required for input.
+//
+// Event arg offsets (absolute byte off of the message header):
+//   wl_keyboard.enter (op1): serial,surface,keys[]        focus gained
+//   wl_keyboard.leave (op2): serial,surface
+//   wl_keyboard.key   (op3): serial,time,key(+16),state(+20)  state 1=press 0=release
+//   wl_keyboard.modifiers(op4): serial,depressed(+12),latched,locked,group
+//      depressed bit0=Shift bit2=Ctrl bit3=Alt (same layout cortex decodes)
+//   wl_pointer.enter  (op0): serial,surface,x(fixed +16),y(fixed +20)
+//   wl_pointer.motion (op2): time,x(fixed +12),y(fixed +16)
+//   wl_pointer.button (op3): serial,time,button(+16),state(+20)
+//      button: 0x110=left 0x111=right 0x112=middle ; state 1=press
+func wlKeyToKc(wlKey) { emit wlKey + 8 }          // evdev -> X11 keycode
+func wlFixed(b, off)  { emit bufGetDwordAt(b, off) / 256 }  // 24.8 -> int (in-window coords are +ve)
+func wlBtnToX(button) {                            // evdev button -> X11 button (1=L,2=M,3=R)
+    if button == 272 { emit 1 }                    // 0x110 BTN_LEFT
+    if button == 273 { emit 3 }                    // 0x111 BTN_RIGHT
+    if button == 274 { emit 2 }                    // 0x112 BTN_MIDDLE
+    emit 0
 }
 
 // ── reading ────────────────────────────────────────────────────────────────
