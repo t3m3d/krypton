@@ -1462,8 +1462,7 @@ func onToggleTerminal(self, cmd, sender) {
   let v = brainFlag("brain.terminal", 1)
   let nv = 0
   if v == 0 { nv = 1 }
-  cocoaSetAssocKey(appH(), "brain.terminal", cocoaNumber(nv))
-  relayout()
+  showTermPane(nv)
   emit "1"
 }
 func brainSetFontSize(sz) {
@@ -1565,7 +1564,22 @@ func onRunInTerm(self, cmd, sender) {
 
 // ── Terminal menu ───────────────────────────────────────────────────────
 func termWrite(s) { fdWrite(cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.master")), s, len(s))  emit "1" }
-func showTermPane(vis) { cocoaSetAssocKey(appH(), "brain.terminal", cocoaNumber(vis))  relayout()  emit "1" }
+func updateTermMenu(vis) {
+  let menu = cocoaGetAssocKey(appH(), "brain.termmenu")
+  if menu == 0 { emit "1" }
+  let items = msg(menu, "itemArray")
+  let n = msg(items, "count")
+  let i = 0
+  while i < n {
+    let it = msg_1(items, "objectAtIndex:", i)
+    let en = 1
+    if vis == 0 { if msg(msg(it, "title"), "UTF8String") != "Show Terminal" { en = 0 } }
+    msg_1(it, "setEnabled:", en)
+    i = i + 1
+  }
+  emit "1"
+}
+func showTermPane(vis) { cocoaSetAssocKey(appH(), "brain.terminal", cocoaNumber(vis))  relayout()  updateTermMenu(vis)  emit "1" }
 func focusTerm() { cocoaMakeFirstResponder(cocoaGetAssocKey(appH(), "brain.win"), cocoaGetAssocKey(appH(), "brain.kview"))  emit "1" }
 func runInTerm(c) { showTermPane(1)  termWrite(c + "\n")  cocoaSetAssocKey(appH(), "brain.lastrun", nsString(c))  focusTerm()  emit "1" }
 
@@ -1861,6 +1875,8 @@ just run {
   cocoaMenuItem(runMenu, "Run File", "r", funcptr(onRun))
   cocoaMenuItem(runMenu, "Run in Terminal", "R", funcptr(onRunInTerm))
   let termMenu = cocoaMenuAdd(bar, "Terminal")
+  msg_1(termMenu, "setAutoenablesItems:", 0)
+  cocoaSetAssocKey(app, "brain.termmenu", termMenu)
   cocoaMenuItem(termMenu, "New Terminal", "", funcptr(onNewTerminal))
   cocoaMenuItem(termMenu, "Split Terminal", "", funcptr(onSplitTerminal))
   cocoaMenuItem(termMenu, "New Terminal Window", "", funcptr(onNewTermWindow))
