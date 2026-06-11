@@ -193,6 +193,68 @@ func wlDamage(fd, surfId, x, y, w, h) {
     emit 1
 }
 
+// ── client-side framebuffer drawing ────────────────────────────────────────
+// Wayland has no server-side draw: everything is rendered into the shm pixel
+// buffer (the mmapShared addr, used directly as a buf). Pixels are XRGB8888,
+// little-endian, i.e. 4 bytes per pixel in order B,G,R,X. `color` args are
+// packed 0xRRGGBB ints. fbW/fbH are the buffer's width/height in pixels.
+
+// fill the whole buffer with one color
+func fbClear(px, fbW, fbH, color) { fbFillRect(px, fbW, 0, 0, fbW, fbH, color) }
+
+// fill rect (x,y,w,h) with color. No clipping — caller keeps it in bounds.
+func fbFillRect(px, fbW, x, y, w, h, color) {
+    let b = color - color / 256 * 256
+    let g = color / 256 - color / 65536 * 256
+    let r = color / 65536 - color / 16777216 * 256
+    let row = 0
+    while row < h {
+        let base = ((y + row) * fbW + x) * 4
+        let col = 0
+        while col < w {
+            let o = base + col * 4
+            bufSetByte(px, o, b)
+            bufSetByte(px, o + 1, g)
+            bufSetByte(px, o + 2, r)
+            bufSetByte(px, o + 3, 0)
+            col += 1
+        }
+        row += 1
+    }
+}
+
+// blit a BGRA source image (4 bytes/px, same layout as cortex's icon rasters)
+// to (dx,dy), clipped to the fb. Source alpha is ignored (opaque copy) — pre-
+// composite against the destination bg first if you need transparency.
+func fbBlitBGRA(px, fbW, fbH, dx, dy, src, sw, sh) {
+    let sy = 0
+    while sy < sh {
+        let py = dy + sy
+        if py >= 0 && py < fbH {
+            let sx = 0
+            while sx < sw {
+                let pxx = dx + sx
+                if pxx >= 0 && pxx < fbW {
+                    let so = (sy * sw + sx) * 4
+                    let dofs = (py * fbW + pxx) * 4
+                    bufSetByte(px, dofs,     bufGetByte(src, so))
+                    bufSetByte(px, dofs + 1, bufGetByte(src, so + 1))
+                    bufSetByte(px, dofs + 2, bufGetByte(src, so + 2))
+                    bufSetByte(px, dofs + 3, 0)
+                }
+                sx += 1
+            }
+        }
+        sy += 1
+    }
+}
+
+// read a pixel's packed 0xRRGGBB (for tests / verification)
+func fbGetPixel(px, fbW, x, y) {
+    let o = (y * fbW + x) * 4
+    emit bufGetByte(px, o + 2) * 65536 + bufGetByte(px, o + 1) * 256 + bufGetByte(px, o)
+}
+
 // ── shared-memory buffers ───────────────────────────────────────────────────
 // wl_shm.create_pool (opcode 0): new_id pool, fd(ancillary), int size.
 // The fd rides out-of-band via SCM_RIGHTS (sockSendFd) — only pool+size are
