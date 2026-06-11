@@ -1359,6 +1359,13 @@ just run {
     let pcolsA = cocoaGetAssocKey(app, "stem.pcols")
     let prowsA = cocoaGetAssocKey(app, "stem.prows")
     let pc = cocoaArrayCount(masters)
+    // once views are laid out + the login shell's prompt is up, Ctrl-L each
+    // shell to force a clean repaint (the first prompt render can land before
+    // the view is ready -> blank until next output). No echo (no typed setup).
+    if i == 300 {
+      let k = 0
+      while k < pc { fdWrite(cocoaNumberVal(cocoaArrayGet(masters, k)), fromCharCode(12), 1)  k = k + 1 }
+    }
     if brainFlagS("stem.splitdirty", 0) == 1 {
       cocoaSetAssocKey(app, "stem.splitdirty", cocoaNumber(0))
       st0 = gridNew(cocoaNumberVal(cocoaArrayGet(pcolsA, 0)), cocoaNumberVal(cocoaArrayGet(prowsA, 0)))  pend0 = ""
