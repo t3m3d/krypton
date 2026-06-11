@@ -352,3 +352,6 @@ func x11EventType(ev)     { emit bufGetByte(ev, 0) - bufGetByte(ev, 0) / 128 * 1
 func x11KeyDetail(ev)     { emit bufGetByte(ev, 1) }   // keycode (KeyPress)
 func x11EventX(ev)        { emit bufGetWordAt(ev, 24) }
 func x11EventY(ev)        { emit bufGetWordAt(ev, 26) }
+// ConfigureNotify carries the new size: width@20, height@22.
+func x11EventWidth(ev)    { emit bufGetWordAt(ev, 20) }
+func x11EventHeight(ev)   { emit bufGetWordAt(ev, 22) }
