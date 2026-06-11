@@ -1032,7 +1032,7 @@ func stemMakePaneView(m, x, y, w, h, pcols, prows) {
   cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pkviews"), kview)
   emit kview
 }
-func paneCount() { emit cocoaArrayCount(cocoaGetAssocKey(appH(), "stem.pmasters")) }
+func paneCount() { emit cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.active")) }
 // set pane idx's frame + pty size + stored cols/rows
 func setPane(idx, x, y, w, h) {
   let app = appH()
@@ -1070,26 +1070,30 @@ func retile(axis) {
     setPane(0, 0, H / 2, W / 2, H / 2)  setPane(1, W / 2, H / 2, W / 2, H / 2)
     setPane(2, 0, 0, W / 2, H / 2)      setPane(3, W / 2, 0, W / 2, H / 2)
   }
+  // show the active panes, hide the rest
+  let scrolls = cocoaGetAssocKey(app, "stem.pscrolls")
+  let kviews = cocoaGetAssocKey(app, "stem.pkviews")
+  let i = 0
+  while i < 4 {
+    let hid = 1
+    if i < n { hid = 0 }
+    msg_1(cocoaArrayGet(scrolls, i), "setHidden:", hid)
+    msg_1(cocoaArrayGet(kviews, i), "setHidden:", hid)
+    i = i + 1
+  }
   cocoaSetAssocKey(app, "stem.splitdirty", cocoaNumber(1))
   emit "1"
 }
 // dir: 1=right 2=left 3=top 4=bottom (axis: right/left=columns, top/bottom=rows)
 func doSplit(dir) {
   let app = appH()
-  let n = paneCount()
-  if n >= 4 { emit "1" }
-  let idx = cocoaNumberVal(cocoaGetAssocKey(app, "stem.spareidx"))
-  let m = cocoaNumberVal(cocoaArrayGet(cocoaGetAssocKey(app, "stem.spares"), idx))
-  let slave = msg(cocoaArrayGet(cocoaGetAssocKey(app, "stem.spareslaves"), idx), "UTF8String")
-  cocoaSetAssocKey(app, "stem.spareidx", cocoaNumber(idx + 1))
-  let kv = stemMakePaneView(m, 0, 0, 100, 100, 20, 6)
+  let a = cocoaNumberVal(cocoaGetAssocKey(app, "stem.active"))
+  if a >= 4 { emit "1" }
+  cocoaSetAssocKey(app, "stem.active", cocoaNumber(a + 1))
   let axis = 1
   if dir >= 3 { axis = 2 }
-  retile(axis)   // sets the new pty's winsize (no shell yet)
-  // fork the shell NOW, at the final winsize -> born at the right width
-  ptyForkExec(slave, msg(cocoaGetAssocKey(app, "stem.shell"), "UTF8String"))
-  let setup = "export TERM=xterm-256color; export TERM_PROGRAM=stem; export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; clear\n"
-  fdWrite(m, setup, len(setup))
+  retile(axis)
+  let kv = cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), a)
   cocoaSetAssocKey(app, "stem.focus", kv)
   cocoaMakeFirstResponder(cocoaGetAssocKey(app, "stem.win"), kv)
   emit "1"
@@ -1112,17 +1116,9 @@ func onCloseAll(self, cmd, sender){ msg(appH(), "terminate:")  emit "1" }
 // close focused pane; if last pane, close the window
 func onClosePane(self, cmd, sender) {
   let app = appH()
-  if paneCount() <= 1 { msg_1(cocoaGetAssocKey(app, "stem.win"), "performClose:", 0)  emit "1" }
-  let fi = focusedIdx()
-  msg(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pscrolls"), fi), "removeFromSuperview")
-  msg(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), fi), "removeFromSuperview")
-  cocoaArrayRemove(cocoaGetAssocKey(app, "stem.pmasters"), fi)
-  cocoaArrayRemove(cocoaGetAssocKey(app, "stem.pscrolls"), fi)
-  cocoaArrayRemove(cocoaGetAssocKey(app, "stem.pviews"), fi)
-  cocoaArrayRemove(cocoaGetAssocKey(app, "stem.pdocs"), fi)
-  cocoaArrayRemove(cocoaGetAssocKey(app, "stem.pcols"), fi)
-  cocoaArrayRemove(cocoaGetAssocKey(app, "stem.prows"), fi)
-  cocoaArrayRemove(cocoaGetAssocKey(app, "stem.pkviews"), fi)
+  let a = cocoaNumberVal(cocoaGetAssocKey(app, "stem.active"))
+  if a <= 1 { msg_1(cocoaGetAssocKey(app, "stem.win"), "performClose:", 0)  emit "1" }
+  cocoaSetAssocKey(app, "stem.active", cocoaNumber(a - 1))
   retile(1)
   cocoaSetAssocKey(app, "stem.focus", cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), 0))
   cocoaMakeFirstResponder(cocoaGetAssocKey(app, "stem.win"), cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), 0))
@@ -1149,13 +1145,13 @@ just run {
   let height = toInt(cfgVal(cfg, "height", "500"))
   let shell = cfgVal(cfg, "shell", "/bin/zsh")
 
-  // fork pane 0 BEFORE cocoaInit. Spares: pre-OPEN the pty pairs (no fork); the
-  // shell is forked on split at the final size, so it is born at the right
-  // width (a pre-forked idle shell draws its prompt wrong and won't reflow).
+  // fork ALL 4 pane shells BEFORE cocoaInit + render them warm from frame 0
+  // (only the original, warm, pre-init pane reflows correctly on resize). Split
+  // just reveals + sizes a pre-warmed pane.
   let m0 = stemForkPty(cols, rows, shell)
-  let sm1 = ptyMaster("/dev/ptmx")  let ss1 = ptySlaveName(sm1)  fdSetNonblock(sm1)
-  let sm2 = ptyMaster("/dev/ptmx")  let ss2 = ptySlaveName(sm2)  fdSetNonblock(sm2)
-  let sm3 = ptyMaster("/dev/ptmx")  let ss3 = ptySlaveName(sm3)  fdSetNonblock(sm3)
+  let m1 = stemForkPty(cols, rows, shell)
+  let m2 = stemForkPty(cols, rows, shell)
+  let m3 = stemForkPty(cols, rows, shell)
 
   let app = cocoaInit()
   let bar = cocoaMenuBar(app)
@@ -1249,18 +1245,8 @@ just run {
   cocoaSetAssocKey(app, "stem.h", cocoaNumber(height))
   cocoaSetAssocKey(app, "stem.cols", cocoaNumber(cols))
   cocoaSetAssocKey(app, "stem.rows", cocoaNumber(rows))
-  let spares = cocoaArray()
-  cocoaArrayAdd(spares, cocoaNumber(sm1))
-  cocoaArrayAdd(spares, cocoaNumber(sm2))
-  cocoaArrayAdd(spares, cocoaNumber(sm3))
-  cocoaSetAssocKey(app, "stem.spares", spares)
-  let slaves = cocoaArray()
-  cocoaArrayAdd(slaves, nsString(ss1))
-  cocoaArrayAdd(slaves, nsString(ss2))
-  cocoaArrayAdd(slaves, nsString(ss3))
-  cocoaSetAssocKey(app, "stem.spareslaves", slaves)
-  cocoaSetAssocKey(app, "stem.spareidx", cocoaNumber(0))
   cocoaSetAssocKey(app, "stem.shell", nsString(shell))
+  cocoaSetAssocKey(app, "stem.active", cocoaNumber(1))
   msg_1(win, "setBackgroundColor:", bg)
   msg_1(win, "setTitlebarAppearsTransparent:", 1)
   msg_1(win, "setAppearance:", msg_1(cls("NSAppearance"), "appearanceNamed:", nsString("NSAppearanceNameDarkAqua")))
@@ -1271,7 +1257,19 @@ just run {
   cocoaSetAssocKey(app, "stem.pcols", cocoaArray())
   cocoaSetAssocKey(app, "stem.prows", cocoaArray())
   cocoaSetAssocKey(app, "stem.pkviews", cocoaArray())
+  // all 4 panes created + warm; only pane 0 shown until split
   let kview = stemMakePaneView(m0, 0, 0, width, height, cols, rows)
+  let kv1 = stemMakePaneView(m1, 0, 0, width, height, cols, rows)
+  let kv2 = stemMakePaneView(m2, 0, 0, width, height, cols, rows)
+  let kv3 = stemMakePaneView(m3, 0, 0, width, height, cols, rows)
+  let pscrolls = cocoaGetAssocKey(app, "stem.pscrolls")
+  let pkviews = cocoaGetAssocKey(app, "stem.pkviews")
+  let hi = 1
+  while hi < 4 {
+    msg_1(cocoaArrayGet(pscrolls, hi), "setHidden:", 1)
+    msg_1(cocoaArrayGet(pkviews, hi), "setHidden:", 1)
+    hi = hi + 1
+  }
   cocoaSetAssocKey(app, "stem.master", cocoaNumber(m0))
   cocoaSetAssocKey(app, "stem.focus", kview)
   cocoaShow(win, app)
