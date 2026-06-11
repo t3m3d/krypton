@@ -1032,7 +1032,7 @@ func stemMakePaneView(m, x, y, w, h, pcols, prows) {
   cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pkviews"), kview)
   emit kview
 }
-func paneCount() { emit cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.active")) }
+func paneCount() { emit cocoaArrayCount(treeLeaves()) }
 // set pane idx's frame + pty size + stored cols/rows
 func setPane(idx, x, y, w, h) {
   let app = appH()
@@ -1051,32 +1051,77 @@ func setPane(idx, x, y, w, h) {
   cocoaArraySet(cocoaGetAssocKey(app, "stem.prows"), idx, cocoaNumber(prows))
   emit "1"
 }
-// re-tile all panes into a clean layout (axis: 1=columns, 2=rows)
+// ── split tree ──────────────────────────────────────────────────────────
+// node = NSArray. leaf: [0, paneIdx]. split: [1, axis, childA, childB]
+// (axis 1 = side-by-side columns, 2 = stacked rows; A = left/top, B = right/bottom)
+func mkLeaf(idx) { let a = cocoaArray()  cocoaArrayAdd(a, cocoaNumber(0))  cocoaArrayAdd(a, cocoaNumber(idx))  emit a }
+func mkSplit(axis, na, nb) { let a = cocoaArray()  cocoaArrayAdd(a, cocoaNumber(1))  cocoaArrayAdd(a, cocoaNumber(axis))  cocoaArrayAdd(a, na)  cocoaArrayAdd(a, nb)  emit a }
+func nodeType(n) { emit cocoaNumberVal(cocoaArrayGet(n, 0)) }
+func leafIdx(n)  { emit cocoaNumberVal(cocoaArrayGet(n, 1)) }
+func splitAxis(n){ emit cocoaNumberVal(cocoaArrayGet(n, 1)) }
+func splitA(n)   { emit cocoaArrayGet(n, 2) }
+func splitB(n)   { emit cocoaArrayGet(n, 3) }
+func layoutTree(n, x, y, w, h) {
+  if nodeType(n) == 0 { setPane(leafIdx(n), x, y, w, h)  emit "1" }
+  if splitAxis(n) == 1 { layoutTree(splitA(n), x, y, w / 2, h)  layoutTree(splitB(n), x + w / 2, y, w / 2, h) }
+  else { layoutTree(splitA(n), x, y + h / 2, w, h / 2)  layoutTree(splitB(n), x, y, w, h / 2) }
+  emit "1"
+}
+func splitTree(n, target, axis, newIdx, before) {
+  if nodeType(n) == 0 {
+    if leafIdx(n) == target {
+      if before == 1 { emit mkSplit(axis, mkLeaf(newIdx), mkLeaf(target)) }
+      emit mkSplit(axis, mkLeaf(target), mkLeaf(newIdx))
+    }
+    emit n
+  }
+  emit mkSplit(splitAxis(n), splitTree(splitA(n), target, axis, newIdx, before), splitTree(splitB(n), target, axis, newIdx, before))
+}
+func closeTree(n, target) {
+  if nodeType(n) == 0 { emit n }
+  let a = splitA(n)
+  let b = splitB(n)
+  if nodeType(a) == 0 { if leafIdx(a) == target { emit b } }
+  if nodeType(b) == 0 { if leafIdx(b) == target { emit a } }
+  emit mkSplit(splitAxis(n), closeTree(a, target), closeTree(b, target))
+}
+func collectLeaves(n, arr) {
+  if nodeType(n) == 0 { cocoaArrayAdd(arr, cocoaNumber(leafIdx(n)))  emit "1" }
+  collectLeaves(splitA(n), arr)
+  collectLeaves(splitB(n), arr)
+  emit "1"
+}
+func treeLeaves() { let a = cocoaArray()  collectLeaves(cocoaGetAssocKey(appH(), "stem.tree"), a)  emit a }
+func nextFreeIdx() {
+  let leaves = treeLeaves()
+  let n = cocoaArrayCount(leaves)
+  let i = 0
+  while i < 4 {
+    let used = 0
+    let j = 0
+    while j < n { if cocoaNumberVal(cocoaArrayGet(leaves, j)) == i { used = 1 }  j = j + 1 }
+    if used == 0 { emit i }
+    i = i + 1
+  }
+  emit 0 - 1
+}
+// lay out the tree + show its leaves, hide the rest
 func retile(axis) {
   let app = appH()
-  let n = paneCount()
   let W = cocoaNumberVal(cocoaGetAssocKey(app, "stem.w"))
   let H = cocoaNumberVal(cocoaGetAssocKey(app, "stem.h"))
-  if n == 1 { setPane(0, 0, 0, W, H) }
-  if n == 2 {
-    if axis == 1 { setPane(0, 0, 0, W / 2, H)  setPane(1, W / 2, 0, W / 2, H) }
-    else { setPane(0, 0, H / 2, W, H / 2)  setPane(1, 0, 0, W, H / 2) }
-  }
-  if n == 3 {
-    if axis == 1 { setPane(0, 0, 0, W / 3, H)  setPane(1, W / 3, 0, W / 3, H)  setPane(2, (W / 3) * 2, 0, W / 3, H) }
-    else { setPane(0, 0, (H / 3) * 2, W, H / 3)  setPane(1, 0, H / 3, W, H / 3)  setPane(2, 0, 0, W, H / 3) }
-  }
-  if n == 4 {
-    setPane(0, 0, H / 2, W / 2, H / 2)  setPane(1, W / 2, H / 2, W / 2, H / 2)
-    setPane(2, 0, 0, W / 2, H / 2)      setPane(3, W / 2, 0, W / 2, H / 2)
-  }
-  // show the active panes, hide the rest
+  layoutTree(cocoaGetAssocKey(app, "stem.tree"), 0, 0, W, H)
+  let leaves = treeLeaves()
+  let ln = cocoaArrayCount(leaves)
   let scrolls = cocoaGetAssocKey(app, "stem.pscrolls")
   let kviews = cocoaGetAssocKey(app, "stem.pkviews")
   let i = 0
   while i < 4 {
+    let vis = 0
+    let j = 0
+    while j < ln { if cocoaNumberVal(cocoaArrayGet(leaves, j)) == i { vis = 1 }  j = j + 1 }
     let hid = 1
-    if i < n { hid = 0 }
+    if vis == 1 { hid = 0 }
     msg_1(cocoaArrayGet(scrolls, i), "setHidden:", hid)
     msg_1(cocoaArrayGet(kviews, i), "setHidden:", hid)
     i = i + 1
@@ -1084,16 +1129,20 @@ func retile(axis) {
   cocoaSetAssocKey(app, "stem.splitdirty", cocoaNumber(1))
   emit "1"
 }
-// dir: 1=right 2=left 3=top 4=bottom (axis: right/left=columns, top/bottom=rows)
+// dir: 1=right 2=left 3=top 4=bottom — splits ONLY the focused pane (nested)
 func doSplit(dir) {
   let app = appH()
-  let a = cocoaNumberVal(cocoaGetAssocKey(app, "stem.active"))
-  if a >= 4 { emit "1" }
-  cocoaSetAssocKey(app, "stem.active", cocoaNumber(a + 1))
+  let newIdx = nextFreeIdx()
+  if newIdx < 0 { emit "1" }
+  let fIdx = focusedIdx()
   let axis = 1
   if dir >= 3 { axis = 2 }
-  retile(axis)
-  let kv = cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), a)
+  let before = 0
+  if dir == 2 { before = 1 }
+  if dir == 3 { before = 1 }
+  cocoaSetAssocKey(app, "stem.tree", splitTree(cocoaGetAssocKey(app, "stem.tree"), fIdx, axis, newIdx, before))
+  retile(1)
+  let kv = cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), newIdx)
   cocoaSetAssocKey(app, "stem.focus", kv)
   cocoaMakeFirstResponder(cocoaGetAssocKey(app, "stem.win"), kv)
   emit "1"
@@ -1116,12 +1165,12 @@ func onCloseAll(self, cmd, sender){ msg(appH(), "terminate:")  emit "1" }
 // close focused pane; if last pane, close the window
 func onClosePane(self, cmd, sender) {
   let app = appH()
-  let a = cocoaNumberVal(cocoaGetAssocKey(app, "stem.active"))
-  if a <= 1 { msg_1(cocoaGetAssocKey(app, "stem.win"), "performClose:", 0)  emit "1" }
-  cocoaSetAssocKey(app, "stem.active", cocoaNumber(a - 1))
+  if cocoaArrayCount(treeLeaves()) <= 1 { msg_1(cocoaGetAssocKey(app, "stem.win"), "performClose:", 0)  emit "1" }
+  cocoaSetAssocKey(app, "stem.tree", closeTree(cocoaGetAssocKey(app, "stem.tree"), focusedIdx()))
   retile(1)
-  cocoaSetAssocKey(app, "stem.focus", cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), 0))
-  cocoaMakeFirstResponder(cocoaGetAssocKey(app, "stem.win"), cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), 0))
+  let firstIdx = cocoaNumberVal(cocoaArrayGet(treeLeaves(), 0))
+  cocoaSetAssocKey(app, "stem.focus", cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), firstIdx))
+  cocoaMakeFirstResponder(cocoaGetAssocKey(app, "stem.win"), cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), firstIdx))
   emit "1"
 }
 
@@ -1246,7 +1295,7 @@ just run {
   cocoaSetAssocKey(app, "stem.cols", cocoaNumber(cols))
   cocoaSetAssocKey(app, "stem.rows", cocoaNumber(rows))
   cocoaSetAssocKey(app, "stem.shell", nsString(shell))
-  cocoaSetAssocKey(app, "stem.active", cocoaNumber(1))
+  cocoaSetAssocKey(app, "stem.tree", mkLeaf(0))
   msg_1(win, "setBackgroundColor:", bg)
   msg_1(win, "setTitlebarAppearsTransparent:", 1)
   msg_1(win, "setAppearance:", msg_1(cls("NSAppearance"), "appearanceNamed:", nsString("NSAppearanceNameDarkAqua")))
