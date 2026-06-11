@@ -319,6 +319,25 @@ func x11FillRect(fd, drawable, gc, x, y, w, h) {
     sockSend(fd, r, 20)
 }
 
+// ── PolyFillArc (opcode 71) — one filled arc/ellipse ──────────────────
+// Fill the arc bounded by box (x,y,w,h). Angles are in 1/64 degree; a full
+// circle is a1=0, a2=23040 (360*64). For a circle pass w==h.
+func x11FillArc(fd, drawable, gc, x, y, w, h, a1, a2) {
+    let r = bufNew(24)
+    bufSetByte(r, 0, 71)
+    bufSetByte(r, 1, 0)
+    _x11PutW(r, 2, 6)                // 3 fixed + 3 (one arc)
+    _x11PutD(r, 4, drawable)
+    _x11PutD(r, 8, gc)
+    _x11PutW(r, 12, x)
+    _x11PutW(r, 14, y)
+    _x11PutW(r, 16, w)
+    _x11PutW(r, 18, h)
+    _x11PutW(r, 20, a1)
+    _x11PutW(r, 22, a2)
+    sockSend(fd, r, 24)
+}
+
 // ── ImageText8 (opcode 76) ────────────────────────────────────────────
 // Draw `text` at (x,y) baseline, filling the character cells with the GC
 // background (so no separate clear needed). Max 255 chars.
