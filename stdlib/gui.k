@@ -1425,7 +1425,9 @@ func guiPickFolder(title) {
     let main = guiStateGet("main.hwnd")
     if main != "" { bufSetQwordAt(bi, "0", main) }
     bufSetQwordAt(bi, "24", ptrToInt(title))
-    bufSetDwordAt(bi, "32", "1")
+    // BIF_RETURNONLYFSDIRS (0x01) | BIF_NEWDIALOGSTYLE (0x40) -- the
+    // modern Win11 resizable Explorer-style folder browser.
+    bufSetDwordAt(bi, "32", "65")
     let pidl = callPtr(browse, bi)
     if ptrToInt(pidl) == "0" { emit "" }
     let pathBuf = bufNew("260")
