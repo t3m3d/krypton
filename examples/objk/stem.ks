@@ -880,7 +880,10 @@ func renderSnapshot(snap, deflt, font, cr, cc) {
         if cont == 0 { if vrow == cr { if vcol == cc { isCur = 1 } } }
         if isCur == 1 {
           if len(run) > 0 { appendRunTo(acc, run, fg, bg, font)  run = "" }
-          appendRunTo(acc, "▏", fg, bg, font)
+          // bar cursor only over a blank cell; over a real char (e.g. an
+          // autosuggestion's first letter) keep the char so it stays visible.
+          if c == " " { appendRunTo(acc, "▏", fg, bg, font) }
+          else { appendRunTo(acc, c, fg, bg, font) }
           curStart = 0
         } else { run = run + c }
         if cont == 0 { vcol = vcol + 1 }
