@@ -1583,7 +1583,9 @@ func onSplitTerminal(self, cmd, sender) {
   ptySetSize(cocoaNumberVal(cocoaArrayGet(masters, 0)), rows, half)
   cocoaArraySet(cocoaGetAssocKey(app, "brain.tcols"), 0, cocoaNumber(half))
   cocoaSetAssocKey(app, "brain.splitdirty", cocoaNumber(1))
-  let kv = makePane(472, 468, half)
+  let m1 = cocoaNumberVal(cocoaGetAssocKey(app, "brain.pane1fd"))
+  ptySetSize(m1, rows, half)
+  let kv = makePaneView(m1, 472, 468, half)
   cocoaMakeFirstResponder(cocoaGetAssocKey(app, "brain.win"), kv)
   emit "1"
 }
@@ -1647,11 +1649,10 @@ func termKeyClass() {
   }
   emit c
 }
-// spawn a terminal pane (pty + grid view + key view) at frame x,0,w,246.
-func makePane(x, w, paneCols) {
-  let app = appH()
-  let win = cocoaGetAssocKey(app, "brain.win")
-  let dir = msg(cocoaGetAssocKey(app, "brain.dir"), "UTF8String")
+// fork a pty + shell. MUST be called BEFORE cocoaInit — fork() after AppKit
+// initialises corrupts the parent's window-server/view state, leaving any
+// view created afterward invisible.
+func forkPty(paneCols, dir) {
   let rows = 14
   let m = ptyMaster("/dev/ptmx")
   let slave = ptySlaveName(m)
@@ -1665,6 +1666,12 @@ func makePane(x, w, paneCols) {
   fdSetNonblock(m)
   let setup = "cd \"" + dir + "\"; export TERM=xterm-256color; export TERM_PROGRAM=stem; export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; clear\n"
   fdWrite(m, setup, len(setup))
+  emit m
+}
+// build a terminal pane VIEW for an already-forked pty fd (no fork here).
+func makePaneView(m, x, w, paneCols) {
+  let app = appH()
+  let win = cocoaGetAssocKey(app, "brain.win")
   let term = cocoaScrollText(win, x, 0, w, 246)
   msg_1(term, "setEditable:", 0)
   msg_1(term, "setSelectable:", 0)
@@ -1686,6 +1693,11 @@ just run {
   let dir = projDir()
   recentAdd("folders", dir)
   let cfg = readFile(environ("HOME") + "/.config/stem/config")
+
+  // fork both terminal ptys NOW, before cocoaInit (fork after AppKit init
+  // leaves later-created views invisible). pane 1 stays idle until split.
+  let m0 = forkPty(112, dir)
+  let m1 = forkPty(55, dir)
 
   let app = cocoaInit()
   let bar = cocoaMenuBar(app)
@@ -1747,7 +1759,8 @@ just run {
   cocoaSetAssocKey(app, "brain.tdocs", cocoaArray())
   cocoaSetAssocKey(app, "brain.tcols", cocoaArray())
   cocoaSetAssocKey(app, "brain.tkviews", cocoaArray())
-  let kview = makePane(0, 940, 112)
+  let kview = makePaneView(m0, 0, 940, 112)
+  cocoaSetAssocKey(app, "brain.pane1fd", cocoaNumber(m1))
   cocoaSetAssocKey(app, "stem.master", cocoaArrayGet(cocoaGetAssocKey(app, "brain.tmasters"), 0))
   // view refs for View-menu toggles
   cocoaSetAssocKey(app, "brain.treesv", msg(table, "enclosingScrollView"))
