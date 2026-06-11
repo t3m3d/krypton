@@ -1676,6 +1676,7 @@ func makePane(x, w, paneCols) {
   cocoaArrayAdd(cocoaGetAssocKey(app, "brain.tmasters"), cocoaNumber(m))
   cocoaArrayAdd(cocoaGetAssocKey(app, "brain.tscrolls"), msg(term, "enclosingScrollView"))
   cocoaArrayAdd(cocoaGetAssocKey(app, "brain.tviews"), msg(term, "textStorage"))
+  cocoaArrayAdd(cocoaGetAssocKey(app, "brain.tdocs"), term)
   cocoaArrayAdd(cocoaGetAssocKey(app, "brain.tcols"), cocoaNumber(paneCols))
   cocoaArrayAdd(cocoaGetAssocKey(app, "brain.tkviews"), kview)
   emit kview
@@ -1743,6 +1744,7 @@ just run {
   cocoaSetAssocKey(app, "brain.tmasters", cocoaArray())
   cocoaSetAssocKey(app, "brain.tscrolls", cocoaArray())
   cocoaSetAssocKey(app, "brain.tviews", cocoaArray())
+  cocoaSetAssocKey(app, "brain.tdocs", cocoaArray())
   cocoaSetAssocKey(app, "brain.tcols", cocoaArray())
   cocoaSetAssocKey(app, "brain.tkviews", cocoaArray())
   let kview = makePane(0, 940, 112)
@@ -1905,6 +1907,7 @@ just run {
       let curp = gridCursor(st0, cols0, rows)
       let ci2 = indexOf(curp, ",")
       msg_1(cocoaArrayGet(tviews, 0), "setAttributedString:", renderSnapshot(gridRender(st0, cols0, rows), tfg, tmono, toInt(substring(curp, 0, ci2)), toInt(substring(curp, ci2 + 1, len(curp)))))
+      msg_1(cocoaArrayGet(cocoaGetAssocKey(app, "brain.tdocs"), 0), "scrollToEndOfDocument:", 0)
     }
     // pane 1 (after split)
     if pc >= 2 {
@@ -1919,6 +1922,7 @@ just run {
         let curp1 = gridCursor(st1, cols1, rows)
         let cj = indexOf(curp1, ",")
         msg_1(cocoaArrayGet(tviews, 1), "setAttributedString:", renderSnapshot(gridRender(st1, cols1, rows), tfg, tmono, toInt(substring(curp1, 0, cj)), toInt(substring(curp1, cj + 1, len(curp1)))))
+        msg_1(cocoaArrayGet(cocoaGetAssocKey(app, "brain.tdocs"), 1), "scrollToEndOfDocument:", 0)
       }
     }
     // auto save: every ~5s if enabled, write the current tab to disk
