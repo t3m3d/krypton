@@ -67,7 +67,14 @@ func _krkWndProc(hwnd, msg, wParam, lParam) {
         emit "0"
     }
     if msgInt == 273 {
-        let id = bitAnd(wParam, "65535")
+        // WM_COMMAND: LOWORD(wParam) = control / menu item id.  bitAnd
+        // on string args is documented broken (feedback_native_codegen
+        // _bugs.md), so extract the low 16 bits via arithmetic.
+        // Force the id back to a STRING so the cb.click table lookup
+        // matches how guiOnClick (which receives a string id) keys it.
+        let w = toInt(wParam)
+        let idInt = w - (w / 65536) * 65536
+        let id = idInt + ""
         let cb = guiStateGet("cb.click." + id)
         if cb != "" {
             callPtr(cb, "")
@@ -644,6 +651,51 @@ func guiMenuAdd(menu, label) {
     AppendMenuA(menu, "0", id, label)
     emit id
 }
+
+// Tint the menubar bg with a custom brush.  Works around the WHITE
+// strip Win32 paints between menu and client area when guiEnableDark-
+// Mode is on but the system theme still draws the menu chrome light.
+//
+// MENUINFO (40 bytes on x64):
+//   +0  DWORD     cbSize       = 40
+//   +4  DWORD     fMask        = MIM_BACKGROUND (0x00000002)
+//   +8  DWORD     dwStyle
+//   +12 UINT      cyMax
+//   +16 HBRUSH    hbrBack
+//   +24 DWORD     dwContextHelpID
+//   +32 ULONG_PTR dwMenuData
+func guiMenuDarken(menubar, hexColor) {
+    let color = _guiColorRefFromHex(hexColor)
+    let brush = CreateSolidBrush(color + "")
+    let mi = bufNew("40")
+    bufSetDwordAt(mi, "0",  "40")     // cbSize
+    bufSetDwordAt(mi, "4",  "2")      // fMask = MIM_BACKGROUND
+    bufSetQwordAt(mi, "16", brush + "")
+    SetMenuInfo(menubar + "", mi)
+    let main = guiStateGet("main.hwnd")
+    if main != "" {
+        DrawMenuBar(main)
+        InvalidateRect(main, "0", "1")
+    }
+    emit "1"
+}
+
+// Move the keyboard caret to a child control by its gui-id (or hwnd).
+// Resolves the id->HWND via _guiResolveHwnd so SetFocus gets a real
+// HANDLE, not a Krypton control-id integer.  Direct SetFocus(<id>)
+// crashes because the marshaller passes the id as the HWND argument.
+func guiFocus(hwnd) {
+    let h = _guiResolveHwnd(hwnd)
+    if h == "0" { emit "0" }
+    SetFocus(h)
+    emit "1"
+}
+func guiActivate(hwnd) {
+    let h = _guiResolveHwnd(hwnd)
+    if h == "0" { emit "0" }
+    SetForegroundWindow(h)
+    emit "1"
+}
 // "msctls_statusbar32" class. WS_CHILD|WS_VISIBLE|SBARS_SIZEGRIP(0x100) = 1342177536.
 // 0 dims → auto-positioned by Win32.
 func guiStatusBar(window) {
@@ -912,10 +964,12 @@ func guiColorPicker(initialHex) {
     bufSetDwordAt(cc, "40", "259")
     let ok = ChooseColorA(cc)
     if ok == "0" { emit "" }
-    let v = bufGetDwordAt(cc, "24")
-    let r = bitAnd(v, "255")
-    let g = bitAnd(bitShr(v, "8"), "255")
-    let b = bitAnd(bitShr(v, "16"), "255")
+    // bitAnd/bitShr on string operands are documented broken (feedback_
+    // native_codegen_bugs.md), so extract each byte arithmetically.
+    let vi = toInt(bufGetDwordAt(cc, "24"))
+    let r = vi - (vi / 256) * 256
+    let g = (vi / 256) - (vi / 65536) * 256
+    let b = (vi / 65536) - (vi / 16777216) * 256
     emit "0x" + _guiHexByte(r) + _guiHexByte(g) + _guiHexByte(b)
 }
 // "SysDateTimePick32" class. WS_CHILD|WS_VISIBLE|WS_TABSTOP|DTS_SHORTDATEFORMAT(0) = 1342242816.
@@ -1141,7 +1195,13 @@ func guiSlider(parent, x, y, w, h) {
 func guiSliderRange(slider, lo, hi) {
     let h = _guiResolveHwnd(slider)
     if h == "0" { emit "0" }
-    let packed = bitOr(bitAnd(lo + "", "65535"), bitShl(bitAnd(hi + "", "65535"), "16"))
+    // bit ops on string operands are documented broken, so MAKELONG via
+    // arithmetic: mask each half to 16 bits then add shifted hi.
+    let loI = toInt(lo)
+    let hiI = toInt(hi)
+    let loLow = loI - (loI / 65536) * 65536
+    let hiLow = hiI - (hiI / 65536) * 65536
+    let packed = loLow + hiLow * 65536
     SendMessageA(h, "1030", "1", packed + "")
     emit "1"
 }
