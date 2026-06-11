@@ -1343,6 +1343,24 @@ func onNewTab(self, cmd, sender) {
   switchTab(cocoaArrayCount(tabPanes()) - 1)
   emit "1"
 }
+func onTabNext(self, cmd, sender) {
+  let n = cocoaArrayCount(tabPanes())
+  let p = cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.curtab")) + 1
+  if p >= n { p = 0 }
+  switchTab(p)
+  emit "1"
+}
+func onTabPrev(self, cmd, sender) {
+  let n = cocoaArrayCount(tabPanes())
+  let p = cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.curtab")) - 1
+  if p < 0 { p = n - 1 }
+  switchTab(p)
+  emit "1"
+}
+func onGotoTab1(self, cmd, sender) { if cocoaArrayCount(tabPanes()) > 0 { switchTab(0) }  emit "1" }
+func onGotoTab2(self, cmd, sender) { if cocoaArrayCount(tabPanes()) > 1 { switchTab(1) }  emit "1" }
+func onGotoTab3(self, cmd, sender) { if cocoaArrayCount(tabPanes()) > 2 { switchTab(2) }  emit "1" }
+func onGotoTab4(self, cmd, sender) { if cocoaArrayCount(tabPanes()) > 3 { switchTab(3) }  emit "1" }
 func onCloseAll(self, cmd, sender){ msg(appH(), "terminate:")  emit "1" }
 // close focused pane; if last pane, close the window
 func onClosePane(self, cmd, sender) { closeTab(cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.curtab")))  emit "1" }
@@ -1419,6 +1437,14 @@ just run {
   let winMenu = cocoaMenuAdd(bar, "Window")
   cocoaMenuItemSel(winMenu, "Minimize", "m", "performMiniaturize:")
   cocoaMenuItemSel(winMenu, "Zoom", "", "performZoom:")
+  cocoaMenuSeparator(winMenu)
+  cocoaMenuItem(winMenu, "Show Next Tab", "]", funcptr(onTabNext))
+  cocoaMenuItem(winMenu, "Show Previous Tab", "[", funcptr(onTabPrev))
+  cocoaMenuSeparator(winMenu)
+  cocoaMenuItem(winMenu, "Go to Tab 1", "1", funcptr(onGotoTab1))
+  cocoaMenuItem(winMenu, "Go to Tab 2", "2", funcptr(onGotoTab2))
+  cocoaMenuItem(winMenu, "Go to Tab 3", "3", funcptr(onGotoTab3))
+  cocoaMenuItem(winMenu, "Go to Tab 4", "4", funcptr(onGotoTab4))
   let helpMenu = cocoaMenuAdd(bar, "Help")
   cocoaMenuItem(helpMenu, "stem on the web", "", funcptr(onStemHelp))
 
