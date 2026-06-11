@@ -1070,11 +1070,6 @@ func retile(axis) {
     setPane(0, 0, H / 2, W / 2, H / 2)  setPane(1, W / 2, H / 2, W / 2, H / 2)
     setPane(2, 0, 0, W / 2, H / 2)      setPane(3, W / 2, 0, W / 2, H / 2)
   }
-  // force each shell to redraw its prompt at the new width (Ctrl-L) — the spare
-  // shells drew their prompt at full width while idle and would otherwise wrap.
-  let masters = cocoaGetAssocKey(app, "stem.pmasters")
-  let mi = 0
-  while mi < n { fdWrite(cocoaNumberVal(cocoaArrayGet(masters, mi)), fromCharCode(12), 1)  mi = mi + 1 }
   cocoaSetAssocKey(app, "stem.splitdirty", cocoaNumber(1))
   emit "1"
 }
@@ -1086,10 +1081,16 @@ func doSplit(dir) {
   let spares = cocoaGetAssocKey(app, "stem.spares")
   let m = cocoaNumberVal(cocoaArrayGet(spares, cocoaNumberVal(cocoaGetAssocKey(app, "stem.spareidx"))))
   cocoaSetAssocKey(app, "stem.spareidx", cocoaNumber(cocoaNumberVal(cocoaGetAssocKey(app, "stem.spareidx")) + 1))
+  // discard the spare's buffered full-width prompt (drawn while idle)
+  let d = fdRead(m, 65536)
+  while len(d) > 0 { d = fdRead(m, 65536) }
   let kv = stemMakePaneView(m, 0, 0, 100, 100, 20, 6)
   let axis = 1
   if dir >= 3 { axis = 2 }
   retile(axis)
+  // SIGWINCH from the resize is queued; a newline now yields a fresh prompt
+  // at the new width
+  fdWrite(m, "\n", 1)
   cocoaSetAssocKey(app, "stem.focus", kv)
   cocoaMakeFirstResponder(cocoaGetAssocKey(app, "stem.win"), kv)
   emit "1"
