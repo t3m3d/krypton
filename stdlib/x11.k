@@ -372,6 +372,108 @@ func x11PutImage(fd, drawable, gc, x, y, w, h, pix) {
     sockSend(fd, r, total)
 }
 
+// ── ChangeProperty (opcode 18) ────────────────────────────────────────
+// Set a window property. `data` holds `dlen` bytes (format 8). Used below for
+// WM_CLASS / WM_NAME so window managers (Hyprland, etc.) can identify the
+// window for rules and per-app keybinds.
+// NB: param is `ptype` not `type` — `type` is a Krypton builtin and shadowing
+// it here made the type atom resolve wrong, so the server silently dropped the
+// property (no error, but xprop showed nothing).
+func x11ChangeProp8(fd, win, prop, ptype, data, dlen) {
+    let np = (dlen + 3) / 4 * 4
+    let total = 24 + np
+    let r = bufNew(total)
+    bufSetByte(r, 0, 18)
+    bufSetByte(r, 1, 0)              // mode = Replace
+    _x11PutW(r, 2, 6 + np / 4)
+    _x11PutD(r, 4, win)
+    _x11PutD(r, 8, prop)
+    _x11PutD(r, 12, ptype)
+    bufSetByte(r, 16, 8)            // format
+    _x11PutD(r, 20, dlen)          // length in format-8 units (= bytes)
+    let i = 0
+    while i < dlen {
+        bufSetByte(r, 24 + i, bufGetByte(data, i))
+        i += 1
+    }
+    sockSend(fd, r, total)
+}
+
+// WM_NAME (predefined atom 39), type STRING (31). The window title.
+func x11SetTitle(fd, win, title) {
+    let n = len(title)
+    let b = bufNew(n)
+    let i = 0
+    while i < n { bufSetByte(b, i, charCode(title[i]))  i += 1 }
+    x11ChangeProp8(fd, win, 39, 31, b, n)
+}
+
+// InternAtom (opcode 16) -> atom id. Reads the reply (atom at bytes 8-11).
+// Call at startup before the window is mapped so the reply isn't interleaved
+// with events.
+func x11InternAtom(fd, name) {
+    let n = len(name)
+    let np = (n + 3) / 4 * 4
+    let total = 8 + np
+    let r = bufNew(total)
+    bufSetByte(r, 0, 16)
+    bufSetByte(r, 1, 0)              // only-if-exists = false
+    _x11PutW(r, 2, 2 + np / 4)
+    _x11PutW(r, 4, n)
+    let i = 0
+    while i < n { bufSetByte(r, 8 + i, charCode(name[i]))  i += 1 }
+    sockSend(fd, r, total)
+    let rep = bufNew(32)
+    sockRecv(fd, rep, 32)
+    emit bufGetDwordAt(rep, 8)
+}
+
+// ChangeProperty with format 32 (`nval` 32-bit values in `values`).
+func x11ChangeProp32(fd, win, prop, ptype, values, nval) {
+    let dlen = nval * 4
+    let total = 24 + dlen
+    let r = bufNew(total)
+    bufSetByte(r, 0, 18)
+    bufSetByte(r, 1, 0)
+    _x11PutW(r, 2, 6 + dlen / 4)
+    _x11PutD(r, 4, win)
+    _x11PutD(r, 8, prop)
+    _x11PutD(r, 12, ptype)
+    bufSetByte(r, 16, 32)
+    _x11PutD(r, 20, nval)
+    let i = 0
+    while i < dlen { bufSetByte(r, 24 + i, bufGetByte(values, i))  i += 1 }
+    sockSend(fd, r, total)
+}
+
+// Advertise WM_DELETE_WINDOW so a WM "close" action (e.g. Hyprland killactive)
+// sends a ClientMessage instead of killing the client. Pass the atoms from
+// x11InternAtom("WM_PROTOCOLS") and ("WM_DELETE_WINDOW"); handle the
+// ClientMessage (event type 33) where data dword @12 == delAtom -> quit.
+func x11SetWmProtocols(fd, win, protoAtom, delAtom) {
+    let v = bufNew(4)
+    bufSetByte(v, 0, delAtom - delAtom / 256 * 256)
+    bufSetByte(v, 1, delAtom / 256 - delAtom / 65536 * 256)
+    bufSetByte(v, 2, delAtom / 65536 - delAtom / 16777216 * 256)
+    bufSetByte(v, 3, delAtom / 16777216 - delAtom / 16777216 / 256 * 256)
+    x11ChangeProp32(fd, win, protoAtom, 4, v, 1)   // type ATOM (4)
+}
+
+// WM_CLASS (predefined atom 67), type STRING (31). Two NUL-terminated strings:
+// instance then class. WMs match on the class (e.g. Hyprland `class:cortex`).
+func x11SetClass(fd, win, inst, cls) {
+    let n = len(inst) + 1 + len(cls) + 1
+    let b = bufNew(n)
+    let p = 0
+    let i = 0
+    while i < len(inst) { bufSetByte(b, p, charCode(inst[i]))  p += 1  i += 1 }
+    bufSetByte(b, p, 0)  p += 1
+    i = 0
+    while i < len(cls) { bufSetByte(b, p, charCode(cls[i]))  p += 1  i += 1 }
+    bufSetByte(b, p, 0)
+    x11ChangeProp8(fd, win, 67, 31, b, n)
+}
+
 // ── event read ────────────────────────────────────────────────────────
 // Core events/replies/errors are 32 bytes. Reads one into `ev` (a 32-byte
 // buf). Returns the byte count (0/-1 on EOF/error). type = byte0 & 0x7f
