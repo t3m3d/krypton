@@ -741,7 +741,7 @@ func onKey(self, cmd, event) {
   let pf = cocoaGetAssocKey(self, "ptyfd")
   let m = cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.master"))
   if pf != 0 { m = cocoaNumberVal(pf) }
-  cocoaSetAssocKey(appH(), "stem.focus", self)
+  cocoaSetAssocKey(appH(), "stem.focusidx", cocoaGetAssocKey(self, "paneidx"))
   let esc = fromCharCode(27)
   let kc = msg(event, "keyCode")
   let seq = ""
@@ -992,6 +992,7 @@ func stemKeyClass() {
   if c == 0 {
     c = cocoaViewClassNew("StemKeys")
     cocoaClassAddMethod(c, "keyDown:", funcptr(onKey), "v@:@")
+    cocoaClassAddMethod(c, "mouseDown:", funcptr(onMouse), "v@:@")
     cocoaClassAddMethod(c, "acceptsFirstResponder", funcptr(acceptsFR), "c@:")
     cocoaClassRegister(c)
   }
@@ -1023,6 +1024,7 @@ func stemMakePaneView(m, x, y, w, h, pcols, prows) {
   cocoaSetTextColor(view, cocoaGetAssocKey(app, "stem.fgc"))
   let kview = cocoaCustomView(win, stemKeyClass(), x, y, w, h)
   cocoaSetAssocKey(kview, "ptyfd", cocoaNumber(m))
+  cocoaSetAssocKey(kview, "paneidx", cocoaNumber(cocoaArrayCount(cocoaGetAssocKey(app, "stem.pkviews"))))
   cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pmasters"), cocoaNumber(m))
   cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pscrolls"), msg(view, "enclosingScrollView"))
   cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pviews"), msg(view, "textStorage"))
@@ -1142,9 +1144,8 @@ func doSplit(dir) {
   if dir == 3 { before = 1 }
   cocoaSetAssocKey(app, "stem.tree", splitTree(cocoaGetAssocKey(app, "stem.tree"), fIdx, axis, newIdx, before))
   retile(1)
-  let kv = cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), newIdx)
-  cocoaSetAssocKey(app, "stem.focus", kv)
-  cocoaMakeFirstResponder(cocoaGetAssocKey(app, "stem.win"), kv)
+  cocoaSetAssocKey(app, "stem.focusidx", cocoaNumber(newIdx))
+  cocoaMakeFirstResponder(cocoaGetAssocKey(app, "stem.win"), cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), newIdx))
   emit "1"
 }
 func onSplitRight(self, cmd, sender)  { doSplit(1)  emit "1" }
@@ -1152,13 +1153,15 @@ func onSplitLeft(self, cmd, sender)   { doSplit(2)  emit "1" }
 func onSplitTop(self, cmd, sender)    { doSplit(3)  emit "1" }
 func onSplitBottom(self, cmd, sender) { doSplit(4)  emit "1" }
 func focusedIdx() {
-  let f = cocoaGetAssocKey(appH(), "stem.focus")
+  let f = cocoaGetAssocKey(appH(), "stem.focusidx")
   if f == 0 { emit 0 }
-  let kvs = cocoaGetAssocKey(appH(), "stem.pkviews")
-  let n = cocoaArrayCount(kvs)
-  let i = 0
-  while i < n { if cocoaArrayGet(kvs, i) == f { emit i }  i = i + 1 }
-  emit 0
+  emit cocoaNumberVal(f)
+}
+// click a pane -> focus it (so the next split targets it)
+func onMouse(self, cmd, event) {
+  cocoaSetAssocKey(appH(), "stem.focusidx", cocoaGetAssocKey(self, "paneidx"))
+  cocoaMakeFirstResponder(cocoaGetAssocKey(appH(), "stem.win"), self)
+  emit "1"
 }
 func onNewTab(self, cmd, sender)  { exec("open -na stem")  emit "1" }
 func onCloseAll(self, cmd, sender){ msg(appH(), "terminate:")  emit "1" }
@@ -1169,7 +1172,7 @@ func onClosePane(self, cmd, sender) {
   cocoaSetAssocKey(app, "stem.tree", closeTree(cocoaGetAssocKey(app, "stem.tree"), focusedIdx()))
   retile(1)
   let firstIdx = cocoaNumberVal(cocoaArrayGet(treeLeaves(), 0))
-  cocoaSetAssocKey(app, "stem.focus", cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), firstIdx))
+  cocoaSetAssocKey(app, "stem.focusidx", cocoaNumber(firstIdx))
   cocoaMakeFirstResponder(cocoaGetAssocKey(app, "stem.win"), cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), firstIdx))
   emit "1"
 }
