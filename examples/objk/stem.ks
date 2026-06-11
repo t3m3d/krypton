@@ -1385,20 +1385,17 @@ just run {
       msg_1(cocoaArrayGet(pviews, 0), "setAttributedString:", renderSnapshot(rendered, fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(curp, 0, ci2)), toInt(substring(curp, ci2 + 1, len(curp)))))
       msg_1(cocoaArrayGet(pdocs, 0), "scrollToEndOfDocument:", 0)
     }
-    // force a view repaint of pane 0 a few times during startup — the login
-    // shell's p10k prompt can finish after the first (blank) render and an idle
-    // prompt sends no more output to trigger a redraw. Cocoa-side only (no shell
-    // poke), so nothing is echoed.
-    let rr = 0
-    if i == 200 { rr = 1 }
-    if i == 400 { rr = 1 }
-    if i == 600 { rr = 1 }
-    if rr == 1 {
+    // On a COLD first launch the login shell + p10k can take >5s to draw the
+    // prompt; an idle prompt then sends no output to trigger a view repaint, so
+    // it stays blank until the window is re-focused. Repaint pane 0 every ~0.25s
+    // for the first ~25s (Cocoa-side only) so the prompt appears as soon as it
+    // lands, no matter how slow the cold start.
+    if i < 3000 { if i - (i / 30) * 30 == 0 {
       let cp = gridCursor(st0, c0, r0)
       let ck = indexOf(cp, ",")
       msg_1(cocoaArrayGet(pviews, 0), "setAttributedString:", renderSnapshot(gridRender(st0, c0, r0), fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(cp, 0, ck)), toInt(substring(cp, ck + 1, len(cp)))))
       msg_1(cocoaArrayGet(pdocs, 0), "scrollToEndOfDocument:", 0)
-    }
+    } }
     if pc >= 2 {
       let c1 = cocoaNumberVal(cocoaArrayGet(pcolsA, 1))
       let r1 = cocoaNumberVal(cocoaArrayGet(prowsA, 1))
