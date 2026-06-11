@@ -961,6 +961,27 @@ func onStemCopy(self, cmd, sender) {
   exec("pbcopy < /tmp/stemcopy")
   emit "1"
 }
+func onStemUpdate(self, cmd, sender) {
+  exec("(brew update >/dev/null 2>&1; if brew outdated --cask t3m3d/krypton/stem | grep -q stem; then brew upgrade --cask t3m3d/krypton/stem >/dev/null 2>&1 && osascript -e 'display notification \"Updated stem to the latest version.\" with title \"stem\"'; else osascript -e 'display notification \"stem is up to date.\" with title \"stem\"'; fi) &")
+  emit "1"
+}
+func onStemSecure(self, cmd, sender) {
+  let cur = brainFlagS("stem.secure", 0)
+  let nv = 1
+  if cur == 1 { nv = 0 }
+  cocoaSetAssocKey(appH(), "stem.secure", cocoaNumber(nv))
+  msg_1(sender, "setState:", nv)
+  emit "1"
+}
+func onStemDefault(self, cmd, sender) {
+  exec("osascript -e 'display dialog \"macOS has no single default-terminal setting. To open shell scripts (.command/.tool) with stem, right-click one " + fromCharCode(8594) + " Get Info " + fromCharCode(8594) + " Open with: stem " + fromCharCode(8594) + " Change All.\" buttons {\"OK\"} default button \"OK\" with title \"Make stem Default Terminal\"' >/dev/null 2>&1 &")
+  emit "1"
+}
+func brainFlagS(key, def) {
+  let v = cocoaGetAssocKey(appH(), key)
+  if v == 0 { emit def }
+  emit cocoaNumberVal(v)
+}
 
 func defaultConfig() {
   emit "# stem config — key = value, # comments. Restart stem to apply.\nshell = /bin/zsh\nfont = JetBrainsMono Nerd Font Mono\nfont_size = 13\ncols = 92\nrows = 28\nwidth = 760\nheight = 500\ntitle = stem\n# colours as #RRGGBB\nfg = #ffffff\nbg = #000000\ncolor0 = #000000\ncolor1 = #cd3131\ncolor2 = #0dbc79\ncolor3 = #e5e510\ncolor4 = #2472c8\ncolor5 = #bc3fbc\ncolor6 = #11a8cd\ncolor7 = #e5e5e5\ncolor8 = #666666\ncolor9 = #f14c4c\ncolor10 = #23d18b\ncolor11 = #f5f567\ncolor12 = #3b8eea\ncolor13 = #d670d6\ncolor14 = #29b8db\ncolor15 = #ffffff\n"
@@ -1002,11 +1023,20 @@ just run {
   // app menu (system bolds the first menu as the app name)
   let appMenu = cocoaMenuAdd(bar, "stem")
   cocoaMenuItem(appMenu, "About stem", "", funcptr(onStemAbout))
+  cocoaMenuItem(appMenu, "Check for Updates", "", funcptr(onStemUpdate))
   cocoaMenuSeparator(appMenu)
   cocoaMenuItem(appMenu, "Settings", ",", funcptr(onStemConfig))
-  cocoaMenuItem(appMenu, "Reload Config", "", funcptr(onStemReload))
+  cocoaMenuItem(appMenu, "Reload Configuration", "", funcptr(onStemReload))
+  cocoaMenuItem(appMenu, "Secure Keyboard Entry", "", funcptr(onStemSecure))
+  cocoaMenuItem(appMenu, "Make stem Default Terminal", "", funcptr(onStemDefault))
+  cocoaMenuSeparator(appMenu)
+  let svcMenu = cocoaSubmenuIn(appMenu, "Services")
+  msg_1(app, "setServicesMenu:", svcMenu)
   cocoaMenuSeparator(appMenu)
   cocoaMenuItemSel(appMenu, "Hide stem", "h", "hide:")
+  cocoaMenuItemSel(appMenu, "Hide Others", "", "hideOtherApplications:")
+  cocoaMenuItemSel(appMenu, "Show All", "", "unhideAllApplications:")
+  cocoaMenuSeparator(appMenu)
   cocoaMenuItemSel(appMenu, "Quit stem", "q", "terminate:")
   let shMenu = cocoaMenuAdd(bar, "Shell")
   cocoaMenuItem(shMenu, "New Window", "n", funcptr(onStemNewWin))
