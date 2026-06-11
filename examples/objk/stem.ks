@@ -1033,35 +1033,58 @@ func stemMakePaneView(m, x, y, w, h, pcols, prows) {
   emit kview
 }
 func paneCount() { emit cocoaArrayCount(cocoaGetAssocKey(appH(), "stem.pmasters")) }
-// reframe pane 0 (scroll + key view) + resize its pty
-func reframePane0(x, y, w, h, pcols, prows) {
+// set pane idx's frame + pty size + stored cols/rows
+func setPane(idx, x, y, w, h) {
   let app = appH()
-  msg_frame(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pscrolls"), 0), "setFrame:", x, y, w, h)
-  msg_frame(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), 0), "setFrame:", x, y, w, h)
-  ptySetSize(cocoaNumberVal(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pmasters"), 0)), prows, pcols)
-  cocoaArraySet(cocoaGetAssocKey(app, "stem.pcols"), 0, cocoaNumber(pcols))
-  cocoaArraySet(cocoaGetAssocKey(app, "stem.prows"), 0, cocoaNumber(prows))
-  emit "1"
-}
-// dir: 1=right 2=left 3=top 4=bottom
-func doSplit(dir) {
-  let app = appH()
-  if paneCount() >= 2 { emit "1" }
   let W = cocoaNumberVal(cocoaGetAssocKey(app, "stem.w"))
   let H = cocoaNumberVal(cocoaGetAssocKey(app, "stem.h"))
   let C = cocoaNumberVal(cocoaGetAssocKey(app, "stem.cols"))
   let R = cocoaNumberVal(cocoaGetAssocKey(app, "stem.rows"))
-  let spare = cocoaNumberVal(cocoaGetAssocKey(app, "stem.spare"))
-  let hw = W / 2
-  let hh = H / 2
-  let hc = C / 2
-  let hr = R / 2
-  let kv = 0
-  if dir == 1 { reframePane0(0, 0, hw, H, hc, R)  ptySetSize(spare, R, hc)  kv = stemMakePaneView(spare, hw, 0, hw, H, hc, R) }
-  if dir == 2 { reframePane0(hw, 0, hw, H, hc, R)  ptySetSize(spare, R, hc)  kv = stemMakePaneView(spare, 0, 0, hw, H, hc, R) }
-  if dir == 3 { reframePane0(0, 0, W, hh, C, hr)   ptySetSize(spare, hr, C)  kv = stemMakePaneView(spare, 0, hh, W, hh, C, hr) }
-  if dir == 4 { reframePane0(0, hh, W, hh, C, hr)  ptySetSize(spare, hr, C)  kv = stemMakePaneView(spare, 0, 0, W, hh, C, hr) }
+  let pcols = (C * w) / W
+  let prows = (R * h) / H
+  if pcols < 4 { pcols = 4 }
+  if prows < 2 { prows = 2 }
+  msg_frame(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pscrolls"), idx), "setFrame:", x, y, w, h)
+  msg_frame(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), idx), "setFrame:", x, y, w, h)
+  ptySetSize(cocoaNumberVal(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pmasters"), idx)), prows, pcols)
+  cocoaArraySet(cocoaGetAssocKey(app, "stem.pcols"), idx, cocoaNumber(pcols))
+  cocoaArraySet(cocoaGetAssocKey(app, "stem.prows"), idx, cocoaNumber(prows))
+  emit "1"
+}
+// re-tile all panes into a clean layout (axis: 1=columns, 2=rows)
+func retile(axis) {
+  let app = appH()
+  let n = paneCount()
+  let W = cocoaNumberVal(cocoaGetAssocKey(app, "stem.w"))
+  let H = cocoaNumberVal(cocoaGetAssocKey(app, "stem.h"))
+  if n == 1 { setPane(0, 0, 0, W, H) }
+  if n == 2 {
+    if axis == 1 { setPane(0, 0, 0, W / 2, H)  setPane(1, W / 2, 0, W / 2, H) }
+    else { setPane(0, 0, H / 2, W, H / 2)  setPane(1, 0, 0, W, H / 2) }
+  }
+  if n == 3 {
+    if axis == 1 { setPane(0, 0, 0, W / 3, H)  setPane(1, W / 3, 0, W / 3, H)  setPane(2, (W / 3) * 2, 0, W / 3, H) }
+    else { setPane(0, 0, (H / 3) * 2, W, H / 3)  setPane(1, 0, H / 3, W, H / 3)  setPane(2, 0, 0, W, H / 3) }
+  }
+  if n == 4 {
+    setPane(0, 0, H / 2, W / 2, H / 2)  setPane(1, W / 2, H / 2, W / 2, H / 2)
+    setPane(2, 0, 0, W / 2, H / 2)      setPane(3, W / 2, 0, W / 2, H / 2)
+  }
   cocoaSetAssocKey(app, "stem.splitdirty", cocoaNumber(1))
+  emit "1"
+}
+// dir: 1=right 2=left 3=top 4=bottom (axis: right/left=columns, top/bottom=rows)
+func doSplit(dir) {
+  let app = appH()
+  let n = paneCount()
+  if n >= 4 { emit "1" }
+  let spares = cocoaGetAssocKey(app, "stem.spares")
+  let m = cocoaNumberVal(cocoaArrayGet(spares, cocoaNumberVal(cocoaGetAssocKey(app, "stem.spareidx"))))
+  cocoaSetAssocKey(app, "stem.spareidx", cocoaNumber(cocoaNumberVal(cocoaGetAssocKey(app, "stem.spareidx")) + 1))
+  let kv = stemMakePaneView(m, 0, 0, 100, 100, 20, 6)
+  let axis = 1
+  if dir >= 3 { axis = 2 }
+  retile(axis)
   cocoaSetAssocKey(app, "stem.focus", kv)
   cocoaMakeFirstResponder(cocoaGetAssocKey(app, "stem.win"), kv)
   emit "1"
@@ -1086,16 +1109,6 @@ func onClosePane(self, cmd, sender) {
   let app = appH()
   if paneCount() <= 1 { msg_1(cocoaGetAssocKey(app, "stem.win"), "performClose:", 0)  emit "1" }
   let fi = focusedIdx()
-  let other = 1 - fi
-  let W = cocoaNumberVal(cocoaGetAssocKey(app, "stem.w"))
-  let H = cocoaNumberVal(cocoaGetAssocKey(app, "stem.h"))
-  let C = cocoaNumberVal(cocoaGetAssocKey(app, "stem.cols"))
-  let R = cocoaNumberVal(cocoaGetAssocKey(app, "stem.rows"))
-  // expand the surviving pane to full
-  msg_frame(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pscrolls"), other), "setFrame:", 0, 0, W, H)
-  msg_frame(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), other), "setFrame:", 0, 0, W, H)
-  ptySetSize(cocoaNumberVal(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pmasters"), other)), R, C)
-  // drop the closed pane's views + array entries
   msg(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pscrolls"), fi), "removeFromSuperview")
   msg(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), fi), "removeFromSuperview")
   cocoaArrayRemove(cocoaGetAssocKey(app, "stem.pmasters"), fi)
@@ -1105,11 +1118,9 @@ func onClosePane(self, cmd, sender) {
   cocoaArrayRemove(cocoaGetAssocKey(app, "stem.pcols"), fi)
   cocoaArrayRemove(cocoaGetAssocKey(app, "stem.prows"), fi)
   cocoaArrayRemove(cocoaGetAssocKey(app, "stem.pkviews"), fi)
-  cocoaArraySet(cocoaGetAssocKey(app, "stem.pcols"), 0, cocoaNumber(C))
-  cocoaArraySet(cocoaGetAssocKey(app, "stem.prows"), 0, cocoaNumber(R))
+  retile(1)
   cocoaSetAssocKey(app, "stem.focus", cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), 0))
   cocoaMakeFirstResponder(cocoaGetAssocKey(app, "stem.win"), cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), 0))
-  cocoaSetAssocKey(app, "stem.splitdirty", cocoaNumber(1))
   emit "1"
 }
 
@@ -1133,10 +1144,12 @@ just run {
   let height = toInt(cfgVal(cfg, "height", "500"))
   let shell = cfgVal(cfg, "shell", "/bin/zsh")
 
-  // fork pane 0 + one spare pty BEFORE cocoaInit (fork after AppKit init
-  // leaves later-created views invisible). spare is used by the first split.
+  // fork pane 0 + 3 spare ptys BEFORE cocoaInit (fork after AppKit init leaves
+  // later-created views invisible). spares feed splits (up to 4 panes).
   let m0 = stemForkPty(cols, rows, shell)
-  let spare = stemForkPty(cols, rows, shell)
+  let sp1 = stemForkPty(cols, rows, shell)
+  let sp2 = stemForkPty(cols, rows, shell)
+  let sp3 = stemForkPty(cols, rows, shell)
 
   let app = cocoaInit()
   let bar = cocoaMenuBar(app)
@@ -1230,7 +1243,12 @@ just run {
   cocoaSetAssocKey(app, "stem.h", cocoaNumber(height))
   cocoaSetAssocKey(app, "stem.cols", cocoaNumber(cols))
   cocoaSetAssocKey(app, "stem.rows", cocoaNumber(rows))
-  cocoaSetAssocKey(app, "stem.spare", cocoaNumber(spare))
+  let spares = cocoaArray()
+  cocoaArrayAdd(spares, cocoaNumber(sp1))
+  cocoaArrayAdd(spares, cocoaNumber(sp2))
+  cocoaArrayAdd(spares, cocoaNumber(sp3))
+  cocoaSetAssocKey(app, "stem.spares", spares)
+  cocoaSetAssocKey(app, "stem.spareidx", cocoaNumber(0))
   msg_1(win, "setBackgroundColor:", bg)
   msg_1(win, "setTitlebarAppearsTransparent:", 1)
   msg_1(win, "setAppearance:", msg_1(cls("NSAppearance"), "appearanceNamed:", nsString("NSAppearanceNameDarkAqua")))
@@ -1253,7 +1271,13 @@ just run {
   let pend0 = ""
   let st1 = ""
   let pend1 = ""
+  let st2 = ""
+  let pend2 = ""
+  let st3 = ""
+  let pend3 = ""
   let p1init = 0
+  let p2init = 0
+  let p3init = 0
   let i = 0
   while i < 2000000000 {
     cocoaPumpEvents(app)
@@ -1266,7 +1290,7 @@ just run {
     if brainFlagS("stem.splitdirty", 0) == 1 {
       cocoaSetAssocKey(app, "stem.splitdirty", cocoaNumber(0))
       st0 = gridNew(cocoaNumberVal(cocoaArrayGet(pcolsA, 0)), cocoaNumberVal(cocoaArrayGet(prowsA, 0)))  pend0 = ""
-      p1init = 0
+      p1init = 0  p2init = 0  p3init = 0
     }
     let c0 = cocoaNumberVal(cocoaArrayGet(pcolsA, 0))
     let r0 = cocoaNumberVal(cocoaArrayGet(prowsA, 0))
@@ -1297,6 +1321,38 @@ just run {
         let cj = indexOf(curp1, ",")
         msg_1(cocoaArrayGet(pviews, 1), "setAttributedString:", renderSnapshot(gridRender(st1, c1, r1), fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(curp1, 0, cj)), toInt(substring(curp1, cj + 1, len(curp1)))))
         msg_1(cocoaArrayGet(pdocs, 1), "scrollToEndOfDocument:", 0)
+      }
+    }
+    if pc >= 3 {
+      let c2 = cocoaNumberVal(cocoaArrayGet(pcolsA, 2))
+      let r2 = cocoaNumberVal(cocoaArrayGet(prowsA, 2))
+      if p2init == 0 { st2 = gridNew(c2, r2)  pend2 = ""  p2init = 1 }
+      let chunk2 = fdRead(cocoaNumberVal(cocoaArrayGet(masters, 2)), 4096)
+      if len(chunk2) > 0 {
+        let buf2 = pend2 + chunk2
+        let safe2 = gridSafeLen(buf2)
+        pend2 = substring(buf2, safe2, len(buf2))
+        st2 = gridFeed(st2, substring(buf2, 0, safe2), c2, r2)
+        let curp2 = gridCursor(st2, c2, r2)
+        let ck = indexOf(curp2, ",")
+        msg_1(cocoaArrayGet(pviews, 2), "setAttributedString:", renderSnapshot(gridRender(st2, c2, r2), fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(curp2, 0, ck)), toInt(substring(curp2, ck + 1, len(curp2)))))
+        msg_1(cocoaArrayGet(pdocs, 2), "scrollToEndOfDocument:", 0)
+      }
+    }
+    if pc >= 4 {
+      let c3 = cocoaNumberVal(cocoaArrayGet(pcolsA, 3))
+      let r3 = cocoaNumberVal(cocoaArrayGet(prowsA, 3))
+      if p3init == 0 { st3 = gridNew(c3, r3)  pend3 = ""  p3init = 1 }
+      let chunk3 = fdRead(cocoaNumberVal(cocoaArrayGet(masters, 3)), 4096)
+      if len(chunk3) > 0 {
+        let buf3 = pend3 + chunk3
+        let safe3 = gridSafeLen(buf3)
+        pend3 = substring(buf3, safe3, len(buf3))
+        st3 = gridFeed(st3, substring(buf3, 0, safe3), c3, r3)
+        let curp3 = gridCursor(st3, c3, r3)
+        let cl = indexOf(curp3, ",")
+        msg_1(cocoaArrayGet(pviews, 3), "setAttributedString:", renderSnapshot(gridRender(st3, c3, r3), fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(curp3, 0, cl)), toInt(substring(curp3, cl + 1, len(curp3)))))
+        msg_1(cocoaArrayGet(pdocs, 3), "scrollToEndOfDocument:", 0)
       }
     }
     sleepUs(0, 8000)
