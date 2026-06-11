@@ -1070,6 +1070,11 @@ func retile(axis) {
     setPane(0, 0, H / 2, W / 2, H / 2)  setPane(1, W / 2, H / 2, W / 2, H / 2)
     setPane(2, 0, 0, W / 2, H / 2)      setPane(3, W / 2, 0, W / 2, H / 2)
   }
+  // force each shell to redraw its prompt at the new width (Ctrl-L) — the spare
+  // shells drew their prompt at full width while idle and would otherwise wrap.
+  let masters = cocoaGetAssocKey(app, "stem.pmasters")
+  let mi = 0
+  while mi < n { fdWrite(cocoaNumberVal(cocoaArrayGet(masters, mi)), fromCharCode(12), 1)  mi = mi + 1 }
   cocoaSetAssocKey(app, "stem.splitdirty", cocoaNumber(1))
   emit "1"
 }
