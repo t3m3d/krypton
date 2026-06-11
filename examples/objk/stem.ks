@@ -1085,12 +1085,13 @@ func doSplit(dir) {
   let axis = 1
   if dir >= 3 { axis = 2 }
   retile(axis)
-  // let the SIGWINCH (from the resize) settle, drain everything the shell drew
-  // at the old width, then a clean redraw at the new width
-  sleepUs(0, 200000)
+  // The spare shell started before its winsize was set (defaults to ~80 cols)
+  // and won't reflow. Drain its stale output, then re-exec a fresh shell which
+  // reads the now-correct winsize from the resized pty.
+  sleepUs(0, 120000)
   let d = fdRead(m, 65536)
   while len(d) > 0 { d = fdRead(m, 65536) }
-  fdWrite(m, "clear\n", 6)
+  fdWrite(m, "exec " + msg(cocoaGetAssocKey(app, "stem.shell"), "UTF8String") + "\n", len("exec " + msg(cocoaGetAssocKey(app, "stem.shell"), "UTF8String") + "\n"))
   cocoaSetAssocKey(app, "stem.focus", kv)
   cocoaMakeFirstResponder(cocoaGetAssocKey(app, "stem.win"), kv)
   emit "1"
@@ -1255,6 +1256,7 @@ just run {
   cocoaArrayAdd(spares, cocoaNumber(sp3))
   cocoaSetAssocKey(app, "stem.spares", spares)
   cocoaSetAssocKey(app, "stem.spareidx", cocoaNumber(0))
+  cocoaSetAssocKey(app, "stem.shell", nsString(shell))
   msg_1(win, "setBackgroundColor:", bg)
   msg_1(win, "setTitlebarAppearsTransparent:", 1)
   msg_1(win, "setAppearance:", msg_1(cls("NSAppearance"), "appearanceNamed:", nsString("NSAppearanceNameDarkAqua")))
