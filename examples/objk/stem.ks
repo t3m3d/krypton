@@ -1359,13 +1359,6 @@ just run {
     let pcolsA = cocoaGetAssocKey(app, "stem.pcols")
     let prowsA = cocoaGetAssocKey(app, "stem.prows")
     let pc = cocoaArrayCount(masters)
-    // once views are laid out + the login shell's prompt is up, Ctrl-L each
-    // shell to force a clean repaint (the first prompt render can land before
-    // the view is ready -> blank until next output). No echo (no typed setup).
-    if i == 300 {
-      let k = 0
-      while k < pc { fdWrite(cocoaNumberVal(cocoaArrayGet(masters, k)), fromCharCode(12), 1)  k = k + 1 }
-    }
     if brainFlagS("stem.splitdirty", 0) == 1 {
       cocoaSetAssocKey(app, "stem.splitdirty", cocoaNumber(0))
       st0 = gridNew(cocoaNumberVal(cocoaArrayGet(pcolsA, 0)), cocoaNumberVal(cocoaArrayGet(prowsA, 0)))  pend0 = ""
@@ -1384,6 +1377,20 @@ just run {
       let rendered = gridRender(st0, c0, r0)
       cocoaSetAssocKey(app, "stem.lastrender", nsString(rendered))
       msg_1(cocoaArrayGet(pviews, 0), "setAttributedString:", renderSnapshot(rendered, fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(curp, 0, ci2)), toInt(substring(curp, ci2 + 1, len(curp)))))
+      msg_1(cocoaArrayGet(pdocs, 0), "scrollToEndOfDocument:", 0)
+    }
+    // force a view repaint of pane 0 a few times during startup — the login
+    // shell's p10k prompt can finish after the first (blank) render and an idle
+    // prompt sends no more output to trigger a redraw. Cocoa-side only (no shell
+    // poke), so nothing is echoed.
+    let rr = 0
+    if i == 200 { rr = 1 }
+    if i == 400 { rr = 1 }
+    if i == 600 { rr = 1 }
+    if rr == 1 {
+      let cp = gridCursor(st0, c0, r0)
+      let ck = indexOf(cp, ",")
+      msg_1(cocoaArrayGet(pviews, 0), "setAttributedString:", renderSnapshot(gridRender(st0, c0, r0), fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(cp, 0, ck)), toInt(substring(cp, ck + 1, len(cp)))))
       msg_1(cocoaArrayGet(pdocs, 0), "scrollToEndOfDocument:", 0)
     }
     if pc >= 2 {
