@@ -1343,6 +1343,11 @@ just run {
   cocoaShow(win, app)
   cocoaMakeFirstResponder(win, kview)
   cocoaFinishLaunching(app)
+  // make the app frontmost/key on launch — a manual-event-loop app isn't
+  // activated automatically, so the window's text view doesn't draw until it
+  // becomes key (was: blank prompt until reopened from the dock).
+  msg_1(app, "activateIgnoringOtherApps:", 1)
+  msg_1(win, "makeKeyAndOrderFront:", 0)
 
   // manual loop: up to 2 panes; grid state kept in locals (packed != UTF-8)
   let st0 = gridNew(cols, rows)
@@ -1365,6 +1370,12 @@ just run {
     let pcolsA = cocoaGetAssocKey(app, "stem.pcols")
     let prowsA = cocoaGetAssocKey(app, "stem.prows")
     let pc = cocoaArrayCount(masters)
+    // re-assert activation once the event pump is running (first call before the
+    // pump may not take) so the window becomes key + the text view draws.
+    if i == 5 {
+      msg_1(app, "activateIgnoringOtherApps:", 1)
+      msg_1(cocoaGetAssocKey(app, "stem.win"), "makeKeyAndOrderFront:", 0)
+    }
     if brainFlagS("stem.splitdirty", 0) == 1 {
       cocoaSetAssocKey(app, "stem.splitdirty", cocoaNumber(0))
       st0 = gridNew(cocoaNumberVal(cocoaArrayGet(pcolsA, 0)), cocoaNumberVal(cocoaArrayGet(prowsA, 0)))  pend0 = ""
