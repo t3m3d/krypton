@@ -1009,7 +1009,10 @@ func stemForkPty(pcols, prows, shell) {
     else { tries = 60 }
   }
   fdSetNonblock(m)
-  let setup = "export TERM=xterm-256color; export TERM_PROGRAM=stem; export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; clear\n"
+  // re-exec as a LOGIN shell so it sources the user's profile (full PATH/env);
+  // launched via Finder the app only has launchd's minimal env, so p10k would
+  // otherwise fall back to a bare prompt.
+  let setup = "export TERM=xterm-256color; export TERM_PROGRAM=stem; exec " + shell + " -l\n"
   fdWrite(m, setup, len(setup))
   emit m
 }
