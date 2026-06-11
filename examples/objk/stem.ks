@@ -1347,10 +1347,14 @@ func onMouse(self, cmd, event) {
   emit "1"
 }
 func onNewTab(self, cmd, sender) {
+  let app = appH()
   let free = paneFree()
   if free < 0 { emit "1" }
+  // reused pane may hold a closed tab's stale screen — clear its grid + repaint
+  cocoaArraySet(cocoaGetAssocKey(app, "stem.states"), free, nsString(hexEnc(gridNew(cocoaNumberVal(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pcols"), free)), cocoaNumberVal(cocoaArrayGet(cocoaGetAssocKey(app, "stem.prows"), free))))))
   cocoaArrayAdd(tabPanes(), cocoaNumber(free))
   switchTab(cocoaArrayCount(tabPanes()) - 1)
+  fdWrite(cocoaNumberVal(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pmasters"), free)), fromCharCode(12), 1)
   emit "1"
 }
 func onTabNext(self, cmd, sender) {
