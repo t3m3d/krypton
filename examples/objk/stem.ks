@@ -1020,7 +1020,7 @@ func stemMakePaneView(m, x, y, w, h, pcols, prows) {
   msg_1(view, "setEditable:", 0)
   msg_1(view, "setSelectable:", 0)
   cocoaSetFont(view, cocoaGetAssocKey(app, "stem.mono"))
-  msg_d2(view, "setTextContainerInset:", 4, 7)
+  msg_d2(view, "setTextContainerInset:", 4, 18)
   cocoaSetBg(view, cocoaGetAssocKey(app, "stem.bgc"))
   cocoaSetTextColor(view, cocoaGetAssocKey(app, "stem.fgc"))
   let kview = cocoaCustomView(win, stemKeyClass(), x, y, w, h)
