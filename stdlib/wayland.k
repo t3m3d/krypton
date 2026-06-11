@@ -111,3 +111,105 @@ func wlReadStr(b, off) {
 func wlStrEnd(b, off) {            // absolute offset just past a string field
     emit off + 4 + _wlPad4(bufGetDwordAt(b, off))
 }
+
+// ── generic message emit helpers ───────────────────────────────────────────
+// send a header-only request (no args)
+func _wlSend0(fd, obj, op) {
+    let m = bufNew(8)
+    _wlPutU32(m, 0, obj)  _wlPutU16(m, 4, op)  _wlPutU16(m, 6, 8)
+    sockSend(fd, m, 8)
+    emit 1
+}
+// send a request with one u32 arg
+func _wlSend1(fd, obj, op, a0) {
+    let m = bufNew(12)
+    _wlPutU32(m, 0, obj)  _wlPutU16(m, 4, op)  _wlPutU16(m, 6, 12)
+    _wlPutU32(m, 8, a0)
+    sockSend(fd, m, 12)
+    emit 1
+}
+// send a request with two u32 args
+func _wlSend2(fd, obj, op, a0, a1) {
+    let m = bufNew(16)
+    _wlPutU32(m, 0, obj)  _wlPutU16(m, 4, op)  _wlPutU16(m, 6, 16)
+    _wlPutU32(m, 8, a0)  _wlPutU32(m, 12, a1)
+    sockSend(fd, m, 16)
+    emit 1
+}
+
+// ── object construction ─────────────────────────────────────────────────────
+// wl_compositor.create_surface (opcode 0): new_id surface
+func wlCreateSurface(fd, compId, surfId) { emit _wlSend1(fd, compId, 0, surfId) }
+// xdg_wm_base.get_xdg_surface (opcode 2): new_id xdgsurf, object surface
+func wlGetXdgSurface(fd, wmId, xdgSurfId, surfId) { emit _wlSend2(fd, wmId, 2, xdgSurfId, surfId) }
+// xdg_surface.get_toplevel (opcode 1): new_id toplevel
+func wlGetToplevel(fd, xdgSurfId, topId) { emit _wlSend1(fd, xdgSurfId, 1, topId) }
+// xdg_toplevel.set_title (opcode 2): string
+func wlSetTitle(fd, topId, title) {
+    let slen = len(title) + 1
+    let padded = _wlPad4(slen)
+    let size = 8 + 4 + padded
+    let m = bufNew(size)
+    _wlPutU32(m, 0, topId)  _wlPutU16(m, 4, 2)  _wlPutU16(m, 6, size)
+    _wlPutU32(m, 8, slen)
+    let i = 0
+    while i < len(title) { bufSetByte(m, 12 + i, charCode(title[i]))  i += 1 }
+    sockSend(fd, m, size)
+    emit 1
+}
+// xdg_toplevel.set_app_id (opcode 3): string
+func wlSetAppId(fd, topId, appid) {
+    let slen = len(appid) + 1
+    let padded = _wlPad4(slen)
+    let size = 8 + 4 + padded
+    let m = bufNew(size)
+    _wlPutU32(m, 0, topId)  _wlPutU16(m, 4, 3)  _wlPutU16(m, 6, size)
+    _wlPutU32(m, 8, slen)
+    let i = 0
+    while i < len(appid) { bufSetByte(m, 12 + i, charCode(appid[i]))  i += 1 }
+    sockSend(fd, m, size)
+    emit 1
+}
+
+// ── surface lifecycle ───────────────────────────────────────────────────────
+func wlCommit(fd, surfId)          { emit _wlSend0(fd, surfId, 6) }            // wl_surface.commit
+func wlAckConfigure(fd, xdgSurfId, serial) { emit _wlSend1(fd, xdgSurfId, 4, serial) } // xdg_surface.ack_configure
+func wlPong(fd, wmId, serial)      { emit _wlSend1(fd, wmId, 3, serial) }      // xdg_wm_base.pong
+
+// wl_surface.attach (opcode 1): object buffer, int x, int y  (3 args)
+func wlSurfaceAttach(fd, surfId, bufId, x, y) {
+    let m = bufNew(20)
+    _wlPutU32(m, 0, surfId)  _wlPutU16(m, 4, 1)  _wlPutU16(m, 6, 20)
+    _wlPutU32(m, 8, bufId)  _wlPutU32(m, 12, x)  _wlPutU32(m, 16, y)
+    sockSend(fd, m, 20)
+    emit 1
+}
+// wl_surface.damage (opcode 2): int x, y, w, h
+func wlDamage(fd, surfId, x, y, w, h) {
+    let m = bufNew(24)
+    _wlPutU32(m, 0, surfId)  _wlPutU16(m, 4, 2)  _wlPutU16(m, 6, 24)
+    _wlPutU32(m, 8, x)  _wlPutU32(m, 12, y)  _wlPutU32(m, 16, w)  _wlPutU32(m, 20, h)
+    sockSend(fd, m, 24)
+    emit 1
+}
+
+// ── shared-memory buffers ───────────────────────────────────────────────────
+// wl_shm.create_pool (opcode 0): new_id pool, fd(ancillary), int size.
+// The fd rides out-of-band via SCM_RIGHTS (sockSendFd) — only pool+size are
+// in the byte stream (16 bytes total).
+func wlCreatePool(fd, shmId, poolId, memfd, size) {
+    let m = bufNew(16)
+    _wlPutU32(m, 0, shmId)  _wlPutU16(m, 4, 0)  _wlPutU16(m, 6, 16)
+    _wlPutU32(m, 8, poolId)  _wlPutU32(m, 12, size)
+    sockSendFd(fd, m, 16, memfd)
+    emit 1
+}
+// wl_shm_pool.create_buffer (opcode 0): new_id buf, int offset,w,h,stride,format
+func wlPoolCreateBuffer(fd, poolId, bufId, offset, w, h, stride, fmt) {
+    let m = bufNew(32)
+    _wlPutU32(m, 0, poolId)  _wlPutU16(m, 4, 0)  _wlPutU16(m, 6, 32)
+    _wlPutU32(m, 8, bufId)  _wlPutU32(m, 12, offset)  _wlPutU32(m, 16, w)
+    _wlPutU32(m, 20, h)  _wlPutU32(m, 24, stride)  _wlPutU32(m, 28, fmt)
+    sockSend(fd, m, 32)
+    emit 1
+}
