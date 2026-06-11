@@ -1035,31 +1035,6 @@ func stemMakePaneView(m, x, y, w, h, pcols, prows) {
   cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pcols"), cocoaNumber(pcols))
   cocoaArrayAdd(cocoaGetAssocKey(app, "stem.prows"), cocoaNumber(prows))
   cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pkviews"), kview)
-  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.states"), nsString(hexEnc(gridNew(pcols, prows))))
-  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pending"), nsString(""))
-  emit kview
-}
-// a single full-window terminal pane in `win` (used for tab windows)
-func stemMakeTabPane(m, win, w, h, pcols, prows) {
-  let app = appH()
-  let view = cocoaScrollText(win, 0, 0, w, h)
-  msg_1(view, "setEditable:", 0)
-  msg_1(view, "setSelectable:", 0)
-  cocoaSetFont(view, cocoaGetAssocKey(app, "stem.mono"))
-  cocoaSetBg(view, cocoaGetAssocKey(app, "stem.bgc"))
-  cocoaSetTextColor(view, cocoaGetAssocKey(app, "stem.fgc"))
-  let kview = cocoaCustomView(win, stemKeyClass(), 0, 0, w, h)
-  cocoaSetAssocKey(kview, "ptyfd", cocoaNumber(m))
-  cocoaSetAssocKey(kview, "paneidx", cocoaNumber(cocoaArrayCount(cocoaGetAssocKey(app, "stem.pkviews"))))
-  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pmasters"), cocoaNumber(m))
-  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pscrolls"), msg(view, "enclosingScrollView"))
-  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pviews"), msg(view, "textStorage"))
-  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pdocs"), view)
-  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pcols"), cocoaNumber(pcols))
-  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.prows"), cocoaNumber(prows))
-  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pkviews"), kview)
-  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.states"), nsString(hexEnc(gridNew(pcols, prows))))
-  cocoaArrayAdd(cocoaGetAssocKey(app, "stem.pending"), nsString(""))
   emit kview
 }
 func paneCount() { emit cocoaArrayCount(treeLeaves()) }
@@ -1081,157 +1056,6 @@ func setPane(idx, x, y, w, h) {
   cocoaArraySet(cocoaGetAssocKey(app, "stem.prows"), idx, cocoaNumber(prows))
   emit "1"
 }
-// ── custom tab bar (each tab = one terminal pane, shown full below the bar) ──
-func stemTabClass() {
-  let c = objc_lookUpClass("StemTab")
-  if c == 0 {
-    c = cocoaViewClassNew("StemTab")
-    cocoaClassAddMethod(c, "mouseDown:", funcptr(onTabClick), "v@:@")
-    cocoaClassRegister(c)
-  }
-  emit c
-}
-func onTabClick(self, cmd, event)  { switchTab(cocoaNumberVal(cocoaGetAssocKey(self, "tabidx")))  emit "1" }
-func onTabCloseBtn(self, cmd, sender) { closeTab(cocoaNumberVal(cocoaGetAssocKey(self, "tabidx")))  emit "1" }
-func tabPanes() { emit cocoaGetAssocKey(appH(), "stem.tabpanes") }
-func paneFree() {
-  let tp = tabPanes()
-  let n = cocoaArrayCount(tp)
-  let i = 0
-  while i < 4 {
-    let used = 0
-    let j = 0
-    while j < n { if cocoaNumberVal(cocoaArrayGet(tp, j)) == i { used = 1 }  j = j + 1 }
-    if used == 0 { emit i }
-    i = i + 1
-  }
-  emit 0 - 1
-}
-func switchTab(pos) {
-  let app = appH()
-  let tp = tabPanes()
-  if pos < 0 { emit "1" }
-  if pos >= cocoaArrayCount(tp) { emit "1" }
-  let pane = cocoaNumberVal(cocoaArrayGet(tp, pos))
-  cocoaSetAssocKey(app, "stem.curtab", cocoaNumber(pos))
-  cocoaSetAssocKey(app, "stem.focusidx", cocoaNumber(pane))
-  let scrolls = cocoaGetAssocKey(app, "stem.pscrolls")
-  let kviews = cocoaGetAssocKey(app, "stem.pkviews")
-  let i = 0
-  while i < 4 {
-    let hid = 1
-    if i == pane { hid = 0 }
-    msg_1(cocoaArrayGet(scrolls, i), "setHidden:", hid)
-    msg_1(cocoaArrayGet(kviews, i), "setHidden:", hid)
-    i = i + 1
-  }
-  rebuildTabBar()
-  cocoaMakeFirstResponder(cocoaGetAssocKey(app, "stem.win"), cocoaArrayGet(kviews, pane))
-  // nudge the shell to repaint its prompt into the (possibly stale) grid
-  fdWrite(cocoaNumberVal(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pmasters"), pane)), fromCharCode(12), 1)
-  emit "1"
-}
-func closeTab(pos) {
-  let app = appH()
-  let tp = tabPanes()
-  if cocoaArrayCount(tp) <= 1 { msg_1(cocoaGetAssocKey(app, "stem.win"), "performClose:", 0)  emit "1" }
-  cocoaArrayRemove(tp, pos)
-  let np = pos
-  if np >= cocoaArrayCount(tp) { np = cocoaArrayCount(tp) - 1 }
-  switchTab(np)
-  emit "1"
-}
-func rebuildTabBar() {
-  let app = appH()
-  let win = cocoaGetAssocKey(app, "stem.win")
-  let H = cocoaNumberVal(cocoaGetAssocKey(app, "stem.h"))
-  let barH = 30
-  let cur = cocoaNumberVal(cocoaGetAssocKey(app, "stem.curtab"))
-  let tp = tabPanes()
-  let tc = cocoaArrayCount(tp)
-  let old = cocoaGetAssocKey(app, "stem.tabbtns")
-  let oc = cocoaArrayCount(old)
-  let oi = 0
-  while oi < oc { msg(cocoaArrayGet(old, oi), "removeFromSuperview")  oi = oi + 1 }
-  let btns = cocoaArray()
-  cocoaSetAssocKey(app, "stem.tabbtns", btns)
-  let active = cocoaRGB(13, 21, 24)
-  let inactive = cocoaRGB(64, 70, 76)
-  let tw = 132
-  let gap = 7
-  let x = 82
-  let i = 0
-  while i < tc {
-    let b = cocoaCustomView(win, stemTabClass(), x, H - barH + 4, tw, barH - 4)
-    cocoaSetAssocKey(b, "tabidx", cocoaNumber(i))
-    msg_1(b, "setWantsLayer:", 1)
-    let lay = msg(b, "layer")
-    msg_d1(lay, "setCornerRadius:", 8)
-    msg_1(lay, "setMaskedCorners:", 12)
-    let col = inactive
-    if i == cur { col = active }
-    msg_1(lay, "setBackgroundColor:", msg(col, "CGColor"))
-    cocoaArrayAdd(btns, b)
-    // circular ✕ close button at the tab's right edge
-    let xb = cocoaButton(win, "✕", x + tw - 22, H - barH + 9, 16, 16)
-    msg_1(xb, "setBordered:", 0)
-    cocoaSetFont(xb, cocoaMonoFont(9))
-    msg_1(xb, "setWantsLayer:", 1)
-    let xlay = msg(xb, "layer")
-    msg_d1(xlay, "setCornerRadius:", 8)
-    msg_1(xlay, "setBackgroundColor:", msg(cocoaRGB(48, 55, 62), "CGColor"))
-    cocoaSetAssocKey(xb, "tabidx", cocoaNumber(i))
-    cocoaOnClickKeyed(xb, "stemtabclose", funcptr(onTabCloseBtn))
-    cocoaArrayAdd(btns, xb)
-    // tab label as a CATextLayer sublayer (clicks still hit the StemTab below)
-    let tl = msg(cls("CATextLayer"), "layer")
-    msg_1(tl, "setString:", nsString("Terminal " + ("" + (i + 1))))
-    msg_d1(tl, "setFontSize:", 11)
-    msg_d1(tl, "setContentsScale:", 2)
-    let lc = cocoaRGB(150, 158, 165)
-    if i == cur { lc = cocoaRGB(225, 230, 235) }
-    msg_1(tl, "setForegroundColor:", msg(lc, "CGColor"))
-    msg_frame(tl, "setFrame:", 13, 5, tw - 38, 15)
-    msg_1(lay, "addSublayer:", tl)
-    x = x + tw + gap
-    i = i + 1
-  }
-  emit "1"
-}
-// ── hex codec (pack non-UTF-8 grid state into an NSArray-storable string) ──
-func hexEnc(s) {
-  let hexd = "0123456789abcdef"
-  let out = sbNew()
-  let n = len(s)
-  let i = 0
-  while i < n {
-    let c = charCode(substring(s, i, i + 1))
-    let hi = c / 16
-    let lo = c - hi * 16
-    out = sbAppend(out, substring(hexd, hi, hi + 1))
-    out = sbAppend(out, substring(hexd, lo, lo + 1))
-    i = i + 1
-  }
-  emit sbToString(out)
-}
-func hexNibV(ch) {
-  let c = charCode(ch)
-  if c >= 48 { if c <= 57 { emit c - 48 } }
-  if c >= 97 { if c <= 102 { emit c - 97 + 10 } }
-  emit 0
-}
-func hexDec(s) {
-  let out = sbNew()
-  let n = len(s)
-  let i = 0
-  while i + 1 < n {
-    let v = hexNibV(substring(s, i, i + 1)) * 16 + hexNibV(substring(s, i + 1, i + 2))
-    out = sbAppend(out, fromCharCode(v))
-    i = i + 2
-  }
-  emit sbToString(out)
-}
-
 // ── split tree ──────────────────────────────────────────────────────────
 // node = NSArray. leaf: [0, paneIdx]. split: [1, axis, childA, childB]
 // (axis 1 = side-by-side columns, 2 = stacked rows; A = left/top, B = right/bottom)
@@ -1346,38 +1170,19 @@ func onMouse(self, cmd, event) {
   cocoaMakeFirstResponder(cocoaGetAssocKey(appH(), "stem.win"), self)
   emit "1"
 }
-func onNewTab(self, cmd, sender) {
-  let app = appH()
-  let free = paneFree()
-  if free < 0 { emit "1" }
-  // reused pane may hold a closed tab's stale screen — clear its grid + repaint
-  cocoaArraySet(cocoaGetAssocKey(app, "stem.states"), free, nsString(hexEnc(gridNew(cocoaNumberVal(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pcols"), free)), cocoaNumberVal(cocoaArrayGet(cocoaGetAssocKey(app, "stem.prows"), free))))))
-  cocoaArrayAdd(tabPanes(), cocoaNumber(free))
-  switchTab(cocoaArrayCount(tabPanes()) - 1)
-  fdWrite(cocoaNumberVal(cocoaArrayGet(cocoaGetAssocKey(app, "stem.pmasters"), free)), fromCharCode(12), 1)
-  emit "1"
-}
-func onTabNext(self, cmd, sender) {
-  let n = cocoaArrayCount(tabPanes())
-  let p = cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.curtab")) + 1
-  if p >= n { p = 0 }
-  switchTab(p)
-  emit "1"
-}
-func onTabPrev(self, cmd, sender) {
-  let n = cocoaArrayCount(tabPanes())
-  let p = cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.curtab")) - 1
-  if p < 0 { p = n - 1 }
-  switchTab(p)
-  emit "1"
-}
-func onGotoTab1(self, cmd, sender) { if cocoaArrayCount(tabPanes()) > 0 { switchTab(0) }  emit "1" }
-func onGotoTab2(self, cmd, sender) { if cocoaArrayCount(tabPanes()) > 1 { switchTab(1) }  emit "1" }
-func onGotoTab3(self, cmd, sender) { if cocoaArrayCount(tabPanes()) > 2 { switchTab(2) }  emit "1" }
-func onGotoTab4(self, cmd, sender) { if cocoaArrayCount(tabPanes()) > 3 { switchTab(3) }  emit "1" }
+func onNewTab(self, cmd, sender)  { exec("open -na stem")  emit "1" }
 func onCloseAll(self, cmd, sender){ msg(appH(), "terminate:")  emit "1" }
 // close focused pane; if last pane, close the window
-func onClosePane(self, cmd, sender) { closeTab(cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.curtab")))  emit "1" }
+func onClosePane(self, cmd, sender) {
+  let app = appH()
+  if cocoaArrayCount(treeLeaves()) <= 1 { msg_1(cocoaGetAssocKey(app, "stem.win"), "performClose:", 0)  emit "1" }
+  cocoaSetAssocKey(app, "stem.tree", closeTree(cocoaGetAssocKey(app, "stem.tree"), focusedIdx()))
+  retile(1)
+  let firstIdx = cocoaNumberVal(cocoaArrayGet(treeLeaves(), 0))
+  cocoaSetAssocKey(app, "stem.focusidx", cocoaNumber(firstIdx))
+  cocoaMakeFirstResponder(cocoaGetAssocKey(app, "stem.win"), cocoaArrayGet(cocoaGetAssocKey(app, "stem.pkviews"), firstIdx))
+  emit "1"
+}
 
 func defaultConfig() {
   emit "# stem config — key = value, # comments. Restart stem to apply.\nshell = /bin/zsh\nfont = JetBrainsMono Nerd Font Mono\nfont_size = 13\ncols = 92\nrows = 28\nwidth = 760\nheight = 500\ntitle = stem\n# colours as #RRGGBB\nfg = #ffffff\nbg = #000000\ncolor0 = #000000\ncolor1 = #cd3131\ncolor2 = #0dbc79\ncolor3 = #e5e510\ncolor4 = #2472c8\ncolor5 = #bc3fbc\ncolor6 = #11a8cd\ncolor7 = #e5e5e5\ncolor8 = #666666\ncolor9 = #f14c4c\ncolor10 = #23d18b\ncolor11 = #f5f567\ncolor12 = #3b8eea\ncolor13 = #d670d6\ncolor14 = #29b8db\ncolor15 = #ffffff\n"
@@ -1431,6 +1236,11 @@ just run {
   cocoaMenuItem(fileMenu, "New Window", "n", funcptr(onStemNewWin))
   cocoaMenuItem(fileMenu, "New Tab", "t", funcptr(onNewTab))
   cocoaMenuSeparator(fileMenu)
+  cocoaMenuItem(fileMenu, "Split Right", "d", funcptr(onSplitRight))
+  cocoaMenuItem(fileMenu, "Split Left", "D", funcptr(onSplitLeft))
+  cocoaMenuItem(fileMenu, "Split Top", "", funcptr(onSplitTop))
+  cocoaMenuItem(fileMenu, "Split Bottom", "", funcptr(onSplitBottom))
+  cocoaMenuSeparator(fileMenu)
   cocoaMenuItem(fileMenu, "Close", "", funcptr(onClosePane))
   cocoaMenuItem(fileMenu, "Close Tab", "", funcptr(onClosePane))
   cocoaMenuItemSel(fileMenu, "Close Window", "w", "performClose:")
@@ -1451,14 +1261,6 @@ just run {
   let winMenu = cocoaMenuAdd(bar, "Window")
   cocoaMenuItemSel(winMenu, "Minimize", "m", "performMiniaturize:")
   cocoaMenuItemSel(winMenu, "Zoom", "", "performZoom:")
-  cocoaMenuSeparator(winMenu)
-  cocoaMenuItem(winMenu, "Show Next Tab", "]", funcptr(onTabNext))
-  cocoaMenuItem(winMenu, "Show Previous Tab", "[", funcptr(onTabPrev))
-  cocoaMenuSeparator(winMenu)
-  cocoaMenuItem(winMenu, "Go to Tab 1", "1", funcptr(onGotoTab1))
-  cocoaMenuItem(winMenu, "Go to Tab 2", "2", funcptr(onGotoTab2))
-  cocoaMenuItem(winMenu, "Go to Tab 3", "3", funcptr(onGotoTab3))
-  cocoaMenuItem(winMenu, "Go to Tab 4", "4", funcptr(onGotoTab4))
   let helpMenu = cocoaMenuAdd(bar, "Help")
   cocoaMenuItem(helpMenu, "stem on the web", "", funcptr(onStemHelp))
 
@@ -1493,7 +1295,6 @@ just run {
   let mono = cocoaFontFamily(cocoaMonoFont(toInt(cfgVal(cfg, "font_size", "13"))), cfgVal(cfg, "font", "JetBrainsMono Nerd Font Mono"))
   let fg = cfgRGB(cfg, "fg", 255, 255, 255)
   let bg = cfgRGB(cfg, "bg", 0, 0, 0)
-  let tabHue = cocoaRGB(26, 42, 48)
   cocoaSetAssocKey(app, "stem.mono", mono)
   cocoaSetAssocKey(app, "stem.fontsize", cocoaNumber(toInt(cfgVal(cfg, "font_size", "13"))))
   cocoaSetAssocKey(app, "stem.fontfam", nsString(cfgVal(cfg, "font", "JetBrainsMono Nerd Font Mono")))
@@ -1505,14 +1306,8 @@ just run {
   cocoaSetAssocKey(app, "stem.rows", cocoaNumber(rows))
   cocoaSetAssocKey(app, "stem.shell", nsString(shell))
   cocoaSetAssocKey(app, "stem.tree", mkLeaf(0))
-  msg_1(win, "setBackgroundColor:", tabHue)
-  // full-size content view (15 | NSWindowStyleMaskFullSizeContentView 32768)
-  // so the content fills the window and the tab strip at the top isn't clipped
-  // above the title bar.
-  msg_1(win, "setStyleMask:", 32783)
+  msg_1(win, "setBackgroundColor:", bg)
   msg_1(win, "setTitlebarAppearsTransparent:", 1)
-  msg_1(win, "setTitleVisibility:", 1)
-  msg_1(win, "setTabbingMode:", 2)
   msg_1(win, "setAppearance:", msg_1(cls("NSAppearance"), "appearanceNamed:", nsString("NSAppearanceNameDarkAqua")))
   cocoaSetAssocKey(app, "stem.pmasters", cocoaArray())
   cocoaSetAssocKey(app, "stem.pscrolls", cocoaArray())
@@ -1521,28 +1316,37 @@ just run {
   cocoaSetAssocKey(app, "stem.pcols", cocoaArray())
   cocoaSetAssocKey(app, "stem.prows", cocoaArray())
   cocoaSetAssocKey(app, "stem.pkviews", cocoaArray())
-  cocoaSetAssocKey(app, "stem.states", cocoaArray())
-  cocoaSetAssocKey(app, "stem.pending", cocoaArray())
-  // 4 warm single-terminal panes = up to 4 tabs; each fills the area below the
-  // 30px tab bar. Only the active tab's pane is shown.
-  let paneH = height - 30
-  let kview = stemMakePaneView(m0, 0, 0, width, paneH, cols, rows)
-  let kv1 = stemMakePaneView(m1, 0, 0, width, paneH, cols, rows)
-  let kv2 = stemMakePaneView(m2, 0, 0, width, paneH, cols, rows)
-  let kv3 = stemMakePaneView(m3, 0, 0, width, paneH, cols, rows)
+  // all 4 panes created + warm; only pane 0 shown until split
+  let kview = stemMakePaneView(m0, 0, 0, width, height, cols, rows)
+  let kv1 = stemMakePaneView(m1, 0, 0, width, height, cols, rows)
+  let kv2 = stemMakePaneView(m2, 0, 0, width, height, cols, rows)
+  let kv3 = stemMakePaneView(m3, 0, 0, width, height, cols, rows)
+  let pscrolls = cocoaGetAssocKey(app, "stem.pscrolls")
+  let pkviews = cocoaGetAssocKey(app, "stem.pkviews")
+  let hi = 1
+  while hi < 4 {
+    msg_1(cocoaArrayGet(pscrolls, hi), "setHidden:", 1)
+    msg_1(cocoaArrayGet(pkviews, hi), "setHidden:", 1)
+    hi = hi + 1
+  }
   cocoaSetAssocKey(app, "stem.master", cocoaNumber(m0))
-  let tabpanes = cocoaArray()
-  cocoaArrayAdd(tabpanes, cocoaNumber(0))
-  cocoaSetAssocKey(app, "stem.tabpanes", tabpanes)
-  cocoaSetAssocKey(app, "stem.curtab", cocoaNumber(0))
-  cocoaSetAssocKey(app, "stem.tabbtns", cocoaArray())
-  switchTab(0)
+  cocoaSetAssocKey(app, "stem.focus", kview)
   cocoaShow(win, app)
   cocoaMakeFirstResponder(win, kview)
   cocoaFinishLaunching(app)
 
   // manual loop: up to 2 panes; grid state kept in locals (packed != UTF-8)
-  let mono = cocoaGetAssocKey(app, "stem.mono")
+  let st0 = gridNew(cols, rows)
+  let pend0 = ""
+  let st1 = ""
+  let pend1 = ""
+  let st2 = ""
+  let pend2 = ""
+  let st3 = ""
+  let pend3 = ""
+  let p1init = 0
+  let p2init = 0
+  let p3init = 0
   let i = 0
   while i < 2000000000 {
     cocoaPumpEvents(app)
@@ -1551,36 +1355,74 @@ just run {
     let pdocs = cocoaGetAssocKey(app, "stem.pdocs")
     let pcolsA = cocoaGetAssocKey(app, "stem.pcols")
     let prowsA = cocoaGetAssocKey(app, "stem.prows")
-    let statesA = cocoaGetAssocKey(app, "stem.states")
-    let pendingA = cocoaGetAssocKey(app, "stem.pending")
     let pc = cocoaArrayCount(masters)
     if brainFlagS("stem.splitdirty", 0) == 1 {
       cocoaSetAssocKey(app, "stem.splitdirty", cocoaNumber(0))
-      // rebuild every pane's grid at its (new) size
-      let q = 0
-      while q < pc {
-        cocoaArraySet(statesA, q, nsString(hexEnc(gridNew(cocoaNumberVal(cocoaArrayGet(pcolsA, q)), cocoaNumberVal(cocoaArrayGet(prowsA, q))))))
-        cocoaArraySet(pendingA, q, nsString(""))
-        q = q + 1
+      st0 = gridNew(cocoaNumberVal(cocoaArrayGet(pcolsA, 0)), cocoaNumberVal(cocoaArrayGet(prowsA, 0)))  pend0 = ""
+      p1init = 0  p2init = 0  p3init = 0
+    }
+    let c0 = cocoaNumberVal(cocoaArrayGet(pcolsA, 0))
+    let r0 = cocoaNumberVal(cocoaArrayGet(prowsA, 0))
+    let chunk0 = fdRead(cocoaNumberVal(cocoaArrayGet(masters, 0)), 4096)
+    if len(chunk0) > 0 {
+      let buf = pend0 + chunk0
+      let safe = gridSafeLen(buf)
+      pend0 = substring(buf, safe, len(buf))
+      st0 = gridFeed(st0, substring(buf, 0, safe), c0, r0)
+      let curp = gridCursor(st0, c0, r0)
+      let ci2 = indexOf(curp, ",")
+      let rendered = gridRender(st0, c0, r0)
+      cocoaSetAssocKey(app, "stem.lastrender", nsString(rendered))
+      msg_1(cocoaArrayGet(pviews, 0), "setAttributedString:", renderSnapshot(rendered, fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(curp, 0, ci2)), toInt(substring(curp, ci2 + 1, len(curp)))))
+      msg_1(cocoaArrayGet(pdocs, 0), "scrollToEndOfDocument:", 0)
+    }
+    if pc >= 2 {
+      let c1 = cocoaNumberVal(cocoaArrayGet(pcolsA, 1))
+      let r1 = cocoaNumberVal(cocoaArrayGet(prowsA, 1))
+      if p1init == 0 { st1 = gridNew(c1, r1)  pend1 = ""  p1init = 1 }
+      let chunk1 = fdRead(cocoaNumberVal(cocoaArrayGet(masters, 1)), 4096)
+      if len(chunk1) > 0 {
+        let buf1 = pend1 + chunk1
+        let safe1 = gridSafeLen(buf1)
+        pend1 = substring(buf1, safe1, len(buf1))
+        st1 = gridFeed(st1, substring(buf1, 0, safe1), c1, r1)
+        let curp1 = gridCursor(st1, c1, r1)
+        let cj = indexOf(curp1, ",")
+        msg_1(cocoaArrayGet(pviews, 1), "setAttributedString:", renderSnapshot(gridRender(st1, c1, r1), fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(curp1, 0, cj)), toInt(substring(curp1, cj + 1, len(curp1)))))
+        msg_1(cocoaArrayGet(pdocs, 1), "scrollToEndOfDocument:", 0)
       }
     }
-    let p = 0
-    while p < pc {
-      let chunk = fdRead(cocoaNumberVal(cocoaArrayGet(masters, p)), 4096)
-      if len(chunk) > 0 {
-        let c = cocoaNumberVal(cocoaArrayGet(pcolsA, p))
-        let r = cocoaNumberVal(cocoaArrayGet(prowsA, p))
-        let buf = hexDec(msg(cocoaArrayGet(pendingA, p), "UTF8String")) + chunk
-        let safe = gridSafeLen(buf)
-        cocoaArraySet(pendingA, p, nsString(hexEnc(substring(buf, safe, len(buf)))))
-        let st = gridFeed(hexDec(msg(cocoaArrayGet(statesA, p), "UTF8String")), substring(buf, 0, safe), c, r)
-        cocoaArraySet(statesA, p, nsString(hexEnc(st)))
-        let curp = gridCursor(st, c, r)
-        let ci2 = indexOf(curp, ",")
-        msg_1(cocoaArrayGet(pviews, p), "setAttributedString:", renderSnapshot(gridRender(st, c, r), fg, mono, toInt(substring(curp, 0, ci2)), toInt(substring(curp, ci2 + 1, len(curp)))))
-        msg_1(cocoaArrayGet(pdocs, p), "scrollToEndOfDocument:", 0)
+    if pc >= 3 {
+      let c2 = cocoaNumberVal(cocoaArrayGet(pcolsA, 2))
+      let r2 = cocoaNumberVal(cocoaArrayGet(prowsA, 2))
+      if p2init == 0 { st2 = gridNew(c2, r2)  pend2 = ""  p2init = 1 }
+      let chunk2 = fdRead(cocoaNumberVal(cocoaArrayGet(masters, 2)), 4096)
+      if len(chunk2) > 0 {
+        let buf2 = pend2 + chunk2
+        let safe2 = gridSafeLen(buf2)
+        pend2 = substring(buf2, safe2, len(buf2))
+        st2 = gridFeed(st2, substring(buf2, 0, safe2), c2, r2)
+        let curp2 = gridCursor(st2, c2, r2)
+        let ck = indexOf(curp2, ",")
+        msg_1(cocoaArrayGet(pviews, 2), "setAttributedString:", renderSnapshot(gridRender(st2, c2, r2), fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(curp2, 0, ck)), toInt(substring(curp2, ck + 1, len(curp2)))))
+        msg_1(cocoaArrayGet(pdocs, 2), "scrollToEndOfDocument:", 0)
       }
-      p = p + 1
+    }
+    if pc >= 4 {
+      let c3 = cocoaNumberVal(cocoaArrayGet(pcolsA, 3))
+      let r3 = cocoaNumberVal(cocoaArrayGet(prowsA, 3))
+      if p3init == 0 { st3 = gridNew(c3, r3)  pend3 = ""  p3init = 1 }
+      let chunk3 = fdRead(cocoaNumberVal(cocoaArrayGet(masters, 3)), 4096)
+      if len(chunk3) > 0 {
+        let buf3 = pend3 + chunk3
+        let safe3 = gridSafeLen(buf3)
+        pend3 = substring(buf3, safe3, len(buf3))
+        st3 = gridFeed(st3, substring(buf3, 0, safe3), c3, r3)
+        let curp3 = gridCursor(st3, c3, r3)
+        let cl = indexOf(curp3, ",")
+        msg_1(cocoaArrayGet(pviews, 3), "setAttributedString:", renderSnapshot(gridRender(st3, c3, r3), fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(curp3, 0, cl)), toInt(substring(curp3, cl + 1, len(curp3)))))
+        msg_1(cocoaArrayGet(pdocs, 3), "scrollToEndOfDocument:", 0)
+      }
     }
     sleepUs(0, 8000)
     i = i + 1
