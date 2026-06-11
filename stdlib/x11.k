@@ -178,3 +178,100 @@ func x11FailReason(info) {
     }
     emit out
 }
+
+// ── connect to the LOCAL display over the AF_UNIX socket ──────────────
+// /tmp/.X11-unix/X<display>. Xorg/Xwayland accept local unix connections
+// (usually without cookie auth). Returns fd or -1. Pairs with x11Handshake.
+func x11ConnectUnix(display) {
+    emit unixConnect("/tmp/.X11-unix/X" + display)
+}
+
+// ── screen geometry (the first SCREEN in the setup reply) ─────────────
+// The SCREEN block sits after: 40-byte header + vendor (padded to 4) +
+// 8 bytes × number-of-formats. SCREEN layout:
+//   u32  0 root            u32 16 current-input-masks
+//   u32  4 default-colormap u16 20 width-in-pixels
+//   u32  8 white-pixel     u16 22 height-in-pixels
+//   u32 12 black-pixel     ... u32 32 root-visual, byte 38 root-depth
+func x11ScreenOffset(info) {
+    let vlen = x11VendorLength(info)
+    let vpad = (vlen + 3) / 4 * 4
+    emit 40 + vpad + 8 * x11NumFormats(info)
+}
+func x11Root(info)        { emit bufGetDwordAt(info, x11ScreenOffset(info) + 0) }
+func x11WhitePixel(info)  { emit bufGetDwordAt(info, x11ScreenOffset(info) + 8) }
+func x11BlackPixel(info)  { emit bufGetDwordAt(info, x11ScreenOffset(info) + 12) }
+func x11ScreenWidth(info) { emit bufGetWordAt(info, x11ScreenOffset(info) + 20) }
+func x11ScreenHeight(info){ emit bufGetWordAt(info, x11ScreenOffset(info) + 22) }
+func x11RootVisual(info)  { emit bufGetDwordAt(info, x11ScreenOffset(info) + 32) }
+func x11RootDepth(info)   { emit bufGetByte(info, x11ScreenOffset(info) + 38) }
+
+// Allocate a resource id: ridbase | (n & ridmask). For modest n the OR is
+// just an add (base is mask-aligned), but mask it to be correct.
+func x11GenId(info, n) {
+    let base = x11ResourceIdBase(info)
+    let mask = x11ResourceIdMask(info)
+    let lowbit = mask - (mask - 1) / 2 * 2   // not used; keep n small
+    emit base + n
+}
+
+// Little-endian multi-byte writers. The native backend only implements
+// bufSetByte (bufSetWordAt/bufSetDwordAt are front-end stubs that no-op),
+// so pack words/dwords a byte at a time. X11 client byte order is LSB-first.
+func _x11PutW(b, off, v) {
+    bufSetByte(b, off, v - v / 256 * 256)
+    bufSetByte(b, off + 1, v / 256 - v / 65536 * 256)
+}
+func _x11PutD(b, off, v) {
+    bufSetByte(b, off, v - v / 256 * 256)
+    bufSetByte(b, off + 1, v / 256 - v / 65536 * 256)
+    bufSetByte(b, off + 2, v / 65536 - v / 16777216 * 256)
+    // top byte: v / 2^24, masked to 8 bits (avoid the 2^32 literal — it
+    // exceeds the native int-literal ceiling 0x7F000000).
+    bufSetByte(b, off + 3, v / 16777216 - v / 16777216 / 256 * 256)
+}
+
+// ── CreateWindow (opcode 1) ───────────────────────────────────────────
+// InputOutput child of `parent`, depth/visual copied from parent. value-mask
+// sets background-pixel (bit 1) + event-mask (bit 11) = 0x802; value-list is
+// [bgPixel, eventMask] in ascending mask-bit order. 40 bytes (length 10 units).
+func x11CreateWindow(fd, wid, parent, x, y, w, h, bgPixel, eventMask) {
+    let r = bufNew(40)
+    bufSetByte(r, 0, 1)            // opcode CreateWindow
+    bufSetByte(r, 1, 0)            // depth = CopyFromParent
+    _x11PutW(r, 2, 10)            // request length (4-byte units)
+    _x11PutD(r, 4, wid)
+    _x11PutD(r, 8, parent)
+    _x11PutW(r, 12, x)
+    _x11PutW(r, 14, y)
+    _x11PutW(r, 16, w)
+    _x11PutW(r, 18, h)
+    _x11PutW(r, 20, 0)           // border width
+    _x11PutW(r, 22, 1)           // class = InputOutput
+    _x11PutD(r, 24, 0)           // visual = CopyFromParent
+    _x11PutD(r, 28, 2050)        // value-mask 0x802 = bg-pixel | event-mask
+    _x11PutD(r, 32, bgPixel)
+    _x11PutD(r, 36, eventMask)
+    sockSend(fd, r, 40)
+}
+
+// MapWindow (opcode 8). 8 bytes.
+func x11MapWindow(fd, wid) {
+    let r = bufNew(8)
+    bufSetByte(r, 0, 8)
+    bufSetByte(r, 1, 0)
+    _x11PutW(r, 2, 2)
+    _x11PutD(r, 4, wid)
+    sockSend(fd, r, 8)
+}
+
+// ── event read ────────────────────────────────────────────────────────
+// Core events/replies/errors are 32 bytes. Reads one into `ev` (a 32-byte
+// buf). Returns the byte count (0/-1 on EOF/error). type = byte0 & 0x7f
+// (high bit = SendEvent). Common types: 2 KeyPress, 3 KeyRelease, 4
+// ButtonPress, 12 Expose, 6 MotionNotify, 22 ConfigureNotify.
+func x11NextEvent(fd, ev) { emit sockRecv(fd, ev, 32) }
+func x11EventType(ev)     { emit bufGetByte(ev, 0) - bufGetByte(ev, 0) / 128 * 128 }
+func x11KeyDetail(ev)     { emit bufGetByte(ev, 1) }   // keycode (KeyPress)
+func x11EventX(ev)        { emit bufGetWordAt(ev, 24) }
+func x11EventY(ev)        { emit bufGetWordAt(ev, 26) }
