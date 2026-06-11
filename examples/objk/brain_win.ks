@@ -330,6 +330,10 @@ func onRun() {
     consoleSnapEnd()
 }
 func onOpen() {
+    _conBusyS(1)
+    appendConsole("\n\x1b[33m[onOpen fired -- calling guiOpenFile]\x1b[0m\n$ ")
+    consoleSnapEnd()
+    _conBusyS(0)
     let path = guiOpenFile("Open .k file", "Krypton scripts|*.k;*.ks|All files|*.*")
     if len(path) > 0 { openTab(path) }
 }
@@ -371,29 +375,123 @@ func onNewFile() {
     emit "1"
 }
 
-// Open Folder -- prompt + reload tree.
-func onOpenFolder() {
-    let f = guiOpenFile("Pick any file inside the folder to open",
-                        "All files|*.*")
-    if len(f) == 0 { emit "1" }
-    // strip trailing filename to get the directory
-    let n = len(f)  let i = n - 1
-    while i >= 0 {
-        if f[i] == "\\" { _dirS(substring(f, 0, i))  i = 0 - 1 }
-        if i >= 0 { if f[i] == "/" { _dirS(substring(f, 0, i))  i = 0 - 1 } }
-        i = i - 1
+// Trim trailing \r so cmd /c dir /b output (which is CRLF) doesn't
+// leave each filename with a hidden \r -- TreeView/Listbox silently
+// reject items containing control bytes.
+func _stripCR(s) {
+    let n = len(s)
+    let end = n
+    while end > 0 {
+        if s[end - 1] != "\r" { emit substring(s, 0, end) }
+        end = end - 1
     }
-    _conCwdS(_dirG())
-    _filesS(exec("cmd /c dir /b " + _dirG()))
-    guiListClear(_o_tree())
+    emit ""
+}
+
+// Modern Common Item Dialog folder picker -- PowerShell-bridged
+// because IFileOpenDialog requires substantial COM plumbing in
+// Krypton.  PS spawns the same Explorer-style dialog Save/Open uses,
+// writes the picked path to stdout, exec() captures it.
+// Inline C# defines IFileOpenDialog COM interface + spawns the modern
+// Win11 picker with a real "Select Folder" button (FOS_PICKFOLDERS).
+// Written to %TEMP%\brain_pickfolder.ps1 once per session so we don't
+// have to fight escaping the multiline C# block inside exec().
+func _ensurePickerScript() {
+    let script = "$cs = @'\n"
+        + "using System;\n"
+        + "using System.Runtime.InteropServices;\n"
+        + "[ComImport, Guid(\"DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7\")]\n"
+        + "public class FileOpenDialog { }\n"
+        + "[ComImport, Guid(\"D57C7288-D4AD-4768-BE02-9D969532D960\"),\n"
+        + " InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]\n"
+        + "public interface IFileOpenDialog {\n"
+        + "  [PreserveSig] int Show(IntPtr h);\n"
+        + "  void m2(); void m3(); void m4(); void m5(); void m6();\n"
+        + "  [PreserveSig] int SetOptions(uint o);\n"
+        + "  void m8(); void m9(); void m10(); void m11(); void m12();\n"
+        + "  void m13(); void m14();\n"
+        + "  [PreserveSig] int SetTitle([MarshalAs(UnmanagedType.LPWStr)] string s);\n"
+        + "  void m16(); void m17();\n"
+        + "  [PreserveSig] int GetResult(out IShellItem si);\n"
+        + "}\n"
+        + "[ComImport, Guid(\"43826D1E-E718-42EE-BC55-A1E261C37BFE\"),\n"
+        + " InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]\n"
+        + "public interface IShellItem {\n"
+        + "  void s1(); void s2(); void s3();\n"
+        + "  [PreserveSig] int GetDisplayName(uint sigdn, out IntPtr p);\n"
+        + "}\n"
+        + "public static class P {\n"
+        + "  public static string Pick() {\n"
+        + "    var d = (IFileOpenDialog)(new FileOpenDialog());\n"
+        + "    d.SetOptions(0x20);\n"
+        + "    d.SetTitle(\"Open folder\");\n"
+        + "    if (d.Show(IntPtr.Zero) != 0) return null;\n"
+        + "    IShellItem si; d.GetResult(out si);\n"
+        + "    IntPtr p; si.GetDisplayName(0x80058000, out p);\n"
+        + "    return Marshal.PtrToStringUni(p);\n"
+        + "  }\n"
+        + "}\n"
+        + "'@\n"
+        + "Add-Type -TypeDefinition $cs -Language CSharp\n"
+        + "$x = [P]::Pick()\n"
+        + "if ($x) { Write-Output $x }\n"
+    writeFile("C:/Windows/Temp/brain_pickfolder.ps1", script)
+    emit "1"
+}
+
+func _modernPickFolder() {
+    _ensurePickerScript()
+    let ps = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File C:\\Windows\\Temp\\brain_pickfolder.ps1 2>&1"
+    let out = exec(ps)
+    // strip trailing CR / LF / space
+    let n = len(out)  let end = n
+    while end > 0 {
+        let c = out[end - 1]
+        if c != "\r" { if c != "\n" { if c != " " { emit substring(out, 0, end) } } }
+        end = end - 1
+    }
+    emit ""
+}
+
+// Open Folder -- modern Explorer-style dialog + reload TreeView.
+func onOpenFolder() {
+    _conBusyS(1)
+    appendConsole("\n\x1b[33m[onOpenFolder fired -- spawning PowerShell picker]\x1b[0m\n$ ")
+    consoleSnapEnd()
+    _conBusyS(0)
+    let path = _modernPickFolder()
+    if len(path) == 0 { emit "1" }
+    _dirS(path)
+    _conCwdS(path)
+    let listCmd = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+                + " -NoProfile -Command \"Get-ChildItem -LiteralPath '"
+                + path + "' -Name 2>&1\""
+    let listing = exec(listCmd)
+    _filesS(listing)
+    // DIAG: dump raw listing length to console.
+    _conBusyS(1)
+    appendConsole("\n\x1b[33m[Get-ChildItem returned " + (len(listing) + "") + " bytes]\x1b[0m\n")
+    if len(listing) > 0 { appendConsole("\x1b[90m" + listing + "\x1b[0m\n") }
+    appendConsole("$ ")
+    consoleSnapEnd()
+    _conBusyS(0)
+    guiTreeClear(_o_tree())
     let files = _filesG()
-    let nf = nlines(files)
+    let nf = nlines(files) + 1            // nlines counts \n; last line has no \n
     let j = 0
+    let added = 0
     while j < nf {
-        let fn = lineAt(files, j)
-        if len(fn) > 0 { guiListAdd(_o_tree(), fn) }
+        let fn = _stripCR(lineAt(files, j))
+        if len(fn) > 0 {
+            guiTreeAdd(_o_tree(), "0", fn)
+            added = added + 1
+        }
         j = j + 1
     }
+    _conBusyS(1)
+    appendConsole("\n\x1b[90mopened folder: " + path + " (" + (added + "") + " items)\x1b[0m\n$ ")
+    consoleSnapEnd()
+    _conBusyS(0)
     emit "1"
 }
 
@@ -984,10 +1082,16 @@ just run {
     guiMenuItem(mTerminal,  "(items pending)")
     let miBrainHelp   = guiMenuItem(mHelp, "Brain Help")
 
-    // Darken the menu strip so the white system-chrome strip beneath
-    // it stops bleeding through.  MENUINFO/MIM_BACKGROUND with our
-    // Insiders-green brush.
-    guiMenuDarken(bar, "0x0e3520")
+    // Force a redraw of the menu bar so all the items + submenus we
+    // appended via AppendMenuA actually attach.  guiMenuBegin already
+    // called DrawMenuBar once, but that was on an EMPTY menu before
+    // any items existed; without this second call after building the
+    // menu structure, Win11 sometimes refuses to open dropdowns.
+    DrawMenuBar(win + "")
+
+    // guiMenuDarken bisect: temporarily disabled (process was dying
+    // on launch; isolating whether it's MENUINFO/SetMenuInfo).
+    // guiMenuDarken(bar, "0x0e3520")
 
     // Layout coords:  Win11 with menu bar consumes ~25 px from the top
     // of the client area for the menu; we DON'T need to leave a gap
@@ -1032,12 +1136,13 @@ just run {
     guiRichSetFgDefault(editor,  "0xcccccc")
     guiRichSetFgDefault(console, "0xcccccc")
 
-    // Populate file tree (TreeView -- guiTreeAdd against root "0").
+    // Populate file tree.  dir /b output is CRLF; strip \r per line
+    // because TreeView silently drops items containing control chars.
     let files = _filesG()
-    let nf = nlines(files)
+    let nf = nlines(files) + 1
     let i = 0
     while i < nf {
-        let fn = lineAt(files, i)
+        let fn = _stripCR(lineAt(files, i))
         if len(fn) > 0 { guiTreeAdd(tree, "0", fn) }
         i = i + 1
     }
