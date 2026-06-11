@@ -1356,6 +1356,12 @@ just run {
     let pcolsA = cocoaGetAssocKey(app, "stem.pcols")
     let prowsA = cocoaGetAssocKey(app, "stem.prows")
     let pc = cocoaArrayCount(masters)
+    // once p10k has loaded, Ctrl-L each shell to wipe the echoed login-exec
+    // setup line and redraw a clean prompt.
+    if i == 300 {
+      let k = 0
+      while k < pc { fdWrite(cocoaNumberVal(cocoaArrayGet(masters, k)), fromCharCode(12), 1)  k = k + 1 }
+    }
     if brainFlagS("stem.splitdirty", 0) == 1 {
       cocoaSetAssocKey(app, "stem.splitdirty", cocoaNumber(0))
       st0 = gridNew(cocoaNumberVal(cocoaArrayGet(pcolsA, 0)), cocoaNumberVal(cocoaArrayGet(prowsA, 0)))  pend0 = ""
