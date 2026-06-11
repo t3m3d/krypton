@@ -909,6 +909,19 @@ func onStemNewWin(self, cmd, sender) { exec("open -na stem")  emit "1" }
 func onStemClear(self, cmd, sender)  { fdWrite(stemMaster(), fromCharCode(12), 1)  emit "1" }
 func onStemPaste(self, cmd, sender)  { let s = exec("pbpaste")  fdWrite(stemMaster(), s, len(s))  emit "1" }
 func onStemReset(self, cmd, sender)  { let s = "reset\n"  fdWrite(stemMaster(), s, len(s))  emit "1" }
+func stemApplyFont() {
+  let app = appH()
+  let sz = cocoaNumberVal(cocoaGetAssocKey(app, "stem.fontsize"))
+  let mono = cocoaFontFamily(cocoaMonoFont(sz), msg(cocoaGetAssocKey(app, "stem.fontfam"), "UTF8String"))
+  cocoaSetAssocKey(app, "stem.mono", mono)
+  cocoaSetFont(cocoaGetAssocKey(app, "stem.view"), mono)
+  emit "1"
+}
+func onStemZoomIn(self, cmd, sender)    { let s = cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.fontsize")) + 1  if s > 40 { s = 40 }  cocoaSetAssocKey(appH(), "stem.fontsize", cocoaNumber(s))  stemApplyFont() }
+func onStemZoomOut(self, cmd, sender)   { let s = cocoaNumberVal(cocoaGetAssocKey(appH(), "stem.fontsize")) - 1  if s < 7 { s = 7 }  cocoaSetAssocKey(appH(), "stem.fontsize", cocoaNumber(s))  stemApplyFont() }
+func onStemZoomReset(self, cmd, sender) { cocoaSetAssocKey(appH(), "stem.fontsize", cocoaNumber(13))  stemApplyFont() }
+func onStemFull(self, cmd, sender)      { msg_1(cocoaGetAssocKey(appH(), "stem.win"), "toggleFullScreen:", 0)  emit "1" }
+func onStemHelp(self, cmd, sender)      { exec("open https://krypton-lang.org/programs/stem.html")  emit "1" }
 
 func defaultConfig() {
   emit "# stem config — key = value, # comments. Restart stem to apply.\nshell = /bin/zsh\nfont = JetBrainsMono Nerd Font Mono\nfont_size = 13\ncols = 92\nrows = 28\nwidth = 760\nheight = 500\ntitle = stem\n# colours as #RRGGBB\nfg = #ffffff\nbg = #000000\ncolor0 = #000000\ncolor1 = #cd3131\ncolor2 = #0dbc79\ncolor3 = #e5e510\ncolor4 = #2472c8\ncolor5 = #bc3fbc\ncolor6 = #11a8cd\ncolor7 = #e5e5e5\ncolor8 = #666666\ncolor9 = #f14c4c\ncolor10 = #23d18b\ncolor11 = #f5f567\ncolor12 = #3b8eea\ncolor13 = #d670d6\ncolor14 = #29b8db\ncolor15 = #ffffff\n"
@@ -947,12 +960,31 @@ just run {
 
   let app = cocoaInit()
   let bar = cocoaMenuBar(app)
+  // app menu (system bolds the first menu as the app name)
+  let appMenu = cocoaMenuAdd(bar, "stem")
+  cocoaMenuItemSel(appMenu, "Hide stem", "h", "hide:")
+  cocoaMenuItemSel(appMenu, "Quit stem", "q", "terminate:")
   let shMenu = cocoaMenuAdd(bar, "Shell")
   cocoaMenuItem(shMenu, "New Window", "n", funcptr(onStemNewWin))
+  cocoaMenuSeparator(shMenu)
   cocoaMenuItem(shMenu, "Clear", "k", funcptr(onStemClear))
   cocoaMenuItem(shMenu, "Reset", "", funcptr(onStemReset))
+  cocoaMenuSeparator(shMenu)
+  cocoaMenuItemSel(shMenu, "Close Window", "w", "performClose:")
   let edMenu = cocoaMenuAdd(bar, "Edit")
   cocoaMenuItem(edMenu, "Paste", "v", funcptr(onStemPaste))
+  cocoaMenuItemSel(edMenu, "Select All", "a", "selectAll:")
+  let viewMenu = cocoaMenuAdd(bar, "View")
+  cocoaMenuItem(viewMenu, "Zoom In", "=", funcptr(onStemZoomIn))
+  cocoaMenuItem(viewMenu, "Zoom Out", "-", funcptr(onStemZoomOut))
+  cocoaMenuItem(viewMenu, "Reset Zoom", "0", funcptr(onStemZoomReset))
+  cocoaMenuSeparator(viewMenu)
+  cocoaMenuItem(viewMenu, "Enter Full Screen", "f", funcptr(onStemFull))
+  let winMenu = cocoaMenuAdd(bar, "Window")
+  cocoaMenuItemSel(winMenu, "Minimize", "m", "performMiniaturize:")
+  cocoaMenuItemSel(winMenu, "Zoom", "", "performZoom:")
+  let helpMenu = cocoaMenuAdd(bar, "Help")
+  cocoaMenuItem(helpMenu, "stem on the web", "", funcptr(onStemHelp))
 
   // palette cache (0-15 from config, 16-255 computed)
   let pal = cocoaArray()
@@ -986,6 +1018,11 @@ just run {
   msg_1(view, "setSelectable:", 0)
   let mono = cocoaFontFamily(cocoaMonoFont(toInt(cfgVal(cfg, "font_size", "13"))), cfgVal(cfg, "font", "JetBrainsMono Nerd Font Mono"))
   cocoaSetFont(view, mono)
+  cocoaSetAssocKey(app, "stem.win", win)
+  cocoaSetAssocKey(app, "stem.view", view)
+  cocoaSetAssocKey(app, "stem.mono", mono)
+  cocoaSetAssocKey(app, "stem.fontsize", cocoaNumber(toInt(cfgVal(cfg, "font_size", "13"))))
+  cocoaSetAssocKey(app, "stem.fontfam", nsString(cfgVal(cfg, "font", "JetBrainsMono Nerd Font Mono")))
   let fg = cfgRGB(cfg, "fg", 255, 255, 255)
   let bg = cfgRGB(cfg, "bg", 0, 0, 0)
   cocoaSetBg(view, bg)
@@ -1019,7 +1056,7 @@ just run {
       st = gridFeed(st, substring(buf, 0, safe), cols, rows)
       let curp = gridCursor(st, cols, rows)
       let ci2 = indexOf(curp, ",")
-      msg_1(ts, "setAttributedString:", renderSnapshot(gridRender(st, cols, rows), fg, mono, toInt(substring(curp, 0, ci2)), toInt(substring(curp, ci2 + 1, len(curp)))))
+      msg_1(ts, "setAttributedString:", renderSnapshot(gridRender(st, cols, rows), fg, cocoaGetAssocKey(app, "stem.mono"), toInt(substring(curp, 0, ci2)), toInt(substring(curp, ci2 + 1, len(curp)))))
       msg_1(view, "scrollToEndOfDocument:", 0)
     }
     sleepUs(0, 8000)
