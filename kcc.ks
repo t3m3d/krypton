@@ -26,7 +26,7 @@ import "k:env"
 import "k:sh"
 import "k:arch"
 
-func VERSION() { emit "kcc version 2.3.0" }
+func VERSION() { emit "kcc version 2.4.0" }
 
 // Locate the install root: $KRYPTON_ROOT, else the dev repo, else the pkg
 // install. The dev repo is preferred over /usr/local/krypton because the pkg
