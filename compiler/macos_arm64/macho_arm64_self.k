@@ -2148,7 +2148,7 @@ func opInstrCount(opTok) {
     if opTok == "NOT"              { emit 4 }   // pop, cmp, cset, push
     if opTok == "INDEX"            { emit 27 }  // pop i, pop s, alloc(21), ldrb, strb char, strb NUL, push
     if opTok == "BUILTIN_KP"       { emit 69 }  // string or int dispatch; inline itoa for ints
-    if opTok == "BUILTIN_EXIT"     { emit 13 }  // atoi(str arg) then exit(code)
+    if opTok == "BUILTIN_EXIT"     { emit 17 }  // int-or-atoi(str) then exit(code)
     if opTok == "BUILTIN_LEN"      { emit 7 }   // pop, mov, ldrb-post, cbnz, sub-reg, sub-imm, push
     if opTok == "BUILTIN_CHARCODE" { emit 3 }   // pop, ldrb, push
     if opTok == "BUILTIN_SUBSTRING"{ emit 37 }  // alloc(21) bumped from 15 → +6
@@ -2690,27 +2690,33 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_push(0))
             instrIdx = instrIdx + 5
         } else if opTok == "BUILTIN_EXIT" {
-            // exit(code): the arg is a STRING ("1"), so atoi it before the
-            // exit syscall. Popping the pointer straight into x0 (old behavior)
-            // passed a heap pointer as the code -> bogus 71. 13 instr.
-            //   0:pop x6=str  1:x0=0(acc)  2:x8=10
-            //   3(LOOP):ldrb post w7,[x6]  4:cbz w7 DONE(+5)
-            //   5:sub w7,#48  6:x0*=10  7:x0+=w7  8:b LOOP(-5)
-            //   9(DONE):x16=1  10:svc  11:dead movz  12:dead push
+            // exit(code): the arg may be an INT (exit(0)) or a numeric STRING
+            // (exit("0")). Small values (< 2^32) are ints — use directly; larger
+            // are heap pointers (a string) — atoi them. Old code assumed a string
+            // and ldrb'd the arg, so exit(0) deref'd address 0 -> SIGSEGV. 17 instr.
+            //   0:pop x6  1:x0=0(acc)  2:x8=10  3:x14=2^32  4:cmp x6,x14
+            //   5:b.lt INT(+7→idx12)
+            //   6(LOOP):ldrb post w7,[x6]  7:cbz w7 DONE(+6→idx13)
+            //   8:sub w7,#48  9:x0*=10  10:x0+=w7  11:b LOOP(-5→idx6)
+            //   12(INT):x0=x6  13(DONE):x16=1  14:svc  15:dead movz  16:dead push
             s = sbAppend(s, arm64_pop(6))
             s = sbAppend(s, arm64_movz_x_imm(0, 0))
             s = sbAppend(s, arm64_movz_x_imm(8, 10))
+            s = sbAppend(s, arm64_movz_x_imm_lsl32(14, 1))
+            s = sbAppend(s, arm64_cmp_xx(6, 14))
+            s = sbAppend(s, arm64_b_cond(0xb, 7))
             s = sbAppend(s, arm64_ldrb_post(7, 6, 1))
-            s = sbAppend(s, arm64_cbz(7, 5))
+            s = sbAppend(s, arm64_cbz(7, 6))
             s = sbAppend(s, arm64_sub_imm(7, 7, 48))
             s = sbAppend(s, arm64_mul_xxx(0, 0, 8))
             s = sbAppend(s, arm64_add_xxx(0, 0, 7))
             s = sbAppend(s, arm64_b(0 - 5))
+            s = sbAppend(s, arm64_mov_xx(0, 6))
             s = sbAppend(s, arm64_movz_x_imm(16, 1))
             s = sbAppend(s, arm64_svc(0x80))
             s = sbAppend(s, arm64_movz_w_imm(0, 0))
             s = sbAppend(s, arm64_push_x0())
-            instrIdx = instrIdx + 13
+            instrIdx = instrIdx + 17
         } else if opTok == "LT" || opTok == "GT" || opTok == "LE" || opTok == "GE" {
             // Polymorphic ordering. int/mixed → raw value cmp (old behavior);
             // ptr+ptr (strings) → byte-by-byte strcmp ordering (NUL = least), so
