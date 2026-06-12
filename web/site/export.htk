@@ -157,6 +157,11 @@ func siteCSS() {
         ".sponsor-name{color:var(--primary);font-weight:600;font-size:1.05rem}" +
         ".sponsor-slot img{display:block;max-width:100%;height:auto;margin:0 auto;border-radius:8px}" +
         "@media (max-width:640px){.sponsor-slot{margin:24px 14px 12px}.sponsor-inner{padding:18px 14px;min-height:70px}}" +
+        ".ad-embed{position:relative;display:block;max-width:728px;width:calc(100% - 28px);margin:32px auto 16px;aspect-ratio:728/240;border-radius:12px;overflow:hidden;border:1px solid var(--card-border);background:#08080d;box-shadow:0 6px 24px rgba(0,0,0,0.25)}" +
+        ".ad-embed iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}" +
+        ".ad-embed-link{position:absolute;inset:0;z-index:2;display:block;-webkit-tap-highlight-color:transparent}" +
+        "@media (max-width:680px){.ad-embed{aspect-ratio:1/1}}" +
+        "@media (max-width:430px){.ad-embed{aspect-ratio:300/360;width:calc(100% - 20px)}}" +
         ".tag{display:inline-block;background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;padding:4px 14px;border-radius:20px;font-size:0.8rem;margin-bottom:8px;font-weight:600}" +
         ".stat{text-align:center;padding:20px}.stat .num{font-size:2.5rem;font-weight:800;color:var(--primary);display:block}.stat .label{font-size:0.95rem;color:var(--text-light)}" +
         "ul{margin:8px 0 8px 24px}li{margin:4px 0}" +
@@ -360,13 +365,18 @@ func siteNav(active) {
 // Image lives at dist/ads/gpdlonly.png; the link is a kry.li short URL
 // so we can read click-through analytics via the kryptlink dashboard.
 func siteSponsorSlot() {
-    emit "<a href=" + DQ() + "https://www.kry.li/thepeoplewiread" + DQ() +
+    emit "<div class=" + DQ() + "ad-embed" + DQ() + ">" +
+         "<iframe src=" + DQ() + "/ads/pw-ad.html" + DQ() +
+         " title=" + DQ() + "The People Wire" + DQ() +
+         " loading=" + DQ() + "lazy" + DQ() +
+         " scrolling=" + DQ() + "no" + DQ() +
+         " frameborder=" + DQ() + "0" + DQ() + "></iframe>" +
+         "<a href=" + DQ() + "https://www.kry.li/thepeoplewiread" + DQ() +
          " target=" + DQ() + "_blank" + DQ() +
          " rel=" + DQ() + "noopener noreferrer sponsored" + DQ() +
-         " class=" + DQ() + "sponsor-slot" + DQ() + ">" +
-         "<img src=" + DQ() + "/ads/gpdlonly.png" + DQ() +
-         " alt=" + DQ() + "Google Play Download" + DQ() + ">" +
-         "</a>"
+         " class=" + DQ() + "ad-embed-link" + DQ() +
+         " aria-label=" + DQ() + "The People Wire" + DQ() + "></a>" +
+         "</div>"
 }
 
 func siteFooter() {
