@@ -346,7 +346,7 @@ func siteNav(active) {
          htA("/blog.html", "Blog") +
          htA("/docs.html", "Docs") +
          htA("/programs/", "Programs") +
-         htA("/kcode.html", "kcode") +
+         htA("/brain.html", "brain") +
          htA("/programs/stem.html", "stem") +
          htA("/downloads.html", "Downloads") +
          htA("/contact.html", "Contact") +
@@ -557,9 +557,9 @@ func pagePrograms() {
         htH1("Programs") +
         htP("Real software written in Krypton.") +
         "<p style=" + DQ() + "margin-top:10px;font-size:1.05em" + DQ() + ">" +
-            htA("/kcode.html", "kcode") + " &middot; " +
+            htA("/brain.html", "brain") + " &middot; " +
             htA("/programs/stem.html", "stem") + " &middot; " +
-            htA("/programs/brain.html", "brain") + " &middot; " +
+            htA("/brain.html", "brain") + " &middot; " +
             htA("/programs/#kryofetch", "kryofetch") + " &middot; " +
             htA("/programs/#kmon", "kmon") + " &middot; " +
             htA("/programs/#yubikrypt", "yubiKrypt") + " &middot; " +
@@ -608,7 +608,7 @@ func pagePrograms() {
         htH2("brain") +
         htP("A native macOS IDE written in pure Krypton on the objk FFI " + DASH() + " no Obj-C source. File-tree sidebar, multi-file tabs, live syntax highlighting, Open/Save/Run, and an integrated console.") +
         htP("Built on the same objk Cocoa stdlib as stem: NSWindow, NSTextView, NSTableView data sources, menus and delegates are all Krypton funcs used directly as Objective-C method IMPs. Pairs with the stem terminal.") +
-        htP(htA("/programs/brain.html", "Details") + " " + DOT() + " " + htA("https://github.com/t3m3d/krypton/tree/main/examples/objk", "View on GitHub")) +
+        htP(htA("/brain.html", "Details") + " " + DOT() + " " + htA("https://github.com/t3m3d/krypton/tree/main/examples/objk", "View on GitHub")) +
         htP(htEm("macOS arm64 " + DOT() + " no C, no Obj-C, no Swift.")) +
         "</div>" +
         htH2("More") +
@@ -1327,9 +1327,9 @@ func buildSitemap() {
         _sitemapUrl("/playground.html") +
         _sitemapUrl("/blog.html") +
         _sitemapUrl("/programs/") +
-        _sitemapUrl("/kcode.html") +
+        _sitemapUrl("/brain.html") +
         _sitemapUrl("/programs/stem.html") +
-        _sitemapUrl("/programs/brain.html") +
+        // /programs/brain.html removed — brain page lives at top-level /brain.html now
         _sitemapUrl("/objk.html") +
         _sitemapUrl("/downloads.html") +
         _sitemapUrl("/kryptscript.html") +
@@ -1477,10 +1477,9 @@ func pageBrain() {
         "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
         htImgA(htSrc("/brain.png") + htAttr("alt", "brain app icon") +
                htAttr("style", "width:132px;height:132px;border-radius:24%;box-shadow:0 12px 40px rgba(0,0,0,.45);margin-bottom:20px")) +
-        "<span class=" + DQ() + "tag" + DQ() + ">macOS arm64 " + DASH() + " free</span>" +
+        "<span class=" + DQ() + "tag" + DQ() + ">macOS arm64 &middot; Windows x86_64 " + DASH() + " free</span>" +
         htH1("brain") +
-        htP("A native macOS code editor / IDE whose entire UI is " + htEm("pure Krypton") + " on the objk Objective-C FFI " + DASH() +
-            " no Obj-C, no Swift source. A real Cocoa app " + DASH() + " NSWindow, NSTextView, NSTableView, menus " + DASH() + " driven by Krypton functions used directly as Objective-C method IMPs. Pairs with the " + htA("/programs/stem.html", "stem") + " terminal.") +
+        htP("A native code editor / IDE whose entire UI is " + htEm("pure Krypton") + ". On macOS via the objk Objective-C FFI (no Obj-C / Swift source); on Windows via " + htCode("stdlib/gui.k") + " over the Win32 IAT. A real Cocoa app on Mac, a real Win32 app on Windows " + DASH() + " driven by Krypton functions. Pairs with the " + htA("/programs/stem.html", "stem") + " terminal.") +
         "<a href=" + DQ() + "#install" + DQ() + " class=" + DQ() + "btn primary" + DQ() + ">Install via Homebrew</a>" +
         "<a href=" + DQ() + "https://github.com/t3m3d/krypton/releases/tag/brain-0.1.0" + DQ() + " class=" + DQ() + "btn primary" + DQ() + ">Download DMG</a>" +
         "<a href=" + DQ() + "https://github.com/t3m3d/krypton/tree/main/examples/objk" + DQ() + " class=" + DQ() + "btn outline" + DQ() + ">View Source</a>" +
@@ -1516,7 +1515,7 @@ func pageObjk() {
                htAttr("style", "width:132px;height:132px;border-radius:24%;box-shadow:0 12px 40px rgba(0,0,0,.45);margin-bottom:20px")) +
         "<span class=" + DQ() + "tag" + DQ() + ">macOS arm64</span>" +
         htH1("objk") +
-        htP("Objective-K " + DASH() + " a Krypton " + "&#8596;" + " Objective-C / Cocoa bridge built into the Mach-O backend. It lets " + htEm("pure Krypton") + " programs call macOS AppKit & Foundation directly, so a real native GUI app can ship with " + htEm("no Obj-C, no Swift source") + ". It is what " + htA("/programs/stem.html", "stem") + " and " + htA("/programs/brain.html", "brain") + " are built on.") +
+        htP("Objective-K " + DASH() + " a Krypton " + "&#8596;" + " Objective-C / Cocoa bridge built into the Mach-O backend. It lets " + htEm("pure Krypton") + " programs call macOS AppKit & Foundation directly, so a real native GUI app can ship with " + htEm("no Obj-C, no Swift source") + ". It is what " + htA("/programs/stem.html", "stem") + " and " + htA("/brain.html", "brain") + " are built on.") +
         "<a href=" + DQ() + "#how" + DQ() + " class=" + DQ() + "btn primary" + DQ() + ">How it works</a>" +
         "<a href=" + DQ() + "https://github.com/t3m3d/krypton/tree/main/stdlib" + DQ() + " class=" + DQ() + "btn outline" + DQ() + ">View stdlib</a>" +
         "</div>"
@@ -1537,46 +1536,13 @@ func pageObjk() {
     let powers = "<section class=" + DQ() + "dotbg" + DQ() + "><div class=" + DQ() + "wrap" + DQ() + " style=" + DQ() + "text-align:center" + DQ() + ">" +
         htH2("What it powers") +
         htP("Real, shipping apps " + DASH() + " not demos:") +
-        htP(htA("/programs/stem.html", "stem") + " " + DOT() + " a terminal (NSWindow + grid + pty). " + htA("/programs/brain.html", "brain") + " " + DOT() + " an IDE (NSTextView, NSTableView, tabs, menus). Both pure Krypton.") +
+        htP(htA("/programs/stem.html", "stem") + " " + DOT() + " a terminal (NSWindow + grid + pty). " + htA("/brain.html", "brain") + " " + DOT() + " an IDE (NSTextView, NSTableView, tabs, menus). Both pure Krypton.") +
         "</div></section>"
 
     emit sitePage("objk", hero + how + powers)
 }
 
-func pageKcode() {
-    let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
-        "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
-        "<span class=" + DQ() + "tag" + DQ() + ">macOS arm64</span>" +
-        htH1("kcode") +
-        htP("A terminal-native IDE for Krypton " + DASH() +
-            " syntax highlighting, jump-to-definition, integrated kcc, " +
-            "and a project explorer that understands stdlib imports.") +
-        "<a href=" + DQ() + kcodeBuyUrl() + DQ() + " class=" + DQ() + "btn primary" + DQ() + ">Buy " + kcodePrice() + "</a>" +
-        "<a href=" + DQ() + "https://github.com/t3m3d/krypton" + DQ() + " class=" + DQ() + "btn outline" + DQ() + ">View Source</a>" +
-        "</div>"
-
-    let features = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
-        htH2("Built for Krypton, in Krypton") +
-        htP("kcode is written end-to-end in Krypton. The editor, the syntax engine, the file tree, and the kcc invocation pipeline are all .k source. Nothing else underneath.") +
-        "<div class=" + DQ() + "grid" + DQ() + ">" +
-        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Syntax-aware editing") + htP("Highlighting tuned to Krypton: keywords, builtins, stdlib calls, comments, strings, numbers. No Treesitter, no LSP overhead.") + "</div>" +
-        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Integrated kcc") + htP("F5 builds the current file. Errors land in a panel with file:line jumps. Output streams live.") + "</div>" +
-        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Stdlib-aware imports") + htP("Type-as-you-go autocomplete for k: imports — htmk, kcss, ks, server, router, fs, http, all 36 modules.") + "</div>" +
-        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Project explorer") + htP("Tree-view of your project root, jump to file with fuzzy search, in-buffer find-across-files.") + "</div>" +
-        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Tiny binary") + htP("Single Mach-O, ad-hoc signed, runs on Tahoe arm64 with no dependencies. Starts in under 50ms.") + "</div>" +
-        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Future-proof") + htP("Lifetime updates for kcode 1.x. Same install handles 2.0+, 2.1+, and the upcoming WASM target.") + "</div>" +
-        "</div>" +
-        "</div></section>"
-
-    let buy = "<section class=" + DQ() + "dotbg" + DQ() + "><div class=" + DQ() + "wrap" + DQ() + " style=" + DQ() + "text-align:center" + DQ() + ">" +
-        htH2("Get kcode") +
-        htP("One-time purchase, " + kcodePrice() + ". Includes the kcode 1.x line. macOS arm64 only at v1; Linux x86_64 next.") +
-        "<a href=" + DQ() + kcodeBuyUrl() + DQ() + " class=" + DQ() + "btn primary" + DQ() + " style=" + DQ() + "background:linear-gradient(135deg,#7722ff,#5d16da);color:#fff;padding:14px 32px" + DQ() + ">Buy " + kcodePrice() + "</a>" +
-        htP(htEm("Or " + htA("https://github.com/sponsors/t3m3d", "sponsor on GitHub") + " for kcode + early access to new features.")) +
-        "</div></section>"
-
-    emit sitePage("kcode", hero + features + buy)
-}
+// pageKcode dropped 2026-06-12 -- kcode is now called brain.  See pageBrain().
 
 // ── Learn / Tutorials ────────────────────────────────────────────────
 
@@ -1814,9 +1780,8 @@ just run {
     writePage(dist + "/downloads.html", pageDownloads())
     writePage(dist + "/kryptscript.html", pageKryptScript())
     writePage(dist + "/contact.html", pageContact())
-    writePage(dist + "/kcode.html", pageKcode())
+    writePage(dist + "/brain.html", pageBrain())
     writePage(dist + "/programs/stem.html", pageStem())
-    writePage(dist + "/programs/brain.html", pageBrain())
     writePage(dist + "/objk.html", pageObjk())
     writePage(dist + "/sponsor.html", pageSponsor())
     writePage(dist + "/playground.html", pagePlayground())
