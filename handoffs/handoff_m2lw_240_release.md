@@ -31,5 +31,16 @@
 - `on_linux` url → `.../2.4.0/krypton-2.4.0-linux-x86_64.tar.gz`, sha256 `<from step L.4>`
 - test assert `2.3.0` → `2.4.0`
 
-## Why this matters
-objk is what lets the **stem** terminal ship with **no Obj-C source** (pure-Krypton Cocoa GUL). The released 2.4.0 kcc can build objk apps from source; the stem cask ships a prebuilt objk `stem.app` (Agent M handling separately).
+## ⚑ ACTION — bump the formula AFTER your tarballs (ping)
+
+This is the one open item gating a clean 2.4.0. **Sequence, do not reorder:**
+1. L uploads `krypton-2.4.0-linux-x86_64.tar.gz` to the tag (step L above).
+2. W uploads the Windows asset.
+3. **THEN** whoever's last bumps `homebrew-krypton/Formula/krypton.rb` to 2.4.0 (the 4 edits above).
+
+Do **not** bump the formula before the Linux tarball exists — `version "2.4.0"` makes the `on_linux` url resolve to a 2.4.0 file; if it isn't uploaded yet, every `brew install/upgrade krypton` on Linux 404s. macOS is unaffected either way (its 2.4.0 tarball is already on the tag), so there's no rush on the macOS side — the gate is purely the Linux asset.
+
+## Why this matters / downstream
+objk is what lets the **stem** terminal ship with **no Obj-C source** (pure-Krypton Cocoa GUI). The released 2.4.0 kcc builds objk apps from source.
+
+The stem cask already ships the prebuilt objk `stem.app` (verified C-free). I also added `build_dmg.ks` to the stem repo — a reproducible cask-DMG builder that uses the **released** kcc. It runs **config-free only once Homebrew `krypton` is ≥ 2.4.0 on PATH** (the brew wrapper then exports an objk-carrying `KRYPTON_ROOT`); until this formula bump lands, stem DMG builds must pass `KRYPTON_ROOT=/path/to/krypton-2.4.0`. So your formula bump is what makes stem's release pipeline fully turnkey.
