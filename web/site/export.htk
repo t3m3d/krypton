@@ -150,14 +150,18 @@ func siteCSS() {
         "tr:hover td{background:#f8f6ff}" +
         "footer{background:var(--nav-bg);color:var(--nav-text);text-align:center;padding:32px;font-size:0.9rem;border-top:1px solid rgba(119,34,255,0.15)}" +
         "footer a{color:var(--primary)}" +
-        ".sponsor-slot{position:relative;display:block;width:100%;max-width:900px;aspect-ratio:5/2;margin:32px auto 16px;padding:0;background:transparent;border:1px dashed var(--card-border);border-radius:8px;text-decoration:none;color:var(--text-light);transition:border-color 0.2s,transform 0.2s,background 0.2s;overflow:hidden}" +
+        ".sponsor-slot{display:block;max-width:728px;margin:32px auto 16px;padding:0;background:transparent;border:1px dashed var(--card-border);border-radius:8px;text-decoration:none;color:var(--text-light);transition:border-color 0.2s,transform 0.2s,background 0.2s}" +
         ".sponsor-slot:hover{border-color:var(--primary);transform:translateY(-1px);background:rgba(119,34,255,0.04);text-decoration:none}" +
-        ".sponsor-slot iframe{display:block;width:100%;height:100%;border:0;pointer-events:none}" +
-        "@media (max-width:640px){.sponsor-slot{margin:24px 14px 12px;max-width:none;aspect-ratio:3/4}}" +
         ".sponsor-inner{padding:24px 28px;min-height:90px;display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap}" +
         ".sponsor-label{opacity:0.55;font-size:0.72rem;letter-spacing:1.5px;text-transform:uppercase}" +
         ".sponsor-name{color:var(--primary);font-weight:600;font-size:1.05rem}" +
         ".sponsor-slot img{display:block;max-width:100%;height:auto;margin:0 auto;border-radius:8px}" +
+        "@media (max-width:640px){.sponsor-slot{margin:24px 14px 12px}.sponsor-inner{padding:18px 14px;min-height:70px}}" +
+        ".ad-embed{position:relative;display:block;max-width:728px;width:calc(100% - 28px);margin:32px auto 16px;aspect-ratio:728/240;border-radius:12px;overflow:hidden;border:1px solid var(--card-border);background:#08080d;box-shadow:0 6px 24px rgba(0,0,0,0.25)}" +
+        ".ad-embed iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}" +
+        ".ad-embed-link{position:absolute;inset:0;z-index:2;display:block;-webkit-tap-highlight-color:transparent}" +
+        "@media (max-width:680px){.ad-embed{aspect-ratio:1/1}}" +
+        "@media (max-width:430px){.ad-embed{aspect-ratio:300/360;width:calc(100% - 20px)}}" +
         ".tag{display:inline-block;background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;padding:4px 14px;border-radius:20px;font-size:0.8rem;margin-bottom:8px;font-weight:600}" +
         ".stat{text-align:center;padding:20px}.stat .num{font-size:2.5rem;font-weight:800;color:var(--primary);display:block}.stat .label{font-size:0.95rem;color:var(--text-light)}" +
         "ul{margin:8px 0 8px 24px}li{margin:4px 0}" +
@@ -342,7 +346,7 @@ func siteNav(active) {
          htA("/blog.html", "Blog") +
          htA("/docs.html", "Docs") +
          htA("/programs/", "Programs") +
-         htA("/brain.html", "brain") +
+         htA("/kcode.html", "kcode") +
          htA("/programs/stem.html", "stem") +
          htA("/downloads.html", "Downloads") +
          htA("/contact.html", "Contact") +
@@ -357,20 +361,22 @@ func siteNav(active) {
          "</div>"
 }
 
-// Sponsor slot — HTML5 leaderboard ad in an iframe wrapped in a
-// kry.li click-through anchor.  pointer-events:none on the iframe
-// lets all clicks bubble to the parent <a>.
+// Sponsor slot — leaderboard-sized clickable area above the footer.
+// Image lives at dist/ads/gpdlonly.png; the link is a kry.li short URL
+// so we can read click-through analytics via the kryptlink dashboard.
 func siteSponsorSlot() {
-    emit "<a href=" + DQ() + "https://www.kry.li/thepeoplewiread" + DQ() +
+    emit "<div class=" + DQ() + "ad-embed" + DQ() + ">" +
+         "<iframe src=" + DQ() + "/ads/pw-ad.html" + DQ() +
+         " title=" + DQ() + "The People Wire" + DQ() +
+         " loading=" + DQ() + "lazy" + DQ() +
+         " scrolling=" + DQ() + "no" + DQ() +
+         " frameborder=" + DQ() + "0" + DQ() + "></iframe>" +
+         "<a href=" + DQ() + "https://www.kry.li/thepeoplewiread" + DQ() +
          " target=" + DQ() + "_blank" + DQ() +
          " rel=" + DQ() + "noopener noreferrer sponsored" + DQ() +
-         " class=" + DQ() + "sponsor-slot" + DQ() + ">" +
-         "<iframe src=" + DQ() + "/ads/12.html" + DQ() +
-         " title=" + DQ() + "The People Wire" + DQ() +
-         " frameborder=" + DQ() + "0" + DQ() +
-         " scrolling=" + DQ() + "no" + DQ() +
-         "></iframe>" +
-         "</a>"
+         " class=" + DQ() + "ad-embed-link" + DQ() +
+         " aria-label=" + DQ() + "The People Wire" + DQ() + "></a>" +
+         "</div>"
 }
 
 func siteFooter() {
@@ -551,7 +557,7 @@ func pagePrograms() {
         htH1("Programs") +
         htP("Real software written in Krypton.") +
         "<p style=" + DQ() + "margin-top:10px;font-size:1.05em" + DQ() + ">" +
-            htA("/brain.html", "brain") + " &middot; " +
+            htA("/kcode.html", "kcode") + " &middot; " +
             htA("/programs/stem.html", "stem") + " &middot; " +
             htA("/programs/brain.html", "brain") + " &middot; " +
             htA("/programs/#kryofetch", "kryofetch") + " &middot; " +
@@ -1321,7 +1327,7 @@ func buildSitemap() {
         _sitemapUrl("/playground.html") +
         _sitemapUrl("/blog.html") +
         _sitemapUrl("/programs/") +
-        _sitemapUrl("/brain.html") +
+        _sitemapUrl("/kcode.html") +
         _sitemapUrl("/programs/stem.html") +
         _sitemapUrl("/programs/brain.html") +
         _sitemapUrl("/objk.html") +
@@ -1417,7 +1423,7 @@ func pageSponsor() {
     emit sitePage("Sponsor", hero + what + tiers + cta)
 }
 
-// ── brain landing page (was kcode prior to 2026-06-11 rename) ───────
+// ── kcode landing page ───────────────────────────────────────────────
 // Paid Krypton-aware terminal IDE. The Buy button URL is set via
 // kcodeBuyUrl(); replace the placeholder string once Gumroad / Stripe
 // product is enrolled. Until then the link target is a stub anchor
@@ -1537,38 +1543,39 @@ func pageObjk() {
     emit sitePage("objk", hero + how + powers)
 }
 
-func pageBrain() {
+func pageKcode() {
     let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
         "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
-        "<span class=" + DQ() + "tag" + DQ() + ">macOS arm64 &middot; Windows x86_64</span>" +
-        htH1("brain") +
-        htP("A native IDE for Krypton " + DASH() +
+        "<span class=" + DQ() + "tag" + DQ() + ">macOS arm64</span>" +
+        htH1("kcode") +
+        htP("A terminal-native IDE for Krypton " + DASH() +
             " syntax highlighting, jump-to-definition, integrated kcc, " +
             "and a project explorer that understands stdlib imports.") +
-        "<a href=" + DQ() + "https://github.com/t3m3d/krypton" + DQ() + " class=" + DQ() + "btn primary" + DQ() + ">View Source</a>" +
+        "<a href=" + DQ() + kcodeBuyUrl() + DQ() + " class=" + DQ() + "btn primary" + DQ() + ">Buy " + kcodePrice() + "</a>" +
+        "<a href=" + DQ() + "https://github.com/t3m3d/krypton" + DQ() + " class=" + DQ() + "btn outline" + DQ() + ">View Source</a>" +
         "</div>"
 
     let features = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
         htH2("Built for Krypton, in Krypton") +
-        htP("brain is written end-to-end in Krypton (Objective-K + KryptScript). The editor, the syntax engine, the file tree, and the kcc invocation pipeline are all .k source. Nothing else underneath.") +
+        htP("kcode is written end-to-end in Krypton. The editor, the syntax engine, the file tree, and the kcc invocation pipeline are all .k source. Nothing else underneath.") +
         "<div class=" + DQ() + "grid" + DQ() + ">" +
         "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Syntax-aware editing") + htP("Highlighting tuned to Krypton: keywords, builtins, stdlib calls, comments, strings, numbers. No Treesitter, no LSP overhead.") + "</div>" +
         "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Integrated kcc") + htP("F5 builds the current file. Errors land in a panel with file:line jumps. Output streams live.") + "</div>" +
         "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Stdlib-aware imports") + htP("Type-as-you-go autocomplete for k: imports — htmk, kcss, ks, server, router, fs, http, all 36 modules.") + "</div>" +
         "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Project explorer") + htP("Tree-view of your project root, jump to file with fuzzy search, in-buffer find-across-files.") + "</div>" +
-        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Tiny binary") + htP("Single native PE / Mach-O, runs without runtime dependencies. Cold-starts in under 50ms.") + "</div>" +
-        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Future-proof") + htP("Open-source. Same install handles 2.0+, 2.1+, and the upcoming WASM target.") + "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Tiny binary") + htP("Single Mach-O, ad-hoc signed, runs on Tahoe arm64 with no dependencies. Starts in under 50ms.") + "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Future-proof") + htP("Lifetime updates for kcode 1.x. Same install handles 2.0+, 2.1+, and the upcoming WASM target.") + "</div>" +
         "</div>" +
         "</div></section>"
 
     let buy = "<section class=" + DQ() + "dotbg" + DQ() + "><div class=" + DQ() + "wrap" + DQ() + " style=" + DQ() + "text-align:center" + DQ() + ">" +
-        htH2("Get brain") +
-        htP("Free + open-source. Native binaries for macOS arm64 and Windows x86_64; Linux next.") +
-        "<a href=" + DQ() + "https://github.com/t3m3d/krypton/releases" + DQ() + " class=" + DQ() + "btn primary" + DQ() + " style=" + DQ() + "background:linear-gradient(135deg,#7722ff,#5d16da);color:#fff;padding:14px 32px" + DQ() + ">Download</a>" +
-        htP(htEm("Or " + htA("https://github.com/sponsors/t3m3d", "sponsor on GitHub") + " to keep brain shipping.")) +
+        htH2("Get kcode") +
+        htP("One-time purchase, " + kcodePrice() + ". Includes the kcode 1.x line. macOS arm64 only at v1; Linux x86_64 next.") +
+        "<a href=" + DQ() + kcodeBuyUrl() + DQ() + " class=" + DQ() + "btn primary" + DQ() + " style=" + DQ() + "background:linear-gradient(135deg,#7722ff,#5d16da);color:#fff;padding:14px 32px" + DQ() + ">Buy " + kcodePrice() + "</a>" +
+        htP(htEm("Or " + htA("https://github.com/sponsors/t3m3d", "sponsor on GitHub") + " for kcode + early access to new features.")) +
         "</div></section>"
 
-    emit sitePage("brain", hero + features + buy)
+    emit sitePage("kcode", hero + features + buy)
 }
 
 // ── Learn / Tutorials ────────────────────────────────────────────────
@@ -1807,7 +1814,7 @@ just run {
     writePage(dist + "/downloads.html", pageDownloads())
     writePage(dist + "/kryptscript.html", pageKryptScript())
     writePage(dist + "/contact.html", pageContact())
-    writePage(dist + "/brain.html", pageBrain())
+    writePage(dist + "/kcode.html", pageKcode())
     writePage(dist + "/programs/stem.html", pageStem())
     writePage(dist + "/programs/brain.html", pageBrain())
     writePage(dist + "/objk.html", pageObjk())

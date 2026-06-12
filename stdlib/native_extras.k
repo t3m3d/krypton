@@ -308,6 +308,37 @@ func parseInt(s) {
     emit toInt(s)
 }
 
+// repeat(s, n) — s concatenated n times (n is an int count). Unshadowed from
+// the builtin list (no backend impl on macho/arm/win → crashed); this pure-K
+// version takes over on every native backend. Manual loop (the `repeat` builtin
+// segfaulted; sbAppend is the safe path).
+func repeat(s, n) {
+    let sb = sbNew()
+    let i = 0
+    while i < n {
+        sb = sbAppend(sb, s)
+        i = i + 1
+    }
+    emit sbToString(sb)
+}
+
+// hex(n) — lowercase hex string of a non-negative int. Unshadowed from the
+// builtin list (no BUILTIN_HEX on any native backend → passed the int through
+// unchanged). Pure-K: repeated %16 / /16, MSB-first via prepend. Safe subset
+// only (%, /, substring, concat).
+func hex(n) {
+    if n == 0 { emit "0" }
+    let digs = "0123456789abcdef"
+    let out = ""
+    let x = n
+    while x > 0 {
+        let d = x % 16
+        out = substring(digs, d, d + 1) + out
+        x = x / 16
+    }
+    emit out
+}
+
 // Lex compare for sort: returns 1 if a < b lexicographically
 func _lexLT(a, b) {
     let i = 0
