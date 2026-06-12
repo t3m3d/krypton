@@ -308,6 +308,40 @@ func fbRoundRect(px, fbW, fbH, x, y, w, h, rr, color) {
     fbFillCircle(px, fbW, fbH, x + rr, y + h - rr - 1, rr, color)
     fbFillCircle(px, fbW, fbH, x + w - rr - 1, y + h - rr - 1, rr, color)
 }
+// alpha-composite a BGRA source (B,G,R,A per px) onto the fb at (dx,dy),
+// blending each pixel by its A against the existing destination. Use for
+// transparent icons (convert ... BGRA:-). Clipped to the fb.
+func fbBlitAlpha(px, fbW, fbH, dx, dy, src, sw, sh) {
+    let sy = 0
+    while sy < sh {
+        let py = dy + sy
+        if py >= 0 && py < fbH {
+            let sx = 0
+            while sx < sw {
+                let pxx = dx + sx
+                if pxx >= 0 && pxx < fbW {
+                    let so = (sy * sw + sx) * 4
+                    let a = bufGetByte(src, so + 3)
+                    if a > 0 {
+                        let dofs = (py * fbW + pxx) * 4
+                        if a == 255 {
+                            bufSetByte(px, dofs, bufGetByte(src, so))
+                            bufSetByte(px, dofs + 1, bufGetByte(src, so + 1))
+                            bufSetByte(px, dofs + 2, bufGetByte(src, so + 2))
+                        } else {
+                            let ia = 255 - a
+                            bufSetByte(px, dofs,     (bufGetByte(src, so) * a + bufGetByte(px, dofs) * ia) / 255)
+                            bufSetByte(px, dofs + 1, (bufGetByte(src, so + 1) * a + bufGetByte(px, dofs + 1) * ia) / 255)
+                            bufSetByte(px, dofs + 2, (bufGetByte(src, so + 2) * a + bufGetByte(px, dofs + 2) * ia) / 255)
+                        }
+                    }
+                }
+                sx += 1
+            }
+        }
+        sy += 1
+    }
+}
 // read a pixel's packed 0xRRGGBB (for tests / verification)
 func fbGetPixel(px, fbW, x, y) {
     let o = (y * fbW + x) * 4
