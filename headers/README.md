@@ -75,6 +75,7 @@ jxt {
 | `psapi.krh` | Windows | psapi.dll *(IAT registered in x64.k 2026-06-13; x64_host_windows_x86_64.exe needs regen for runtime — pair with stdlib/proc_ex.k)* |
 | `iphlpapi.krh` | Windows | iphlpapi.dll *(IAT registered in x64.k 2026-06-13; x64_host_windows_x86_64.exe needs regen for runtime — pair with stdlib/iphlp.k)* |
 | `bcrypt.krh` | Windows | bcrypt.dll *(IAT registered in x64.k 2026-06-13; x64_host_windows_x86_64.exe needs regen for runtime — pair with stdlib/crypto.k)* |
+| `wininet.krh` | Windows | wininet.dll *(IAT registered in x64.k 2026-06-13; x64_host_windows_x86_64.exe needs regen for runtime — pair with stdlib/httpc.k httpGetUrl/httpGetUrlStatus path)* |
 | `objc.krh` | macOS | libobjc.dylib |
 | `cocoa.krh` | macOS | Constants only — no DLL calls |
 
