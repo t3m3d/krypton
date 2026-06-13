@@ -752,7 +752,7 @@ Krypton programs can call them via FFI through the C-emitter pipeline.
 | `gdi32.krh` | Text drawing, pens / brushes / fonts, shapes, bitmaps — link with `-lgdi32` |
 | `fileio.krh` | Windows file I/O — CreateFile, ReadFile, FindFirstFile |
 | `process.krh` | CreateProcess, WaitForSingleObject, CreateThread, Sleep |
-| `winsock.krh` | TCP/UDP networking (Winsock2) — link with `-lws2_32` |
+| `winsock.krh` | TCP/UDP networking (Winsock2) — IAT-resolved via `ws2_32.dll` in native-PE mode (no link flag); `-lws2_32` only applies to the legacy `--gcc` path |
 | `iphlpapi.krh` | Windows IP Helper API — GetAdaptersInfo, GetIfTable |
 | `conio.krh` | _kbhit, _getch (Windows console) |
 
