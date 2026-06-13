@@ -55,23 +55,54 @@ consumption. No FE regen needed → Catch-22 broken.
   you can now regen normally and fix the sb cap in x64.k properly — the
   bootstrap is no longer self-referential once you have one good host.
 
-## 2. Why macOS never truncates — the sb design to port
+## 2. Reopening the sbAppend theory — I traced your x64.k path; here's the mechanism
 
-For when you fix x64.k's `emitBootstrapHelpers` sb: macho's sb is **self-
-describing**, it never reads capacity from the alloc header (your suspect path):
+You reopened sbAppend after the `krypton_rt.k` fix was a no-op. **You're right
+that sbAppend is the culprit — I read the actual machine-code path in x64.k and
+it confirms it, but the mechanism is "O(n²) realloc-concat with no length
+field," NOT a literal 64K clamp in the sb code.** What's actually there:
+
+- `kr_sbappend` → **`__rt_strcat`** (x64.k:3316, mapped at :4487). Every append:
+  `strlen(a) + strlen(b) + 1` → `alloc(total)` → **copy BOTH strings into a
+  fresh buffer**. No capacity field, no stored length — it re-measures and
+  re-copies the *entire accumulator* on every single append.
+- **That's O(n²).** compile.k builds the IR via ~78K `sb = sbAppend(sb, line)`
+  calls; each re-copies a growing buffer. **This is almost certainly your 33 GB
+  working-set blowup** (your attempt 1) — the bump allocator never frees the
+  78K intermediate buffers, each up to ~900 KB.
+- **strlen and WriteFile are NOT the cap** (I checked): `__rt_strlen`
+  (x64.k:3235) counts in 32-bit `EAX` (`INC EAX`), handles >64K fine.
+  `kr_print` (x64.k:3861) passes the full 32-bit `R8D = len` to WriteFile
+  ([39-41] `MOV R8D, EBX`). So the output side isn't clamping either.
+- **So the exact-65536 truncation is downstream of the strcat blowup** — most
+  likely `__rt_alloc_v2` capping/mishandling a single allocation once the
+  accumulator alloc crosses 64 KB. **Grep x64.k for `65536` / `0x10000` in the
+  alloc-v2 path** — there are several `65536` literals (1342, 1351, 3088,
+  currently exec/stack-commit only); confirm none leak into the general alloc
+  size check. A single-alloc clamp at 0x10000 would freeze the accumulator at
+  exactly 65536, mid-token — matching your symptom precisely.
+
+**The fix that kills BOTH the OOM and the truncation: replace the naive
+strcat-sb with macho's explicit cap/len doubling sb.** It tracks `len` in a
+header (never re-strlens the accumulator → O(n) amortized, no 33 GB) and grows
+by *doubling* (allocs stay bounded — never one giant alloc that trips a clamp):
 ```
 buffer:  [+0]=cap (qword)  [+8]=len (qword)  [+16..]=data+NUL
 sbNew():  alloc 256; cap=256-16, len=0; return a STABLE handle → buf
-sbAppend(h,str): buf=h[0]; cap=buf[0]; len=buf[8]; need=len+strlen+1
+sbAppend(h,str): buf=h[0]; cap=buf[0]; len=buf[8]; need=len+strlen(str)+1
    if need>cap:  newcap = 2*cap + strlen + 17;  newbuf=alloc(newcap);
-                 copy; store newcap,len; h[0]=newbuf   # handle stays valid
-   copy str at buf+16+len; len+=strlen; NUL
+                 copy len bytes; store newcap,len; h[0]=newbuf  # handle stays valid
+   copy str at buf+16+len; len+=strlen; NUL; return h
 ```
-Cap/len are explicit qwords I write + read — no `bitAnd(raw_cap, 0-4)` on a
-runtime alloc header, so no negative-int masking to get wrong, growth is
-unbounded by doubling. Whatever your `emitBootstrapHelpers` sb does, if it
-derives cap from the alloc header it'll hit the cap; the explicit-header layout
-is immune. macho ships multi-MB sb's (the 897 KB IR above) this way.
+macho ships the 897 KB IR above through exactly this every build. Porting it to
+`emitBootstrapHelpers` is more work than a one-byte clamp fix, but it's the
+*correct* fix — your current `__rt_strcat` would re-OOM on any large IR even if
+you found and removed the 64K clamp.
+
+**Quick triage path if you want the truncation gone before the full sb rewrite:**
+find the 0x10000 alloc clamp (if that's it) and bump it — gets you a working
+regen — then do the explicit-header sb properly so it doesn't OOM at the next
+size. (Or just cross-FE per §1 and skip straight to the proper fix.)
 
 ## 3. Validate ph2 once you have a real host (no clang)
 
