@@ -604,6 +604,28 @@ func emitIsnum() {
     c = c + e_movz(0, 0) + e_ret()                               // [52,56] .notnum
     emit c
 }
+// kr_cmp(a=x0, b=x1) -> x0 = signed 3-way (a<b<0, ==0, a>b>0). Mirrors x86 kr_cmpi:
+// both numeric (int OR digit-string) -> atoi(a)-atoi(b); else byte-wise strcmp sign.
+// Backs LT/GT/LTE/GTE (they cmp the result vs 0). Saves lr x23; a=x24 b=x25. 144 bytes.
+func emitCmp(atoiOff, isnumOff, thisOff) {
+    let c = e_movr(23, 30) + e_movzHi(9, 32512)                  // [0,4] lr; x9=VBASE
+    c = c + e_movr(24, 0) + e_movr(25, 1)                        // [8,12] x24=a x25=b
+    c = c + e_cmp(24, 9) + e_blt(16)                             // [16,20] a<VBASE int -> .a_ok (36)
+    c = c + e_movr(0, 24) + e_bl(isnumOff - (thisOff + 28)) + e_cbz(0, 72)  // [24,28,32] isnum(a)? no -> .strcmp (104)
+    c = c + e_cmp(25, 9) + e_blt(16)                             // [36,40] .a_ok: b<VBASE -> .b_ok (56)
+    c = c + e_movr(0, 25) + e_bl(isnumOff - (thisOff + 48)) + e_cbz(0, 52)  // [44,48,52] isnum(b)? no -> .strcmp (104)
+    c = c + e_movr(0, 24) + e_cmp(0, 9) + e_blt(8)               // [56,60,64] .b_ok: a int -> .av (72)
+    c = c + e_bl(atoiOff - (thisOff + 68))                       // [68] x0=atoi(a)
+    c = c + e_movr(10, 0) + e_movr(0, 25)                        // [72,76] .av: x10=aval; x0=b
+    c = c + e_cmp(0, 9) + e_blt(8)                               // [80,84] b int -> .bv (92)
+    c = c + e_bl(atoiOff - (thisOff + 88))                       // [88] x0=atoi(b)
+    c = c + e_movr(30, 23) + e_subr(0, 10, 0) + e_ret()          // [92,96,100] .bv: lr; aval-bval; ret
+    c = c + e_movr(30, 23) + e_movz(2, 0)                        // [104,108] .strcmp: lr; i=0
+    c = c + e_ldrbO(3, 24, 2) + e_ldrbO(4, 25, 2) + e_subr(0, 3, 4)  // [112,116,120] .sl: x0=a[i]-b[i]
+    c = c + e_cbnz(0, 16) + e_cbz(3, 12) + e_addi(2, 2, 1) + e_b(0 - 24)  // [124,128,132,136] differ/end->.ret(140); i++; loop
+    c = c + e_ret()                                             // [140] .ret
+    emit c
+}
 // kr_plus: numeric-aware "+". Mirrors x86 kr_plus: if BOTH operands are numeric
 // (small int < VBASE, OR digit-only string via kr_isnum) -> int sum (kr_atoi each
 // string side); else string concat. Saves lr in x23; VBASE in x9; a=x24 b=x25.
@@ -653,8 +675,11 @@ func emitKpDisp(thisOff, siOff, prOff) {
     emit c
 }
 // kr_atoi: x0=string ptr -> x0=parsed non-negative int (stops at NUL/non-digit).
+// Int-safe: a small int (< VBASE) passes through unchanged (mirrors x86 kr_atoi),
+// so toInt(int)/fromCharCode(int) don't deref a non-pointer. 60 bytes.
 func emitAtoi() {
-    let c = e_movr(1, 0) + e_movz(0, 0) + e_movz(4, 10)        // x1=ptr, x0=0, x4=10
+    let c = e_movzHi(9, 32512) + e_cmp(0, 9) + e_bge(8) + e_ret()  // x0<VBASE int -> return as-is
+    c = c + e_movr(1, 0) + e_movz(0, 0) + e_movz(4, 10)        // x1=ptr, x0=0, x4=10
     c = c + e_ldrb0(2, 1) + e_cbz(2, 24)                       // .loop: w2=[x1]; 0 -> .done
     c = c + e_mul(0, 0, 4) + e_subi(2, 2, 48) + e_addr(0, 0, 2) // x0 = x0*10 + (c-'0')
     c = c + e_addi(1, 1, 1) + e_b(0 - 24)                      // x1++; -> .loop
@@ -848,7 +873,8 @@ func opSize(ln) {
     if op == "JUMPIFNOT" { emit 16 }   // pop + bl istruthy + cbz (was naive cbz)
     if op == "JUMPIF"    { emit 16 }   // pop + bl istruthy + cbnz (|| short-circuit)
     if op == "NOT"       { emit 28 }   // pop + bl istruthy + (x0 ^= 1) + push
-    if op == "LT" || op == "GT" || op == "LTE" || op == "GTE" { emit 32 }
+    if op == "NEG"       { emit 20 }   // pop + sub x0,xzr,x0 + push (unary minus)
+    if op == "LT" || op == "GT" || op == "LTE" || op == "GTE" { emit 36 }   // bl kr_cmp + cmpi0 + cset
     if op == "EQ"  { emit 28 }     // polymorphic kr_eq (numeric OR strcmp)
     if op == "NEQ" { emit 36 }     // kr_eq + invert
     if op == "INDEX" { emit 28 }   // list[idx] -> kr_split (pop0+pop1+bl+push)
@@ -865,7 +891,7 @@ func opSize(ln) {
         if startsWith(b, "len") { emit 40 }
         if startsWith(b, "toStr") { emit 32 }
         if startsWith(b, "toInt") { emit 20 }
-        if startsWith(b, "fromCharCode") { emit 36 }
+        if startsWith(b, "fromCharCode") { emit 40 }
         if startsWith(b, "substring") { emit 36 }
         if startsWith(b, "isTruthy") { emit 20 }
         if startsWith(b, "min") { emit 32 }   // pop0+pop1+cmp+csel+push
@@ -883,7 +909,7 @@ func opSize(ln) {
         if startsWith(b, "contains")   { emit 28 }
         if startsWith(b, "indexOf")    { emit 28 }
         if startsWith(b, "trim")       { emit 20 }  // 1-arg: pop0 + bl + push
-        if startsWith(b, "split")      { emit 28 }  // 2-arg (list, idx)
+        if startsWith(b, "split")      { emit 32 }  // 2-arg (list, idx); idx coerced via atoi
         if startsWith(b, "count")      { emit 20 }  // 1-arg (list)
         if startsWith(b, "abs")        { emit 28 }  // inline: pop+cmp+bge+neg+push
         if startsWith(b, "pow")        { emit 28 }  // 2-arg -> kr_pow
@@ -935,7 +961,7 @@ just run {
     let printOff  = plusOff + 288   // kr_plus grew 212->288 (numeric-aware: isnum+atoi sum)
     let kpDispOff = printOff + 64
     let atoiOff = kpDispOff + 32
-    let substrOff = atoiOff + 44
+    let substrOff = atoiOff + 60   // kr_atoi grew 44->60 (int-safe passthrough)
     let hexOff = substrOff + 68    // substr is 68 bytes
     let binOff = hexOff + 144      // kr_hex is 144 bytes
     let padleftOff = binOff + 128  // kr_bin is 128 bytes
@@ -966,7 +992,8 @@ just run {
     let hasfieldOff = getfieldOff + 92   // kr_getfield is 92 bytes
     let structfieldsOff = hasfieldOff + 72  // kr_hasfield is 72 bytes
     let isnumOff = structfieldsOff + 104  // kr_structfields is 104 bytes
-    let nlOff = isnumOff + 60             // kr_isnum is 60 bytes
+    let cmpOff = isnumOff + 60            // kr_isnum is 60 bytes
+    let nlOff = cmpOff + 144             // kr_cmp is 144 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -1074,17 +1101,18 @@ just run {
             off = off + 28
         }
         if op == "POP" { code = code + e_addi(20, 20, 16)  off = off + 4 }
-        if op == "LT"  { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 10) + c_push()  off = off + 32 }
-        if op == "GT"  { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 13) + c_push()  off = off + 32 }
+        if op == "LT"  { code = code + c_pop1() + c_pop0() + e_bl(cmpOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 10) + c_push()  off = off + 36 }
+        if op == "GT"  { code = code + c_pop1() + c_pop0() + e_bl(cmpOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 13) + c_push()  off = off + 36 }
         // EQ/NEQ are polymorphic (string contents OR numeric) via kr_eq.
         if op == "EQ"  { code = code + c_pop1() + c_pop0() + e_bl(eqOff - (off + 16)) + c_push()   off = off + 28 }
         if op == "NEQ" { code = code + c_pop1() + c_pop0() + e_bl(eqOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 1) + c_push()   off = off + 36 }
-        if op == "LTE" { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 12) + c_push()  off = off + 32 }
-        if op == "GTE" { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 11) + c_push()  off = off + 32 }
+        if op == "LTE" { code = code + c_pop1() + c_pop0() + e_bl(cmpOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 12) + c_push()  off = off + 36 }
+        if op == "GTE" { code = code + c_pop1() + c_pop0() + e_bl(cmpOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 11) + c_push()  off = off + 36 }
         if op == "JUMP" { code = code + e_b(toInt(labelAbsOffset(ir, operand(ln))) - off)  off = off + 4 }
         if op == "JUMPIFNOT" { code = code + c_pop0() + e_bl(istruthyOff - (off + 8)) + e_cbz(0, toInt(labelAbsOffset(ir, operand(ln))) - (off + 12))  off = off + 16 }
         if op == "JUMPIF" { code = code + c_pop0() + e_bl(istruthyOff - (off + 8)) + e_cbnz(0, toInt(labelAbsOffset(ir, operand(ln))) - (off + 12))  off = off + 16 }
         if op == "NOT" { code = code + c_pop0() + e_bl(istruthyOff - (off + 8)) + e_movz(1, 1) + e_eor(0, 0, 1) + c_push()  off = off + 28 }
+        if op == "NEG" { code = code + c_pop0() + e_subr(0, 31, 0) + c_push()  off = off + 20 }
         if op == "CALL" {
             let cn = headName(ln)
             // bitwise builtins arrive as generic CALLs (front-end emits CALL, not BUILTIN).
@@ -1148,7 +1176,7 @@ just run {
             if startsWith(b, "contains")   { code = code + c_pop0() + c_pop1() + e_bl(containsOff - (off + 16)) + c_push()  off = off + 28 }
             if startsWith(b, "indexOf")    { code = code + c_pop0() + c_pop1() + e_bl(indexofOff - (off + 16)) + c_push()  off = off + 28 }
             if startsWith(b, "trim")       { code = code + c_pop0() + e_bl(trimOff - (off + 8)) + c_push()  off = off + 20 }
-            if startsWith(b, "split")      { code = code + c_pop0() + c_pop1() + e_bl(splitOff - (off + 16)) + c_push()  off = off + 28 }
+            if startsWith(b, "split")      { code = code + c_pop0() + e_bl(atoiOff - (off + 8)) + c_pop1() + e_bl(splitOff - (off + 20)) + c_push()  off = off + 32 }  // idx via atoi (int-safe): accepts int or numeric-string index
             if startsWith(b, "count")      { code = code + c_pop0() + e_bl(countOff - (off + 8)) + c_push()  off = off + 20 }
             // abs(x): inline. pop x0; if x0<0 neg; push. 28 bytes.
             if startsWith(b, "abs")        { code = code + c_pop0() + e_cmpi0(0) + e_bge(8) + e_subr(0, 31, 0) + c_push()  off = off + 28 }
@@ -1251,18 +1279,20 @@ just run {
                 code = code + sbToString(kc)
                 off = off + 20
             }
-            // fromCharCode(n) -> 1-char string for byte n (kr_alloc(2)). 36 bytes.
+            // fromCharCode(n) -> 1-char string for byte n. Arg is a numeric STRING
+            // (e.g. "65") or int; kr_atoi (int-safe) coerces to the code. 40 bytes.
             if startsWith(b, "fromCharCode") {
                 let kc = sbNew()
-                kc = sbAppend(kc, c_pop0())                       // x0 = code (int)
+                kc = sbAppend(kc, c_pop0())                       // x0 = code (string or int)
+                kc = sbAppend(kc, e_bl(atoiOff - (off + 8)))      // x0 = code as int
                 kc = sbAppend(kc, e_movr(10, 0))                  // save code in x10
                 kc = sbAppend(kc, e_movz(0, 2))                   // size = 2
-                kc = sbAppend(kc, e_bl(allocOff - (off + 16)))    // x0 = buf
+                kc = sbAppend(kc, e_bl(allocOff - (off + 20)))    // x0 = buf
                 kc = sbAppend(kc, e_strb(10, 0))                  // buf[0] = code
                 kc = sbAppend(kc, e_strbO(31, 0, 1))             // buf[1] = NUL
                 kc = sbAppend(kc, c_push())                       // push buf
                 code = code + sbToString(kc)
-                off = off + 36
+                off = off + 40
             }
             // substring(s, start, end) -> s[start:end] (kr_substring). 36 bytes.
             if startsWith(b, "substring") {
@@ -1325,6 +1355,7 @@ just run {
     bb = sbAppend(bb, emitHasField())
     bb = sbAppend(bb, emitStructFields(allocOff, plusOff, structfieldsOff))
     bb = sbAppend(bb, emitIsnum())
+    bb = sbAppend(bb, emitCmp(atoiOff, isnumOff, cmpOff))
     bb = sbAppend(bb, "")     // guards: x86 backend drops trailing sbAppends (scales w/ chain len)
     bb = sbAppend(bb, "")
     bb = sbAppend(bb, "")
