@@ -1,0 +1,26 @@
+// winsock.krh -- Krypton declarations for the Windows ws2_32.dll surface.
+// Pair with stdlib/winsock.k (the user-level wrappers).
+// Wired into x64.k's IAT scaffolding so user binaries can call these
+// directly via the IAT (no LoadLibrary/GetProcAddress dance).
+
+jxt {
+    // Lifecycle.
+    func WSAStartup(version, wsadata)            -> INT
+    func WSACleanup()                            -> INT
+
+    // BSD-style socket API exposed by ws2_32.
+    func socket(family, type, protocol)          -> HANDLE
+    func bind(sock, addr, addrLen)               -> INT
+    func listen(sock, backlog)                   -> INT
+    func accept(sock, addr, addrLen)             -> HANDLE
+    func recv(sock, buf, len, flags)             -> INT
+    func send(sock, buf, len, flags)             -> INT
+    func connect(sock, addr, addrLen)            -> INT
+    func closesocket(sock)                       -> INT
+
+    // Byte-order helpers (used to build sockaddr_in port + addr fields).
+    func htons(hostShort)                        -> WORD
+    func htonl(hostLong)                         -> DWORD
+    func ntohs(netShort)                         -> WORD
+    func ntohl(netLong)                          -> DWORD
+}
