@@ -199,6 +199,10 @@ let g_CSTRING_SIZE    = 3           // total bytes of __cstring (computed)
 // after parse to avoid O(F²) walks in funcStartLine. One int per line.
 let g_funcStartCache  = ""
 let g_ENTRY_OFF       = 0x460       // file offset of `_main`'s first instruction
+// Stage 6: __rt_alloc callable helper. Appended to __text after all user
+// functions; emitAllocN/Var trampoline into it. Its text instruction index
+// (= total user-func instrs) is set in emitTextFromIR before the emit loop.
+let g_RT_ALLOC_INSTR  = 0
 // Dynamic layout — recomputed by computeLayout() in the driver.
 let g_TEXT_VMSIZE         = 0x4000
 let g_DATA_CONST_FILE_OFF = 0x4000
@@ -732,6 +736,19 @@ func arm64_adrp(rd, imm21) {
     insn = insn + rd                     // bits[4:0]
     emit hexDword(insn)
 }
+// ADR Xd, label — PC-relative byte offset (±1MB). Same field layout as ADRP
+// but op=0 (base 0x10000000) and imm21 is a *byte* delta, not page delta.
+func arm64_adr(rd, imm21) {
+    let i = imm21
+    if i < 0 { i = i + 0x200000 }       // 2's complement into 21 bits
+    let immlo = i % 4
+    let immhi = i / 4
+    let insn = 0x10000000
+    insn = insn + (immlo * 0x20000000)   // bits[30:29]
+    insn = insn + (immhi * 0x20)         // bits[23:5]
+    insn = insn + rd                     // bits[4:0]
+    emit hexDword(insn)
+}
 // add Rd, Rn, #imm12 (64-bit, no shift)
 func arm64_add_imm(rd, rn, imm12) {
     let insn = (0x9100 * 0x10000 + 0x0)
@@ -752,6 +769,11 @@ func arm64_bl(rel26) {
 func arm64_movz_w0_zero()       { emit hexDword(0x52800000) }
 // ldp x29, x30, [sp], #16   →  0xa8c17bfd
 func arm64_ldp_fp_lr_post16()   { emit hexDword((0xa8c1 * 0x10000 + 0x7bfd)) }
+// stp x4, x30, [sp, #-16]!  /  ldp x4, x30, [sp], #16  (stage 6: emitAllocN
+// brackets its BL with these to preserve the caller's x4 — which INDEX etc.
+// keep live as the string base across the alloc — plus the x30 link reg).
+func arm64_stp_x4_lr_pre16()    { emit hexDword((0xa9bf * 0x10000 + 0x7be4)) }
+func arm64_ldp_x4_lr_post16()   { emit hexDword((0xa8c1 * 0x10000 + 0x7be4)) }
 // ret                       →  0xd65f03c0
 func arm64_ret()                { emit hexDword((0xd65f * 0x10000 + 0x3c0)) }
 
@@ -1110,31 +1132,23 @@ func arm64_brk(imm16) {
 // (instead of x4 like emitAllocN) so the size register isn't clobbered.
 // Adds 16-byte header per alloc; returns user_ptr = header_ptr + 16.
 func emitAllocVar(instrIdx, textVaddr, textOff) {
-    // Use page offsets relative to TEXT base to avoid 0 arithmetic on
-    // native binary (where values >= threshold are treated as string pointers).
-    let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
+    // Stage 6: trampoline into the shared __rt_alloc helper via BL. Size in x4,
+    // returns user ptr in x0, clobbers x0/1/2/9/11 + x30 (BL link reg). Using
+    // x30 (BL link reg) is saved/restored around the call (some backend
+    // builtins keep a live value in x30 across an alloc; x16 is likewise live
+    // elsewhere — both are unusable as a scratch return reg, so we BL and
+    // bracket it with stp/ldp). Stays EXACTLY 21 instructions so every call
+    // site keeps its offsets:
+    //   0: stp x29,x30,[sp,#-16]!   (save lr; sp stays 16-aligned)
+    //   1: bl __rt_alloc            (returns via `ret` to instr 2)
+    //   2: ldp x29,x30,[sp],#16     (restore lr)
+    //   3..20: nop
     let s = ""
-    s = s + arm64_adrp(1, imm21)                        // 0
-    s = s + arm64_add_imm(1, 1, 0)                      // 1: bumpVaddr is page-aligned, pageoff=0
-    s = s + arm64_ldr_imm(9, 1, 3)                      // 2: ldr x9, [x1, #24] (alloc_total)
-    s = s + arm64_add_xxx(9, 9, 4)                      // 3: x9 += x4 (user size)
-    s = s + arm64_str_imm(9, 1, 3)                      // 4: str x9, [x1, #24]
-    s = s + arm64_ldr_imm(5, 1, 4)                      // 5: ldr x5, [x1, #32] (alloc_limit)
-    s = s + arm64_cbz(5, 4)                             // 6: if limit==0 skip 3
-    s = s + arm64_cmp_xx(9, 5)                          // 7: cmp x9, x5
-    s = s + arm64_b_cond(0x09, 2)                       // 8: b.ls +2 (skip brk)
-    s = s + arm64_brk(99)                               // 9: brk #99 (limit exceeded)
-    s = s + arm64_ldr_imm(0, 1, 0)                      // 10
-    s = s + arm64_cbnz(0, 2)                            // 11
-    s = s + arm64_add_imm(0, 1, 96)                     // 12: first-time init (heap @ +96; +56/64/72 = getLine cache)
-    s = s + arm64_add_xxx(2, 0, 4)                      // 13: x2 = x0 + size
-    s = s + arm64_add_imm(2, 2, 16)                     // 14: x2 += 16 (header)
-    s = s + arm64_str_imm(2, 1, 0)                      // 15: advance bump
-    s = s + arm64_ldr_imm(11, 1, 6)                     // 16: x11 = gcAllocsHead
-    s = s + arm64_str_imm(11, 0, 0)                     // 17: header.next = old head
-    s = s + arm64_str_imm(4, 0, 1)                      // 18: header.size_flags = x4 (size)
-    s = s + arm64_str_imm(0, 1, 6)                      // 19: gcAllocsHead = header
-    s = s + arm64_add_imm(0, 0, 16)                     // 20: user_ptr past header
+    s = s + arm64_stp_fp_lr_pre16()                     // 0: save x29/x30
+    s = s + arm64_bl(g_RT_ALLOC_INSTR - (instrIdx + 1)) // 1: bl __rt_alloc
+    s = s + arm64_ldp_fp_lr_post16()                    // 2: restore x29/x30
+    let k = 0
+    while k < 18 { s = s + arm64_nop()  k = k + 1 }     // 3..20: pad to 21
     emit s
 }
 
@@ -1163,38 +1177,91 @@ func emitAllocVar(instrIdx, textVaddr, textOff) {
 //   +32  alloc_limit      soft cap (0 = no limit; brk #99 on overflow)
 //   +40  gcShadowCount    shadow-stack live count (read/written by gcShadowPush/Pop/Count)
 //   +48  gcAllocsHead     head of singly-linked alloc list (for mark-sweep)
-//   +56  reserved
-//   +64..  heap (each alloc: 16-byte header [next:8B][size_flags:8B] + user bytes)
+//   +56/64/72  getLine cache (ptr / idx / off)
+//   +80  envp save        (inherited envp, set by __main__ prologue)
+//   +88  free_head        head of freelist (stage 6: gcSweep parks unmarked
+//                         nodes here; __rt_alloc recycles them). MUST avoid the
+//                         getLine cache (+56..72) + envp (+80) — both are
+//                         written constantly during compilation.
+//   +96..  heap (each alloc: 16-byte header [next:8B][size_flags:8B] + user bytes)
 //   +0x2000000.. shadow stack (entries at 8 B each, written by gcShadowPush)
 // User-facing pointer returned in x0 = header_ptr + 16.
 func emitAllocN(n, instrIdx, textVaddr, textOff) {
-    let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
+    // Stage 6: trampoline into __rt_alloc. Compile-time size n → x4, then jump.
+    // Stays EXACTLY 21 instructions (same contract as before) so call sites keep
+    // their offsets:
+    //   0: stp x4,x30,[sp,#-16]!    (save caller's x4 [INDEX keeps base here] + lr)
+    //   1: movz x4, nAligned        (request size — overwrites saved x4)
+    //   2: bl __rt_alloc            (returns via `ret` to instr 3)
+    //   3: ldp x4,x30,[sp],#16      (restore caller's x4 + lr; x0=result kept)
+    //   4..20: nop padding
     let nAligned = ((n + 7) / 8) * 8
-    let nWithHdr = nAligned + 16
     let s = ""
-    s = s + arm64_adrp(1, imm21)                        // 0: adrp x1, bump_cell@PAGE
-    s = s + arm64_add_imm(1, 1, 0)                      // 1: bump_cell@PAGEOFF=0 (page-aligned)
-    s = s + arm64_ldr_imm(9, 1, 3)                      // 2: ldr  x9, [x1, #24]   (alloc_total)
-    s = s + arm64_add_imm(9, 9, nAligned)               // 3: x9 += nAligned (user bytes)
-    s = s + arm64_str_imm(9, 1, 3)                      // 4: str  x9, [x1, #24]
-    s = s + arm64_ldr_imm(10, 1, 4)                     // 5: ldr  x10, [x1, #32]  (alloc_limit)
-    s = s + arm64_cbz(10, 4)                            // 6: if limit==0 skip cmp/b.ls/brk
-    s = s + arm64_cmp_xx(9, 10)                         // 7: cmp x9, x10
-    s = s + arm64_b_cond(0x09, 2)                       // 8: b.ls +2 (if total <= limit, skip brk)
-    s = s + arm64_brk(99)                               // 9: brk #99 (limit exceeded)
-    s = s + arm64_ldr_imm(0, 1, 0)                      // 10: ldr  x0, [x1]   ; current free
-    s = s + arm64_cbnz(0, 2)                            // 11: if x0 != 0 skip first-time init
-    s = s + arm64_add_imm(0, 1, 96)                     // 12: x0 = bump_cell + 96 (heap; +56/64/72 = getLine cache)
-    s = s + arm64_add_imm(2, 0, nWithHdr)               // 13: x2 = x0 + (nAligned+16)  new bump
-    s = s + arm64_str_imm(2, 1, 0)                      // 14: str x2, [x1]    ; advance bump
-    s = s + arm64_ldr_imm(11, 1, 6)                     // 15: ldr x11, [x1, #48]  (old gcAllocsHead)
-    s = s + arm64_str_imm(11, 0, 0)                     // 16: str x11, [x0]   ; header.next = old head
-    s = s + arm64_movz_x_imm(12, nAligned)              // 17: x12 = nAligned (user size)
-    s = s + arm64_str_imm(12, 0, 1)                     // 18: str x12, [x0, #8]  ; header.size_flags
-    s = s + arm64_str_imm(0, 1, 6)                      // 19: str x0, [x1, #48]  ; gcAllocsHead = header
-    s = s + arm64_add_imm(0, 0, 16)                     // 20: x0 += 16 ; user_ptr past header
+    s = s + arm64_stp_x4_lr_pre16()                     // 0: save x4 + x30
+    s = s + arm64_movz_x_imm(4, nAligned)               // 1: x4 = size
+    s = s + arm64_bl(g_RT_ALLOC_INSTR - (instrIdx + 2)) // 2: bl __rt_alloc
+    s = s + arm64_ldp_x4_lr_post16()                    // 3: restore x4 + x30
+    let k = 0
+    while k < 17 { s = s + arm64_nop()  k = k + 1 }     // 4..20: pad to 21
     emit s
 }
+
+// __rt_alloc helper — single callable allocator (stage 6). Input x4 = user
+// size (8-aligned). Returns user ptr in x0. Called via BL, returns via `ret`
+// (x30). Clobbers ONLY x0/x1/x2/x9/x11 + x30; x4 preserved. This scratch set
+// is the intersection of the old emitAllocVar (x0/1/2/5/9/11) and emitAllocN
+// (x0/1/2/9/10/11/12) clobber contracts, so neither's call sites break. (An
+// earlier x16-trampoline version broke self-host: the backend keeps live
+// values in x16 across allocs — x30 is the only safe link reg.)
+// Leaf helper: no prologue/frame, never clobbers x30 before the ret.
+//   Path 1 (freelist hit): free_head node whose size_flags >= request → unlink
+//     from free_head, relink into gcAllocsHead, return node+16.
+//   Path 2 (bump): advance bump pointer, push header onto gcAllocsHead.
+// No size_flags masking needed: swept (freelisted) nodes have the mark bit
+// (bit 63) cleared and sizes are 8-aligned, so size_flags == exact size.
+func emitRtAllocHelper(instrIdx, textOff) {
+    let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
+    let s = ""
+    s = s + arm64_adrp(1, imm21)                        // 0
+    s = s + arm64_add_imm(1, 1, 0)                      // 1: x1 = gcGlobals base
+    s = s + arm64_ldr_imm(9, 1, 3)                      // 2: x9 = alloc_total (+24)
+    s = s + arm64_add_xxx(9, 9, 4)                      // 3: x9 += size
+    s = s + arm64_str_imm(9, 1, 3)                      // 4: store alloc_total
+    s = s + arm64_ldr_imm(2, 1, 4)                      // 5: x2 = alloc_limit (+32)
+    s = s + arm64_cbz(2, 4)                             // 6: if limit==0 → +4 (instr 10)
+    s = s + arm64_cmp_xx(9, 2)                          // 7: cmp total, limit
+    s = s + arm64_b_cond(0x09, 2)                       // 8: b.ls +2 (instr 10)
+    s = s + arm64_brk(99)                               // 9: brk #99 (limit exceeded)
+    // ── freelist check @10 (node ptr in x0) ──
+    s = s + arm64_ldr_imm(0, 1, 11)                     // 10: x0 = free_head (+88)
+    s = s + arm64_cbz(0, 11)                            // 11: if null → BUMP (+11 = 22)
+    s = s + arm64_ldr_imm(9, 0, 1)                      // 12: x9 = size_flags ([node+8])
+    s = s + arm64_cmp_xx(9, 4)                          // 13: cmp free size, request
+    s = s + arm64_b_cond(0x03, 8)                       // 14: b.lo → BUMP (+8 = 22) (too small)
+    s = s + arm64_ldr_imm(2, 0, 0)                      // 15: x2 = node.next (freelist)
+    s = s + arm64_str_imm(2, 1, 11)                     // 16: free_head = node.next (unlink)
+    s = s + arm64_ldr_imm(11, 1, 6)                     // 17: x11 = old gcAllocsHead (+48)
+    s = s + arm64_str_imm(11, 0, 0)                     // 18: node.next = old gcAllocsHead
+    s = s + arm64_str_imm(0, 1, 6)                      // 19: gcAllocsHead = node (relink)
+    s = s + arm64_add_imm(0, 0, 16)                     // 20: x0 = node + 16 (user ptr)
+    s = s + arm64_ret()                                 // 21: return (freelist hit)
+    // ── BUMP path @22 ──
+    s = s + arm64_ldr_imm(0, 1, 0)                      // 22: x0 = current free (bump cell)
+    s = s + arm64_cbnz(0, 2)                            // 23: if !=0 → +2 (instr 25)
+    s = s + arm64_add_imm(0, 1, 96)                     // 24: first-time heap base (+96)
+    s = s + arm64_add_xxx(2, 0, 4)                      // 25: x2 = x0 + size
+    s = s + arm64_add_imm(2, 2, 16)                     // 26: x2 += 16 (header)
+    s = s + arm64_str_imm(2, 1, 0)                      // 27: advance bump
+    s = s + arm64_ldr_imm(11, 1, 6)                     // 28: x11 = old gcAllocsHead
+    s = s + arm64_str_imm(11, 0, 0)                     // 29: header.next = old head
+    s = s + arm64_str_imm(4, 0, 1)                      // 30: header.size_flags = size
+    s = s + arm64_str_imm(0, 1, 6)                      // 31: gcAllocsHead = header
+    s = s + arm64_add_imm(0, 0, 16)                     // 32: x0 += 16 (user ptr)
+    s = s + arm64_ret()                                 // 33: return (bump)
+    emit s
+}
+
+func rtAllocInstrCount() { emit 34 }
 
 // Polymorphic string concat — emits 111 arm64 instructions assuming the two
 // operands are already in x3 (a) and x6 (b). Either may be an int (raw, less
@@ -2190,8 +2257,8 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_GCALLOCATED"  { emit 4 }   // adrp + add + ldr [x1,#24] + push
     if opTok == "BUILTIN_GCLIMIT"      { emit 4 }   // adrp + add + ldr [x1,#32] + push
     if opTok == "BUILTIN_GCSETLIMIT"   { emit 5 }   // pop + adrp + add + str [x1,#32] + push
-    if opTok == "BUILTIN_GCRESET"      { emit 8 }   // adrp + add + 4 stores (bump, alloc_total, shadow_count, gcAllocsHead) + movz + push
-    if opTok == "BUILTIN_GCCOLLECT"    { emit 43 }  // real: mark + sweep inline, returns swept count
+    if opTok == "BUILTIN_GCRESET"      { emit 9 }   // adrp + add + 5 stores (bump, alloc_total, shadow_count, gcAllocsHead, free_head) + movz + push
+    if opTok == "BUILTIN_GCCOLLECT"    { emit 46 }  // real: mark + sweep inline (sweep parks unmarked onto free_head), returns swept count
     // 2.0 GC builtins (stub-only; real impl pending mark-sweep port). Each
     // either takes 0 args + pushes 0 (count/checkpoint/walk), or takes 1 arg,
     // discards it, and pushes 0 (push/pop/restore). Tier-3 calling convention:
@@ -2201,8 +2268,8 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_GCSHADOWPOP"      { emit 8 }   // real: pop+adrp+add+ldr+sub+str+movz+push
     if opTok == "BUILTIN_GCSHADOWCOUNT"    { emit 4 }   // real: adrp+add+ldr+push
     if opTok == "BUILTIN_GCMARK"           { emit 27 }  // shadow-walk + mark-bit set
-    if opTok == "BUILTIN_GCSWEEP"          { emit 22 }  // alloc-list walk + unlink unmarked
-    if opTok == "BUILTIN_GCFREELISTCOUNT"  { emit 2 }
+    if opTok == "BUILTIN_GCSWEEP"          { emit 25 }  // alloc-list walk + unlink unmarked + push onto free_head
+    if opTok == "BUILTIN_GCFREELISTCOUNT"  { emit 10 }  // real: walk free_head (+88), count
     if opTok == "BUILTIN_GCALLOCCOUNT"     { emit 10 }  // real: walk gcAllocsHead, count
     if opTok == "BUILTIN_GCWALKALLOCS"     { emit 3 }   // takes 1 (callback ptr)
     if opTok == "BUILTIN_GCCHECKPOINT"     { emit 4 }   // real: snapshot gcShadowCount
@@ -2412,8 +2479,9 @@ func irCmpToCond(opTok) {
     emit 0
 }
 
-// Total __text size in bytes — sum of all functions.
-func computeTextSize(parsed) {
+// Total instruction count of all user functions (excludes the __rt_alloc
+// helper, which is appended after them). Equals __rt_alloc's text instr index.
+func computeUserTextInstrs(parsed) {
     let nF = funcCount(parsed)
     let total = 0
     let i = 0
@@ -2421,7 +2489,12 @@ func computeTextSize(parsed) {
         total = total + computeFunctionInstrs(parsed, i)
         i += 1
     }
-    emit total * 4
+    emit total
+}
+
+// Total __text size in bytes — all user functions + the __rt_alloc helper.
+func computeTextSize(parsed) {
+    emit (computeUserTextInstrs(parsed) + rtAllocInstrCount()) * 4
 }
 
 // Emit one function: prologue (with param save) + ops + epilogue. instrIdx is
@@ -3904,8 +3977,8 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_push_x0())
             instrIdx = instrIdx + 4
         } else if opTok == "BUILTIN_GCRESET" {
-            // Zero bump_cell, alloc_total, gcShadowCount, gcAllocsHead.
-            // Full heap + roots + alloc-list reset. Push 0. 8 instructions.
+            // Zero bump_cell, alloc_total, gcShadowCount, gcAllocsHead, free_head.
+            // Full heap + roots + alloc-list + freelist reset. Push 0. 9 instructions.
             let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
             s = sbAppend(s, arm64_adrp(1, imm21))
             s = sbAppend(s, arm64_add_imm(1, 1, 0))
@@ -3913,12 +3986,14 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_str_imm(31, 1, 3))  // alloc_total = 0 (offset +24)
             s = sbAppend(s, arm64_str_imm(31, 1, 5))  // gcShadowCount = 0 (offset +40)
             s = sbAppend(s, arm64_str_imm(31, 1, 6))  // gcAllocsHead = 0 (offset +48)
+            s = sbAppend(s, arm64_str_imm(31, 1, 11))  // free_head = 0 (offset +88)  [stage 6]
             s = sbAppend(s, arm64_movz_x_imm(0, 0))
             s = sbAppend(s, arm64_push_x0())
-            instrIdx = instrIdx + 8
+            instrIdx = instrIdx + 9
         } else if opTok == "BUILTIN_GCCOLLECT" {
             // gcCollect: run mark phase + sweep phase inline; return swept count.
-            // 43 instructions = MARK (idx 2..22) + SWEEP (idx 23..40) + return (41..42).
+            // 46 instructions = MARK (idx 2..22) + SWEEP (idx 23..43) + return (44..45).
+            // Stage 6 phase 1: sweep pushes unmarked nodes onto free_head (+56).
             let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
             s = sbAppend(s, arm64_adrp(1, imm21))  // 0
             s = sbAppend(s, arm64_add_imm(1, 1, 0))  // 1
@@ -3953,27 +4028,30 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_add_imm(11, 1, 48))  // 24: prev_next = &head
             s = sbAppend(s, arm64_movz_x_imm(5, 0))  // 25: swept = 0
             // SWEEP_LOOP @ idx 26:
-            s = sbAppend(s, arm64_cbz(10, 15))  // 26: → SWEEP_DONE (+15 = 41)
+            s = sbAppend(s, arm64_cbz(10, 18))  // 26: → SWEEP_DONE (+18 = 44)
             s = sbAppend(s, arm64_ldr_imm(4, 10, 1))  // 27: size_flags
             s = sbAppend(s, arm64_cmp_imm(4, 0))  // 28
-            s = sbAppend(s, arm64_b_cond(0xb, 6))  // 29: b.lt → SWEEP_MARKED (+6 = 35)
-            // UNMARKED — unlink
-            s = sbAppend(s, arm64_ldr_imm(12, 10, 0))  // 30: next
-            s = sbAppend(s, arm64_str_imm(12, 11, 0))  // 31: *prev_next = next
-            s = sbAppend(s, arm64_mov_xx(10, 12))  // 32: current = next
-            s = sbAppend(s, arm64_add_imm(5, 5, 1))  // 33: swept++
-            s = sbAppend(s, arm64_b(0 - 8))  // 34: → SWEEP_LOOP (idx 26)
-            // SWEEP_MARKED @ idx 35:
-            s = sbAppend(s, arm64_movz_x_imm_lsl48(12, 0x8000))  // 35
-            s = sbAppend(s, arm64_eor_xxx(4, 4, 12))  // 36: clear mark
-            s = sbAppend(s, arm64_str_imm(4, 10, 1))  // 37
-            s = sbAppend(s, arm64_mov_xx(11, 10))  // 38: prev_next = &cur.next
-            s = sbAppend(s, arm64_ldr_imm(10, 10, 0))  // 39: current = cur.next
-            s = sbAppend(s, arm64_b(0 - 14))  // 40: → SWEEP_LOOP (idx 26)
-            // SWEEP_DONE @ idx 41:
-            s = sbAppend(s, arm64_mov_xx(0, 5))  // 41: x0 = swept count
-            s = sbAppend(s, arm64_push_x0())  // 42: push
-            instrIdx = instrIdx + 43
+            s = sbAppend(s, arm64_b_cond(0xb, 9))  // 29: b.lt → SWEEP_MARKED (+9 = 38)
+            // UNMARKED — unlink from alloc list, push onto freelist (+56)
+            s = sbAppend(s, arm64_ldr_imm(12, 10, 0))  // 30: next (alloc list)
+            s = sbAppend(s, arm64_str_imm(12, 11, 0))  // 31: *prev_next = next (unlink)
+            s = sbAppend(s, arm64_ldr_imm(13, 1, 11))  // 32: x13 = old free_head (+88)
+            s = sbAppend(s, arm64_str_imm(13, 10, 0))  // 33: current.next = old free_head
+            s = sbAppend(s, arm64_str_imm(10, 1, 11))  // 34: free_head = current
+            s = sbAppend(s, arm64_mov_xx(10, 12))  // 35: current = next
+            s = sbAppend(s, arm64_add_imm(5, 5, 1))  // 36: swept++
+            s = sbAppend(s, arm64_b(0 - 11))  // 37: → SWEEP_LOOP (37-11=26)
+            // SWEEP_MARKED @ idx 38:
+            s = sbAppend(s, arm64_movz_x_imm_lsl48(12, 0x8000))  // 38
+            s = sbAppend(s, arm64_eor_xxx(4, 4, 12))  // 39: clear mark
+            s = sbAppend(s, arm64_str_imm(4, 10, 1))  // 40
+            s = sbAppend(s, arm64_mov_xx(11, 10))  // 41: prev_next = &cur.next
+            s = sbAppend(s, arm64_ldr_imm(10, 10, 0))  // 42: current = cur.next
+            s = sbAppend(s, arm64_b(0 - 17))  // 43: → SWEEP_LOOP (43-17=26)
+            // SWEEP_DONE @ idx 44:
+            s = sbAppend(s, arm64_mov_xx(0, 5))  // 44: x0 = swept count
+            s = sbAppend(s, arm64_push_x0())  // 45: push
+            instrIdx = instrIdx + 46
         } else if opTok == "BUILTIN_GCALLOCCOUNT" {
             // Walk gcAllocsHead linked list, count entries. 10 instructions.
             let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
@@ -4072,9 +4150,9 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
         } else if opTok == "BUILTIN_GCSWEEP" {
             // Sweep phase: walk gcAllocsHead linked list. For each header:
             //   - if bit 63 of size_flags is set → clear it (kept)
-            //   - else → unlink from list (swept; not actually freed yet —
-            //     freelist comes in a later session).
-            // Returns the swept count. 23 instructions.
+            //   - else → unlink from gcAllocsHead AND push onto free_head (+56)
+            //     so __rt_alloc can recycle it (stage 6 phase 1: freelist build).
+            // Returns the swept count. 25 instructions.
             let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
             s = sbAppend(s, arm64_adrp(1, imm21))  // 0
             s = sbAppend(s, arm64_add_imm(1, 1, 0))  // 1
@@ -4082,27 +4160,30 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_add_imm(11, 1, 48))  // 3: x11 = &head (prev next-loc)
             s = sbAppend(s, arm64_movz_x_imm(5, 0))  // 4: swept = 0
             // LOOP @ instrIdx+5:
-            s = sbAppend(s, arm64_cbz(10, 15))  // 5: while current != null
+            s = sbAppend(s, arm64_cbz(10, 18))  // 5: while current != null → END (+18 = 23)
             s = sbAppend(s, arm64_ldr_imm(4, 10, 1))  // 6: x4 = size_flags ([cur+8])
             s = sbAppend(s, arm64_cmp_imm(4, 0))  // 7: cmp x4, #0
-            s = sbAppend(s, arm64_b_cond(0xb, 6))  // 8: b.lt → MARKED (+6)
-            // UNMARKED — unlink current
-            s = sbAppend(s, arm64_ldr_imm(12, 10, 0))  // 9: x12 = current.next
-            s = sbAppend(s, arm64_str_imm(12, 11, 0))  // 10: *prev_next = next
-            s = sbAppend(s, arm64_mov_xx(10, 12))  // 11: current = next
-            s = sbAppend(s, arm64_add_imm(5, 5, 1))  // 12: swept++
-            s = sbAppend(s, arm64_b(0 - 8))  // 13: back to LOOP
-            // MARKED @ instrIdx+14: clear mark bit, advance
-            s = sbAppend(s, arm64_movz_x_imm_lsl48(12, 0x8000))  // 14: bit-63 mask
-            s = sbAppend(s, arm64_eor_xxx(4, 4, 12))  // 15: clear bit (XOR — known set)
-            s = sbAppend(s, arm64_str_imm(4, 10, 1))  // 16: store size_flags
-            s = sbAppend(s, arm64_mov_xx(11, 10))  // 17: prev_next_loc = &cur.next
-            s = sbAppend(s, arm64_ldr_imm(10, 10, 0))  // 18: current = current.next
-            s = sbAppend(s, arm64_b(0 - 14))  // 19: back to LOOP
-            // END @ instrIdx+20:
-            s = sbAppend(s, arm64_mov_xx(0, 5))  // 20: x0 = swept
-            s = sbAppend(s, arm64_push_x0())  // 21: push
-            instrIdx = instrIdx + 22
+            s = sbAppend(s, arm64_b_cond(0xb, 9))  // 8: b.lt → MARKED (+9 = 17)
+            // UNMARKED — unlink from alloc list, push onto freelist
+            s = sbAppend(s, arm64_ldr_imm(12, 10, 0))  // 9: x12 = current.next (alloc list)
+            s = sbAppend(s, arm64_str_imm(12, 11, 0))  // 10: *prev_next = next (unlink)
+            s = sbAppend(s, arm64_ldr_imm(13, 1, 11))  // 11: x13 = old free_head (+88)
+            s = sbAppend(s, arm64_str_imm(13, 10, 0))  // 12: current.next = old free_head
+            s = sbAppend(s, arm64_str_imm(10, 1, 11))  // 13: free_head = current
+            s = sbAppend(s, arm64_mov_xx(10, 12))  // 14: current = next
+            s = sbAppend(s, arm64_add_imm(5, 5, 1))  // 15: swept++
+            s = sbAppend(s, arm64_b(0 - 11))  // 16: back to LOOP (16-11=5)
+            // MARKED @ instrIdx+17: clear mark bit, advance
+            s = sbAppend(s, arm64_movz_x_imm_lsl48(12, 0x8000))  // 17: bit-63 mask
+            s = sbAppend(s, arm64_eor_xxx(4, 4, 12))  // 18: clear bit (XOR — known set)
+            s = sbAppend(s, arm64_str_imm(4, 10, 1))  // 19: store size_flags
+            s = sbAppend(s, arm64_mov_xx(11, 10))  // 20: prev_next_loc = &cur.next
+            s = sbAppend(s, arm64_ldr_imm(10, 10, 0))  // 21: current = current.next
+            s = sbAppend(s, arm64_b(0 - 17))  // 22: back to LOOP (22-17=5)
+            // END @ instrIdx+23:
+            s = sbAppend(s, arm64_mov_xx(0, 5))  // 23: x0 = swept
+            s = sbAppend(s, arm64_push_x0())  // 24: push
+            instrIdx = instrIdx + 25
         } else if opTok == "BUILTIN_GCCHECKPOINT" {
             // gcCheckpoint: snapshot the current shadow-stack count; return it.
             // gcRestore uses the snapshot to truncate the shadow stack later.
@@ -4124,9 +4205,26 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_movz_x_imm(0, 0))  // 4
             s = sbAppend(s, arm64_push_x0())  // 5
             instrIdx = instrIdx + 6
-        } else if opTok == "BUILTIN_GCFREELISTCOUNT" || opTok == "BUILTIN_GCSLABCOUNT" ||
+        } else if opTok == "BUILTIN_GCFREELISTCOUNT" {
+            // Walk free_head (+56) linked list, count entries. 10 instructions.
+            // Stage 6 phase 1: reports recyclable nodes gcSweep parked.
+            let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
+            s = sbAppend(s, arm64_adrp(1, imm21))  // 0
+            s = sbAppend(s, arm64_add_imm(1, 1, 0))  // 1
+            s = sbAppend(s, arm64_ldr_imm(10, 1, 11))  // 2: current = free_head (+88)
+            s = sbAppend(s, arm64_movz_x_imm(5, 0))  // 3: count = 0
+            // LOOP @ idx 4:
+            s = sbAppend(s, arm64_cbz(10, 4))  // 4: → END (+4 = 8)
+            s = sbAppend(s, arm64_add_imm(5, 5, 1))  // 5
+            s = sbAppend(s, arm64_ldr_imm(10, 10, 0))  // 6: current = next
+            s = sbAppend(s, arm64_b(0 - 3))  // 7: → LOOP (idx 4)
+            // END @ idx 8:
+            s = sbAppend(s, arm64_mov_xx(0, 5))  // 8
+            s = sbAppend(s, arm64_push_x0())  // 9
+            instrIdx = instrIdx + 10
+        } else if opTok == "BUILTIN_GCSLABCOUNT" ||
                   opTok == "BUILTIN_GCSLABBYTES" {
-            // STUB: 0-arg, returns 0. Freelist + slab tracking not implemented.
+            // STUB: 0-arg, returns 0. Slab tracking not implemented.
             s = sbAppend(s, arm64_movz_x_imm(0, 0))
             s = sbAppend(s, arm64_push_x0())
             instrIdx = instrIdx + 2
@@ -5542,6 +5640,10 @@ func emitTextFromIR(parsed, strOffsets, textSz) {
     let order = emitOrder(parsed)
     let nF = funcCount(parsed)
     let funcTable = buildFunctionTable(parsed)
+    // Stage 6: __rt_alloc sits right after all user functions. Set its text
+    // instr index BEFORE the emit loop so emitAllocN/Var trampolines resolve
+    // their `b __rt_alloc` displacement correctly.
+    g_RT_ALLOC_INSTR = computeUserTextInstrs(parsed)
     let s = sbNew()
     let oi = 0
     while oi < nF {
@@ -5551,6 +5653,8 @@ func emitTextFromIR(parsed, strOffsets, textSz) {
         s = sbAppend(s, fcode)
         oi += 1
     }
+    // Append the __rt_alloc helper at instr index g_RT_ALLOC_INSTR.
+    s = sbAppend(s, emitRtAllocHelper(g_RT_ALLOC_INSTR, g_TEXT_OFF))
     emit sbToString(s)
 }
 
