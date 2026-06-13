@@ -122,12 +122,16 @@ guts. So:
    **the same 65536 bytes, ending in the exact same `EQ` token**.
 
    **Critical finding:** the rebuilt DLL was **byte-identical** to
-   the unpatched version (sha256 match). That means `kr_sbappend`'s
-   machine code does NOT come from `runtime/krypton_rt.k`. The
-   Krypton-level source there is either dead code or a thin wrapper
-   that's replaced at compile time. The actual sb machine code
-   lives in `compiler/windows_x86/x64.k`'s `emitBootstrapHelpers`,
-   baked into `krypton_rt.dll` at build time.
+   the unpatched version (sha256 match). The mechanism is now
+   understood: when kcc.exe sees the output filename is exactly
+   `krypton_rt.dll`, it sets `isBootstrap == "1"` (see x64.k:8443+,
+   `if isDll == "1" && rtDllName == "krypton_rt_legacy.dll"`). In
+   bootstrap mode the FUNC bodies in `runtime/krypton_rt.k` are
+   **IGNORED**; the exported function bodies come from x64.k's
+   `emitBootstrapHelpers` directly. The Krypton-level
+   `runtime/krypton_rt.k` is effectively a declaration-only file
+   for the export name list. So changing the Krypton source there
+   cannot affect the produced DLL.
 
    **Implication:** the fix is in x64.k's bootstrap helpers, which
    means fixing the bug requires updating x64.k, which requires
