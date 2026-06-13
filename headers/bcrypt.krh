@@ -1,0 +1,45 @@
+// bcrypt.krh -- Krypton declarations for the Windows bcrypt.dll surface.
+// Pair with stdlib/crypto.k for ergonomic wrappers.
+//
+// DLL: bcrypt.dll  (Cryptography Next-Generation, "CNG")
+// Pipeline: native PE -- IAT-resolved via x64.k (2026-06-13).
+//
+// CNG is the modern replacement for CryptoAPI.  We expose the pieces
+// needed for hashing (SHA-256 / SHA-1 / MD5), AES, and the system RNG.
+// Algorithm handles are opaque -- pass them around as raw pointers.
+
+jxt {
+    // Algorithm provider lifecycle.
+    //   phAlgorithm  : OUT  BCRYPT_ALG_HANDLE
+    //   pszAlgId     : IN   wide-string algorithm name ("SHA256", "AES", ...)
+    //   pszImplementation: IN  NULL for Microsoft Primitive Provider
+    //   dwFlags      : IN   0 (or BCRYPT_ALG_HANDLE_HMAC_FLAG=8 for HMAC)
+    func BCryptOpenAlgorithmProvider(phAlgorithm, pszAlgId, pszImplementation, dwFlags)   -> INT
+    func BCryptCloseAlgorithmProvider(hAlgorithm, dwFlags)                                 -> INT
+
+    // One-shot hash -- caller supplies output buffer of the right size.
+    //   hAlgorithm   : provider handle (SHA256 yields 32 bytes etc.)
+    //   pbSecret     : HMAC key (NULL for plain hash)
+    //   cbSecret     : HMAC key length (0 for plain hash)
+    //   pbInput      : data to hash
+    //   cbInput      : input length
+    //   pbOutput     : output buffer
+    //   cbOutput     : output length (must match digest size)
+    func BCryptHash(hAlgorithm, pbSecret, cbSecret, pbInput, cbInput, pbOutput, cbOutput) -> INT
+
+    // Streaming hash (open-update-finish-close).
+    func BCryptCreateHash(hAlgorithm, phHash, pbHashObject, cbHashObject, pbSecret, cbSecret, dwFlags) -> INT
+    func BCryptHashData(hHash, pbInput, cbInput, dwFlags)                                  -> INT
+    func BCryptFinishHash(hHash, pbOutput, cbOutput, dwFlags)                              -> INT
+    func BCryptDestroyHash(hHash)                                                          -> INT
+
+    // System RNG -- the canonical replacement for rand().
+    //   dwFlags : BCRYPT_USE_SYSTEM_PREFERRED_RNG=2 (don't need a handle)
+    func BCryptGenRandom(hAlgorithm, pbBuffer, cbBuffer, dwFlags)                          -> INT
+
+    // Symmetric crypto -- AES via key derive + encrypt/decrypt.
+    func BCryptGenerateSymmetricKey(hAlgorithm, phKey, pbKeyObject, cbKeyObject, pbSecret, cbSecret, dwFlags) -> INT
+    func BCryptEncrypt(hKey, pbInput, cbInput, pPaddingInfo, pbIV, cbIV, pbOutput, cbOutput, pcbResult, dwFlags) -> INT
+    func BCryptDecrypt(hKey, pbInput, cbInput, pPaddingInfo, pbIV, cbIV, pbOutput, cbOutput, pcbResult, dwFlags) -> INT
+    func BCryptDestroyKey(hKey)                                                            -> INT
+}
