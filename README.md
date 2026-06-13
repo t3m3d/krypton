@@ -756,6 +756,7 @@ Krypton programs can call them via FFI through the C-emitter pipeline.
 | `shell32.krh` | Default-handler launch + folder picker + known folders (ShellExecuteA, SHBrowseForFolderA, SHGetFolderPathA) — IAT-resolved via `shell32.dll` in native-PE mode; pair with `stdlib/shell.k` |
 | `psapi.krh` | Process introspection — EnumProcesses, EnumProcessModules, GetModuleBaseNameA, GetModuleFileNameExA, GetProcessMemoryInfo — IAT-resolved via `psapi.dll` in native-PE mode; pair with `stdlib/proc_ex.k` |
 | `iphlpapi.krh` | Windows IP Helper API — GetAdaptersAddresses, GetAdaptersInfo, GetIfTable, GetTcpTable, IcmpCreateFile / IcmpSendEcho / IcmpCloseHandle — IAT-resolved via `iphlpapi.dll` in native-PE mode; pair with `stdlib/iphlp.k` |
+| `bcrypt.krh` | Modern crypto (CNG) — SHA-256 / HMAC / AES / system RNG (BCryptOpenAlgorithmProvider, BCryptHash, BCryptGenRandom, BCryptEncrypt, BCryptDecrypt, ...) — IAT-resolved via `bcrypt.dll` in native-PE mode; pair with `stdlib/crypto.k` |
 | `conio.krh` | _kbhit, _getch (Windows console) |
 
 ### Third-party / project-specific
