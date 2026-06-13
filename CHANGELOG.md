@@ -4,6 +4,17 @@ All notable changes to the Krypton language and compiler.
 
 ## [Unreleased]
 
+- **Windows: shell32.dll wired into the IAT** (`compiler/windows_x86/x64.k`).
+  `SHBrowseForFolderA` / `SHGetPathFromIDListA` / `ShellExecuteA` /
+  `SHGetFolderPathA` resolve directly through the IAT. Retires the last
+  live `LoadLibraryA` + `GetProcAddress` dance in `stdlib/gui.k`
+  (`guiPickFolder`). New `headers/shell32.krh` declarations + new
+  `stdlib/shell.k` wrappers: `shellOpen(path)`, `shellOpenUrl(url)`,
+  `shellRevealInExplorer(path)`, `shellPrint(path)`, `shellPickFolder(title)`,
+  `shellKnownFolder(kind)` (desktop / documents / downloads / appdata /
+  local_appdata / profile). Descriptor index 12, prefix `sh:`.
+  Same `x64_host_windows_x86_64.exe` regen still required before runtime
+  validation.
 - **Windows: ws2_32.dll wired into the IAT** (`compiler/windows_x86/x64.k`).
   `stdlib/winsock.k` is now a first-class platform shim instead of a
   declarations-only stub: `WSAStartup` / `socket` / `bind` / `listen` /
