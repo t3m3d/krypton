@@ -122,9 +122,9 @@ errors with a clear message.
 | `a > b` | `LOAD a; LOAD b; GT` |
 | `a >= b` | `LOAD a; LOAD b; GE` |
 | `a is b` | `LOAD a; LOAD b; EQ` *(string identity == value in Krypton)* |
-| `a in xs` | `LOAD a; LOAD xs; CALL inlistk 2` *(list_py.k)* |
-| `a in d` | `LOAD a; LOAD d; CALL indictk 2` *(dict_py.k; FE picks based on receiver type)* |
-| `a in s` | `LOAD a; LOAD s; CALL containsk 2` *(string_py.k)* |
+| `a in xs` | `LOAD a; LOAD xs; CALL inlistk 2` *(list.k)* |
+| `a in d` | `LOAD a; LOAD d; CALL indictk 2` *(dict.k; FE picks based on receiver type)* |
+| `a in s` | `LOAD a; LOAD s; CALL containsk 2` *(string.k)* |
 | `a not in xs` | `inlistk; NEG_BOOL` *(or `JZ` inverted)* |
 
 Chained comparisons (`a < b < c`) lower to `LOAD a; LOAD b; LT; ...; LOAD b; LOAD c; LT; ... AND`. The middle expression `b` is evaluated **once**, cached in a temp local.
@@ -216,9 +216,9 @@ declared receiver type:
 
 | Receiver kind | Lowering rule |
 |---|---|
-| `str` | `obj.method(a)` → `methodk(obj, a)` *(string_py.k)* |
-| `list` | `obj.method(a)` → `methodk(obj, a)` *(list_py.k)* — disambiguated names: `listIndexk`, `listCountk` |
-| `dict` | `obj.method(a)` → `dict<method>k(obj, a)` *(dict_py.k, `dict`-prefixed)* |
+| `str` | `obj.method(a)` → `methodk(obj, a)` *(string.k)* |
+| `list` | `obj.method(a)` → `methodk(obj, a)` *(list.k)* — disambiguated names: `listIndexk`, `listCountk` |
+| `dict` | `obj.method(a)` → `dict<method>k(obj, a)` *(dict.k, `dict`-prefixed)* |
 | struct | `obj.method(a)` → `<typename>_<method>(obj, a)` — once Tier-B classes ship |
 
 Today: without type inference, the FE picks string-method names by
@@ -270,7 +270,7 @@ x[lo:hi]
 LOAD x
 LOAD lo
 LOAD hi
-CALL slicek    ; from list_py.k
+CALL slicek    ; from list.k
 ```
 
 ### Comprehensions
@@ -652,8 +652,8 @@ B5 lands.
 
 ## Cross-references
 
-- Function name pool: `stdlib/builtins.k` + `stdlib/string_py.k`
-  + `stdlib/list_py.k` + `stdlib/dict_py.k` define the `*k`-suffixed
+- Function name pool: `stdlib/builtins.k` + `stdlib/string.k`
+  + `stdlib/list.k` + `stdlib/dict.k` define the `*k`-suffixed
   surface this spec lowers to.
 - IR op definitions: `compiler/windows_x86/x64.k` (search the
   emitter funcs for each op).
