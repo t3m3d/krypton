@@ -388,17 +388,28 @@ func emitLinecount() {
 //   [GB+0]=raw_next (bump cursor, 0=uninit), [GB+8]=freelist head,
 //   [GB+16]=gcAllocated (live bytes), [GB+24]=gcAllocCount, [GB+32]=gcLimit.
 // Per-alloc header: [ptr-16]=chain/freelist next, [ptr-8]=size<<2 (bit0 mark /
-// bit1 sweep, upper 62 size). rawAlloc returns ptr (= block+16). 96 bytes.
+// bit1 sweep, upper 62 size). rawAlloc returns ptr (= block+16). Freelist-first
+// (W stage-6-phase-2): first-fit a freed block >= n before bumping. 196 bytes.
 func emitRawAlloc(opOff, thisOff) {
     let c = e_movz(10, opOff % 65536) + e_movk16(10, 32512 + opOff / 65536)  // [0,4] x10=GB
     c = c + e_addi(1, 0, 31) + e_movz(2, 4) + e_lsrv(1, 1, 2) + e_lslv(1, 1, 2)  // [8,12,16,20] x1=total=roundup16(n+16)
-    c = c + e_ldr0(3, 10) + e_cbnz(3, 12)                         // [24,28] x3=raw_next; !=0 -> .have(40)
-    c = c + e_movz(3, (opOff + 64) % 65536) + e_movk16(3, 32512 + (opOff + 64) / 65536)  // [32,36] lazy init cursor=rawBase+64
-    c = c + e_addr(4, 3, 1) + e_str0(4, 10)                       // [40,44] .have: raw_next = cursor+total
-    c = c + e_movz(5, 4) + e_lslv(6, 0, 5) + e_str8(6, 3, 1) + e_str0(31, 3)  // [48,52,56,60] hdr: [+8]=n<<2; [+0]=0
-    c = c + e_ldr8(7, 10, 2) + e_addr(7, 7, 1) + e_str8(7, 10, 2)  // [64,68,72] allocated += total
-    c = c + e_ldr8(7, 10, 3) + e_addi(7, 7, 1) + e_str8(7, 10, 3)  // [76,80,84] count += 1
-    c = c + e_addi(0, 3, 16) + e_ret()                           // [88,92] return cursor+16
+    // ── freelist first-fit (x6=prev-next-slot addr, x7=cur) ──
+    c = c + e_addi(6, 10, 8) + e_ldr0(7, 6)                       // [24,28] x6=&freelist head; x7=cur
+    c = c + e_cbz(7, 92) + e_ldr8(8, 7, 1) + e_movz(9, 2) + e_lsrv(8, 8, 9)  // [32,36,40,44] .fl: cur==0 -> .bump(124); x8=cursize
+    c = c + e_cmp(8, 0) + e_bhs(16) + e_movr(6, 7) + e_ldr0(7, 7) + e_b(0 - 32)  // [48,52,56,60,64] cursize>=n -> .hit(68); else advance
+    c = c + e_ldr0(9, 7) + e_str0(9, 6)                           // [68,72] .hit: unlink (prev.next = cur.next)
+    c = c + e_addi(2, 8, 31) + e_movz(3, 4) + e_lsrv(2, 2, 3) + e_lslv(2, 2, 3)  // [76,80,84,88] x2=total of block
+    c = c + e_ldr8(4, 10, 2) + e_addr(4, 4, 2) + e_str8(4, 10, 2)  // [92,96,100] allocated += total
+    c = c + e_ldr8(4, 10, 3) + e_addi(4, 4, 1) + e_str8(4, 10, 3)  // [104,108,112] count += 1
+    c = c + e_addi(0, 7, 16) + e_ret()                           // [116,120] return cur+16
+    // ── bump path ──
+    c = c + e_ldr0(3, 10) + e_cbnz(3, 12)                         // [124,128] .bump: x3=raw_next; !=0 -> .have(140)
+    c = c + e_movz(3, (opOff + 64) % 65536) + e_movk16(3, 32512 + (opOff + 64) / 65536)  // [132,136] lazy init cursor=rawBase+64
+    c = c + e_addr(4, 3, 1) + e_str0(4, 10)                       // [140,144] .have: raw_next = cursor+total
+    c = c + e_movz(5, 4) + e_lslv(6, 0, 5) + e_str8(6, 3, 1) + e_str0(31, 3)  // [148,152,156,160] hdr: [+8]=n<<2; [+0]=0
+    c = c + e_ldr8(7, 10, 2) + e_addr(7, 7, 1) + e_str8(7, 10, 2)  // [164,168,172] allocated += total
+    c = c + e_ldr8(7, 10, 3) + e_addi(7, 7, 1) + e_str8(7, 10, 3)  // [176,180,184] count += 1
+    c = c + e_addi(0, 3, 16) + e_ret()                           // [188,192] return cursor+16
     emit c
 }
 // kr_rawfree(x0=ptr): read size from header, decrement live counters, push the
@@ -1031,6 +1042,7 @@ func opSize(ln) {
         if startsWith(b, "gcAllocated")  { emit 20 }  // load gcGlobals[bytes]
         if startsWith(b, "gcLimit")      { emit 20 }  // load gcGlobals[limit]
         if startsWith(b, "gcSetLimit")   { emit 28 }  // store gcGlobals[limit]
+        if startsWith(b, "gcFreelistCount") { emit 40 }  // walk freelist chain
         if startsWith(b, "gcWalkAllocs") { emit 12 }  // stub: push 0
         if startsWith(b, "rdtsc")        { emit 24 }  // mrs cntvct_el0 + mask low 30 bits + push
         if startsWith(b, "structNew")  { emit 12 }  // push 0 (empty env)
@@ -1101,7 +1113,7 @@ just run {
     let linecountOff = cmpOff + 144      // kr_cmp is 144 bytes
     let getlineOff = linecountOff + 76   // kr_linecount is 76 bytes
     let rawallocOff = getlineOff + 160   // kr_getline is 160 bytes
-    let rawfreeOff = rawallocOff + 96    // kr_rawalloc is 96 bytes
+    let rawfreeOff = rawallocOff + 196   // kr_rawalloc is 196 bytes (freelist-first)
     let rawreallocOff = rawfreeOff + 80  // kr_rawfree is 80 bytes
     let nlOff = rawreallocOff + 108      // kr_rawrealloc is 108 bytes
     let dataOff = nlOff + 1
@@ -1374,6 +1386,7 @@ just run {
             if startsWith(b, "gcAllocated")  { code = sbAppend(code, e_movz(10, opOff % 65536) + e_movk16(10, 32512 + opOff / 65536) + e_ldr8(0, 10, 2) + c_push())  off = off + 20 }
             if startsWith(b, "gcLimit")      { code = sbAppend(code, e_movz(10, opOff % 65536) + e_movk16(10, 32512 + opOff / 65536) + e_ldr8(0, 10, 4) + c_push())  off = off + 20 }
             if startsWith(b, "gcSetLimit")   { code = sbAppend(code, c_pop0() + e_movz(10, opOff % 65536) + e_movk16(10, 32512 + opOff / 65536) + e_str8(0, 10, 4) + c_push())  off = off + 28 }
+            if startsWith(b, "gcFreelistCount") { code = sbAppend(code, e_movz(10, opOff % 65536) + e_movk16(10, 32512 + opOff / 65536) + e_ldr8(1, 10, 1) + e_movz(0, 0) + e_cbz(1, 16) + e_addi(0, 0, 1) + e_ldr0(1, 1) + e_b(0 - 12) + c_push())  off = off + 40 }  // [8]head;[12]cnt;[16].loop cbz->done(32);[20]cnt++;[24]cur=[cur];[28]->loop
             if startsWith(b, "gcWalkAllocs") { code = sbAppend(code, e_movz(0, 0) + c_push())  off = off + 12 }
             // rdtsc: mrs x0,cntvct_el0; keep low 30 bits (<<34>>34) so it fits the int tag. +push.
             if startsWith(b, "rdtsc")        { code = sbAppend(code, wordHL(54587, 57408) + e_movz(1, 34) + e_lslv(0, 0, 1) + e_lsrv(0, 0, 1) + c_push())  off = off + 24 }
