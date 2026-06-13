@@ -106,12 +106,19 @@ otherwise.
 
 ### Backing strategy for the Linux runtime
 
-For the first cut, back `rawalloc` / `rawfree` / `rawrealloc` with
-**libc `malloc` / `free` / `realloc`** plus a 16-byte header you write
-yourself in front of the returned pointer. That gets you a working
-runtime + correct cross-platform behavior immediately.
+Two valid first-cut paths:
 
-When you're ready to drop libc:
+**(a) libc `malloc` / `free` / `realloc` + a 16-byte header you write
+yourself in front of the returned pointer.** Quick to stand up if
+your backend already links libc.
+
+**(b) BSS-backed bump region (no libc, no syscall).** 64 MiB zero-filled
+BSS area above the op-stack; the kernel lazy-pages it so no upfront
+RAM cost and no `mmap` call. Same 16-byte header ABI. This is what
+l shipped on aarch64 and it's cleaner than (a) if your backend is
+already C-free.
+
+When you're ready to drop libc OR move past the simple bump:
 
 1. Bump-allocate from an `mmap(NULL, 64 MiB, RW, MAP_PRIVATE|MAP_ANON)`
    region — direct equivalent of the Windows `HeapAlloc` slab.
@@ -122,6 +129,18 @@ When you're ready to drop libc:
    `compiler/windows_x86/x64.k:6758` (search for `__rt_alloc_v2`) and
    the 69-byte freelist-consumption block immediately after the
    `JA .huge_alloc`.
+
+### Pointer classification: stringify in `ptrToInt`
+
+**Raw pointers from your bump region will be ≥ Krypton's smart-int
+VBASE threshold.** If `ptrToInt(p)` returns the raw int64 value, the
+runtime classifies it as a string pointer and deref-explodes on
+comparison.
+
+Match Windows: `ptrToInt` calls `__rt_itoa` to convert the raw
+address to a Krypton-string of decimal digits. User code never sees
+the raw bits. See `w2l_ptr_classification.md` for the full rationale
++ a proposed `ptrEq(p, q)` builtin for portable raw-pointer equality.
 
 The shadow-stack + mark machinery (stages 1-5) is shipped on Windows
 too; once you're ready, those map cleanly onto ELF — the stack of
