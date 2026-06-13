@@ -346,6 +346,41 @@ func emitSplit(allocOff, thisOff) {
     c = c + e_movz(0, 1) + e_bl(allocOff - (thisOff + 144)) + e_strb(31, 0) + e_movr(30, 26) + e_ret()  // [140] .empty: ""
     emit c
 }
+// kr_getline(x0=idx, x1=s) -> idx-th '\n'-separated line (no trailing \n).
+// Byte-identical to emitSplit with the separator '\n'(10) instead of ','(44). 160 bytes.
+func emitGetline(allocOff, thisOff) {
+    let c = e_movr(26, 30) + e_movr(11, 0) + e_movr(10, 1) + e_movz(9, 10)  // [0] lr; rem=idx; ptr=s; x9='\n'
+    c = c + e_cmpi0(11) + e_beq(32)                                // [16] .skip: rem==0 -> .scan_setup (48)
+    c = c + e_ldrb0(3, 10) + e_cbz(3, 112)                         // [24] c=[ptr]; c==0 -> .empty (140)
+    c = c + e_addi(10, 10, 1) + e_cmp(3, 9) + e_bne(8)             // [32] ptr++; c!='\n' -> .skipcont (48)
+    c = c + e_subi(11, 11, 1)                                      // [44] rem--
+    c = c + e_b(0 - 32)                                            // [48] .skipcont: -> .skip (16)
+    c = c + e_movr(12, 10)                                         // [52] .scan_setup: line start
+    c = c + e_ldrb0(3, 10) + e_cbz(3, 20)                          // [56] .scan: c=[ptr]; c==0 -> .got_end (80)
+    c = c + e_cmp(3, 9) + e_beq(12)                                // [64] c=='\n' -> .got_end (80)
+    c = c + e_addi(10, 10, 1) + e_b(0 - 20)                        // [72] ptr++; -> .scan (56)
+    c = c + e_subr(13, 10, 12) + e_addi(0, 13, 1)                  // [80] .got_end: len=ptr-start; x0=len+1
+    c = c + e_bl(allocOff - (thisOff + 88))                        // [88] x0=buf
+    c = c + e_movr(1, 0) + e_movz(5, 0)                            // [92] dst=buf; i=0
+    c = c + e_cmp(5, 13) + e_bge(20)                               // [100] .cp: i>=len -> .cpdone (124)
+    c = c + e_ldrbO(4, 12, 5) + e_strbR(4, 1, 5) + e_addi(5, 5, 1) + e_b(0 - 20)  // [108] dst[i]=start[i]
+    c = c + e_strbR(31, 1, 13) + e_movr(0, 1) + e_movr(30, 26) + e_ret()  // [124] .cpdone: dst[len]=0; return
+    c = c + e_movz(0, 1) + e_bl(allocOff - (thisOff + 144)) + e_strb(31, 0) + e_movr(30, 26) + e_ret()  // [140] .empty: ""
+    emit c
+}
+// kr_linecount(x0=s) -> # of '\n'-separated lines. 1 + internal newlines, trailing
+// \n not counted; empty -> 0 (mirrors x86 kr_linecount). 76 bytes.
+func emitLinecount() {
+    let c = e_movr(1, 0) + e_movz(0, 0) + e_ldrb0(2, 1) + e_cbz(2, 60)  // [0,4,8,12] x1=cur; cnt=0; empty -> .ret(72)
+    c = c + e_movz(0, 1) + e_movz(3, 10)                          // [16,20] cnt=1; x3='\n'
+    c = c + e_ldrb0(2, 1) + e_cbz(2, 24)                          // [24,28] .loop: c=[x1]; 0 -> .check(52)
+    c = c + e_cmp(2, 3) + e_bne(8) + e_addi(0, 0, 1)              // [32,36,40] c=='\n' -> cnt++
+    c = c + e_addi(1, 1, 1) + e_b(0 - 24)                         // [44,48] .skip: x1++; -> .loop(24)
+    c = c + e_subi(4, 1, 1) + e_ldrb0(2, 4) + e_cmp(2, 3) + e_bne(8)  // [52,56,60,64] .check: last=='\n'?
+    c = c + e_subi(0, 0, 1)                                       // [68] trailing \n -> cnt--
+    c = c + e_ret()                                              // [72] .ret
+    emit c
+}
 // kr_count(x0=list) -> number of comma-separated elements (commas+1, or 0 if empty). 64 bytes.
 func emitCount() {
     let c = e_ldrb0(3, 0) + e_cbz(3, 52)                           // [0] empty -> .zero (56)
@@ -912,6 +947,8 @@ func opSize(ln) {
         if startsWith(b, "indexOf")    { emit 28 }
         if startsWith(b, "trim")       { emit 20 }  // 1-arg: pop0 + bl + push
         if startsWith(b, "split")      { emit 32 }  // 2-arg (list, idx); idx coerced via atoi
+        if startsWith(b, "lineCount")  { emit 20 }  // 1-arg: pop + bl kr_linecount + push
+        if startsWith(b, "getLine")    { emit 32 }  // 2-arg (s, idx); idx via atoi
         if startsWith(b, "count")      { emit 20 }  // 1-arg (list)
         if startsWith(b, "abs")        { emit 28 }  // inline: pop+cmp+bge+neg+push
         if startsWith(b, "pow")        { emit 28 }  // 2-arg -> kr_pow
@@ -997,7 +1034,9 @@ just run {
     let structfieldsOff = hasfieldOff + 72  // kr_hasfield is 72 bytes
     let isnumOff = structfieldsOff + 104  // kr_structfields is 104 bytes
     let cmpOff = isnumOff + 60            // kr_isnum is 60 bytes
-    let nlOff = cmpOff + 144             // kr_cmp is 144 bytes
+    let linecountOff = cmpOff + 144      // kr_cmp is 144 bytes
+    let getlineOff = linecountOff + 76   // kr_linecount is 76 bytes
+    let nlOff = getlineOff + 160         // kr_getline is 160 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -1181,6 +1220,8 @@ just run {
             if startsWith(b, "indexOf")    { code = code + c_pop0() + c_pop1() + e_bl(indexofOff - (off + 16)) + c_push()  off = off + 28 }
             if startsWith(b, "trim")       { code = code + c_pop0() + e_bl(trimOff - (off + 8)) + c_push()  off = off + 20 }
             if startsWith(b, "split")      { code = code + c_pop0() + e_bl(atoiOff - (off + 8)) + c_pop1() + e_bl(splitOff - (off + 20)) + c_push()  off = off + 32 }  // idx via atoi (int-safe): accepts int or numeric-string index
+            if startsWith(b, "lineCount")  { code = code + c_pop0() + e_bl(linecountOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "getLine")    { code = code + c_pop0() + e_bl(atoiOff - (off + 8)) + c_pop1() + e_bl(getlineOff - (off + 20)) + c_push()  off = off + 32 }  // idx via atoi; kr_getline = kr_split sep '\n'
             if startsWith(b, "count")      { code = code + c_pop0() + e_bl(countOff - (off + 8)) + c_push()  off = off + 20 }
             // abs(x): inline. pop x0; if x0<0 neg; push. 28 bytes.
             if startsWith(b, "abs")        { code = code + c_pop0() + e_cmpi0(0) + e_bge(8) + e_subr(0, 31, 0) + c_push()  off = off + 28 }
@@ -1364,6 +1405,8 @@ just run {
     bb = sbAppend(bb, emitStructFields(allocOff, plusOff, structfieldsOff))
     bb = sbAppend(bb, emitIsnum())
     bb = sbAppend(bb, emitCmp(atoiOff, isnumOff, cmpOff))
+    bb = sbAppend(bb, emitLinecount())
+    bb = sbAppend(bb, emitGetline(allocOff, getlineOff))
     bb = sbAppend(bb, "")     // guards: x86 backend drops trailing sbAppends (scales w/ chain len)
     bb = sbAppend(bb, "")
     bb = sbAppend(bb, "")
