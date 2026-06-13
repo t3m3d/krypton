@@ -1,4 +1,4 @@
-// stdlib/string_py.k -- Krypton string functions shaped to match the
+// stdlib/string.k -- Krypton string functions shaped to match the
 // semantics the upcoming Python frontend will lower method-call syntax to.
 //
 // Names use the `*k` suffix convention so they don't shadow Krypton's
@@ -15,7 +15,7 @@
 // the genuinely-new shapes (split-by-separator, capitalize, title,
 // partition, classification predicates) carry real polyfill code.
 
-module string_py
+module string
 
 
 // ── Case ──────────────────────────────────────────────────────────────

@@ -34,7 +34,7 @@ looks like:
 
 `stdlib/builtins.k` mapping every Python builtin we can today onto
 existing `kr_*` builtins / fp.k / etc. Plus `stdlib/list.k`,
-`stdlib/dict.k`, `stdlib/string.k`, `stdlib/io_py.k` exposing
+`stdlib/dict.k`, `stdlib/string.k`, `stdlib/io.k` exposing
 method-call shapes Python users expect (`x.append(v)`,
 `s.split(",")`, `s.startswith("p")`, etc.).
 

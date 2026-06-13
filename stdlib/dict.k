@@ -1,4 +1,4 @@
-// stdlib/dict_py.k -- Krypton dict functions shaped to match the
+// stdlib/dict.k -- Krypton dict functions shaped to match the
 // semantics the upcoming Python frontend will lower method-call
 // syntax to.  Dicts are interleaved kv comma-lists:
 //
@@ -11,7 +11,7 @@
 // Python-shaped surfaces.
 //
 // Names use the `*k` suffix convention (matches builtins.k +
-// string_py.k + list_py.k) so they don't shadow Krypton's own
+// string.k + list.k) so they don't shadow Krypton's own
 // builtins.  FE lowering examples:
 //
 //   d.keys()             -> dictkeysk(d)
@@ -23,7 +23,7 @@
 //   del d[k]             -> dictdelk(d, k)
 //   k in d               -> indictk(k, d)
 
-module dict_py
+module dict
 
 
 // ── Construction ──────────────────────────────────────────────────────
@@ -205,7 +205,7 @@ func dictupdatek(d, other) {
 }
 
 // dictpopk(d, key, default) -- return value if present, else default.
-// Companion: dictdelk(d, key) updates the dict.  See popk in list_py.k
+// Companion: dictdelk(d, key) updates the dict.  See popk in list.k
 // for the same FE-paired-statements pattern.
 func dictpopk(d, key, default) {
     emit dictgetk(d, key, default)
