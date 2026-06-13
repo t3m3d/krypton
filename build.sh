@@ -19,6 +19,11 @@ fail() { echo -e "${RED}FAIL${RESET}  $*"; exit 1; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# The bootstrap kcc driver locates stdlib/headers via KRYPTON_ROOT; from a plain
+# source checkout it's otherwise unset and `--native` fails with "cannot find
+# install root (set KRYPTON_ROOT)". Default it to this checkout; honour an override.
+export KRYPTON_ROOT="${KRYPTON_ROOT:-$SCRIPT_DIR}"
+
 # ── Config ──────────────────────────────────────────────────────────────────
 COMPILE_K="compiler/compile.k"
 # KCC is the platform-specific binary (compiler/<arch>/kcc-<arch>, kcc.exe on Windows).
@@ -130,7 +135,12 @@ if [[ "$MODE" == "test" ]]; then
         NAME=$(basename "$TEST")
         # Platform-specific skips
         case "$NAME:$OSNAME" in
-            test_dll_exports.k:linux|test_dll_exports.k:macos)
+            test_dll_exports.k:linux|test_dll_exports.k:macos \
+            |test_fs_extended.k:linux|test_fs_extended.k:macos \
+            |test_settings.k:linux|test_settings.k:macos)
+                # stdlib fs.k/settings.k are pure Win32 IAT (CreateDirectoryA,
+                # GetTempPathA, GetEnvironmentVariableA, ...); the native ELF
+                # pipeline emits calls to symbols absent off Windows → SIGSEGV.
                 echo -e "${CYAN}SKIP${RESET}  $NAME (Windows-only)"
                 SKIPPED=$((SKIPPED + 1))
                 continue
