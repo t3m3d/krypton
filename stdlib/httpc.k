@@ -1,18 +1,31 @@
-// stdlib/httpc.k — minimal HTTP/1.0 client in PURE KRYPTON. No clang.
+// stdlib/httpc.k — minimal HTTP client in PURE KRYPTON. No clang.
 //
-// Built on the native C-free socket builtins (sockMake/sockConnect/sockSend/
-// sockRecvStr/sockClose) plus `exec` for DNS (dig/host — no C resolver lib).
-// macOS + Linux native path. (k:http is the separate curl/Windows C-path
-// client; k:httpc is the clang-free native one.)
+// Two paths:
 //
-//   httpGet("example.com", "/")        -> full response (headers + body)
-//   httpGetBody("example.com", "/")    -> body only
-//   httpStatus(resp)                   -> 200
+// 1.  POSIX (macOS + Linux): the original socket-based HTTP/1.0 client
+//     built on the native C-free socket builtins (sockMake / sockConnect
+//     / sockSend / sockRecvStr / sockClose) plus `exec` for DNS
+//     (dig/host).  Plain HTTP only -- for HTTPS use a proxy or stunnel.
 //
-// HTTP/1.0 + Connection: close, so the server closes after the body and we
-// read to EOF. Plain HTTP only (no TLS) — for https use a proxy or stunnel.
+//       httpGet("example.com", "/")        -> full response
+//       httpGetBody("example.com", "/")    -> body only
+//       httpStatus(resp)                   -> 200
+//
+// 2.  Windows (added 2026-06-13): WinINet via the freshly-IAT-registered
+//     wininet.dll surface.  Takes a full URL, follows redirects, handles
+//     both HTTP and HTTPS, no curl-spawn, no dig.
+//
+//       httpGetUrl("https://krypton-lang.org/")    -> full body
+//       httpGetUrlStatus("https://...")            -> 200
+//
+//     The Windows path needs the x64_host_windows_x86_64.exe regen
+//     (see handoffs/handoff_w_ws2_32_iat.md) before the IAT slots
+//     populate at load time -- calling httpGetUrl on a binary built
+//     with the current host produces a zero-IAT segfault.
 
 module httpc
+
+import "head:wininet"
 
 func _q(s) { emit "\"" + s + "\"" }
 
@@ -131,4 +144,82 @@ func httpStatus(resp) {
     let sp2 = indexOf(rest, " ")
     if sp2 >= 0 { emit toInt(substring(rest, 0, sp2)) }
     emit toInt(rest)
+}
+
+// ── Windows / WinINet path ───────────────────────────────────────────
+//
+// httpGetUrl(url) -> response body as a string, or "" on failure.
+// Handles HTTP + HTTPS uniformly; WinINet uses the IE proxy + cookie
+// settings, which is what end-user apps generally want.
+
+let _UA = "krypton-httpc/2.0"
+let _INTERNET_FLAG_SECURE = "8388608"        // 0x00800000 -- HTTPS
+let _INTERNET_FLAG_NO_CACHE_WRITE = "67108864" // 0x04000000
+// Streaming buffer size per InternetReadFile call.
+let _HTTPC_BUF_BYTES = "8192"
+
+func _isHttps(url) {
+    if len(url) < 8 { emit 0 }
+    if substring(url, 0, 8) == "https://" { emit 1 }
+    emit 0
+}
+
+func httpGetUrl(url) {
+    let hInet = InternetOpenA(_UA, "0", "0", "0", "0")
+    if ptrToInt(hInet) == "0" { emit "" }
+    let flags = _INTERNET_FLAG_NO_CACHE_WRITE
+    if _isHttps(url) == 1 {
+        flags = toStr(toInt(_INTERNET_FLAG_NO_CACHE_WRITE) + toInt(_INTERNET_FLAG_SECURE))
+    }
+    let hReq = InternetOpenUrlA(hInet, url, "0", "0", flags, "0")
+    if ptrToInt(hReq) == "0" {
+        InternetCloseHandle(hInet)
+        emit ""
+    }
+    let out = sbNew()
+    let buf = bufNew(_HTTPC_BUF_BYTES)
+    let nRead = bufNew("4")
+    bufSetDwordAt(nRead, "0", "0")
+    let again = "1"
+    while again == "1" {
+        let ok = InternetReadFile(hReq, buf, _HTTPC_BUF_BYTES, nRead)
+        if ok == "0" { again = "0" }
+        let got = toInt(bufGetDwordAt(nRead, "0"))
+        if got == 0 { again = "0" }
+        let i = 0
+        while i < got {
+            let b = bufGetByte(buf, toStr(i))
+            out = sbAppend(out, chr(b))
+            i += 1
+        }
+    }
+    InternetCloseHandle(hReq)
+    InternetCloseHandle(hInet)
+    emit sbToString(out)
+}
+
+// httpGetUrlStatus(url) -> HTTP status code from a WinINet GET, or 0 on failure.
+let _HTTP_QUERY_STATUS_CODE = "19"
+let _HTTP_QUERY_FLAG_NUMBER = "536870912"     // 0x20000000
+func httpGetUrlStatus(url) {
+    let hInet = InternetOpenA(_UA, "0", "0", "0", "0")
+    if ptrToInt(hInet) == "0" { emit 0 }
+    let flags = _INTERNET_FLAG_NO_CACHE_WRITE
+    if _isHttps(url) == 1 {
+        flags = toStr(toInt(_INTERNET_FLAG_NO_CACHE_WRITE) + toInt(_INTERNET_FLAG_SECURE))
+    }
+    let hReq = InternetOpenUrlA(hInet, url, "0", "0", flags, "0")
+    if ptrToInt(hReq) == "0" {
+        InternetCloseHandle(hInet)
+        emit 0
+    }
+    let codeBuf = bufNew("4")
+    let lenBuf = bufNew("4")
+    bufSetDwordAt(lenBuf, "0", "4")
+    let level = toStr(toInt(_HTTP_QUERY_STATUS_CODE) + toInt(_HTTP_QUERY_FLAG_NUMBER))
+    HttpQueryInfoA(hReq, level, codeBuf, lenBuf, "0")
+    let code = toInt(bufGetDwordAt(codeBuf, "0"))
+    InternetCloseHandle(hReq)
+    InternetCloseHandle(hInet)
+    emit code
 }
