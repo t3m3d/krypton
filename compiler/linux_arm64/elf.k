@@ -65,6 +65,7 @@ func e_ldrwO(wt, xn, xm) { let p = 26624 + xn * 32 + wt  emit wordHL(47200 + xm 
 func e_ldrb0(wt, xn) { let p = xn * 32 + wt  emit wordHL(14656, p) }                 // ldrb Wt,[Xn]
 func e_strbO(wt, xn, off) { let p = off * 1024 + xn * 32 + wt  emit wordHL(14592 + p / 65536, p % 65536) } // strb Wt,[Xn,#off]
 func e_strbR(wt, xn, xm) { let p = 26624 + xn * 32 + wt  emit wordHL(14368 + xm + p / 65536, p % 65536) } // strb Wt,[Xn,Xm]
+func e_strhR(wt, xn, xm) { let p = 26624 + xn * 32 + wt  emit wordHL(30752 + xm + p / 65536, p % 65536) } // strh Wt,[Xn,Xm] (u16)
 func e_str8(rt, rn, off8) { let p = off8 * 1024 + rn * 32 + rt  emit wordHL(63744 + p / 65536, p % 65536) } // str Xt,[Xn,#off8*8]
 func e_ldr8(rt, rn, off8) { let p = off8 * 1024 + rn * 32 + rt  emit wordHL(63808 + p / 65536, p % 65536) } // ldr Xt,[Xn,#off8*8]
 func e_ret() { emit wordHL(54879, 960) }
@@ -911,6 +912,8 @@ func opBytes(ir, i) {
         if cn == "rawReadQword" { emit "32" }
         if cn == "rawWriteQword" { emit "40" }
         if cn == "rawReadByte"  { emit "32" }
+        if cn == "rawReadWord"  { emit "28" }
+        if cn == "rawWriteWord" { emit "36" }
         if cn == "ptrAdd"       { emit "28" }
         if cn == "ptrToInt"     { emit "16" }
         emit "4"
@@ -1234,9 +1237,11 @@ just run {
             if cn == "rawReadQword"  { code = sbAppend(code, c_pop0() + c_pop1() + e_addr(0, 1, 0) + e_ldr0(0, 0) + c_push())  off = off + 32 }  // [ptr+off]
             if cn == "rawWriteQword" { code = sbAppend(code, c_pop0() + c_pop1() + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_addr(2, 2, 1) + e_str0(0, 2) + c_push())  off = off + 40 }  // [ptr+off]=val
             if cn == "rawReadByte"   { code = sbAppend(code, c_pop0() + c_pop1() + e_addr(0, 1, 0) + e_ldrb0(0, 0) + c_push())  off = off + 32 }
+            if cn == "rawReadWord"   { code = sbAppend(code, c_pop0() + c_pop1() + e_ldrhO(0, 1, 0) + c_push())  off = off + 28 }  // u16 [ptr+off]
+            if cn == "rawWriteWord"  { code = sbAppend(code, c_pop0() + c_pop1() + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_strhR(0, 2, 1) + c_push())  off = off + 36 }  // [ptr+off]=val u16
             if cn == "ptrAdd"     { code = sbAppend(code, c_pop0() + c_pop1() + e_addr(0, 1, 0) + c_push())  off = off + 28 }  // ptr + n
             if cn == "ptrToInt"   { code = sbAppend(code, c_pop0() + c_push())  off = off + 16 }  // identity
-            if cn != "bitAnd" && cn != "bitOr" && cn != "bitXor" && cn != "bitNot" && cn != "shl" && cn != "shr" && cn != "rawAlloc" && cn != "rawFree" && cn != "rawRealloc" && cn != "rawReadQword" && cn != "rawWriteQword" && cn != "rawReadByte" && cn != "ptrAdd" && cn != "ptrToInt" {
+            if cn != "bitAnd" && cn != "bitOr" && cn != "bitXor" && cn != "bitNot" && cn != "shl" && cn != "shr" && cn != "rawAlloc" && cn != "rawFree" && cn != "rawRealloc" && cn != "rawReadQword" && cn != "rawWriteQword" && cn != "rawReadByte" && cn != "rawReadWord" && cn != "rawWriteWord" && cn != "ptrAdd" && cn != "ptrToInt" {
                 code = sbAppend(code, e_bl(toInt(funcVaddrOf(ir, cn)) - off))  off = off + 4
             }
         }
