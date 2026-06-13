@@ -4,6 +4,22 @@ All notable changes to the Krypton language and compiler.
 
 ## [Unreleased]
 
+- **Windows: wininet.dll wired into the IAT** (`compiler/windows_x86/x64.k`).
+  In-process HTTP/HTTPS client without spawning curl: `InternetOpenA`,
+  `InternetOpenUrlA`, `InternetReadFile`, `HttpQueryInfoA`,
+  `InternetConnectA`, `HttpOpenRequestA`, `HttpSendRequestA`,
+  `InternetCloseHandle`, plus URL helpers `InternetCrackUrlA` /
+  `InternetCanonicalizeUrlA`. New `headers/wininet.krh`. `stdlib/httpc.k`
+  extended with a WinINet fast path: `httpGetUrl(url)` (HTTP + HTTPS,
+  follows redirects, IE proxy/cookie behaviour) and
+  `httpGetUrlStatus(url)`. The original POSIX socket-based `httpGet` /
+  `httpGetBody` / `httpStatus` stay unchanged. Descriptor index 16,
+  prefix `wi:`. Same `x64_host_windows_x86_64.exe` regen required.
+- Updated `docs/spec/functions.md` with a "Windows DLL stdlib catalog"
+  section covering `k:winsock`, `k:shell`, `k:proc_ex`, `k:iphlp`,
+  `k:crypto` (and now `k:httpc`'s WinINet path).
+- Updated `grammar/krypton.ebnf` to document the recognised `import`
+  prefixes (`k:`, `core:`, `head:`, `headers:`).
 - **Windows: bcrypt.dll wired into the IAT** (`compiler/windows_x86/x64.k`).
   Modern CNG crypto -- `BCryptOpenAlgorithmProvider`, `BCryptHash`,
   `BCryptCreateHash` / `BCryptHashData` / `BCryptFinishHash` /

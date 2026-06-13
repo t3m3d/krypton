@@ -1,0 +1,46 @@
+// wininet.krh -- Krypton declarations for the Windows wininet.dll surface.
+// Pair with stdlib/httpc.k (refactored 2026-06-13) for ergonomic HTTP.
+//
+// DLL: wininet.dll
+// Pipeline: native PE -- IAT-resolved via x64.k (2026-06-13).
+//
+// We use the classic "WinINet" surface (InternetOpen, InternetOpenUrl,
+// InternetReadFile, ...) rather than WinHTTP because WinINet handles
+// proxy + cookie behaviour the way an end-user browser would, which is
+// what HTTP-in-an-app callers usually want.  WinHTTP can be added in a
+// second pass if a future caller needs the lower-level surface.
+
+jxt {
+    // Session handle -- pass user-agent + access type.
+    //   AccessType: 0=INTERNET_OPEN_TYPE_PRECONFIG (use IE settings)
+    //               1=INTERNET_OPEN_TYPE_DIRECT
+    //               3=INTERNET_OPEN_TYPE_PROXY
+    func InternetOpenA(lpszAgent, dwAccessType, lpszProxy, lpszProxyBypass, dwFlags) -> HANDLE
+
+    // One-shot GET -- returns a request handle ready for InternetReadFile.
+    //   dwFlags: 0x00800000 = INTERNET_FLAG_SECURE (HTTPS)
+    //            0x04000000 = INTERNET_FLAG_NO_CACHE_WRITE
+    //            0x80000000 = INTERNET_FLAG_RELOAD
+    func InternetOpenUrlA(hInternet, lpszUrl, lpszHeaders, dwHeadersLength, dwFlags, dwContext) -> HANDLE
+
+    // Stream the body.  dwNumberOfBytesRead is INOUT (set to 0 to detect EOF).
+    func InternetReadFile(hFile, lpBuffer, dwNumberOfBytesToRead, lpdwNumberOfBytesRead) -> BOOL
+
+    // Read response headers (HTTP_QUERY_RAW_HEADERS_CRLF = 22).
+    func HttpQueryInfoA(hRequest, dwInfoLevel, lpvBuffer, lpdwBufferLength, lpdwIndex) -> BOOL
+
+    // Status code -- HTTP_QUERY_STATUS_CODE (19) returns the integer as a string.
+    // Use HTTP_QUERY_FLAG_NUMBER (0x20000000) with the level to get the raw int.
+
+    // Connection lifecycle.
+    func InternetCloseHandle(hInternet) -> BOOL
+
+    // For POST -- explicit connect / open request / send body.
+    func InternetConnectA(hInternet, lpszServerName, nServerPort, lpszUserName, lpszPassword, dwService, dwFlags, dwContext) -> HANDLE
+    func HttpOpenRequestA(hConnect, lpszVerb, lpszObjectName, lpszVersion, lpszReferrer, lplpszAcceptTypes, dwFlags, dwContext) -> HANDLE
+    func HttpSendRequestA(hRequest, lpszHeaders, dwHeadersLength, lpOptional, dwOptionalLength) -> BOOL
+
+    // URL parsing / canonicalisation helpers (handy for stdlib/httpc.k).
+    func InternetCrackUrlA(lpszUrl, dwUrlLength, dwFlags, lpUrlComponents) -> BOOL
+    func InternetCanonicalizeUrlA(lpszUrl, lpszBuffer, lpdwBufferLength, dwFlags) -> BOOL
+}
