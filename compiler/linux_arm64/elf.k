@@ -915,7 +915,9 @@ func opBytes(ir, i) {
         if cn == "rawReadWord"  { emit "28" }
         if cn == "rawWriteWord" { emit "36" }
         if cn == "ptrAdd"       { emit "28" }
-        if cn == "ptrToInt"     { emit "16" }
+        if cn == "ptrToInt"     { emit "20" }
+        if cn == "intToPtr"     { emit "20" }
+        if cn == "ptrEq"        { emit "32" }
         emit "4"
     }
     emit toInt(opSize(ln)) + ""
@@ -1240,8 +1242,12 @@ just run {
             if cn == "rawReadWord"   { code = sbAppend(code, c_pop0() + c_pop1() + e_ldrhO(0, 1, 0) + c_push())  off = off + 28 }  // u16 [ptr+off]
             if cn == "rawWriteWord"  { code = sbAppend(code, c_pop0() + c_pop1() + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_strhR(0, 2, 1) + c_push())  off = off + 36 }  // [ptr+off]=val u16
             if cn == "ptrAdd"     { code = sbAppend(code, c_pop0() + c_pop1() + e_addr(0, 1, 0) + c_push())  off = off + 28 }  // ptr + n
-            if cn == "ptrToInt"   { code = sbAppend(code, c_pop0() + c_push())  off = off + 16 }  // identity
-            if cn != "bitAnd" && cn != "bitOr" && cn != "bitXor" && cn != "bitNot" && cn != "shl" && cn != "shr" && cn != "rawAlloc" && cn != "rawFree" && cn != "rawRealloc" && cn != "rawReadQword" && cn != "rawWriteQword" && cn != "rawReadByte" && cn != "rawReadWord" && cn != "rawWriteWord" && cn != "ptrAdd" && cn != "ptrToInt" {
+            // ptrToInt(p) -> DECIMAL STRING of the raw address (per w2l_ptr_classification:
+            // stringify so it routes through normal string handling, no smart-int collision).
+            if cn == "ptrToInt"   { code = sbAppend(code, c_pop0() + e_bl(strIntOff - (off + 8)) + c_push())  off = off + 20 }
+            if cn == "intToPtr"   { code = sbAppend(code, c_pop0() + e_bl(atoiOff - (off + 8)) + c_push())  off = off + 20 }  // parse decimal string -> raw ptr
+            if cn == "ptrEq"      { code = sbAppend(code, c_pop0() + c_pop1() + e_cmp(0, 1) + e_cset(0, 1) + c_push())  off = off + 32 }  // raw int64 compare -> 1 if equal (cset cc=NE: csinc NE = 1 when Z/EQ)
+            if cn != "bitAnd" && cn != "bitOr" && cn != "bitXor" && cn != "bitNot" && cn != "shl" && cn != "shr" && cn != "rawAlloc" && cn != "rawFree" && cn != "rawRealloc" && cn != "rawReadQword" && cn != "rawWriteQword" && cn != "rawReadByte" && cn != "rawReadWord" && cn != "rawWriteWord" && cn != "ptrAdd" && cn != "ptrToInt" && cn != "intToPtr" && cn != "ptrEq" {
                 code = sbAppend(code, e_bl(toInt(funcVaddrOf(ir, cn)) - off))  off = off + 4
             }
         }
