@@ -755,7 +755,7 @@ Krypton programs can call them via FFI through the C-emitter pipeline.
 | `winsock.krh` | TCP/UDP networking (Winsock2) — IAT-resolved via `ws2_32.dll` in native-PE mode (no link flag); `-lws2_32` only applies to the legacy `--gcc` path |
 | `shell32.krh` | Default-handler launch + folder picker + known folders (ShellExecuteA, SHBrowseForFolderA, SHGetFolderPathA) — IAT-resolved via `shell32.dll` in native-PE mode; pair with `stdlib/shell.k` |
 | `psapi.krh` | Process introspection — EnumProcesses, EnumProcessModules, GetModuleBaseNameA, GetModuleFileNameExA, GetProcessMemoryInfo — IAT-resolved via `psapi.dll` in native-PE mode; pair with `stdlib/proc_ex.k` |
-| `iphlpapi.krh` | Windows IP Helper API — GetAdaptersInfo, GetIfTable |
+| `iphlpapi.krh` | Windows IP Helper API — GetAdaptersAddresses, GetAdaptersInfo, GetIfTable, GetTcpTable, IcmpCreateFile / IcmpSendEcho / IcmpCloseHandle — IAT-resolved via `iphlpapi.dll` in native-PE mode; pair with `stdlib/iphlp.k` |
 | `conio.krh` | _kbhit, _getch (Windows console) |
 
 ### Third-party / project-specific

@@ -1,0 +1,35 @@
+// iphlpapi.krh -- Krypton declarations for the Windows iphlpapi.dll surface.
+// Pair with stdlib/iphlp.k for ergonomic wrappers.
+//
+// DLL: iphlpapi.dll
+// Pipeline: native PE -- IAT-resolved via x64.k (2026-06-13).
+//
+// The "IP Helper" surface backs adapter/interface enumeration, the TCP
+// connection table, ICMP send/echo, and the ARP/route tables.  We start
+// with the most-asked-for entry points and grow as kmon / network tools
+// pull more in.
+
+jxt {
+    // Modern adapter enumeration (preferred over GetAdaptersInfo).
+    //   Family      : 0=AF_UNSPEC, 2=AF_INET, 23=AF_INET6
+    //   Flags       : GAA_FLAG_INCLUDE_PREFIX=0x10 etc.
+    //   Reserved    : NULL
+    //   AdapterAddrs: OUT pointer-to-pointer (NULL on first sizing call)
+    //   SizePointer : INOUT buffer size in bytes
+    func GetAdaptersAddresses(Family, Flags, Reserved, AdapterAddrs, SizePointer)  -> DWORD
+
+    // Legacy adapter info -- IPv4 only but simpler layout.
+    func GetAdaptersInfo(pAdapterInfo, pOutBufLen)                                  -> DWORD
+
+    // Interface table (one row per logical adapter).
+    func GetIfTable(pIfTable, pdwSize, bOrder)                                      -> DWORD
+
+    // Active TCP connection table.
+    func GetTcpTable(pTcpTable, pdwSize, bOrder)                                    -> DWORD
+
+    // ICMP echo -- the "ping" primitive.  Pair with kernel32 IcmpCreateFile?
+    // (IcmpCreateFile actually lives in iphlpapi on modern Windows.)
+    func IcmpCreateFile()                                                            -> HANDLE
+    func IcmpCloseHandle(IcmpHandle)                                                 -> BOOL
+    func IcmpSendEcho(IcmpHandle, DestinationAddress, RequestData, RequestSize, RequestOptions, ReplyBuffer, ReplySize, Timeout) -> DWORD
+}
