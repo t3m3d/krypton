@@ -4,6 +4,17 @@ All notable changes to the Krypton language and compiler.
 
 ## [Unreleased]
 
+- **Windows: bcrypt.dll wired into the IAT** (`compiler/windows_x86/x64.k`).
+  Modern CNG crypto -- `BCryptOpenAlgorithmProvider`, `BCryptHash`,
+  `BCryptCreateHash` / `BCryptHashData` / `BCryptFinishHash` /
+  `BCryptDestroyHash`, `BCryptGenRandom`, `BCryptGenerateSymmetricKey`,
+  `BCryptEncrypt` / `BCryptDecrypt` / `BCryptDestroyKey`. New
+  `headers/bcrypt.krh` declarations + new `stdlib/crypto.k` wrappers:
+  `sha256Hex(s)`, `sha256Bytes(s)`, `hmacSha256Hex(key, msg)`,
+  `randInt(upper)`, `randBytes(n)`. Descriptor index 15, prefix `bc:`.
+  Krypton now has SHA-256 + CSPRNG without spawning openssl or
+  bundling third-party hash code. Same `x64_host_windows_x86_64.exe`
+  regen required for runtime validation.
 - **Windows: iphlpapi.dll wired into the IAT** (`compiler/windows_x86/x64.k`).
   `GetAdaptersAddresses` / `GetAdaptersInfo` / `GetIfTable` / `GetTcpTable`
   / `IcmpCreateFile` / `IcmpCloseHandle` / `IcmpSendEcho` resolve via the
