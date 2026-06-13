@@ -1,0 +1,23 @@
+// shell32.krh -- Krypton declarations for the Windows shell32.dll surface.
+// Pair with stdlib/shell.k for ergonomic wrappers.
+//
+// Wired into x64.k's IAT scaffolding so user binaries call these
+// directly via the IAT (no LoadLibrary/GetProcAddress dance).
+// First consumer: stdlib/gui.k's guiPickFolder (was loading shell32
+// dynamically; now resolved at link time like every other DLL).
+
+jxt {
+    // Classic folder browser (the "tree" picker; modern apps use
+    // IFileOpenDialog from ole32 instead).
+    func SHBrowseForFolderA(lpbi)                       -> HANDLE
+    func SHGetPathFromIDListA(pidl, pszPath)            -> BOOL
+
+    // ShellExecute -- launch a file / URL with the system default
+    // handler ("verb" = NULL for default open, or "open"/"edit"/"print").
+    func ShellExecuteA(hwnd, verb, file, params, dir, showCmd)  -> HANDLE
+
+    // Known-folder paths (Documents, Downloads, Roaming, etc.).
+    // CSIDL_DESKTOPDIRECTORY=16, CSIDL_PERSONAL=5, CSIDL_LOCAL_APPDATA=28,
+    // CSIDL_APPDATA=26, CSIDL_PROFILE=40.
+    func SHGetFolderPathA(hwnd, csidl, hToken, flags, pszPath)  -> INT
+}
