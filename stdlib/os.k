@@ -1,6 +1,6 @@
-// stdlib/os_py.k -- Python `os` module surface on existing Krypton
+// stdlib/os.k -- Python `os` module surface on existing Krypton
 // builtins.  Named with the `*k` suffix convention (matches builtins.k
-// + string_py.k + list_py.k + dict_py.k + sys_py.k).
+// + string.k + list.k + dict.k + sys.k).
 //
 // FE lowering:
 //   os.getcwd()              -> osgetcwdk()
@@ -18,7 +18,7 @@
 //   os.sep                   -> ossepk()
 //   os.system(cmd)           -> ossystemk(cmd)
 
-module os_py
+module os
 
 
 // os.getcwd() -- Krypton's `getCwd()` builtin if present; else shell
