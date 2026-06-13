@@ -110,6 +110,25 @@ guts. So:
    the FE's stdout / sb path. Likely in `runtime/krypton_rt.k`
    near `kr_print` / `kr_writebytes` or in `compiler/.../*.k` near IR
    emission. Single-byte fix probably.
+
+   **Specific lead (added 2026-06-13 evening):** `kr_sbappend` at
+   `runtime/krypton_rt.k:189` reads the alloc-header size with
+   `bitAnd(raw_cap, 0 - 4)`. Per `feedback_native_codegen_bugs.md`,
+   `bitAnd` has known fragile semantics on negative ints, and the
+   value `0 - 4` round-trips through `__user_rt_atoi` whose negative-
+   sign handling has never been audited. If `0 - 4` doesn't atoi to
+   `-4` correctly, `alloc_total` comes out as 0 (or some bogus
+   small value), `data_cap` follows, and every sb in the program
+   sticks at a fixed small capacity regardless of how many bytes the
+   caller appends. compile.k accumulates the entire IR into one sb
+   via thousands of `sb = sbAppend(sb, line)` calls — if that sb
+   silently stops growing at ~64 KB worth of internal data, the
+   final `print(sbToString(sb))` ships only that 64 KB and the rest
+   is silently truncated. Inspect the disassembly of `kr_sbappend`
+   in `krypton_rt.dll` first: confirm whether `raw_cap` is being
+   masked correctly. If not, replace `bitAnd(raw_cap, 0 - 4)` with
+   `raw_cap - (raw_cap % 4)` (arithmetic equivalent that avoids the
+   bitAnd negative-int path entirely).
 2. Once fixed, regen `x64_host_windows_x86_64.exe`, rebuild
    `krypton_rt.dll` via bootstrap mode, sync to `%TEMP%`, run
    `tests/gc_freelist_consume.k` to validate phase 2.
