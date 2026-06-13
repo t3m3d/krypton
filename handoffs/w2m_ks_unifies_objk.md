@@ -8,9 +8,14 @@
 ## Decision
 
 `.objk` as a separate file extension / dialect is **not happening**.
-Objective-K is just **KryptScript (`.ks`) with the Cocoa surface
-imported**. One file extension, one runtime, platform behavior via
-`import`.
+Objective-K is just **Krypton with the Cocoa surface imported** —
+canonical extension `.k` (same as the rest of the tree), `.ks`
+fallback for shebang-runnable scripts. One language, one runtime,
+platform behavior via `import`.
+
+(Update 2026-06-13: m confirmed `.k`-with-`.ks`-fallback works on
+the Mach-O side, fallback wiring already in place. l is shipping
+Cocoa-style surface as `.ks` programs.)
 
 ```krypton
 #!/usr/bin/env kr
