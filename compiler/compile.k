@@ -1423,7 +1423,13 @@ func irCall(tokens, pos, ntoks, lc, types) {
     // UNSUPPORTED markers → stack corruption at runtime. Bug found 2026-05-03.
     let builtins = "print,kp,printErr,readLine,input,readFile,writeFile,arg,argCount,len,count,substring,charAt,indexOf,contains,startsWith,endsWith,replace,trim,lstrip,rstrip,center,toLower,toUpper,padLeft,padRight,charCode,fromCharCode,format,strReverse,isAlpha,isDigit,isSpace,toInt,parseInt,abs,min,max,pow,sqrt,sign,clamp,bin,floor,ceil,round,split,length,first,last,head,tail,append,join,reverse,sort,unique,fill,zip,slice,listIndexOf,every,some,countOf,sumList,maxList,minList,range,words,lines,keys,values,hasKey,structNew,getField,setField,hasField,structFields,random,timestamp,environ,exit,assert,type,isTruthy,toStr,throw,mapDel,exec,shellRun,fadd,fsub,fmul,fdiv,fsqrt,ffloor,fceil,fround,fformat,flt,fgt,feq,sbNew,sbAppend,sbToString,bufNew,bufStr,bufGetDword,bufSetDword,bufGetWord,bufGetQword,bufGetDwordAt,bufGetQwordAt,bufSetByte,bufGetByte,bufSetDwordAt,bufSetQwordAt,bufGetWordAt,bufSetWordAt,bufGetWordAtBE,bufGetDwordAtBE,bufGetQwordAtBE,handleOut,handleGet,handleInt,toHandle,ptrDeref,ptrIndex,callPtr,getLine,lineCount,envNew,envSet,envGet,makeResult,getResultTag,getResultVal,getResultEnv,getResultPos,gcAllocated,gcAllocCount,gcShadowCount,gcShadowPop,gcShadowPush,gcWalkAllocs,gcMark,gcSweep,gcFreelistCount,rdtsc,pause,mfence,lfence,sfence,gcLimit,gcSetLimit,gcCollect,gcReset,gcCheckpoint,gcRestore,gcSlabCount,gcSlabBytes,sockMake,sockBind,sockListen,sockAccept,sockRecv,sockSend,sockClose,sockRecvStr,sockConnect,fdRead,fdWrite,fdClose,fdSetNonblock,sleepUs,ptyMaster,ptySlaveName,ptyForkExec,ptySetSize,procAlive,waitChild,unixConnect,memfdCreate,mmapShared,sockSendFd,readProc"
     if contains("," + builtins + ",", "," + fname + ",") {
-        emit code + "BUILTIN " + fname + " " + argc + "\n," + (p + 1)
+        // `print` becomes THE newline print (Brian's ask). Route it to kp's
+        // proven newline op (BUILTIN_KP) right here in the shared frontend, so
+        // it lands on every backend with zero codegen edits. `kp` is unchanged
+        // and stays as the fallback alias so already-built programs keep working.
+        let bname = fname
+        if bname == "print" { bname = "kp" }
+        emit code + "BUILTIN " + bname + " " + argc + "\n," + (p + 1)
     }
     emit code + "CALL " + fname + " " + argc + "\n," + (p + 1)
 }
