@@ -18,9 +18,9 @@ lowerings), `handoff_w2all_pyfrontend.md` (prep work coordination),
 | Feature | Status | Reason |
 |---|---|---|
 | `print` / `input` / `len` / `range` / `enumerate` / `zip` / `map` / `filter` / `sorted` / `sum` / `abs` / `min` / `max` / `all` / `any` / `chr` / `ord` / `hex` / `bin` / `oct` / `id` / `hash` | shipped | `stdlib/builtins.k` |
-| str methods | shipped | `stdlib/string_py.k` (37 funcs) |
-| list methods + `x[i]` + `x[lo:hi]` + `x in xs` | shipped | `stdlib/list_py.k` (15 funcs) |
-| dict methods + `d[k]` + `k in d` | shipped | `stdlib/dict_py.k` (16 funcs) |
+| str methods | shipped | `stdlib/string.k` (37 funcs) |
+| list methods + `x[i]` + `x[lo:hi]` + `x in xs` | shipped | `stdlib/list.k` (15 funcs) |
+| dict methods + `d[k]` + `k in d` | shipped | `stdlib/dict.k` (16 funcs) |
 | arithmetic + comparison + logical short-circuit | shipped | maps to Krypton IR |
 | if / while / for-in | shipped | maps to Krypton IR |
 | def + closures + lambda | shipped | reuses Krypton native pipeline |

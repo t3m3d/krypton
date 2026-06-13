@@ -1,4 +1,4 @@
-// stdlib/math_py.k -- Python `math` module surface.
+// stdlib/math.k -- Python `math` module surface.
 //
 // Most of math.* needs floats (roadmap A1).  This module ships the
 // integer-only members today + clear-error stubs for everything that
@@ -15,7 +15,7 @@
 //   math.gcd(a, b)       -> mathgcdk(a, b)
 //   math.lcm(a, b)       -> mathlcmk(a, b)
 
-module math_py
+module math
 
 
 // ── Constants ─────────────────────────────────────────────────────────

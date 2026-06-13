@@ -1,6 +1,6 @@
-// stdlib/sys_py.k -- Python `sys` module surface on existing Krypton
+// stdlib/sys.k -- Python `sys` module surface on existing Krypton
 // builtins.  Named with the `*k` suffix convention (matches builtins.k
-// + string_py.k + list_py.k + dict_py.k).
+// + string.k + list.k + dict.k).
 //
 // FE lowering:
 //   sys.argv             -> sysargvk()
@@ -11,7 +11,7 @@
 //   sys.platform         -> sysplatformk()
 //   sys.version          -> sysversionk()
 
-module sys_py
+module sys
 
 
 // sys.argv -- newline-joined string of all argv entries (program name

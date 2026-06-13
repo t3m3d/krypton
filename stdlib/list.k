@@ -1,9 +1,9 @@
-// stdlib/list_py.k -- Krypton list functions shaped to match the
+// stdlib/list.k -- Krypton list functions shaped to match the
 // semantics the upcoming Python frontend will lower method-call
 // syntax to.  Lists are comma-separated strings.
 //
 // Names use the `*k` suffix convention (matches builtins.k +
-// string_py.k) so they don't shadow Krypton's own builtins and so
+// string.k) so they don't shadow Krypton's own builtins and so
 // user-side code never sees "Python" leaking through identifiers.
 //
 // FE lowering examples:
@@ -16,7 +16,7 @@
 // Krypton strings are immutable so "mutating" Python methods return
 // new lists (or the new + popped element as a pair where needed).
 
-module list_py
+module list
 
 
 // ── Construction / size ───────────────────────────────────────────────
@@ -147,7 +147,7 @@ func listIndexk(xs, x) {
 }
 
 // listCountk(xs, x) -- count occurrences of x.  Distinct from
-// string_py.k's countk (which counts substring occurrences inside a
+// string.k's countk (which counts substring occurrences inside a
 // string).  The FE picks the right one based on whether the receiver
 // type is list or str.
 func listCountk(xs, x) {
