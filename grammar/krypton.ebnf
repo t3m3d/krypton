@@ -20,6 +20,18 @@ TopLevel      ::= FuncDecl
                 | JxtBlock
                 | GlobalLet ;
 
+(* ImportStmt path is a raw StringLiteral that may carry one of these   *)
+(* prefixes (resolved by the compiler's import walker, not the parser): *)
+(*                                                                     *)
+(*   "k:<name>"      / "core:<name>"     -> <root>/stdlib/<name>.k      *)
+(*   "head:<name>"   / "headers:<name>"  -> <root>/headers/<name>.krh   *)
+(*   "./<rel>" / "<rel>.k" / "<abs>"     -> direct path                 *)
+(*                                                                     *)
+(* Reserved (not yet implemented): "vendor:<name>", "local:<name>".    *)
+(*                                                                     *)
+(* Current stdlib catalog includes k:fp, k:pair, k:settings,           *)
+(* k:server_native, k:mmap, k:winsock, k:shell, k:proc_ex, k:iphlp,    *)
+(* k:crypto.  See docs/spec/functions.md for surface details.          *)
 ImportStmt    ::= "import" StringLiteral ;
 ExportDecl    ::= "export" ( FuncDecl | StructDecl | Identifier ) ;
 GlobalLet     ::= ( "let" | "const" ) Identifier ( ":" Type )? "=" Expr ";"? ;
