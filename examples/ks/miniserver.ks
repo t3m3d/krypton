@@ -10,6 +10,15 @@
 //   anything else  -> 404
 //
 // Pair with examples/ks/fetch.ks (k:httpc) for a fully clang-free client+server.
+//
+// Platforms: Linux + macOS today (the sockMake/Bind/Listen/Accept/RecvStr
+// builtins are wired through the macho_arm64 and elf backends).  Windows
+// support: ws2_32.dll IAT registration landed in x64.k 2026-06-13 and
+// the wrappers live in stdlib/winsock.k; once stdlib/server_native.k
+// is updated to dispatch sockMake/... to winsock.k's sockMakeWin/... on
+// Windows (and the x64_host binary is regenerated -- see
+// handoffs/handoff_w_ws2_32_iat.md), this example runs unchanged there
+// too.
 
 import "k:server_native"
 
@@ -19,10 +28,10 @@ just run {
 
     let srv = serverListen(port)
     if srv < 0 {
-        kp("listen failed on port " + port)
+        print("listen failed on port " + port)
         exit("1")
     }
-    kp("miniserver (C-free) on http://127.0.0.1:" + port)
+    print("miniserver (C-free) on http://127.0.0.1:" + port)
 
     while "1" == "1" {
         let cl = serverAccept(srv)
