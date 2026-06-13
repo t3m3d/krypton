@@ -111,24 +111,46 @@ guts. So:
    near `kr_print` / `kr_writebytes` or in `compiler/.../*.k` near IR
    emission. Single-byte fix probably.
 
-   **Specific lead (added 2026-06-13 evening):** `kr_sbappend` at
-   `runtime/krypton_rt.k:189` reads the alloc-header size with
-   `bitAnd(raw_cap, 0 - 4)`. Per `feedback_native_codegen_bugs.md`,
-   `bitAnd` has known fragile semantics on negative ints, and the
-   value `0 - 4` round-trips through `__user_rt_atoi` whose negative-
-   sign handling has never been audited. If `0 - 4` doesn't atoi to
-   `-4` correctly, `alloc_total` comes out as 0 (or some bogus
-   small value), `data_cap` follows, and every sb in the program
-   sticks at a fixed small capacity regardless of how many bytes the
-   caller appends. compile.k accumulates the entire IR into one sb
-   via thousands of `sb = sbAppend(sb, line)` calls — if that sb
-   silently stops growing at ~64 KB worth of internal data, the
-   final `print(sbToString(sb))` ships only that 64 KB and the rest
-   is silently truncated. Inspect the disassembly of `kr_sbappend`
-   in `krypton_rt.dll` first: confirm whether `raw_cap` is being
-   masked correctly. If not, replace `bitAnd(raw_cap, 0 - 4)` with
-   `raw_cap - (raw_cap % 4)` (arithmetic equivalent that avoids the
-   bitAnd negative-int path entirely).
+   **First hypothesis (tried + REJECTED 2026-06-13 evening):**
+   `kr_sbappend` at `runtime/krypton_rt.k:189` uses
+   `bitAnd(raw_cap, 0 - 4)` to mask the alloc header size. Replaced
+   the bitAnd with arithmetic `raw_cap - (raw_cap % 4)` to dodge any
+   negative-int round-trip through `__user_rt_atoi`, rebuilt
+   `krypton_rt.dll` (which finished cleanly with kcc.exe, no
+   errors), deployed to `c:/krypton/krypton_rt.dll` and
+   `%TEMP%/krypton_rt.dll`. Reran the FE on x64.k — produced
+   **the same 65536 bytes, ending in the exact same `EQ` token**.
+
+   **Critical finding:** the rebuilt DLL was **byte-identical** to
+   the unpatched version (sha256 match). The mechanism is now
+   understood: when kcc.exe sees the output filename is exactly
+   `krypton_rt.dll`, it sets `isBootstrap == "1"` (see x64.k:8443+,
+   `if isDll == "1" && rtDllName == "krypton_rt_legacy.dll"`). In
+   bootstrap mode the FUNC bodies in `runtime/krypton_rt.k` are
+   **IGNORED**; the exported function bodies come from x64.k's
+   `emitBootstrapHelpers` directly. The Krypton-level
+   `runtime/krypton_rt.k` is effectively a declaration-only file
+   for the export name list. So changing the Krypton source there
+   cannot affect the produced DLL.
+
+   **Implication:** the fix is in x64.k's bootstrap helpers, which
+   means fixing the bug requires updating x64.k, which requires
+   regenning x64_host_new.exe, which requires the bug to be fixed
+   first. Catch-22. Three workaround paths:
+
+   - **Patch krypton_rt.dll bytes directly** by hex-editing the
+     compiled sbAppend routine. Find the function via the export
+     table, locate the cap-read instruction (probably an `AND` with
+     a 32-bit signed immediate of 0xFFFFFFFC), rewrite to an
+     arithmetic mask. Offline binary surgery; risky but tractable.
+   - **Build a tiny C helper** that reads stdin chunks from kcc.exe
+     and writes to a file. Avoids whatever sb-cap bug is in
+     kcc.exe by never accumulating the IR in one sb — but kcc.exe
+     accumulates BEFORE printing, so the cap has already hit.
+   - **Cross-compile x64.k on a different machine** (Linux ELF
+     backend, macOS Mach-O backend) to produce a new
+     x64_host_windows_x86_64.exe. The bug is Windows-runtime
+     specific.
 2. Once fixed, regen `x64_host_windows_x86_64.exe`, rebuild
    `krypton_rt.dll` via bootstrap mode, sync to `%TEMP%`, run
    `tests/gc_freelist_consume.k` to validate phase 2.
