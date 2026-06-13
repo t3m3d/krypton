@@ -9,7 +9,7 @@
 // x22). Compiles real programs: factorial/fib recursion, nested calls, kp("n="+n).
 // kp dispatches int vs string on the 0x7F000000 tag.
 //
-// NOTE: kp's bytes are built via a local sbAppend, NOT consecutive `code = code + ..`
+// NOTE: kp's bytes are built via a local sbAppend, NOT consecutive `code = sbAppend(code, ..`)
 // statements — the x86 backend (elf_host) miscompiles 3+ consecutive `+=`-style
 // string appends in a deeply-nested block (drops/dupes instructions). Print-heavy
 // programs now work to ~1000s of lines. Still missing many stdlib builtins
@@ -1068,10 +1068,10 @@ just run {
 
     // ── _start: x20=op stack, x22=heap, bl __main__, exit(0) ──────────────────
     let mainOff = toInt(funcVaddrOf(ir, "__main__"))
-    let code = e_movz(20, opOff % 65536) + e_movk16(20, 32512 + opOff / 65536)
-    code = code + e_movz(22, heapOff % 65536) + e_movk16(22, 32512 + heapOff / 65536)
-    code = code + e_bl(mainOff - (HDR + 16))
-    code = code + e_movz(0, 0) + e_movz(8, 93) + e_svc()
+    let code = sbAppend(sbNew(), e_movz(20, opOff % 65536) + e_movk16(20, 32512 + opOff / 65536))
+    code = sbAppend(code, e_movz(22, heapOff % 65536) + e_movk16(22, 32512 + heapOff / 65536))
+    code = sbAppend(code, e_bl(mainOff - (HDR + 16)))
+    code = sbAppend(code, e_movz(0, 0) + e_movz(8, 93) + e_svc())
     let off = HDR + START
 
     // ── functions: each gets a frame on sp (x19=locals base); op stack is x20 ──
@@ -1087,11 +1087,11 @@ just run {
             curF = i
             let argc = toInt(funcArgc(ln))
             frame = toInt(countLocals(ir, i)) * 16
-            code = code + e_subi(31, 31, 16) + e_str0(19, 31) + e_str8(30, 31, 1)   // save x19, x30
-            code = code + e_subi(31, 31, frame) + e_addi(19, 31, 0)                 // alloc locals, x19=sp
+            code = sbAppend(code, e_subi(31, 31, 16) + e_str0(19, 31) + e_str8(30, 31, 1))   // save x19, x30
+            code = sbAppend(code, e_subi(31, 31, frame) + e_addi(19, 31, 0))                 // alloc locals, x19=sp
             let p = 0
             while p < argc {                                                        // pop args -> param slots
-                code = code + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_strIdx(0, 19, argc - 1 - p)
+                code = sbAppend(code, e_ldr0(0, 20) + e_addi(20, 20, 16) + e_strIdx(0, 19, argc - 1 - p))
                 p = p + 1
             }
             off = off + (5 + 3 * argc) * 4
@@ -1109,145 +1109,145 @@ just run {
                     }
                     j = j + 1
                 }
-                code = code + e_movz(0, sOff % 65536) + e_movk16(0, 32512 + sOff / 65536) + c_push()
+                code = sbAppend(code, e_movz(0, sOff % 65536) + e_movk16(0, 32512 + sOff / 65536) + c_push())
                 sidx = sidx + 1
             } else {
-                code = code + c_loadImm(toInt(operand(ln))) + c_push()
+                code = sbAppend(code, c_loadImm(toInt(operand(ln))) + c_push())
             }
             off = off + 16
         }
-        if op == "STORE" { code = code + c_pop0() + e_strIdx(0, 19, toInt(localSlotIn(ir, curF, operand(ln))))  off = off + 12 }
-        if op == "LOAD"  { code = code + e_ldrIdx(0, 19, toInt(localSlotIn(ir, curF, operand(ln)))) + c_push()   off = off + 12 }
-        if op == "ADD" { code = code + c_pop1() + c_pop0() + e_bl(plusOff - (off + 16)) + c_push()  off = off + 28 }  // polymorphic via kr_plus
-        if op == "CAT" { code = code + c_pop1() + c_pop0() + e_bl(plusOff - (off + 16)) + c_push()  off = off + 28 }  // template-string concat via kr_plus
-        if op == "SUB" { code = code + c_pop1() + c_pop0() + e_subr(0, 0, 1) + c_push()  off = off + 28 }
-        if op == "MUL" { code = code + c_pop1() + c_pop0() + e_mul(0, 0, 1) + c_push()   off = off + 28 }
-        if op == "DIV" { code = code + c_pop1() + c_pop0() + e_udiv(0, 0, 1) + c_push()  off = off + 28 }
-        if op == "MOD" { code = code + c_pop1() + c_pop0() + e_udiv(2, 0, 1) + e_msub(0, 2, 1, 0) + c_push()  off = off + 32 }
+        if op == "STORE" { code = sbAppend(code, c_pop0() + e_strIdx(0, 19, toInt(localSlotIn(ir, curF, operand(ln)))))  off = off + 12 }
+        if op == "LOAD"  { code = sbAppend(code, e_ldrIdx(0, 19, toInt(localSlotIn(ir, curF, operand(ln)))) + c_push())   off = off + 12 }
+        if op == "ADD" { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(plusOff - (off + 16)) + c_push())  off = off + 28 }  // polymorphic via kr_plus
+        if op == "CAT" { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(plusOff - (off + 16)) + c_push())  off = off + 28 }  // template-string concat via kr_plus
+        if op == "SUB" { code = sbAppend(code, c_pop1() + c_pop0() + e_subr(0, 0, 1) + c_push())  off = off + 28 }
+        if op == "MUL" { code = sbAppend(code, c_pop1() + c_pop0() + e_mul(0, 0, 1) + c_push())   off = off + 28 }
+        if op == "DIV" { code = sbAppend(code, c_pop1() + c_pop0() + e_udiv(0, 0, 1) + c_push())  off = off + 28 }
+        if op == "MOD" { code = sbAppend(code, c_pop1() + c_pop0() + e_udiv(2, 0, 1) + e_msub(0, 2, 1, 0) + c_push())  off = off + 32 }
         // s[idx] -> kr_index (i-th CHARACTER). pop0->x0=idx, pop1->x1=s. 28 bytes.
         // (Element access on a comma-collection uses split(coll, i), not [].)
-        if op == "INDEX" { code = code + c_pop0() + c_pop1() + e_bl(indexOff - (off + 16)) + c_push()  off = off + 28 }
+        if op == "INDEX" { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(indexOff - (off + 16)) + c_push())  off = off + 28 }
         // p.x = v -> kr_setfield(env, name_imm, val). Stack: val(top), env. 36 bytes.
         if op == "SETFIELD" {
-            code = code + e_ldr0(2, 20) + e_addi(20, 20, 16)              // pop val -> x2
-            code = code + e_ldr0(0, 20) + e_addi(20, 20, 16)              // pop env -> x0
-            code = code + e_movz(1, fieldCursor % 65536) + e_movk16(1, 32512 + fieldCursor / 65536)  // x1 = &name
-            code = code + e_bl(setfieldOff - (off + 24)) + c_push()
+            code = sbAppend(code, e_ldr0(2, 20) + e_addi(20, 20, 16))              // pop val -> x2
+            code = sbAppend(code, e_ldr0(0, 20) + e_addi(20, 20, 16))              // pop env -> x0
+            code = sbAppend(code, e_movz(1, fieldCursor % 65536) + e_movk16(1, 32512 + fieldCursor / 65536))  // x1 = &name
+            code = sbAppend(code, e_bl(setfieldOff - (off + 24)) + c_push())
             fieldCursor = fieldCursor + (len(operand(ln)) + 1)
             off = off + 36
         }
         // p.x -> kr_getfield(env, name_imm). Stack: env(top). 28 bytes.
         if op == "GETFIELD" {
-            code = code + e_ldr0(1, 20) + e_addi(20, 20, 16)              // pop env -> x1
-            code = code + e_movz(0, fieldCursor % 65536) + e_movk16(0, 32512 + fieldCursor / 65536)  // x0 = &name
-            code = code + e_bl(getfieldOff - (off + 16)) + c_push()
+            code = sbAppend(code, e_ldr0(1, 20) + e_addi(20, 20, 16))              // pop env -> x1
+            code = sbAppend(code, e_movz(0, fieldCursor % 65536) + e_movk16(0, 32512 + fieldCursor / 65536))  // x0 = &name
+            code = sbAppend(code, e_bl(getfieldOff - (off + 16)) + c_push())
             fieldCursor = fieldCursor + (len(operand(ln)) + 1)
             off = off + 28
         }
-        if op == "POP" { code = code + e_addi(20, 20, 16)  off = off + 4 }
-        if op == "LT"  { code = code + c_pop1() + c_pop0() + e_bl(cmpOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 10) + c_push()  off = off + 36 }
-        if op == "GT"  { code = code + c_pop1() + c_pop0() + e_bl(cmpOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 13) + c_push()  off = off + 36 }
+        if op == "POP" { code = sbAppend(code, e_addi(20, 20, 16))  off = off + 4 }
+        if op == "LT"  { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(cmpOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 10) + c_push())  off = off + 36 }
+        if op == "GT"  { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(cmpOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 13) + c_push())  off = off + 36 }
         // EQ/NEQ are polymorphic (string contents OR numeric) via kr_eq.
-        if op == "EQ"  { code = code + c_pop1() + c_pop0() + e_bl(eqOff - (off + 16)) + c_push()   off = off + 28 }
-        if op == "NEQ" { code = code + c_pop1() + c_pop0() + e_bl(eqOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 1) + c_push()   off = off + 36 }
-        if op == "LTE" { code = code + c_pop1() + c_pop0() + e_bl(cmpOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 12) + c_push()  off = off + 36 }
-        if op == "GTE" { code = code + c_pop1() + c_pop0() + e_bl(cmpOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 11) + c_push()  off = off + 36 }
-        if op == "JUMP" { code = code + e_b(toInt(labelAbsOffset(ir, operand(ln))) - off)  off = off + 4 }
-        if op == "JUMPIFNOT" { code = code + c_pop0() + e_bl(istruthyOff - (off + 8)) + e_cbz(0, toInt(labelAbsOffset(ir, operand(ln))) - (off + 12))  off = off + 16 }
-        if op == "JUMPIF" { code = code + c_pop0() + e_bl(istruthyOff - (off + 8)) + e_cbnz(0, toInt(labelAbsOffset(ir, operand(ln))) - (off + 12))  off = off + 16 }
-        if op == "NOT" { code = code + c_pop0() + e_bl(istruthyOff - (off + 8)) + e_movz(1, 1) + e_eor(0, 0, 1) + c_push()  off = off + 28 }
-        if op == "NEG" { code = code + c_pop0() + e_subr(0, 31, 0) + c_push()  off = off + 20 }
+        if op == "EQ"  { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(eqOff - (off + 16)) + c_push())   off = off + 28 }
+        if op == "NEQ" { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(eqOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 1) + c_push())   off = off + 36 }
+        if op == "LTE" { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(cmpOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 12) + c_push())  off = off + 36 }
+        if op == "GTE" { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(cmpOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 11) + c_push())  off = off + 36 }
+        if op == "JUMP" { code = sbAppend(code, e_b(toInt(labelAbsOffset(ir, operand(ln))) - off))  off = off + 4 }
+        if op == "JUMPIFNOT" { code = sbAppend(code, c_pop0() + e_bl(istruthyOff - (off + 8)) + e_cbz(0, toInt(labelAbsOffset(ir, operand(ln))) - (off + 12)))  off = off + 16 }
+        if op == "JUMPIF" { code = sbAppend(code, c_pop0() + e_bl(istruthyOff - (off + 8)) + e_cbnz(0, toInt(labelAbsOffset(ir, operand(ln))) - (off + 12)))  off = off + 16 }
+        if op == "NOT" { code = sbAppend(code, c_pop0() + e_bl(istruthyOff - (off + 8)) + e_movz(1, 1) + e_eor(0, 0, 1) + c_push())  off = off + 28 }
+        if op == "NEG" { code = sbAppend(code, c_pop0() + e_subr(0, 31, 0) + c_push())  off = off + 20 }
         if op == "CALL" {
             let cn = headName(ln)
             // bitwise builtins arrive as generic CALLs (front-end emits CALL, not BUILTIN).
-            if cn == "bitAnd" { code = code + c_pop0() + c_pop1() + e_and(0, 1, 0) + c_push()  off = off + 28 }
-            if cn == "bitOr"  { code = code + c_pop0() + c_pop1() + e_orr(0, 1, 0) + c_push()  off = off + 28 }
-            if cn == "bitXor" { code = code + c_pop0() + c_pop1() + e_eor(0, 1, 0) + c_push()  off = off + 28 }
-            if cn == "bitNot" { code = code + c_pop0() + e_orn(0, 31, 0) + c_push()  off = off + 20 }
-            if cn == "shl" { code = code + c_pop0() + c_pop1() + e_lslv(0, 1, 0) + c_push()  off = off + 28 }
-            if cn == "shr" { code = code + c_pop0() + c_pop1() + e_lsrv(0, 1, 0) + c_push()  off = off + 28 }
+            if cn == "bitAnd" { code = sbAppend(code, c_pop0() + c_pop1() + e_and(0, 1, 0) + c_push())  off = off + 28 }
+            if cn == "bitOr"  { code = sbAppend(code, c_pop0() + c_pop1() + e_orr(0, 1, 0) + c_push())  off = off + 28 }
+            if cn == "bitXor" { code = sbAppend(code, c_pop0() + c_pop1() + e_eor(0, 1, 0) + c_push())  off = off + 28 }
+            if cn == "bitNot" { code = sbAppend(code, c_pop0() + e_orn(0, 31, 0) + c_push())  off = off + 20 }
+            if cn == "shl" { code = sbAppend(code, c_pop0() + c_pop1() + e_lslv(0, 1, 0) + c_push())  off = off + 28 }
+            if cn == "shr" { code = sbAppend(code, c_pop0() + c_pop1() + e_lsrv(0, 1, 0) + c_push())  off = off + 28 }
             if cn != "bitAnd" && cn != "bitOr" && cn != "bitXor" && cn != "bitNot" && cn != "shl" && cn != "shr" {
-                code = code + e_bl(toInt(funcVaddrOf(ir, cn)) - off)  off = off + 4
+                code = sbAppend(code, e_bl(toInt(funcVaddrOf(ir, cn)) - off))  off = off + 4
             }
         }
         if op == "BUILTIN" {
             let b = operand(ln)
-            if startsWith(b, "isTruthy") { code = code + c_pop0() + e_bl(istruthyOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "isTruthy") { code = sbAppend(code, c_pop0() + e_bl(istruthyOff - (off + 8)) + c_push())  off = off + 20 }
             // min/max(a,b): pop b->x0, a->x1; cmp a,b; csel. cond LT=11 (min), GT=12 (max). 32 bytes.
             // (bitwise builtins arrive as CALL, handled in the CALL branch below.)
-            if startsWith(b, "min") { code = code + c_pop0() + c_pop1() + e_cmp(1, 0) + e_csel(0, 1, 0, 11) + c_push()  off = off + 32 }
-            if startsWith(b, "max") { code = code + c_pop0() + c_pop1() + e_cmp(1, 0) + e_csel(0, 1, 0, 12) + c_push()  off = off + 32 }
+            if startsWith(b, "min") { code = sbAppend(code, c_pop0() + c_pop1() + e_cmp(1, 0) + e_csel(0, 1, 0, 11) + c_push())  off = off + 32 }
+            if startsWith(b, "max") { code = sbAppend(code, c_pop0() + c_pop1() + e_cmp(1, 0) + e_csel(0, 1, 0, 12) + c_push())  off = off + 32 }
             // hex/bin(n) -> string (kr_hex/kr_bin). 20 bytes.
-            if startsWith(b, "hex") { code = code + c_pop0() + e_bl(hexOff - (off + 8)) + c_push()  off = off + 20 }
-            if startsWith(b, "bin") { code = code + c_pop0() + e_bl(binOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "hex") { code = sbAppend(code, c_pop0() + e_bl(hexOff - (off + 8)) + c_push())  off = off + 20 }
+            if startsWith(b, "bin") { code = sbAppend(code, c_pop0() + e_bl(binOff - (off + 8)) + c_push())  off = off + 20 }
             // padLeft/padRight(s, width, pad): pop pad->x2, width->x1, s->x0; bl; push. 36 bytes.
             // padLeft/padRight(s,width,pad): pop pad->x2,width->x1,s->x0; if s is an
             // int (<VBASE) stringify it via str_int (save/restore width+pad); then bl. 68B.
             if startsWith(b, "padLeft") {
-                code = code + e_ldr0(2, 20) + e_addi(20, 20, 16)   // [0] pop pad->x2
-                code = code + e_ldr0(1, 20) + e_addi(20, 20, 16)   // [8] pop width->x1
-                code = code + e_ldr0(0, 20) + e_addi(20, 20, 16)   // [16] pop s->x0
-                code = code + e_movzHi(9, 32512) + e_cmp(0, 9)     // [24] x9=VBASE; cmp
-                code = code + e_bge(24)                            // [32] s>=VBASE -> .skip (56)
-                code = code + e_movr(11, 1) + e_movr(12, 2)        // [36] save width,pad
-                code = code + e_bl(strIntOff - (off + 44))         // [44] x0=str(s)
-                code = code + e_movr(1, 11) + e_movr(2, 12)        // [48] restore width,pad
-                code = code + e_bl(padleftOff - (off + 56))        // [56] .skip
-                code = code + c_push()                             // [60]
+                code = sbAppend(code, e_ldr0(2, 20) + e_addi(20, 20, 16))   // [0] pop pad->x2
+                code = sbAppend(code, e_ldr0(1, 20) + e_addi(20, 20, 16))   // [8] pop width->x1
+                code = sbAppend(code, e_ldr0(0, 20) + e_addi(20, 20, 16))   // [16] pop s->x0
+                code = sbAppend(code, e_movzHi(9, 32512) + e_cmp(0, 9))     // [24] x9=VBASE; cmp
+                code = sbAppend(code, e_bge(24))                            // [32] s>=VBASE -> .skip (56)
+                code = sbAppend(code, e_movr(11, 1) + e_movr(12, 2))        // [36] save width,pad
+                code = sbAppend(code, e_bl(strIntOff - (off + 44)))         // [44] x0=str(s)
+                code = sbAppend(code, e_movr(1, 11) + e_movr(2, 12))        // [48] restore width,pad
+                code = sbAppend(code, e_bl(padleftOff - (off + 56)))        // [56] .skip
+                code = sbAppend(code, c_push())                             // [60]
                 off = off + 68
             }
             if startsWith(b, "padRight") {
-                code = code + e_ldr0(2, 20) + e_addi(20, 20, 16)
-                code = code + e_ldr0(1, 20) + e_addi(20, 20, 16)
-                code = code + e_ldr0(0, 20) + e_addi(20, 20, 16)
-                code = code + e_movzHi(9, 32512) + e_cmp(0, 9)
-                code = code + e_bge(24)
-                code = code + e_movr(11, 1) + e_movr(12, 2)
-                code = code + e_bl(strIntOff - (off + 44))
-                code = code + e_movr(1, 11) + e_movr(2, 12)
-                code = code + e_bl(padrightOff - (off + 56))
-                code = code + c_push()
+                code = sbAppend(code, e_ldr0(2, 20) + e_addi(20, 20, 16))
+                code = sbAppend(code, e_ldr0(1, 20) + e_addi(20, 20, 16))
+                code = sbAppend(code, e_ldr0(0, 20) + e_addi(20, 20, 16))
+                code = sbAppend(code, e_movzHi(9, 32512) + e_cmp(0, 9))
+                code = sbAppend(code, e_bge(24))
+                code = sbAppend(code, e_movr(11, 1) + e_movr(12, 2))
+                code = sbAppend(code, e_bl(strIntOff - (off + 44)))
+                code = sbAppend(code, e_movr(1, 11) + e_movr(2, 12))
+                code = sbAppend(code, e_bl(padrightOff - (off + 56)))
+                code = sbAppend(code, c_push())
                 off = off + 68
             }
             // 1-arg string->string transforms (kr_toupper/tolower/reverse). 20 bytes.
-            if startsWith(b, "toUpper") { code = code + c_pop0() + e_bl(toupperOff - (off + 8)) + c_push()  off = off + 20 }
-            if startsWith(b, "toLower") { code = code + c_pop0() + e_bl(tolowerOff - (off + 8)) + c_push()  off = off + 20 }
-            if startsWith(b, "reverse") { code = code + c_pop0() + e_bl(reverseOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "toUpper") { code = sbAppend(code, c_pop0() + e_bl(toupperOff - (off + 8)) + c_push())  off = off + 20 }
+            if startsWith(b, "toLower") { code = sbAppend(code, c_pop0() + e_bl(tolowerOff - (off + 8)) + c_push())  off = off + 20 }
+            if startsWith(b, "reverse") { code = sbAppend(code, c_pop0() + e_bl(reverseOff - (off + 8)) + c_push())  off = off + 20 }
             // 2-arg string builtins: pop0->x0 (2nd arg), pop1->x1 (1st arg); bl; push. 28 bytes.
-            if startsWith(b, "startsWith") { code = code + c_pop0() + c_pop1() + e_bl(startswithOff - (off + 16)) + c_push()  off = off + 28 }
-            if startsWith(b, "endsWith")   { code = code + c_pop0() + c_pop1() + e_bl(endswithOff - (off + 16)) + c_push()  off = off + 28 }
-            if startsWith(b, "repeat")     { code = code + c_pop0() + c_pop1() + e_bl(repeatOff - (off + 16)) + c_push()  off = off + 28 }
-            if startsWith(b, "contains")   { code = code + c_pop0() + c_pop1() + e_bl(containsOff - (off + 16)) + c_push()  off = off + 28 }
-            if startsWith(b, "indexOf")    { code = code + c_pop0() + c_pop1() + e_bl(indexofOff - (off + 16)) + c_push()  off = off + 28 }
-            if startsWith(b, "trim")       { code = code + c_pop0() + e_bl(trimOff - (off + 8)) + c_push()  off = off + 20 }
-            if startsWith(b, "split")      { code = code + c_pop0() + e_bl(atoiOff - (off + 8)) + c_pop1() + e_bl(splitOff - (off + 20)) + c_push()  off = off + 32 }  // idx via atoi (int-safe): accepts int or numeric-string index
-            if startsWith(b, "lineCount")  { code = code + c_pop0() + e_bl(linecountOff - (off + 8)) + c_push()  off = off + 20 }
-            if startsWith(b, "getLine")    { code = code + c_pop0() + e_bl(atoiOff - (off + 8)) + c_pop1() + e_bl(getlineOff - (off + 20)) + c_push()  off = off + 32 }  // idx via atoi; kr_getline = kr_split sep '\n'
-            if startsWith(b, "count")      { code = code + c_pop0() + e_bl(countOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "startsWith") { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(startswithOff - (off + 16)) + c_push())  off = off + 28 }
+            if startsWith(b, "endsWith")   { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(endswithOff - (off + 16)) + c_push())  off = off + 28 }
+            if startsWith(b, "repeat")     { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(repeatOff - (off + 16)) + c_push())  off = off + 28 }
+            if startsWith(b, "contains")   { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(containsOff - (off + 16)) + c_push())  off = off + 28 }
+            if startsWith(b, "indexOf")    { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(indexofOff - (off + 16)) + c_push())  off = off + 28 }
+            if startsWith(b, "trim")       { code = sbAppend(code, c_pop0() + e_bl(trimOff - (off + 8)) + c_push())  off = off + 20 }
+            if startsWith(b, "split")      { code = sbAppend(code, c_pop0() + e_bl(atoiOff - (off + 8)) + c_pop1() + e_bl(splitOff - (off + 20)) + c_push())  off = off + 32 }  // idx via atoi (int-safe): accepts int or numeric-string index
+            if startsWith(b, "lineCount")  { code = sbAppend(code, c_pop0() + e_bl(linecountOff - (off + 8)) + c_push())  off = off + 20 }
+            if startsWith(b, "getLine")    { code = sbAppend(code, c_pop0() + e_bl(atoiOff - (off + 8)) + c_pop1() + e_bl(getlineOff - (off + 20)) + c_push())  off = off + 32 }  // idx via atoi; kr_getline = kr_split sep '\n'
+            if startsWith(b, "count")      { code = sbAppend(code, c_pop0() + e_bl(countOff - (off + 8)) + c_push())  off = off + 20 }
             // abs(x): inline. pop x0; if x0<0 neg; push. 28 bytes.
-            if startsWith(b, "abs")        { code = code + c_pop0() + e_cmpi0(0) + e_bge(8) + e_subr(0, 31, 0) + c_push()  off = off + 28 }
+            if startsWith(b, "abs")        { code = sbAppend(code, c_pop0() + e_cmpi0(0) + e_bge(8) + e_subr(0, 31, 0) + c_push())  off = off + 28 }
             // pow(base, exp): pop0->x0=exp, pop1->x1=base; kr_pow. 28 bytes.
-            if startsWith(b, "pow")        { code = code + c_pop0() + c_pop1() + e_bl(powOff - (off + 16)) + c_push()  off = off + 28 }
+            if startsWith(b, "pow")        { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(powOff - (off + 16)) + c_push())  off = off + 28 }
             // range(n): pop n->x0; start=0; kr_range. 24 bytes.
-            if startsWith(b, "range 1")    { code = code + c_pop0() + e_movz(1, 0) + e_bl(rangeOff - (off + 12)) + c_push()  off = off + 24 }
+            if startsWith(b, "range 1")    { code = sbAppend(code, c_pop0() + e_movz(1, 0) + e_bl(rangeOff - (off + 12)) + c_push())  off = off + 24 }
             // range(start,end): pop end->x0, start->x1; kr_range. 28 bytes.
-            if startsWith(b, "range 2")    { code = code + c_pop0() + c_pop1() + e_bl(rangeOff - (off + 16)) + c_push()  off = off + 28 }
+            if startsWith(b, "range 2")    { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(rangeOff - (off + 16)) + c_push())  off = off + 28 }
             // StringBuilder: sbNew (0-arg), sbAppend (handle,s -> x1=handle,x0=s), sbToString (handle).
-            if startsWith(b, "sbNew")      { code = code + e_bl(sbnewOff - off) + c_push()  off = off + 12 }
-            if startsWith(b, "sbAppend")   { code = code + c_pop0() + c_pop1() + e_bl(sbappendOff - (off + 16)) + c_push()  off = off + 28 }
-            if startsWith(b, "sbToString") { code = code + c_pop0() + e_bl(sbtostringOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "sbNew")      { code = sbAppend(code, e_bl(sbnewOff - off) + c_push())  off = off + 12 }
+            if startsWith(b, "sbAppend")   { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(sbappendOff - (off + 16)) + c_push())  off = off + 28 }
+            if startsWith(b, "sbToString") { code = sbAppend(code, c_pop0() + e_bl(sbtostringOff - (off + 8)) + c_push())  off = off + 20 }
             // exit(code): pop x0; SYS_exit(93); (push is dead, never reached). 24 bytes.
-            if startsWith(b, "exit")       { code = code + c_pop0() + e_movz(8, 93) + e_svc() + c_push()  off = off + 24 }
+            if startsWith(b, "exit")       { code = sbAppend(code, c_pop0() + e_movz(8, 93) + e_svc() + c_push())  off = off + 24 }
             // bufNew(size): alloc(size) -> ptr. pop0->x0=size; bl alloc; push. 20 bytes.
-            if startsWith(b, "bufNew ")    { code = code + c_pop0() + e_bl(allocOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "bufNew ")    { code = sbAppend(code, c_pop0() + e_bl(allocOff - (off + 8)) + c_push())  off = off + 20 }
             // bufSetByte(buf, off, val): 3-arg. pop val->x2, off->x1, buf->x0; strb w2,[x0,x1]; push buf. 36 bytes.
-            if startsWith(b, "bufSetByte ") { code = code + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_strbR(2, 0, 1) + c_push()  off = off + 36 }
+            if startsWith(b, "bufSetByte ") { code = sbAppend(code, e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_strbR(2, 0, 1) + c_push())  off = off + 36 }
             // bufGetByte(buf, off): pop0->x0=off, pop1->x1=buf; ldrb w0,[x1,x0]; push. 28 bytes.
-            if startsWith(b, "bufGetByte ") { code = code + c_pop0() + c_pop1() + e_ldrbO(0, 1, 0) + c_push()  off = off + 28 }
+            if startsWith(b, "bufGetByte ") { code = sbAppend(code, c_pop0() + c_pop1() + e_ldrbO(0, 1, 0) + c_push())  off = off + 28 }
             // bufGetWordAt(buf, off) -> u16 LE: ldrh w0,[buf+off] (ARM is little-endian). 28 bytes.
-            if startsWith(b, "bufGetWordAt ") { code = code + c_pop0() + c_pop1() + e_ldrhO(0, 1, 0) + c_push()  off = off + 28 }
+            if startsWith(b, "bufGetWordAt ") { code = sbAppend(code, c_pop0() + c_pop1() + e_ldrhO(0, 1, 0) + c_push())  off = off + 28 }
             // bufGetDwordAt(buf, off) -> u32 LE: ldr w0,[buf+off]. 28 bytes.
-            if startsWith(b, "bufGetDwordAt ") { code = code + c_pop0() + c_pop1() + e_ldrwO(0, 1, 0) + c_push()  off = off + 28 }
+            if startsWith(b, "bufGetDwordAt ") { code = sbAppend(code, c_pop0() + c_pop1() + e_ldrwO(0, 1, 0) + c_push())  off = off + 28 }
             // unixConnect(path) -> socket(AF_UNIX=1,SOCK_STREAM=1,0) then connect(fd,
             // &sockaddr_un{family=1, sun_path=path}, 110). Returns fd, or negative
             // connect errno on failure. Builds sockaddr_un on sp. AF_UNIX transport
@@ -1269,55 +1269,55 @@ just run {
                 kc = sbAppend(kc, e_cbz(0, 8) + e_b(8))                      // [108,112] x0==0 ok -> .ok(116); else -> .push(120)
                 kc = sbAppend(kc, e_movr(0, 10))                            // [116] .ok: x0 = fd
                 kc = sbAppend(kc, c_push())                                 // [120] .push: push result
-                code = code + sbToString(kc)
+                code = sbAppend(code, sbToString(kc))
                 off = off + 128
             }
             // readFile(path): pop0->x0=path; kr_readfile. 20 bytes.
-            if startsWith(b, "readFile")   { code = code + c_pop0() + e_bl(readfileOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "readFile")   { code = sbAppend(code, c_pop0() + e_bl(readfileOff - (off + 8)) + c_push())  off = off + 20 }
             // writeFile(path, content): pop0->x0=content, pop1->x1=path; kr_writefile. 28 bytes.
-            if startsWith(b, "writeFile")  { code = code + c_pop0() + c_pop1() + e_bl(writefileOff - (off + 16)) + c_push()  off = off + 28 }
+            if startsWith(b, "writeFile")  { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(writefileOff - (off + 16)) + c_push())  off = off + 28 }
             if startsWith(b, "kp") {
                 let kc = sbNew()
                 kc = sbAppend(kc, c_pop0())                         // pop arg -> x0
                 kc = sbAppend(kc, e_bl(kpDispOff - (off + 8)))      // dispatch + print
                 kc = sbAppend(kc, c_push())                         // push dummy (IR POPs it)
-                code = code + sbToString(kc)
+                code = sbAppend(code, sbToString(kc))
                 off = off + 20
             }
-            if startsWith(b, "gcShadowCount") { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
-            if startsWith(b, "gcShadowPush") { code = code + e_addi(20, 20, 16) + e_movz(0, 0) + c_push()  off = off + 16 }
-            if startsWith(b, "gcShadowPop") { code = code + e_addi(20, 20, 16) + e_movz(0, 0) + c_push()  off = off + 16 }
+            if startsWith(b, "gcShadowCount") { code = sbAppend(code, e_movz(0, 0) + c_push())  off = off + 12 }
+            if startsWith(b, "gcShadowPush") { code = sbAppend(code, e_addi(20, 20, 16) + e_movz(0, 0) + c_push())  off = off + 16 }
+            if startsWith(b, "gcShadowPop") { code = sbAppend(code, e_addi(20, 20, 16) + e_movz(0, 0) + c_push())  off = off + 16 }
             // GC builtins: no-op for a bump allocator (no GC). Push 0.
-            if startsWith(b, "gcCollect")    { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
-            if startsWith(b, "gcAllocCount") { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
-            if startsWith(b, "gcWalkAllocs") { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
+            if startsWith(b, "gcCollect")    { code = sbAppend(code, e_movz(0, 0) + c_push())  off = off + 12 }
+            if startsWith(b, "gcAllocCount") { code = sbAppend(code, e_movz(0, 0) + c_push())  off = off + 12 }
+            if startsWith(b, "gcWalkAllocs") { code = sbAppend(code, e_movz(0, 0) + c_push())  off = off + 12 }
             // rdtsc: mrs x0,cntvct_el0; keep low 30 bits (<<34>>34) so it fits the int tag. +push.
-            if startsWith(b, "rdtsc")        { code = code + wordHL(54587, 57408) + e_movz(1, 34) + e_lslv(0, 0, 1) + e_lsrv(0, 0, 1) + c_push()  off = off + 24 }
+            if startsWith(b, "rdtsc")        { code = sbAppend(code, wordHL(54587, 57408) + e_movz(1, 34) + e_lslv(0, 0, 1) + e_lsrv(0, 0, 1) + c_push())  off = off + 24 }
             // structs (env linked list). structNew/envNew -> empty env (0).
-            if startsWith(b, "structNew")  { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
-            if startsWith(b, "envNew")     { code = code + e_movz(0, 0) + c_push()  off = off + 12 }
+            if startsWith(b, "structNew")  { code = sbAppend(code, e_movz(0, 0) + c_push())  off = off + 12 }
+            if startsWith(b, "envNew")     { code = sbAppend(code, e_movz(0, 0) + c_push())  off = off + 12 }
             // setField(env,name,val): 3-arg pop val->x2,name->x1,env->x0; kr_setfield. 36 bytes.
-            if startsWith(b, "setField")   { code = code + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_bl(setfieldOff - (off + 24)) + c_push()  off = off + 36 }
-            if startsWith(b, "envSet")     { code = code + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_bl(setfieldOff - (off + 24)) + c_push()  off = off + 36 }
+            if startsWith(b, "setField")   { code = sbAppend(code, e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_bl(setfieldOff - (off + 24)) + c_push())  off = off + 36 }
+            if startsWith(b, "envSet")     { code = sbAppend(code, e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_bl(setfieldOff - (off + 24)) + c_push())  off = off + 36 }
             // getField(env,name): pop name->x0, env->x1; kr_getfield. 28 bytes.
-            if startsWith(b, "getField")   { code = code + c_pop0() + c_pop1() + e_bl(getfieldOff - (off + 16)) + c_push()  off = off + 28 }
-            if startsWith(b, "envGet")     { code = code + c_pop0() + c_pop1() + e_bl(getfieldOff - (off + 16)) + c_push()  off = off + 28 }
+            if startsWith(b, "getField")   { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(getfieldOff - (off + 16)) + c_push())  off = off + 28 }
+            if startsWith(b, "envGet")     { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(getfieldOff - (off + 16)) + c_push())  off = off + 28 }
             // hasField(env,name): pop name->x0, env->x1; kr_hasfield -> 1/0. 28 bytes.
-            if startsWith(b, "hasField")   { code = code + c_pop0() + c_pop1() + e_bl(hasfieldOff - (off + 16)) + c_push()  off = off + 28 }
+            if startsWith(b, "hasField")   { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(hasfieldOff - (off + 16)) + c_push())  off = off + 28 }
             // structFields(env): pop env->x0; kr_structfields. 20 bytes.
-            if startsWith(b, "structFields") { code = code + c_pop0() + e_bl(structfieldsOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "structFields") { code = sbAppend(code, c_pop0() + e_bl(structfieldsOff - (off + 8)) + c_push())  off = off + 20 }
             // charCode(s) -> first byte of s (int). 20 bytes.
             if startsWith(b, "charCode") {
                 let kc = sbNew()
                 kc = sbAppend(kc, c_pop0())
                 kc = sbAppend(kc, e_ldrb0(0, 0))
                 kc = sbAppend(kc, c_push())
-                code = code + sbToString(kc)
+                code = sbAppend(code, sbToString(kc))
                 off = off + 20
             }
             // length(collection) -> element count (kr_count). MUST precede "len " so
             // "length" isn't mistaken for strlen. 20 bytes.
-            if startsWith(b, "length") { code = code + c_pop0() + e_bl(countOff - (off + 8)) + c_push()  off = off + 20 }
+            if startsWith(b, "length") { code = sbAppend(code, c_pop0() + e_bl(countOff - (off + 8)) + c_push())  off = off + 20 }
             // len(s) -> strlen (int). "len " (trailing space) so it doesn't match "length". 40 bytes.
             if startsWith(b, "len ") {
                 let kc = sbNew()
@@ -1329,7 +1329,7 @@ just run {
                 kc = sbAppend(kc, e_b(0 - 12))               // loop
                 kc = sbAppend(kc, e_movr(0, 1))              // x0 = len
                 kc = sbAppend(kc, c_push())
-                code = code + sbToString(kc)
+                code = sbAppend(code, sbToString(kc))
                 off = off + 40
             }
             // toStr(x) -> x as a string (kr_str_int for ints; identity for strings). 32 bytes.
@@ -1341,7 +1341,7 @@ just run {
                 kc = sbAppend(kc, e_bge(8))                  // signed>=VBASE = pointer -> already a string
                 kc = sbAppend(kc, e_bl(strIntOff - (off + 20)))
                 kc = sbAppend(kc, c_push())
-                code = code + sbToString(kc)
+                code = sbAppend(code, sbToString(kc))
                 off = off + 32
             }
             // toInt(s) -> parse non-negative decimal (kr_atoi). 20 bytes.
@@ -1350,7 +1350,7 @@ just run {
                 kc = sbAppend(kc, c_pop0())                       // x0 = string ptr
                 kc = sbAppend(kc, e_bl(atoiOff - (off + 8)))      // x0 = parsed int
                 kc = sbAppend(kc, c_push())
-                code = code + sbToString(kc)
+                code = sbAppend(code, sbToString(kc))
                 off = off + 20
             }
             // fromCharCode(n) -> 1-char string for byte n. Arg is a numeric STRING
@@ -1365,7 +1365,7 @@ just run {
                 kc = sbAppend(kc, e_strb(10, 0))                  // buf[0] = code
                 kc = sbAppend(kc, e_strbO(31, 0, 1))             // buf[1] = NUL
                 kc = sbAppend(kc, c_push())                       // push buf
-                code = code + sbToString(kc)
+                code = sbAppend(code, sbToString(kc))
                 off = off + 40
             }
             // substring(s, start, end) -> s[start:end] (kr_substring). 36 bytes.
@@ -1376,14 +1376,14 @@ just run {
                 kc = sbAppend(kc, e_ldr0(0, 20) + e_addi(20, 20, 16))   // pop s -> x0
                 kc = sbAppend(kc, e_bl(substrOff - (off + 24)))         // x0 = s[start:end]
                 kc = sbAppend(kc, c_push())
-                code = code + sbToString(kc)
+                code = sbAppend(code, sbToString(kc))
                 off = off + 36
             }
         }
         // RETURN and END: epilogue (free locals, restore x19/x30, ret). For __main__
         // this returns to _start, which then exits(0).
-        if op == "RETURN" { code = code + e_addi(31, 31, frame) + e_ldr0(19, 31) + e_ldr8(30, 31, 1) + e_addi(31, 31, 16) + e_ret()  off = off + 20 }
-        if op == "END"    { code = code + e_movz(0, 0) + c_push() + e_addi(31, 31, frame) + e_ldr0(19, 31) + e_ldr8(30, 31, 1) + e_addi(31, 31, 16) + e_ret()  off = off + 32 }
+        if op == "RETURN" { code = sbAppend(code, e_addi(31, 31, frame) + e_ldr0(19, 31) + e_ldr8(30, 31, 1) + e_addi(31, 31, 16) + e_ret())  off = off + 20 }
+        if op == "END"    { code = sbAppend(code, e_movz(0, 0) + c_push() + e_addi(31, 31, frame) + e_ldr0(19, 31) + e_ldr8(30, 31, 1) + e_addi(31, 31, 16) + e_ret())  off = off + 32 }
         i = i + 1
     }
 
@@ -1391,7 +1391,7 @@ just run {
     // built via sbAppend (not one long + chain) — the x86 backend miscompiles
     // long concat chains in this position and silently drops a term.
     let bb = sbNew()
-    bb = sbAppend(bb, code)
+    bb = sbAppend(bb, sbToString(code))
     bb = sbAppend(bb, emitAlloc())
     bb = sbAppend(bb, emitStrInt(allocOff, strIntOff))
     bb = sbAppend(bb, emitPlus(strIntOff, allocOff, atoiOff, isnumOff, plusOff))
