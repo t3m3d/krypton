@@ -381,6 +381,53 @@ func emitLinecount() {
     c = c + e_ret()                                              // [72] .ret
     emit c
 }
+// ── C-like raw allocator (mark/sweep-ready 16-byte header per the W handoff) ──
+// gcGlobals live at GB = load_base + opOff (64 reserved bytes at the start of the
+// 64 MiB raw BSS region above the op-stack). Layout (qword slots):
+//   [GB+0]=raw_next (bump cursor, 0=uninit), [GB+8]=freelist head,
+//   [GB+16]=gcAllocated (live bytes), [GB+24]=gcAllocCount, [GB+32]=gcLimit.
+// Per-alloc header: [ptr-16]=chain/freelist next, [ptr-8]=size<<2 (bit0 mark /
+// bit1 sweep, upper 62 size). rawAlloc returns ptr (= block+16). 96 bytes.
+func emitRawAlloc(opOff, thisOff) {
+    let c = e_movz(10, opOff % 65536) + e_movk16(10, 32512 + opOff / 65536)  // [0,4] x10=GB
+    c = c + e_addi(1, 0, 31) + e_movz(2, 4) + e_lsrv(1, 1, 2) + e_lslv(1, 1, 2)  // [8,12,16,20] x1=total=roundup16(n+16)
+    c = c + e_ldr0(3, 10) + e_cbnz(3, 12)                         // [24,28] x3=raw_next; !=0 -> .have(40)
+    c = c + e_movz(3, (opOff + 64) % 65536) + e_movk16(3, 32512 + (opOff + 64) / 65536)  // [32,36] lazy init cursor=rawBase+64
+    c = c + e_addr(4, 3, 1) + e_str0(4, 10)                       // [40,44] .have: raw_next = cursor+total
+    c = c + e_movz(5, 4) + e_lslv(6, 0, 5) + e_str8(6, 3, 1) + e_str0(31, 3)  // [48,52,56,60] hdr: [+8]=n<<2; [+0]=0
+    c = c + e_ldr8(7, 10, 2) + e_addr(7, 7, 1) + e_str8(7, 10, 2)  // [64,68,72] allocated += total
+    c = c + e_ldr8(7, 10, 3) + e_addi(7, 7, 1) + e_str8(7, 10, 3)  // [76,80,84] count += 1
+    c = c + e_addi(0, 3, 16) + e_ret()                           // [88,92] return cursor+16
+    emit c
+}
+// kr_rawfree(x0=ptr): read size from header, decrement live counters, push the
+// block onto the freelist. No size arg (C free shape). 80 bytes.
+func emitRawFree(opOff, thisOff) {
+    let c = e_movz(10, opOff % 65536) + e_movk16(10, 32512 + opOff / 65536)  // [0,4] GB
+    c = c + e_subi(1, 0, 16) + e_ldr8(2, 1, 1) + e_movz(3, 2) + e_lsrv(2, 2, 3)  // [8,12,16,20] hdr=ptr-16; x2=size
+    c = c + e_addi(2, 2, 31) + e_movz(3, 4) + e_lsrv(2, 2, 3) + e_lslv(2, 2, 3)  // [24,28,32,36] x2=total
+    c = c + e_ldr8(4, 10, 2) + e_subr(4, 4, 2) + e_str8(4, 10, 2)  // [40,44,48] allocated -= total
+    c = c + e_ldr8(4, 10, 3) + e_subi(4, 4, 1) + e_str8(4, 10, 3)  // [52,56,60] count -= 1
+    c = c + e_ldr8(5, 10, 1) + e_str0(5, 1) + e_str8(1, 10, 1)     // [64,68,72] push hdr to freelist
+    c = c + e_ret()                                              // [76]
+    emit c
+}
+// kr_rawrealloc(x0=ptr, x1=n) -> x0=new ptr. Grows via rawAlloc+copy+rawFree;
+// returns ptr unchanged if n <= old size. Reads old size from header. 108 bytes.
+func emitRawRealloc(rawallocOff, rawfreeOff, thisOff) {
+    let c = e_movr(23, 30) + e_subi(2, 0, 16) + e_ldr8(3, 2, 1)   // [0,4,8] lr; hdr; x3=size+flags
+    c = c + e_movz(4, 2) + e_lsrv(3, 3, 4)                        // [12,16] x3=oldsize
+    c = c + e_cmp(1, 3) + e_ble(76)                               // [20,24] n<=oldsize -> .keep(100)
+    c = c + e_movr(24, 0) + e_movr(25, 1) + e_movr(26, 3)         // [28,32,36] save old/n/oldsize
+    c = c + e_movr(0, 1) + e_bl(rawallocOff - (thisOff + 44)) + e_movr(27, 0)  // [40,44,48] newptr=rawAlloc(n)
+    c = c + e_movz(5, 0)                                          // [52] i=0
+    c = c + e_cmp(5, 26) + e_bhs(20)                              // [56,60] .cp: i>=oldsize -> .cpdone(80)
+    c = c + e_ldrbO(6, 24, 5) + e_strbR(6, 27, 5) + e_addi(5, 5, 1) + e_b(0 - 20)  // [64,68,72,76] new[i]=old[i]
+    c = c + e_movr(0, 24) + e_bl(rawfreeOff - (thisOff + 84)) + e_movr(0, 27)  // [80,84,88] .cpdone: free old; x0=new
+    c = c + e_movr(30, 23) + e_ret()                             // [92,96]
+    c = c + e_movr(30, 23) + e_ret()                             // [100,104] .keep: return ptr
+    emit c
+}
 // kr_count(x0=list) -> number of comma-separated elements (commas+1, or 0 if empty). 64 bytes.
 func emitCount() {
     let c = e_ldrb0(3, 0) + e_cbz(3, 52)                           // [0] empty -> .zero (56)
@@ -858,6 +905,14 @@ func opBytes(ir, i) {
         if cn == "bitNot" { emit "20" }
         if cn == "shl"    { emit "28" }
         if cn == "shr"    { emit "28" }
+        if cn == "rawAlloc"     { emit "20" }
+        if cn == "rawFree"      { emit "20" }
+        if cn == "rawRealloc"   { emit "28" }
+        if cn == "rawReadQword" { emit "32" }
+        if cn == "rawWriteQword" { emit "40" }
+        if cn == "rawReadByte"  { emit "32" }
+        if cn == "ptrAdd"       { emit "28" }
+        if cn == "ptrToInt"     { emit "16" }
         emit "4"
     }
     emit toInt(opSize(ln)) + ""
@@ -967,7 +1022,10 @@ func opSize(ln) {
         if startsWith(b, "readFile")   { emit 20 }  // 1-arg (path)
         if startsWith(b, "writeFile")  { emit 28 }  // 2-arg (path, content)
         if startsWith(b, "gcCollect")    { emit 12 }  // no-op (bump allocator): push 0
-        if startsWith(b, "gcAllocCount") { emit 12 }  // stub: push 0
+        if startsWith(b, "gcAllocCount") { emit 20 }  // load gcGlobals[count]
+        if startsWith(b, "gcAllocated")  { emit 20 }  // load gcGlobals[bytes]
+        if startsWith(b, "gcLimit")      { emit 20 }  // load gcGlobals[limit]
+        if startsWith(b, "gcSetLimit")   { emit 28 }  // store gcGlobals[limit]
         if startsWith(b, "gcWalkAllocs") { emit 12 }  // stub: push 0
         if startsWith(b, "rdtsc")        { emit 24 }  // mrs cntvct_el0 + mask low 30 bits + push
         if startsWith(b, "structNew")  { emit 12 }  // push 0 (empty env)
@@ -1037,7 +1095,10 @@ just run {
     let cmpOff = isnumOff + 60            // kr_isnum is 60 bytes
     let linecountOff = cmpOff + 144      // kr_cmp is 144 bytes
     let getlineOff = linecountOff + 76   // kr_linecount is 76 bytes
-    let nlOff = getlineOff + 160         // kr_getline is 160 bytes
+    let rawallocOff = getlineOff + 160   // kr_getline is 160 bytes
+    let rawfreeOff = rawallocOff + 96    // kr_rawalloc is 96 bytes
+    let rawreallocOff = rawfreeOff + 80  // kr_rawfree is 80 bytes
+    let nlOff = rawreallocOff + 108      // kr_rawrealloc is 108 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -1166,7 +1227,16 @@ just run {
             if cn == "bitNot" { code = sbAppend(code, c_pop0() + e_orn(0, 31, 0) + c_push())  off = off + 20 }
             if cn == "shl" { code = sbAppend(code, c_pop0() + c_pop1() + e_lslv(0, 1, 0) + c_push())  off = off + 28 }
             if cn == "shr" { code = sbAppend(code, c_pop0() + c_pop1() + e_lsrv(0, 1, 0) + c_push())  off = off + 28 }
-            if cn != "bitAnd" && cn != "bitOr" && cn != "bitXor" && cn != "bitNot" && cn != "shl" && cn != "shr" {
+            // C-like raw memory ops (front-end emits these as generic CALLs).
+            if cn == "rawAlloc"   { code = sbAppend(code, c_pop0() + e_bl(rawallocOff - (off + 8)) + c_push())  off = off + 20 }
+            if cn == "rawFree"    { code = sbAppend(code, c_pop0() + e_bl(rawfreeOff - (off + 8)) + c_push())  off = off + 20 }
+            if cn == "rawRealloc" { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(rawreallocOff - (off + 16)) + c_push())  off = off + 28 }  // pop n->x1, ptr->x0
+            if cn == "rawReadQword"  { code = sbAppend(code, c_pop0() + c_pop1() + e_addr(0, 1, 0) + e_ldr0(0, 0) + c_push())  off = off + 32 }  // [ptr+off]
+            if cn == "rawWriteQword" { code = sbAppend(code, c_pop0() + c_pop1() + e_ldr0(2, 20) + e_addi(20, 20, 16) + e_addr(2, 2, 1) + e_str0(0, 2) + c_push())  off = off + 40 }  // [ptr+off]=val
+            if cn == "rawReadByte"   { code = sbAppend(code, c_pop0() + c_pop1() + e_addr(0, 1, 0) + e_ldrb0(0, 0) + c_push())  off = off + 32 }
+            if cn == "ptrAdd"     { code = sbAppend(code, c_pop0() + c_pop1() + e_addr(0, 1, 0) + c_push())  off = off + 28 }  // ptr + n
+            if cn == "ptrToInt"   { code = sbAppend(code, c_pop0() + c_push())  off = off + 16 }  // identity
+            if cn != "bitAnd" && cn != "bitOr" && cn != "bitXor" && cn != "bitNot" && cn != "shl" && cn != "shr" && cn != "rawAlloc" && cn != "rawFree" && cn != "rawRealloc" && cn != "rawReadQword" && cn != "rawWriteQword" && cn != "rawReadByte" && cn != "ptrAdd" && cn != "ptrToInt" {
                 code = sbAppend(code, e_bl(toInt(funcVaddrOf(ir, cn)) - off))  off = off + 4
             }
         }
@@ -1289,7 +1359,10 @@ just run {
             if startsWith(b, "gcShadowPop") { code = sbAppend(code, e_addi(20, 20, 16) + e_movz(0, 0) + c_push())  off = off + 16 }
             // GC builtins: no-op for a bump allocator (no GC). Push 0.
             if startsWith(b, "gcCollect")    { code = sbAppend(code, e_movz(0, 0) + c_push())  off = off + 12 }
-            if startsWith(b, "gcAllocCount") { code = sbAppend(code, e_movz(0, 0) + c_push())  off = off + 12 }
+            if startsWith(b, "gcAllocCount") { code = sbAppend(code, e_movz(10, opOff % 65536) + e_movk16(10, 32512 + opOff / 65536) + e_ldr8(0, 10, 3) + c_push())  off = off + 20 }
+            if startsWith(b, "gcAllocated")  { code = sbAppend(code, e_movz(10, opOff % 65536) + e_movk16(10, 32512 + opOff / 65536) + e_ldr8(0, 10, 2) + c_push())  off = off + 20 }
+            if startsWith(b, "gcLimit")      { code = sbAppend(code, e_movz(10, opOff % 65536) + e_movk16(10, 32512 + opOff / 65536) + e_ldr8(0, 10, 4) + c_push())  off = off + 20 }
+            if startsWith(b, "gcSetLimit")   { code = sbAppend(code, c_pop0() + e_movz(10, opOff % 65536) + e_movk16(10, 32512 + opOff / 65536) + e_str8(0, 10, 4) + c_push())  off = off + 28 }
             if startsWith(b, "gcWalkAllocs") { code = sbAppend(code, e_movz(0, 0) + c_push())  off = off + 12 }
             // rdtsc: mrs x0,cntvct_el0; keep low 30 bits (<<34>>34) so it fits the int tag. +push.
             if startsWith(b, "rdtsc")        { code = sbAppend(code, wordHL(54587, 57408) + e_movz(1, 34) + e_lslv(0, 0, 1) + e_lsrv(0, 0, 1) + c_push())  off = off + 24 }
@@ -1432,6 +1505,9 @@ just run {
     bb = sbAppend(bb, emitCmp(atoiOff, isnumOff, cmpOff))
     bb = sbAppend(bb, emitLinecount())
     bb = sbAppend(bb, emitGetline(allocOff, getlineOff))
+    bb = sbAppend(bb, emitRawAlloc(opOff, rawallocOff))
+    bb = sbAppend(bb, emitRawFree(opOff, rawfreeOff))
+    bb = sbAppend(bb, emitRawRealloc(rawallocOff, rawfreeOff, rawreallocOff))
     bb = sbAppend(bb, "")     // guards: x86 backend drops trailing sbAppends (scales w/ chain len)
     bb = sbAppend(bb, "")
     bb = sbAppend(bb, "")
@@ -1484,7 +1560,7 @@ just run {
     eh = eh + le8vaddr(HDR) + le8(64) + le8(0)
     eh = eh + "x00x00x00x00" + "x40x00" + "x38x00" + "x01x00" + "x00x00" + "x00x00" + "x00x00"
     let ph = "x01x00x00x00" + "x07x00x00x00"
-    let memsz = heapOff + 1048576 + 65536                  // 1 MiB heap + 64 KiB op stack (BSS)
+    let memsz = heapOff + 1048576 + 65536 + 67108864       // 1 MiB heap + 64 KiB op stack + 64 MiB raw GC region (BSS)
     ph = ph + le8(0) + le8vaddr(0) + le8vaddr(0) + le8(total) + le8(memsz) + le8(65536)
 
     writeBytes(outFile, eh + ph + body + data)
