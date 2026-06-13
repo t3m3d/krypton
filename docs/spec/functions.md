@@ -588,6 +588,32 @@ survive the import boundary.
 `--gcc` C path — `import "k:server"` there. New macOS code should use
 `k:server_native`.
 
+### Windows DLL stdlib catalog — (Krypton, native PE; pending x64_host regen)
+
+These modules wrap Windows DLLs that are IAT-registered in
+`compiler/windows_x86/x64.k` but whose **runtime resolution waits on a
+fresh `x64_host_windows_x86_64.exe`** -- the source-level wiring shipped
+2026-06-13 but the prebuilt host binary in the tree still predates them.
+See `handoffs/handoff_w_ws2_32_iat.md` for the regen plan. Until that
+regen lands, programs that import these modules will compile but the
+new IAT slots stay zero at load time and the calls segfault on first
+invocation. Listed here for record so the surface is documented before
+the regen.
+
+| Import | DLL | Highlights |
+|---|---|---|
+| `k:winsock` | `ws2_32.dll` | `wsInit`, `sockMakeWin`, `sockBindWin`, `sockListenWin`, `sockAcceptWin`, `sockRecvStrWin`, `sockSendWin`, `sockCloseWin` |
+| `k:shell` | `shell32.dll` | `shellOpen(path)`, `shellOpenUrl(url)`, `shellRevealInExplorer(path)`, `shellPrint(path)`, `shellPickFolder(title)`, `shellKnownFolder(kind)` |
+| `k:proc_ex` | `psapi.dll` | `listProcesses()`, `processBaseName(pid)`, `processImagePath(pid)`, `processWorkingSetKb(pid)` |
+| `k:iphlp` | `iphlpapi.dll` | `adapterNames()`, `adapterIPv4s()`, `ping(ipv4, timeoutMs)` |
+| `k:crypto` | `bcrypt.dll` | `sha256Hex(s)`, `sha256Bytes(s)`, `hmacSha256Hex(key, msg)`, `randInt(upper)`, `randBytes(n)` |
+
+Function names are designed to be cross-platform: the same calls land
+on macOS via Objective-K bindings (NSWorkspace for `shellOpen`, libproc
+for `proc_ex`, SystemConfiguration for `iphlp`, CommonCrypto for
+`crypto`). Cross-platform Krypton programs can import the same `k:*`
+name on either platform once the macOS surface ships.
+
 ## Notes
 
 - Numeric `+` semantics: when both operands are numeric strings, `+` performs
