@@ -1,14 +1,11 @@
-// stdlib/builtins.k -- Python-named wrappers over existing Krypton builtins.
+// stdlib/builtins.k -- Krypton stdlib functions shaped to match the
+// semantics the upcoming Python frontend will lower its source to.
 //
-// Goal: a Krypton program can `import "k:builtins"` and call Python's
-// builtin functions by their Python names, getting Python-shaped
-// behavior on top of the existing native runtime / GC / IR.
-//
-// This is the polyfill layer that the Copilot-scaffolded Python frontend
-// will lower to.  It doesn't enable Python *syntax* -- that's the FE's
-// job -- but it makes every Python builtin function available from
-// today's Krypton code immediately, so when the FE lands the user-side
-// stdlib is already there.
+// Functions are named `<base>k` so they don't shadow Krypton's own
+// `print` / `len` / `abs` / etc. builtins and so user-side Krypton
+// code stays clear of "Python" leaking through identifiers.  The
+// Python FE rewrites at lowering time: `print(x)` -> `printk(x)`,
+// `len(x)` -> `lenk(x)`, etc.
 //
 // Notes on Krypton's data model
 //   - "list"   ≈ comma-separated string  "1,2,3,4"
@@ -34,16 +31,16 @@ import "k:fp"
 
 // ── I/O ───────────────────────────────────────────────────────────────
 
-// print(*args, sep=" ", end="\n") -- one-positional alias today;
-// variadic args wait on roadmap A4.  print() is already a Krypton
-// builtin with the same shape; the wrapper here keeps the explicit
-// name so `from builtins import print` lowering is consistent.
-func pyPrint(x) {
+// print(*args, sep=" ", end="\n") -- one-positional today;
+// variadic args wait on roadmap A4.  Named `printk` so it doesn't
+// shadow Krypton's native `print` builtin and so the FE lowering
+// for Python `print(x)` is unambiguous: `print(x)` -> `printk(x)`.
+func printk(x) {
     print(x)
 }
 
 // input(prompt="") -- read one line from stdin.
-func pyInput(prompt) {
+func inputk(prompt) {
     if prompt != "" { print(prompt) }
     emit readLine()
 }
@@ -52,13 +49,13 @@ func pyInput(prompt) {
 // ── Numeric ───────────────────────────────────────────────────────────
 
 // abs(x) -- alias.
-func pyAbs(x) {
+func absk(x) {
     emit abs(x)
 }
 
 // min(...) / max(...) over a comma-list (variadic blocked on A4;
 // today: pass a list).
-func pyMin(items) {
+func mink(items) {
     let n = count(items)
     if n == 0 { emit "" }
     let best = split(items, 0)
@@ -71,7 +68,7 @@ func pyMin(items) {
     emit best
 }
 
-func pyMax(items) {
+func maxk(items) {
     let n = count(items)
     if n == 0 { emit "" }
     let best = split(items, 0)
@@ -85,7 +82,7 @@ func pyMax(items) {
 }
 
 // sum(iterable, start=0)
-func pySum(items) {
+func sumk(items) {
     let n = count(items)
     let total = 0
     let i = 0
@@ -97,18 +94,18 @@ func pySum(items) {
 }
 
 // pow(base, exp) -- alias.
-func pyPow(base, exp) {
+func powk(base, exp) {
     emit pow(base, exp)
 }
 
 // divmod(a, b) -> (q, r); tuples are comma-lists today.
-func pyDivmod(a, b) {
+func divmodk(a, b) {
     emit toInt(a) / toInt(b) + "," + toInt(a) % toInt(b)
 }
 
 // round(x, ndigits=0) -- integer-only today; full rounding blocks
 // on A1 (floats).
-func pyRound(x) {
+func roundk(x) {
     emit toInt(x)
 }
 
@@ -116,30 +113,30 @@ func pyRound(x) {
 // ── Type conversions ──────────────────────────────────────────────────
 
 // str(x) -- alias of toStr.
-func pyStr(x) {
+func strk(x) {
     emit toStr(x)
 }
 
 // int(x, base=10) -- base-10 alias today; non-10 bases blocked on a
 // strtol-style builtin (trivial, deferred).
-func pyInt(x) {
+func intk(x) {
     emit toInt(x)
 }
 
 // float(x) -- blocked on roadmap A1 (floating point).
-func pyFloat(x) {
+func floatk(x) {
     printErr("float(x): floating point not yet supported (roadmap A1)")
     exit("1")
 }
 
 // bool(x) -- alias of isTruthy (returns int 1/0).
-func pyBool(x) {
+func boolk(x) {
     emit isTruthy(x)
 }
 
 // list(x) -- pass-through for comma-lists; for strings, split into
 // per-character list.
-func pyList(x) {
+func listk(x) {
     if count(x) > 1 { emit x }
     // single-element / string: char-list it
     let out = ""
@@ -153,17 +150,17 @@ func pyList(x) {
 }
 
 // tuple(x) -- same as list at the data-model level.
-func pyTuple(x) {
-    emit pyList(x)
+func tuplek(x) {
+    emit listk(x)
 }
 
 // dict(...) -- pass-through (Krypton's interleaved kv list IS the dict).
-func pyDict(x) {
+func dictk(x) {
     emit x
 }
 
 // set(x) -- dedupe a list, return sorted comma-list.
-func pySet(x) {
+func setk(x) {
     let n = count(x)
     let seen = ""
     let i = 0
@@ -191,7 +188,7 @@ func _setContains(list, val) {
 // ── Iteration ─────────────────────────────────────────────────────────
 
 // len(x) -- alias.
-func pyLen(x) {
+func lenk(x) {
     // for comma-lists return count; for strings return len.
     if count(x) > 1 { emit count(x) }
     emit len(x)
@@ -199,32 +196,32 @@ func pyLen(x) {
 
 // range(stop) / range(start, stop) / range(start, stop, step)
 // Today: 2-arg overload.  Step arg blocked on FE-level overloads.
-func pyRange(start, stop) {
+func rangek(start, stop) {
     emit range(toInt(start), toInt(stop))
 }
 
 // enumerate(x) -> list of "i,val" comma-lists.  Matches fp.fpEnumerate.
-func pyEnumerate(x) {
+func enumeratek(x) {
     emit fpEnumerate(x)
 }
 
 // zip(a, b) -- alias of fpZip.
-func pyZip(a, b) {
+func zipk(a, b) {
     emit fpZip(a, b)
 }
 
 // map(f, x) -- alias of fpMap.
-func pyMap(f: closure, x) {
+func mapk(f: closure, x) {
     emit fpMap(x, f)
 }
 
 // filter(f, x) -- alias of fpFilter.
-func pyFilter(f: closure, x) {
+func filterk(f: closure, x) {
     emit fpFilter(x, f)
 }
 
 // reversed(x) -- reverse a list or string.
-func pyReversed(x) {
+func reversedk(x) {
     if count(x) > 1 {
         // reverse a comma-list element-wise
         let n = count(x)
@@ -242,7 +239,7 @@ func pyReversed(x) {
 
 // sorted(x) -- ascending sort of an int-comma-list (stable).
 // Simple insertion sort -- list shapes are short in practice.
-func pySorted(x) {
+func sortedk(x) {
     let n = count(x)
     if n <= 1 { emit x }
     let arr = ""
@@ -286,7 +283,7 @@ func _listSet(list, idx, val) {
 }
 
 // sum is above; all / any are fpAll / fpAny analogs.
-func pyAll(x) {
+func allk(x) {
     let n = count(x)
     let i = 0
     while i < n {
@@ -296,7 +293,7 @@ func pyAll(x) {
     emit "1"
 }
 
-func pyAny(x) {
+func anyk(x) {
     let n = count(x)
     let i = 0
     while i < n {
@@ -310,27 +307,27 @@ func pyAny(x) {
 // ── Character / string ────────────────────────────────────────────────
 
 // chr(n) -- alias of fromCharCode.
-func pyChr(n) {
+func chrk(n) {
     emit fromCharCode(toInt(n))
 }
 
 // ord(c) -- alias of charCode.
-func pyOrd(c) {
+func ordk(c) {
     emit charCode(c)
 }
 
 // hex(n) -- alias.
-func pyHex(n) {
+func hexk(n) {
     emit "0x" + hex(n)
 }
 
 // bin(n) -- alias.
-func pyBin(n) {
+func bink(n) {
     emit "0b" + bin(n)
 }
 
 // oct(n) -- polyfill (no native oct yet).
-func pyOct(n) {
+func octk(n) {
     let v = toInt(n)
     if v == 0 { emit "0o0" }
     let neg = "0"
@@ -345,7 +342,7 @@ func pyOct(n) {
 }
 
 // repr(x) -- crude polyfill: wrap strings in quotes, leave numbers bare.
-func pyRepr(x) {
+func reprk(x) {
     if isDigit(x[0]) { emit x }
     if x[0] == "-" && len(x) > 1 && isDigit(x[1]) { emit x }
     emit "\"" + x + "\""
@@ -355,24 +352,24 @@ func pyRepr(x) {
 // ── Identity / introspection ──────────────────────────────────────────
 
 // id(x) -- alias of ptrToInt.
-func pyId(x) {
+func idk(x) {
     emit ptrToInt(x)
 }
 
 // type(x) -- stub.  Real type system blocked on Tier-B work.
-func pyType(x) {
+func typek(x) {
     printErr("type(x): not yet implemented")
     emit "object"
 }
 
 // isinstance(x, T) -- stub.
-func pyIsinstance(x, t) {
+func isinstancek(x, t) {
     printErr("isinstance(x, t): not yet implemented")
     emit "0"
 }
 
 // callable(x) -- partial: closures / fp values pass.
-func pyCallable(x) {
+func callablek(x) {
     // Krypton doesn't expose a runtime callable tag yet; conservative
     // "0" for non-closure values is wrong but won't crash callers.
     emit "0"
@@ -382,7 +379,7 @@ func pyCallable(x) {
 // ── Misc ──────────────────────────────────────────────────────────────
 
 // hash(x) -- crude FNV-1a-like polyfill over the string bytes.
-func pyHash(x) {
+func hashk(x) {
     let h = 2166136261
     let i = 0
     while i < len(x) {
@@ -393,20 +390,22 @@ func pyHash(x) {
     emit h
 }
 
-// abs(x) already exported above as pyAbs.
-
 // Coverage notes
 // --------------
-// Aliased / polyfilled:
-//   print input abs min max sum pow divmod round str int bool list
-//   tuple dict set len range enumerate zip map filter reversed sorted
-//   all any chr ord hex bin oct repr id hash
+// Shipped: 30+ builtins with `*k` suffix, all in this module.
+//   printk inputk absk mink maxk sumk powk divmodk roundk
+//   strk intk boolk listk tuplek dictk setk
+//   lenk rangek enumeratek zipk mapk filterk reversedk sortedk
+//   allk anyk chrk ordk hexk bink octk reprk
+//   idk hashk
 //
-// Blocked on roadmap:
-//   float  -- A1 floats
-//   type / isinstance / callable -- structural types / classes (Tier B)
-//   open / iter / next -- A8 file I/O / iterator protocol
-//   compile / eval / exec -- explicitly not supported (compat matrix)
-//   __import__ -- Krypton's import is compile-time; no runtime equivalent
-//   format / vars / dir / locals / globals -- deferred
-//   help -- maybe never
+// Stubs returning an error (still in this module, future-fillable):
+//   floatk        -- needs roadmap A1 (floating point)
+//   typek / isinstancek / callablek -- needs structural types (Tier B)
+//
+// Not yet shipped at all (FE will lower to these once they land):
+//   openk / iterk / nextk -- needs A8 file I/O + iterator protocol
+//   compilek / evalk / execk -- explicitly not supported (compat matrix)
+//   importk -- Krypton's import is compile-time; no runtime equivalent
+//   formatk / varsk / dirk / localsk / globalsk -- deferred
+//   helpk -- maybe never
