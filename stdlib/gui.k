@@ -44,6 +44,7 @@ import "head:user32"
 import "head:dwmapi"
 import "head:uxtheme"
 import "head:comdlg32"
+import "head:shell32"
 
 
 
@@ -1407,20 +1408,13 @@ func guiSaveFile(title, filterCsv, defaultName) {
     if ok == "0" { emit "" }
     emit _guiBufToStr(pathBuf, 2048)
 }
-// 2026-05-11 Phase D: dynamic load of shell32 (avoids adding a 15th IAT
-// DLL). BROWSEINFOA struct (64 bytes on x64):
+// BROWSEINFOA struct (64 bytes on x64):
 //   +0 hwndOwner  +8 pidlRoot=NULL  +16 pszDisplayName=NULL
 //   +24 lpszTitle  +32 ulFlags(4)  +40 lpfn=NULL  +48 lParam  +56 iImage
-// BIF_RETURNONLYFSDIRS=1. SHBrowseForFolderA → LPITEMIDLIST. SHGetPathFromIDListA(pidl,buf)
-// fills `buf` with the path. CoTaskMemFree(pidl) afterwards.
-// Use ptrToInt for NULL-safe comparison (LoadLibraryA returns raw HMODULE).
+// BIF_RETURNONLYFSDIRS=1.  As of 2026-06-13 shell32.dll is IAT-registered
+// in x64.k, so SHBrowseForFolderA / SHGetPathFromIDListA resolve at link
+// time -- no more LoadLibraryA/GetProcAddress dance.
 func guiPickFolder(title) {
-    let shell32 = LoadLibraryA("shell32.dll")
-    if ptrToInt(shell32) == "0" { emit "" }
-    let browse = GetProcAddress(shell32, "SHBrowseForFolderA")
-    let getPath = GetProcAddress(shell32, "SHGetPathFromIDListA")
-    if ptrToInt(browse) == "0" { emit "" }
-    if ptrToInt(getPath) == "0" { emit "" }
     let bi = bufNew("64")
     let main = guiStateGet("main.hwnd")
     if main != "" { bufSetQwordAt(bi, "0", main) }
@@ -1428,10 +1422,10 @@ func guiPickFolder(title) {
     // BIF_RETURNONLYFSDIRS (0x01) | BIF_NEWDIALOGSTYLE (0x40) -- the
     // modern Win11 resizable Explorer-style folder browser.
     bufSetDwordAt(bi, "32", "65")
-    let pidl = callPtr(browse, bi)
+    let pidl = SHBrowseForFolderA(bi)
     if ptrToInt(pidl) == "0" { emit "" }
     let pathBuf = bufNew("260")
-    callPtr(getPath, pidl, pathBuf)
+    SHGetPathFromIDListA(pidl, pathBuf)
     CoTaskMemFree(pidl)
     emit _guiBufToStr(pathBuf, 260)
 }
