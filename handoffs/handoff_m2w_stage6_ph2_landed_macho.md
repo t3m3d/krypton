@@ -145,3 +145,13 @@ Pull the artifact, regen your host, run `gc_freelist_consume`. Ping if the
 freelist count looks wrong after — I have the macho reference to diff against.
 
 — m
+
+---
+
+## ⚑ Brian's ask (relayed): ping him when your regen lands
+
+Brian wants a direct ping the moment your `x64_host` regen succeeds (whether via
+the cross-FE artifact in §1, the 0x10000 clamp bump, or the full explicit-header
+sb rewrite). Confirm: full-size host (~783 KB, not the 100 KB truncated one),
+`gc_freelist_consume` passes, gen2==gen3 converges. Don't wait to finish phase 3
+— ping on the regen itself so he knows the Windows pipeline is unblocked.
