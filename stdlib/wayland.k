@@ -115,7 +115,15 @@ func wlGetKeyboard(fd, seatId, kbId)  { emit _wlSend1(fd, seatId, 1, kbId) }
 //   wl_pointer.button (op3): serial,time,button(+16),state(+20)
 //      button: 0x110=left 0x111=right 0x112=middle ; state 1=press
 func wlKeyToKc(wlKey) { emit wlKey + 8 }          // evdev -> X11 keycode
-func wlFixed(b, off)  { emit bufGetDwordAt(b, off) / 256 }  // 24.8 -> int (in-window coords are +ve)
+// 24.8 signed fixed-point -> int pixel coordinate. Read byte-wise and sign-extend
+// the 24-bit integer part: bufGetDwordAt would zero-extend a NEGATIVE coordinate
+// (cursor at/past the window's top/left edge) into the pointer range, which the
+// runtime then misreads as a string pointer and crashes. Bytes stay small + safe.
+func wlFixed(b, off)  {
+    let v = bufGetByte(b, off + 1) + bufGetByte(b, off + 2) * 256 + bufGetByte(b, off + 3) * 65536
+    if bufGetByte(b, off + 3) >= 128 { emit v - 16777216 }
+    emit v
+}
 func wlBtnToX(button) {                            // evdev button -> X11 button (1=L,2=M,3=R)
     if button == 272 { emit 1 }                    // 0x110 BTN_LEFT
     if button == 273 { emit 3 }                    // 0x111 BTN_RIGHT
