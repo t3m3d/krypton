@@ -963,6 +963,7 @@ func opSize(ln) {
         if startsWith(b, "bufGetByte ") { emit 28 } // buf[off]: 2 pops + ldrb + push
         if startsWith(b, "bufGetWordAt ") { emit 28 }  // u16 LE: 2 pops + ldrh + push
         if startsWith(b, "bufGetDwordAt ") { emit 28 } // u32 LE: 2 pops + ldrw + push
+        if startsWith(b, "unixConnect") { emit 128 }   // socket+connect(AF_UNIX) inline
         if startsWith(b, "readFile")   { emit 20 }  // 1-arg (path)
         if startsWith(b, "writeFile")  { emit 28 }  // 2-arg (path, content)
         if startsWith(b, "gcCollect")    { emit 12 }  // no-op (bump allocator): push 0
@@ -1247,6 +1248,30 @@ just run {
             if startsWith(b, "bufGetWordAt ") { code = code + c_pop0() + c_pop1() + e_ldrhO(0, 1, 0) + c_push()  off = off + 28 }
             // bufGetDwordAt(buf, off) -> u32 LE: ldr w0,[buf+off]. 28 bytes.
             if startsWith(b, "bufGetDwordAt ") { code = code + c_pop0() + c_pop1() + e_ldrwO(0, 1, 0) + c_push()  off = off + 28 }
+            // unixConnect(path) -> socket(AF_UNIX=1,SOCK_STREAM=1,0) then connect(fd,
+            // &sockaddr_un{family=1, sun_path=path}, 110). Returns fd, or negative
+            // connect errno on failure. Builds sockaddr_un on sp. AF_UNIX transport
+            // for pure-Krypton X11/Wayland. svc preserves x9(path)/x10(fd). 128 bytes.
+            if startsWith(b, "unixConnect") {
+                let kc = sbNew()
+                kc = sbAppend(kc, c_pop0())                                  // [0]  x0 = path
+                kc = sbAppend(kc, e_movr(9, 0))                              // [8]  x9 = path (survives socket svc)
+                kc = sbAppend(kc, e_movz(0, 1) + e_movz(1, 1) + e_movz(2, 0))// [12,16,20] AF_UNIX, SOCK_STREAM, proto 0
+                kc = sbAppend(kc, e_movz(8, 198) + e_svc())                  // [24,28] socket -> x0 = fd
+                kc = sbAppend(kc, e_movr(10, 0) + e_subi(31, 31, 128))       // [32,36] x10=fd; sp -= 128 (sockaddr_un)
+                kc = sbAppend(kc, e_movz(2, 1) + e_strb(2, 31) + e_strbO(31, 31, 1))  // [40,44,48] sun_family = 1 (LE u16)
+                kc = sbAppend(kc, e_addi(3, 31, 2) + e_movr(4, 9))           // [52,56] dst=sp+2 (sun_path); src=path
+                kc = sbAppend(kc, e_ldrb0(5, 4) + e_strb(5, 3) + e_cbz(5, 16))  // [60,64,68] .copy: b=[src]; [dst]=b; 0 -> .done(84)
+                kc = sbAppend(kc, e_addi(4, 4, 1) + e_addi(3, 3, 1) + e_b(0 - 20))  // [72,76,80] src++; dst++; -> .copy(60)
+                kc = sbAppend(kc, e_movr(0, 10) + e_addi(1, 31, 0))          // [84,88] .done: x0=fd; x1=sp (&addr)
+                kc = sbAppend(kc, e_movz(2, 110) + e_movz(8, 203) + e_svc()) // [92,96,100] connect -> x0 = 0 / -errno
+                kc = sbAppend(kc, e_addi(31, 31, 128))                       // [104] restore sp
+                kc = sbAppend(kc, e_cbz(0, 8) + e_b(8))                      // [108,112] x0==0 ok -> .ok(116); else -> .push(120)
+                kc = sbAppend(kc, e_movr(0, 10))                            // [116] .ok: x0 = fd
+                kc = sbAppend(kc, c_push())                                 // [120] .push: push result
+                code = code + sbToString(kc)
+                off = off + 128
+            }
             // readFile(path): pop0->x0=path; kr_readfile. 20 bytes.
             if startsWith(b, "readFile")   { code = code + c_pop0() + e_bl(readfileOff - (off + 8)) + c_push()  off = off + 20 }
             // writeFile(path, content): pop0->x0=content, pop1->x1=path; kr_writefile. 28 bytes.
