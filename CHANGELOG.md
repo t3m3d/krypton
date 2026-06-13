@@ -4,6 +4,15 @@ All notable changes to the Krypton language and compiler.
 
 ## [Unreleased]
 
+- **Windows: psapi.dll wired into the IAT** (`compiler/windows_x86/x64.k`).
+  `EnumProcesses` / `EnumProcessModules` / `GetModuleBaseNameA` /
+  `GetModuleFileNameExA` / `GetProcessMemoryInfo` resolve directly via
+  the IAT. New `headers/psapi.krh` declarations + new `stdlib/proc_ex.k`
+  wrappers: `listProcesses()`, `processBaseName(pid)`,
+  `processImagePath(pid)`, `processWorkingSetKb(pid)`. Descriptor
+  index 13, prefix `ps:`. Names mirror libproc-shaped APIs on macOS so
+  cross-platform process tooling can share one surface. Same
+  `x64_host_windows_x86_64.exe` regen required for runtime validation.
 - **Windows: shell32.dll wired into the IAT** (`compiler/windows_x86/x64.k`).
   `SHBrowseForFolderA` / `SHGetPathFromIDListA` / `ShellExecuteA` /
   `SHGetFolderPathA` resolve directly through the IAT. Retires the last

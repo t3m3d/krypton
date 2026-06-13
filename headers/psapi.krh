@@ -1,0 +1,29 @@
+// psapi.krh -- Krypton declarations for the Windows psapi.dll surface.
+// Pair with stdlib/proc_ex.k for ergonomic wrappers.
+//
+// DLL: psapi.dll
+// Pipeline: native PE -- IAT-resolved via x64.k (2026-06-13).
+//
+// Modern Windows has folded most of these into kernel32 as K32* aliases,
+// but psapi.dll forwards them and remains the documented home. We bind
+// the canonical names (EnumProcesses / GetModuleBaseNameA / ...) here.
+
+jxt {
+    // Snapshot of currently-running process IDs.
+    //   pProcessIds  : DWORD[]   output buffer
+    //   cb           : DWORD     buffer size in bytes
+    //   pBytesReturned: DWORD*   number of bytes filled in
+    func EnumProcesses(pProcessIds, cb, pBytesReturned)             -> BOOL
+
+    // Modules loaded into a process (first entry = the EXE itself).
+    func EnumProcessModules(hProcess, lphModule, cb, lpcbNeeded)    -> BOOL
+
+    // Short module name -- "notepad.exe".
+    func GetModuleBaseNameA(hProcess, hModule, lpBaseName, nSize)   -> DWORD
+
+    // Fully-qualified module path -- "C:\Windows\notepad.exe".
+    func GetModuleFileNameExA(hProcess, hModule, lpFilename, nSize) -> DWORD
+
+    // Memory counters: working set, pagefile usage, etc.
+    func GetProcessMemoryInfo(hProcess, ppsmemCounters, cb)         -> BOOL
+}
