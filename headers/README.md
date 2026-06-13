@@ -72,6 +72,7 @@ jxt {
 | `mmap.krh` | Windows | kernel32.dll |
 | `winsock.krh` | Windows | ws2_32.dll *(IAT registered in x64.k 2026-06-13; x64_host_windows_x86_64.exe needs regen for runtime — see handoffs/handoff_w_ws2_32_iat.md)* |
 | `shell32.krh` | Windows | shell32.dll *(IAT registered in x64.k 2026-06-13; x64_host_windows_x86_64.exe needs regen for runtime — pair with stdlib/shell.k)* |
+| `psapi.krh` | Windows | psapi.dll *(IAT registered in x64.k 2026-06-13; x64_host_windows_x86_64.exe needs regen for runtime — pair with stdlib/proc_ex.k)* |
 | `objc.krh` | macOS | libobjc.dylib |
 | `cocoa.krh` | macOS | Constants only — no DLL calls |
 
