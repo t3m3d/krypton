@@ -1,0 +1,111 @@
+#!/usr/bin/env kr
+
+# examples/python_demo.pyk
+#
+# Concrete target for the upcoming Python frontend.  Every line below
+# uses syntax the FE is expected to parse + lower to the stdlib
+# polyfills already shipped at:
+#   stdlib/builtins.k   (print, len, range, str, int, sum, sorted, ...)
+#   stdlib/string.k     (upper, lower, strip, split, replace, ...)
+#   stdlib/list.k       (append, extend, index, slice, in, ...)
+#   stdlib/dict.k       (keys, values, items, get, update, in, ...)
+#   stdlib/sys.k        (argv, exit, platform)
+#   stdlib/os.k         (getcwd, environ.get, path.*, listdir)
+#   stdlib/math.k       (factorial, gcd, isqrt, pi, e, ...)
+#   stdlib/time.k       (time, sleep, perf_counter)
+#   stdlib/randomk.k    (seed, randint, choice, shuffle)
+#   stdlib/itertools.k  (chain, accumulate, takewhile, pairwise, ...)
+#   stdlib/functools.k  (reduce, max_by, min_by)
+#   stdlib/jsonk.k      (dumps, loads, dump, load)
+#
+# Today this file is a DOCUMENTATION ARTIFACT, not runnable -- the
+# Python FE doesn't exist yet.  Once Copilot's scaffolding lands, this
+# file should compile + run end-to-end with no edits.
+#
+# When the file runs, it:
+#   1. Reads a tiny corpus
+#   2. Tokenizes + counts word frequencies
+#   3. Prints the top 5 words
+#   4. Serializes the counter as JSON
+#   5. Spawns a small random sample of words back
+#
+# Total surface: about 30 distinct stdlib functions, drawn from 10
+# modules.  If this file compiles + runs identically on Windows + macOS
+# + Linux, the Python FE is shipping-quality.
+
+import os
+import sys
+import random
+import json
+import time
+from collections import Counter
+from itertools import pairwise
+
+
+CORPUS = """
+the quick brown fox jumps over the lazy dog
+the rain in spain falls mainly on the plain
+to be or not to be that is the question
+all your base are belong to us
+"""
+
+
+def tokenize(text):
+    """Split into lowercase words, stripping punctuation crudely."""
+    words = []
+    for raw in text.split():
+        w = raw.lower().strip()
+        if w:
+            words.append(w)
+    return words
+
+
+def top_n(counter, n):
+    """Return the n most common (word, count) pairs."""
+    items = sorted(counter.items(), key=lambda kv: -kv[1])
+    return items[:n]
+
+
+def main():
+    print("python_demo running on", sys.platform)
+    print("cwd:", os.getcwd())
+    print()
+
+    random.seed(42)
+
+    start = time.perf_counter()
+    words = tokenize(CORPUS)
+    print("total words:", len(words))
+
+    counts = Counter(words)
+    print("unique words:", len(counts))
+
+    top = top_n(counts, 5)
+    print()
+    print("top 5:")
+    for word, n in top:
+        print("  ", word.ljust(10), n)
+
+    elapsed = time.perf_counter() - start
+    print()
+    print("elapsed:", elapsed, "s")
+
+    # Serialize the full counter as JSON.
+    payload = json.dumps(dict(counts))
+    print()
+    print("json payload bytes:", len(payload))
+
+    # Pairwise iteration on the sorted words.
+    print()
+    print("first 3 adjacent pairs:")
+    for a, b in list(pairwise(sorted(set(words))))[:3]:
+        print("  ", a, "->", b)
+
+    # Sample 3 random words.
+    sample = random.sample(words, 3)
+    print()
+    print("random sample:", sample)
+
+
+if __name__ == "__main__":
+    main()
