@@ -422,18 +422,63 @@ func emitSbToString() {
     emit e_addi(0, 0, 16) + e_ret()
 }
 // kr_eq(x0=a, x1=b) -> x0=1/0. Polymorphic: both pointers (>=VBASE) -> strcmp;
-// else numeric compare (mixed int/ptr falls here and compares unequal). 76 bytes.
-func emitEq() {
-    let c = e_movzHi(9, 32512)                                    // [0] x9=VBASE
-    c = c + e_cmp(0, 9) + e_blt(44)                               // [4] a<VBASE -> .numeric (52)
-    c = c + e_cmp(1, 9) + e_blt(36)                               // [12] b<VBASE -> .numeric (52)
-    c = c + e_movz(2, 0)                                          // [20] i=0
-    c = c + e_ldrbO(3, 0, 2) + e_ldrbO(4, 1, 2) + e_cmp(3, 4) + e_bne(24)  // [24] .sl: a[i] vs b[i]; differ -> .ne (60)
-    c = c + e_cbz(3, 28)                                          // [40] a[i]==0 (both, equal) -> .eq (68)
-    c = c + e_addi(2, 2, 1) + e_b(0 - 24)                         // [44] i++; -> .sl (24)
-    c = c + e_cmp(0, 1) + e_beq(12)                               // [52] .numeric: a==b -> .eq (68)
-    c = c + e_movz(0, 0) + e_ret()                                // [60] .ne: x0=0
-    c = c + e_movz(0, 1) + e_ret()                                // [68] .eq: x0=1
+// kr_eq: numeric-aware "==". Mirrors x86 kr_cmpi dispatch: if BOTH operands are
+// numeric (small int < VBASE, OR digit-only string via kr_isnum) -> compare
+// atoi(a) vs atoi(b); else fall through to the original byte-compare body (handles
+// both-ptr strcmp and mixed int/ptr -> unequal). Saves lr in x23; a=x24 b=x25.
+// 208 bytes (numeric prefix 132 + original body 76).
+func emitEq(atoiOff, isnumOff, thisOff) {
+    let c = e_movr(23, 30) + e_movzHi(9, 32512)                   // [0,4] lr; x9=VBASE
+    c = c + e_movr(24, 0) + e_movr(25, 1)                         // [8,12] x24=a x25=b
+    c = c + e_cmp(24, 9) + e_blt(16)                              // [16,20] a<VBASE int -> .a_num (36)
+    c = c + e_movr(0, 24) + e_bl(isnumOff - (thisOff + 28)) + e_cbz(0, 88)  // [24,28,32] isnum(a)? no -> .fallback (120)
+    c = c + e_cmp(25, 9) + e_blt(16)                              // [36,40] .a_num: b<VBASE -> .both_num (56)
+    c = c + e_movr(0, 25) + e_bl(isnumOff - (thisOff + 48)) + e_cbz(0, 68)  // [44,48,52] isnum(b)? no -> .fallback (120)
+    c = c + e_movr(0, 24) + e_cmp(0, 9) + e_blt(8)                // [56,60,64] .both_num: a int -> .av (72)
+    c = c + e_bl(atoiOff - (thisOff + 68))                        // [68] x0=atoi(a)
+    c = c + e_movr(10, 0) + e_movr(0, 25)                         // [72,76] .av: x10=aval; x0=b
+    c = c + e_cmp(0, 9) + e_blt(8)                                // [80,84] b int -> .bv (92)
+    c = c + e_bl(atoiOff - (thisOff + 88))                        // [88] x0=atoi(b)
+    c = c + e_movr(30, 23) + e_cmp(10, 0) + e_beq(12)             // [92,96,100] .bv: lr; aval==bval -> .eq (112)
+    c = c + e_movz(0, 0) + e_ret()                                // [104,108] not equal
+    c = c + e_movz(0, 1) + e_ret()                                // [112,116] .eq
+    c = c + e_movr(0, 24) + e_movr(1, 25) + e_movr(30, 23)        // [120,124,128] .fallback: restore a,b,lr
+    // ── original byte-compare body (self-relative branches, unchanged) ──
+    c = c + e_movzHi(9, 32512)                                    // [132] x9=VBASE
+    c = c + e_cmp(0, 9) + e_blt(44)                               // a<VBASE -> .numeric
+    c = c + e_cmp(1, 9) + e_blt(36)                               // b<VBASE -> .numeric
+    c = c + e_movz(2, 0)                                          // i=0
+    c = c + e_ldrbO(3, 0, 2) + e_ldrbO(4, 1, 2) + e_cmp(3, 4) + e_bne(24)  // .sl: a[i] vs b[i]; differ -> .ne
+    c = c + e_cbz(3, 28)                                          // a[i]==0 (both, equal) -> .eq
+    c = c + e_addi(2, 2, 1) + e_b(0 - 24)                         // i++; -> .sl
+    c = c + e_cmp(0, 1) + e_beq(12)                               // .numeric: a==b -> .eq
+    c = c + e_movz(0, 0) + e_ret()                                // .ne: x0=0
+    c = c + e_movz(0, 1) + e_ret()                                // .eq: x0=1
+    emit c
+}
+// kr_istruthy(x0=v) -> x0=1/0. Mirrors x86 kr_istruthy: int (<VBASE) truthy iff
+// !=0; string ptr (>=VBASE) truthy iff NOT one of "" / "0" / "false". 128 bytes.
+// (3-term cap per `c = c +` line — long chains miscompile through the x86 seed.)
+func emitIsTruthy() {
+    let c = e_movzHi(9, 32512)                                    // [0]   x9 = VBASE
+    c = c + e_cmp(0, 9) + e_blt(120)                              // [4,8] v<VBASE -> .int (128)
+    c = c + e_movr(10, 0) + e_ldrb0(2, 10) + e_cbz(2, 124)        // [12,16,20] x10=ptr; b0=s[0]; ""->.falsy (144)
+    c = c + e_addi(10, 10, 1) + e_subi(3, 2, 48) + e_cbnz(3, 12)  // [24,28,32] x10->s[1]; b0!='0' -> .notzero (44)
+    c = c + e_ldrb0(3, 10) + e_cbz(3, 104)                        // [36,40] s[1]==0 -> "0" -> .falsy (144)
+    c = c + e_subi(3, 2, 102) + e_cbnz(3, 88)                     // [44,48] .notzero: b0!='f' -> .truthy (136)
+    c = c + e_ldrb0(3, 10) + e_subi(3, 3, 97) + e_cbnz(3, 76)     // [52,56,60] s[1]!='a' -> .truthy (136)
+    c = c + e_addi(10, 10, 1) + e_ldrb0(3, 10) + e_subi(3, 3, 108) // [64,68,72] x10->s[2]; s[2]
+    c = c + e_cbnz(3, 60)                                         // [76] !='l' -> .truthy (136)
+    c = c + e_addi(10, 10, 1) + e_ldrb0(3, 10) + e_subi(3, 3, 115) // [80,84,88] s[3]
+    c = c + e_cbnz(3, 44)                                         // [92] !='s' -> .truthy (136)
+    c = c + e_addi(10, 10, 1) + e_ldrb0(3, 10) + e_subi(3, 3, 101) // [96,100,104] s[4]
+    c = c + e_cbnz(3, 28)                                         // [108] !='e' -> .truthy (136)
+    c = c + e_addi(10, 10, 1) + e_ldrb0(3, 10) + e_cbnz(3, 16)    // [112,116,120] s[5]!=0 -> .truthy (136)
+    c = c + e_b(20)                                               // [124] "false" -> .falsy (144)
+    c = c + e_cbz(0, 16)                                          // [128] .int: v==0 -> .falsy (144)
+    c = c + e_b(4)                                                // [132] -> .truthy (136)
+    c = c + e_movz(0, 1) + e_ret()                                // [136,140] .truthy
+    c = c + e_movz(0, 0) + e_ret()                                // [144,148] .falsy
     emit c
 }
 // kr_index(x1=s, x0=idx) -> fresh 1-char string of s[idx]. 36 bytes. (char indexing)
@@ -546,19 +591,45 @@ func emitStructFields(allocOff, plusOff, thisOff) {
 }
 // kr_plus(a=x0, b=x1) -> x0. Polymorphic +: both ints -> a+b; else convert each
 // to a string (kr_str_int for the int side) and concat into a fresh heap buffer.
-// Saves lr in x23; VBASE in x9; sa=x11 sb=x12 b=x13 lenA=x14 lenB=x16 dst=x17.
-func emitPlus(strIntOff, allocOff, thisOff) {
-    let c = e_movr(23, 30) + e_movzHi(9, 32512)                                       // lr; x9=VBASE
-    c = c + e_cmp(0, 9) + e_bge(24) + e_cmp(1, 9) + e_bge(16)                      // either signed>=VBASE (ptr) -> concat
-    c = c + e_addr(0, 0, 1) + e_movr(30, 23) + e_ret()                            // both int: a+b
-    c = c + e_movr(13, 1)                                                          // [cc] x13=b
-    c = c + e_cmp(0, 9) + e_bge(8) + e_bl(strIntOff - (thisOff + 48))             // conv a (int side only)
+// kr_isnum: x0=string ptr -> x0=1 if non-empty all-digits, else 0. Digit-only
+// (no leading '-', since arm64 kr_atoi has no negative support). Clobbers x2/x3/x4.
+// 60 bytes. (mirrors x86 kr_isnum, minus the '-' branch.)
+func emitIsnum() {
+    let c = e_movr(2, 0) + e_ldrb0(3, 2) + e_cbz(3, 44)          // [0,4,8] empty -> .notnum(52)
+    c = c + e_movz(4, 10)                                         // [12] x4=10 (digit bound)
+    c = c + e_ldrb0(3, 2) + e_cbz(3, 24)                          // [16,20] .scan: NUL -> .isnum(44)
+    c = c + e_subi(3, 3, 48) + e_cmp(3, 4) + e_bhs(20)            // [24,28,32] (c-'0')>=10 -> .notnum(52)
+    c = c + e_addi(2, 2, 1) + e_b(0 - 24)                         // [36,40] x2++; -> .scan(16)
+    c = c + e_movz(0, 1) + e_ret()                               // [44,48] .isnum
+    c = c + e_movz(0, 0) + e_ret()                               // [52,56] .notnum
+    emit c
+}
+// kr_plus: numeric-aware "+". Mirrors x86 kr_plus: if BOTH operands are numeric
+// (small int < VBASE, OR digit-only string via kr_isnum) -> int sum (kr_atoi each
+// string side); else string concat. Saves lr in x23; VBASE in x9; a=x24 b=x25.
+// 288 bytes (numeric prefix 112 + concat body 176).
+func emitPlus(strIntOff, allocOff, atoiOff, isnumOff, thisOff) {
+    let c = e_movr(23, 30) + e_movzHi(9, 32512)                                   // [0,4] lr; x9=VBASE
+    c = c + e_movr(24, 0) + e_movr(25, 1)                                         // [8,12] x24=a x25=b
+    c = c + e_cmp(24, 9) + e_blt(16)                                              // [16,20] a<VBASE int -> .a_ok(36)
+    c = c + e_movr(0, 24) + e_bl(isnumOff - (thisOff + 28)) + e_cbz(0, 72)        // [24,28,32] isnum(a)? no -> .concat(104)
+    c = c + e_cmp(25, 9) + e_blt(16)                                              // [36,40] .a_ok: b<VBASE -> .b_ok(56)
+    c = c + e_movr(0, 25) + e_bl(isnumOff - (thisOff + 48)) + e_cbz(0, 52)        // [44,48,52] isnum(b)? no -> .concat(104)
+    c = c + e_movr(0, 24) + e_cmp(0, 9) + e_blt(8)                                // [56,60,64] .b_ok: a int -> .av(72)
+    c = c + e_bl(atoiOff - (thisOff + 68))                                        // [68] x0=atoi(a)
+    c = c + e_movr(10, 0) + e_movr(0, 25)                                         // [72,76] .av: x10=aval; x0=b
+    c = c + e_cmp(0, 9) + e_blt(8)                                                // [80,84] b int -> .bv(92)
+    c = c + e_bl(atoiOff - (thisOff + 88))                                        // [88] x0=atoi(b)
+    c = c + e_addr(0, 10, 0) + e_movr(30, 23) + e_ret()                           // [92,96,100] .bv: aval+bval; ret
+    c = c + e_movr(0, 24) + e_movr(1, 25)                                         // [104,108] .concat: restore a,b
+    c = c + e_movr(13, 1)                                                          // [112] x13=b
+    c = c + e_cmp(0, 9) + e_bge(8) + e_bl(strIntOff - (thisOff + 124))            // conv a (int side only)
     c = c + e_movr(11, 0)                                                          // [as] sa
-    c = c + e_movr(0, 13) + e_cmp(0, 9) + e_bge(8) + e_bl(strIntOff - (thisOff + 68))  // conv b (int side only)
+    c = c + e_movr(0, 13) + e_cmp(0, 9) + e_bge(8) + e_bl(strIntOff - (thisOff + 144))  // conv b (int side only)
     c = c + e_movr(12, 0)                                                          // [bs] sb
     c = c + e_movz(14, 0) + e_ldrbO(3, 11, 14) + e_cbz(3, 12) + e_addi(14, 14, 1) + e_b(0 - 12)  // strlen sa
     c = c + e_movz(16, 0) + e_ldrbO(3, 12, 16) + e_cbz(3, 12) + e_addi(16, 16, 1) + e_b(0 - 12)  // strlen sb
-    c = c + e_addr(0, 14, 16) + e_addi(0, 0, 1) + e_bl(allocOff - (thisOff + 124)) + e_movr(17, 0)  // dst=alloc(lenA+lenB+1)
+    c = c + e_addr(0, 14, 16) + e_addi(0, 0, 1) + e_bl(allocOff - (thisOff + 200)) + e_movr(17, 0)  // dst=alloc(lenA+lenB+1)
     c = c + e_movz(2, 0) + e_cmp(2, 14) + e_bhs(24) + e_ldrbO(3, 11, 2) + e_strb(3, 0) + e_addi(0, 0, 1) + e_addi(2, 2, 1) + e_b(0 - 24)  // copy sa
     c = c + e_movz(2, 0) + e_cmp(2, 16) + e_bhs(24) + e_ldrbO(3, 12, 2) + e_strb(3, 0) + e_addi(0, 0, 1) + e_addi(2, 2, 1) + e_b(0 - 24)  // copy sb
     c = c + e_strb(31, 0) + e_movr(0, 17) + e_movr(30, 23) + e_ret()              // NUL; return dst
@@ -627,9 +698,41 @@ func isStrPush(ln) {                     // PUSH "..."
     if startsWith(ln, "PUSH \"") { emit "1" }
     emit "0"
 }
+// Decode escape-encoded string back to raw bytes (mirrors linux_x86/elf.k's
+// decodeStr). The IR preserves escapes as 2-char text (\n, \t, \\, \", \r);
+// decode to real bytes at emit time. Control bytes via fromCharCode so this
+// source contains no bare 1-byte escape literals (the seed compiles cleanly).
+func decodeStr(s) {
+    let nl = fromCharCode("10")
+    let tab = fromCharCode("9")
+    let cr = fromCharCode("13")
+    let bs = fromCharCode("92")
+    let dq = fromCharCode("34")
+    let out = sbNew()
+    let i = 0
+    while i < len(s) {
+        if s[i] == "\\" && i + 1 < len(s) {
+            let c = s[i + 1]
+            if c == "n" { out = sbAppend(out, nl) }
+            else if c == "t" { out = sbAppend(out, tab) }
+            else if c == "r" { out = sbAppend(out, cr) }
+            else if c == "\\" { out = sbAppend(out, bs) }
+            else if c == "\"" { out = sbAppend(out, dq) }
+            else if c == "0" { }  // skip null escape (would terminate string)
+            else { out = sbAppend(out, c) }
+            i += 2
+        } else {
+            out = sbAppend(out, s[i])
+            i += 1
+        }
+    }
+    emit sbToString(out)
+}
+// PUSH "..." -> the literal's RAW BYTES (escapes decoded). Used for byte-count,
+// offset calc, and data emission alike — all must agree, so decoding lives here.
 func quoted(ln) {
     let q1 = indexOf(ln, "\"")
-    emit substring(ln, toInt(q1) + 1, len(ln) - 1)
+    emit decodeStr(substring(ln, toInt(q1) + 1, len(ln) - 1))
 }
 // "FUNC add 2" -> "add" ; "CALL add 2" -> "add"
 func headName(ln) {
@@ -684,7 +787,7 @@ func opBytes(ir, i) {
     if op == "PARAM"  { emit "0" }
     if op == "LOCAL"  { emit "0" }
     if op == "RETURN" { emit "20" }                                    // epilogue
-    if op == "END"    { emit "20" }                                    // epilogue
+    if op == "END"    { emit "32" }                                    // push default ret 0 (void fns), then epilogue
     if op == "CALL" {                                                  // bl, or inlined bitwise builtin
         let cn = headName(ln)
         if cn == "bitAnd" { emit "28" }
@@ -742,7 +845,9 @@ func opSize(ln) {
     if op == "POP"     { emit 4 }
     if op == "LABEL"     { emit 0 }
     if op == "JUMP"      { emit 4 }
-    if op == "JUMPIFNOT" { emit 12 }
+    if op == "JUMPIFNOT" { emit 16 }   // pop + bl istruthy + cbz (was naive cbz)
+    if op == "JUMPIF"    { emit 16 }   // pop + bl istruthy + cbnz (|| short-circuit)
+    if op == "NOT"       { emit 28 }   // pop + bl istruthy + (x0 ^= 1) + push
     if op == "LT" || op == "GT" || op == "LTE" || op == "GTE" { emit 32 }
     if op == "EQ"  { emit 28 }     // polymorphic kr_eq (numeric OR strcmp)
     if op == "NEQ" { emit 36 }     // kr_eq + invert
@@ -762,7 +867,7 @@ func opSize(ln) {
         if startsWith(b, "toInt") { emit 20 }
         if startsWith(b, "fromCharCode") { emit 36 }
         if startsWith(b, "substring") { emit 36 }
-        if startsWith(b, "isTruthy") { emit 24 }
+        if startsWith(b, "isTruthy") { emit 20 }
         if startsWith(b, "min") { emit 32 }   // pop0+pop1+cmp+csel+push
         if startsWith(b, "max") { emit 32 }
         if startsWith(b, "hex") { emit 20 }   // pop0 + bl kr_hex + push
@@ -827,7 +932,7 @@ just run {
     let allocOff  = HDR + START + codeSize
     let strIntOff = allocOff + 16
     let plusOff   = strIntOff + 128   // str_int grew 100->128 for signed (negative) support
-    let printOff  = plusOff + 212
+    let printOff  = plusOff + 288   // kr_plus grew 212->288 (numeric-aware: isnum+atoi sum)
     let kpDispOff = printOff + 64
     let atoiOff = kpDispOff + 32
     let substrOff = atoiOff + 44
@@ -852,14 +957,16 @@ just run {
     let sbappendOff = sbnewOff + 36     // kr_sbnew is 36 bytes
     let sbtostringOff = sbappendOff + 176  // kr_sbappend is 176 bytes
     let eqOff = sbtostringOff + 8        // kr_sbtostring is 8 bytes
-    let indexOff = eqOff + 76            // kr_eq is 76 bytes
+    let istruthyOff = eqOff + 208        // kr_eq is 208 bytes (numeric-aware)
+    let indexOff = istruthyOff + 152     // kr_istruthy is 152 bytes
     let readfileOff = indexOff + 36      // kr_index is 36 bytes
     let writefileOff = readfileOff + 120 // kr_readfile is 120 bytes
     let setfieldOff = writefileOff + 96  // kr_writefile is 96 bytes
     let getfieldOff = setfieldOff + 44   // kr_setfield is 44 bytes
     let hasfieldOff = getfieldOff + 92   // kr_getfield is 92 bytes
     let structfieldsOff = hasfieldOff + 72  // kr_hasfield is 72 bytes
-    let nlOff = structfieldsOff + 104     // kr_structfields is 104 bytes
+    let isnumOff = structfieldsOff + 104  // kr_structfields is 104 bytes
+    let nlOff = isnumOff + 60             // kr_isnum is 60 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -975,7 +1082,9 @@ just run {
         if op == "LTE" { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 12) + c_push()  off = off + 32 }
         if op == "GTE" { code = code + c_pop1() + c_pop0() + e_cmp(0, 1) + e_cset(0, 11) + c_push()  off = off + 32 }
         if op == "JUMP" { code = code + e_b(toInt(labelAbsOffset(ir, operand(ln))) - off)  off = off + 4 }
-        if op == "JUMPIFNOT" { code = code + c_pop0() + e_cbz(0, toInt(labelAbsOffset(ir, operand(ln))) - (off + 8))  off = off + 12 }
+        if op == "JUMPIFNOT" { code = code + c_pop0() + e_bl(istruthyOff - (off + 8)) + e_cbz(0, toInt(labelAbsOffset(ir, operand(ln))) - (off + 12))  off = off + 16 }
+        if op == "JUMPIF" { code = code + c_pop0() + e_bl(istruthyOff - (off + 8)) + e_cbnz(0, toInt(labelAbsOffset(ir, operand(ln))) - (off + 12))  off = off + 16 }
+        if op == "NOT" { code = code + c_pop0() + e_bl(istruthyOff - (off + 8)) + e_movz(1, 1) + e_eor(0, 0, 1) + c_push()  off = off + 28 }
         if op == "CALL" {
             let cn = headName(ln)
             // bitwise builtins arrive as generic CALLs (front-end emits CALL, not BUILTIN).
@@ -991,7 +1100,7 @@ just run {
         }
         if op == "BUILTIN" {
             let b = operand(ln)
-            if startsWith(b, "isTruthy") { code = code + c_pop0() + e_cmpi0(0) + e_cset(0, 0) + c_push()  off = off + 24 }
+            if startsWith(b, "isTruthy") { code = code + c_pop0() + e_bl(istruthyOff - (off + 8)) + c_push()  off = off + 20 }
             // min/max(a,b): pop b->x0, a->x1; cmp a,b; csel. cond LT=11 (min), GT=12 (max). 32 bytes.
             // (bitwise builtins arrive as CALL, handled in the CALL branch below.)
             if startsWith(b, "min") { code = code + c_pop0() + c_pop1() + e_cmp(1, 0) + e_csel(0, 1, 0, 11) + c_push()  off = off + 32 }
@@ -1170,7 +1279,7 @@ just run {
         // RETURN and END: epilogue (free locals, restore x19/x30, ret). For __main__
         // this returns to _start, which then exits(0).
         if op == "RETURN" { code = code + e_addi(31, 31, frame) + e_ldr0(19, 31) + e_ldr8(30, 31, 1) + e_addi(31, 31, 16) + e_ret()  off = off + 20 }
-        if op == "END"    { code = code + e_addi(31, 31, frame) + e_ldr0(19, 31) + e_ldr8(30, 31, 1) + e_addi(31, 31, 16) + e_ret()  off = off + 20 }
+        if op == "END"    { code = code + e_movz(0, 0) + c_push() + e_addi(31, 31, frame) + e_ldr0(19, 31) + e_ldr8(30, 31, 1) + e_addi(31, 31, 16) + e_ret()  off = off + 32 }
         i = i + 1
     }
 
@@ -1181,7 +1290,7 @@ just run {
     bb = sbAppend(bb, code)
     bb = sbAppend(bb, emitAlloc())
     bb = sbAppend(bb, emitStrInt(allocOff, strIntOff))
-    bb = sbAppend(bb, emitPlus(strIntOff, allocOff, plusOff))
+    bb = sbAppend(bb, emitPlus(strIntOff, allocOff, atoiOff, isnumOff, plusOff))
     bb = sbAppend(bb, emitPrint(nlOff))
     bb = sbAppend(bb, emitKpDisp(kpDispOff, strIntOff, printOff))
     bb = sbAppend(bb, emitAtoi())
@@ -1206,7 +1315,8 @@ just run {
     bb = sbAppend(bb, emitSbNew(allocOff, sbnewOff))
     bb = sbAppend(bb, emitSbAppend(allocOff, sbappendOff))
     bb = sbAppend(bb, emitSbToString())
-    bb = sbAppend(bb, emitEq())
+    bb = sbAppend(bb, emitEq(atoiOff, isnumOff, eqOff))
+    bb = sbAppend(bb, emitIsTruthy())
     bb = sbAppend(bb, emitIndex(allocOff, indexOff))
     bb = sbAppend(bb, emitReadFile(allocOff, readfileOff))
     bb = sbAppend(bb, emitWriteFile())
@@ -1214,6 +1324,7 @@ just run {
     bb = sbAppend(bb, emitGetField(allocOff, getfieldOff))
     bb = sbAppend(bb, emitHasField())
     bb = sbAppend(bb, emitStructFields(allocOff, plusOff, structfieldsOff))
+    bb = sbAppend(bb, emitIsnum())
     bb = sbAppend(bb, "")     // guards: x86 backend drops trailing sbAppends (scales w/ chain len)
     bb = sbAppend(bb, "")
     bb = sbAppend(bb, "")
