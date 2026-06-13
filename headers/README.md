@@ -70,7 +70,7 @@ jxt {
 | `process.krh` | Windows | kernel32 + shell32 |
 | `fileio.krh` | Windows | kernel32.dll |
 | `mmap.krh` | Windows | kernel32.dll |
-| `winsock.krh` | Windows | ws2_32.dll *(awaiting x64.k IAT registration; declarations ready)* |
+| `winsock.krh` | Windows | ws2_32.dll *(IAT registered in x64.k 2026-06-13; x64_host_windows_x86_64.exe needs regen for runtime — see handoffs/handoff_w_ws2_32_iat.md)* |
 | `objc.krh` | macOS | libobjc.dylib |
 | `cocoa.krh` | macOS | Constants only — no DLL calls |
 

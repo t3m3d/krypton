@@ -4,6 +4,26 @@ All notable changes to the Krypton language and compiler.
 
 ## [Unreleased]
 
+- **Windows: ws2_32.dll wired into the IAT** (`compiler/windows_x86/x64.k`).
+  `stdlib/winsock.k` is now a first-class platform shim instead of a
+  declarations-only stub: `WSAStartup` / `socket` / `bind` / `listen` /
+  `accept` / `recv` / `send` / `connect` / `closesocket` / `htons` /
+  `htonl` / `ntohs` / `ntohl` all resolve through the IAT, no
+  `LoadLibraryA` / `GetProcAddress` dance. `headers/winsock.krh` added
+  with matching declarations. Pattern mirrors the existing gdi32 /
+  comctl32 / dwmapi tables — 14 funcs, descriptor index 11, prefix
+  `ws:`. **Open:** `x64_host_windows_x86_64.exe` needs a regen pass
+  from the new x64.k before user binaries actually populate the new
+  IAT slots at runtime — see `handoffs/handoff_w_ws2_32_iat.md` for the
+  smoke test program. First consumer once it lands:
+  [t3m3d/WinThrow](https://github.com/t3m3d/WinThrow), the
+  iPhone-Share-Sheet → Windows file drop receiver.
+- **`print(...)` accepted alongside `kp(...)`** on Windows
+  (`compiler/windows_x86/x64.k:1410`), matching the macOS + Linux
+  fronts. Existing `kp` calls continue to work — both lower to
+  `kr_print`. Use `print` in new code; `kp` stays as a permanent
+  legacy alias.
+
 ## [2.3.0] - 2026-06-06 — Self-host fix + native StringBuilder + 3-platform parity
 
 **Headline:**
