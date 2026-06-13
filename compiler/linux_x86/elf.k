@@ -3496,6 +3496,10 @@ func opByteSize(op) {
     if op == "BUILTIN_POW"       { emit 8 }  // POP RSI + POP RDI + CALL + PUSH RAX
     if op == "BUILTIN_MIN"       { emit 8 }  // POP RSI + POP RDI + CALL kr_min + PUSH RAX
     if op == "BUILTIN_MAX"       { emit 8 }  // POP RSI + POP RDI + CALL kr_max + PUSH RAX
+    if op == "BUILTIN_PTRTOINT"  { emit 7 }  // POP RDI + CALL kr_str_int + PUSH RAX (stringify addr)
+    if op == "BUILTIN_INTTOPTR"  { emit 7 }  // POP RDI + CALL kr_atoi + PUSH RAX (parse addr)
+    if op == "BUILTIN_PTRADD"    { emit 6 }  // POP RAX + POP RCX + ADD RAX,RCX + PUSH RAX
+    if op == "BUILTIN_PTREQ"     { emit 12 } // POP/POP + CMP + SETE + MOVZX + PUSH (raw 1/0)
     if op == "BUILTIN_BITAND"    { emit 8 }  // POP RSI + POP RDI + CALL + PUSH RAX
     if op == "BUILTIN_BITOR"     { emit 8 }
     if op == "BUILTIN_BITXOR"    { emit 8 }
@@ -3796,6 +3800,14 @@ func parseIR(ir) {
                     opSb = sbAppend(opSb, "BUILTIN_SHL")
                 } else if cname == "shr" {
                     opSb = sbAppend(opSb, "BUILTIN_SHR")
+                } else if cname == "ptrToInt" {
+                    opSb = sbAppend(opSb, "BUILTIN_PTRTOINT")
+                } else if cname == "intToPtr" {
+                    opSb = sbAppend(opSb, "BUILTIN_INTTOPTR")
+                } else if cname == "ptrAdd" {
+                    opSb = sbAppend(opSb, "BUILTIN_PTRADD")
+                } else if cname == "ptrEq" {
+                    opSb = sbAppend(opSb, "BUILTIN_PTREQ")
                 } else {
                     opSb = sbAppend(opSb, "CALL_FUNC " + rest)
                 }
@@ -4510,6 +4522,34 @@ func emitFuncCode(opList, strVAddrs, argcount, localCount, labels, funcVAddrs, f
             c = sbAppend(c, hexByte(0x5F))
             let tiDisp = krAtoiVAddr - (funcStartVAddr + off + 6)
             c = sbAppend(c, hexByte(0xE8) + hexDword(tiDisp))
+            c = sbAppend(c, hexByte(0x50))
+        } else if op == "BUILTIN_PTRTOINT" {
+            // ptrToInt(p) -> decimal string of the raw address (per w2l_ptr_classification).
+            // POP RDI ; CALL kr_str_int ; PUSH RAX
+            c = sbAppend(c, hexByte(0x5F))
+            let p2iDisp = krStrIntVAddr - (funcStartVAddr + off + 6)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(p2iDisp))
+            c = sbAppend(c, hexByte(0x50))
+        } else if op == "BUILTIN_INTTOPTR" {
+            // intToPtr(s) -> raw ptr. POP RDI ; CALL kr_atoi ; PUSH RAX
+            c = sbAppend(c, hexByte(0x5F))
+            let i2pDisp = krAtoiVAddr - (funcStartVAddr + off + 6)
+            c = sbAppend(c, hexByte(0xE8) + hexDword(i2pDisp))
+            c = sbAppend(c, hexByte(0x50))
+        } else if op == "BUILTIN_PTRADD" {
+            // ptrAdd(ptr, n) -> ptr+n. TOS=n. POP RAX(n) ; POP RCX(ptr) ; ADD RAX,RCX ; PUSH RAX
+            c = sbAppend(c, hexByte(0x58))
+            c = sbAppend(c, hexByte(0x59))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x01) + hexByte(0xC8))
+            c = sbAppend(c, hexByte(0x50))
+        } else if op == "BUILTIN_PTREQ" {
+            // ptrEq(p, q) -> 1/0 raw int64 compare. TOS=q. POP RAX(q) ; POP RCX(p) ;
+            // CMP RAX,RCX ; SETE AL ; MOVZX EAX,AL ; PUSH RAX
+            c = sbAppend(c, hexByte(0x58))
+            c = sbAppend(c, hexByte(0x59))
+            c = sbAppend(c, hexByte(0x48) + hexByte(0x39) + hexByte(0xC8))
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0x94) + hexByte(0xC0))
+            c = sbAppend(c, hexByte(0x0F) + hexByte(0xB6) + hexByte(0xC0))
             c = sbAppend(c, hexByte(0x50))
         } else if op == "BUILTIN_LENGTH" {
             // POP RDI ; CALL kr_length ; PUSH RAX
