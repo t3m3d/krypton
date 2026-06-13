@@ -41,7 +41,6 @@ runtime/krypton_rt_legacy.dll
 kompiler/.DS_Store
 .DS_Store
 releasenotes/RELEASE_NOTES_2.0_macos_arm64.md
-docs/HANDOFF_M1.md
 .vscode/settings.json
 tests/krypton_rt.dll
 OVERNIGHT_REPORT.md
