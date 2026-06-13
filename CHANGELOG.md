@@ -4,6 +4,14 @@ All notable changes to the Krypton language and compiler.
 
 ## [Unreleased]
 
+- **Windows: iphlpapi.dll wired into the IAT** (`compiler/windows_x86/x64.k`).
+  `GetAdaptersAddresses` / `GetAdaptersInfo` / `GetIfTable` / `GetTcpTable`
+  / `IcmpCreateFile` / `IcmpCloseHandle` / `IcmpSendEcho` resolve via the
+  IAT. New `headers/iphlpapi.krh` declarations + new `stdlib/iphlp.k`
+  wrappers: `adapterNames()`, `adapterIPv4s()`, `ping(ipv4, timeoutMs)`.
+  Descriptor index 14, prefix `iph:`. ICMP echo means pure-Krypton
+  ping with no shell-out. Same `x64_host_windows_x86_64.exe` regen
+  required for runtime validation.
 - **Windows: psapi.dll wired into the IAT** (`compiler/windows_x86/x64.k`).
   `EnumProcesses` / `EnumProcessModules` / `GetModuleBaseNameA` /
   `GetModuleFileNameExA` / `GetProcessMemoryInfo` resolve directly via
