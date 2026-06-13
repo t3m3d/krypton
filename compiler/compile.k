@@ -2707,6 +2707,15 @@ just run {
                 if prefix == "core"    { fullPath = installRoot + "/stdlib/"  + sub + ".k"   }
                 if prefix == "head"    { fullPath = installRoot + "/headers/" + sub + ".krh" }
                 if prefix == "headers" { fullPath = installRoot + "/headers/" + sub + ".krh" }
+                // .ks fallback: objk + KryptScript stdlib modules are tagged
+                // .ks. If the .k form isn't present, retry the .ks form. (Not
+                // everything moves to .ks — .k stays the default; this only
+                // catches modules that were renamed.)
+                if prefix == "k" || prefix == "core" {
+                    if len(readFile(fullPath)) == 0 {
+                        fullPath = installRoot + "/stdlib/" + sub + ".ks"
+                    }
+                }
             }
             // Backwards compat: legacy "stdlib/foo.k" / "windows.krh" forms.
             // resolve relative path: source-relative, then cwd, then install.
