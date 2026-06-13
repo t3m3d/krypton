@@ -477,6 +477,11 @@ let KRWS2_32_FUNCS   = "WSAStartup,WSACleanup,socket,bind,listen,accept,recv,sen
 // default-handler launcher (ShellExecuteA) + known-folder helpers
 // (SHGetFolderPathA) directly via the IAT.  Pair with stdlib/shell.k.
 let KRSHELL32_FUNCS  = "SHBrowseForFolderA,SHGetPathFromIDListA,ShellExecuteA,SHGetFolderPathA"
+// psapi -- process introspection.  Wired 2026-06-13 to make k:proc_ex
+// enumerate processes + read module names + memory counters without
+// LoadLibrary.  Modern Windows aliases these into kernel32 (K32*) but
+// psapi.dll remains the canonical home.
+let KRPSAPI_FUNCS    = "EnumProcesses,EnumProcessModules,GetModuleBaseNameA,GetModuleFileNameExA,GetProcessMemoryInfo"
 
 // __user_rt_atoi: 69-byte ASCII-decimal-to-int64 helper, RCX=str → RAX=int64.
 // Same machine code as the bootstrap helper at offset 197 in the helper block.
@@ -1656,6 +1661,12 @@ func iatIndexOf(funcName) {
         if funcAt(KRSHELL32_FUNCS, sh) == funcName { emit "sh:" + sh }
         sh += 1
     }
+    let pscount = countFuncs(KRPSAPI_FUNCS)
+    let ps = 0
+    while ps < pscount {
+        if funcAt(KRPSAPI_FUNCS, ps) == funcName { emit "ps:" + ps }
+        ps += 1
+    }
     emit "none"
 }
 
@@ -1716,12 +1727,16 @@ func iatEntryRvaFor(funcName, iatBases) {
         let idx = toInt(substring(idxStr, 3, len(idxStr)))
         emit toInt(getLine(iatBases, 12)) + idx * 8
     }
+    if startsWith(idxStr, "ps:") {
+        let idx = toInt(substring(idxStr, 3, len(idxStr)))
+        emit toInt(getLine(iatBases, 13)) + idx * 8
+    }
     emit -1
 }
 
 // IAT total entries (with null terminators between DLLs)
 func iatTotalEntries() {
-    emit countFuncs(KR32_FUNCS) + 1 + countFuncs(KRRT_FUNCS) + 1 + countFuncs(KRADV_FUNCS) + 1 + countFuncs(KRPDH_FUNCS) + 1 + countFuncs(KRUSER_FUNCS) + 1 + countFuncs(KRGDI32_FUNCS) + 1 + countFuncs(KRCOMCTL32_FUNCS) + 1 + countFuncs(KRCOMDLG32_FUNCS) + 1 + countFuncs(KROLE32_FUNCS) + 1 + countFuncs(KRUXTHEME_FUNCS) + 1 + countFuncs(KRDWMAPI_FUNCS) + 1 + countFuncs(KRWS2_32_FUNCS) + 1 + countFuncs(KRSHELL32_FUNCS) + 1
+    emit countFuncs(KR32_FUNCS) + 1 + countFuncs(KRRT_FUNCS) + 1 + countFuncs(KRADV_FUNCS) + 1 + countFuncs(KRPDH_FUNCS) + 1 + countFuncs(KRUSER_FUNCS) + 1 + countFuncs(KRGDI32_FUNCS) + 1 + countFuncs(KRCOMCTL32_FUNCS) + 1 + countFuncs(KRCOMDLG32_FUNCS) + 1 + countFuncs(KROLE32_FUNCS) + 1 + countFuncs(KRUXTHEME_FUNCS) + 1 + countFuncs(KRDWMAPI_FUNCS) + 1 + countFuncs(KRWS2_32_FUNCS) + 1 + countFuncs(KRSHELL32_FUNCS) + 1 + countFuncs(KRPSAPI_FUNCS) + 1
 }
 
 // ── Instruction byte-size calculator ─────────────────────────────
@@ -7922,6 +7937,7 @@ func buildImportTable(rdataRva, strsSize, rtDllName) {
     let dwmfuncs = KRDWMAPI_FUNCS
     let wsfuncs = KRWS2_32_FUNCS
     let shfuncs = KRSHELL32_FUNCS
+    let psfuncs = KRPSAPI_FUNCS
     let k32count = countFuncs(k32funcs)
     let rtcount = countFuncs(rtfuncs)
     let advcount = countFuncs(advfuncs)
@@ -7935,6 +7951,7 @@ func buildImportTable(rdataRva, strsSize, rtDllName) {
     let dwmcount = countFuncs(dwmfuncs)
     let wscount = countFuncs(wsfuncs)
     let shcount = countFuncs(shfuncs)
+    let pscount = countFuncs(psfuncs)
 
     // Calculate offsets within .rdata (after string table)
     let impBase = strsSize  // import table starts right after string table (padded to 8)
@@ -7942,9 +7959,9 @@ func buildImportTable(rdataRva, strsSize, rtDllName) {
     if impBasePad % 8 != 0 { impBasePad = impBasePad + (8 - impBasePad % 8) }
 
     // Layout:
-    //   [A] 14 IMAGE_IMPORT_DESCRIPTORs (kernel32, krypton_rt, advapi32, pdh, user32,
+    //   [A] 15 IMAGE_IMPORT_DESCRIPTORs (kernel32, krypton_rt, advapi32, pdh, user32,
     //       gdi32, comctl32, comdlg32, ole32, uxtheme, dwmapi, ws2_32, shell32,
-    //       null) = 280 bytes
+    //       psapi, null) = 300 bytes
     //   [B] ILT kernel32   (k32count+1)*8
     //   [C] ILT krypton_rt (rtcount+1)*8
     //   [D] ILT advapi32   (advcount+1)*8
@@ -7959,7 +7976,7 @@ func buildImportTable(rdataRva, strsSize, rtDllName) {
     //   [M] IMAGE_IMPORT_BY_NAME hint table
 
     let descOffset = impBasePad
-    let descSize = 280  // 14 descriptors * 20 bytes (13 real + 1 null)
+    let descSize = 300  // 15 descriptors * 20 bytes (14 real + 1 null)
     let iltK32Offset = descOffset + descSize
     let iltK32Size = (k32count + 1) * 8
     let iltRtOffset = iltK32Offset + iltK32Size
@@ -7986,7 +8003,9 @@ func buildImportTable(rdataRva, strsSize, rtDllName) {
     let iltWsSize = (wscount + 1) * 8
     let iltShOffset = iltWsOffset + iltWsSize
     let iltShSize = (shcount + 1) * 8
-    let iatK32Offset = iltShOffset + iltShSize
+    let iltPsOffset = iltShOffset + iltShSize
+    let iltPsSize = (pscount + 1) * 8
+    let iatK32Offset = iltPsOffset + iltPsSize
     let iatK32Size = (k32count + 1) * 8
     let iatRtOffset = iatK32Offset + iatK32Size
     let iatRtSize = (rtcount + 1) * 8
@@ -8012,7 +8031,9 @@ func buildImportTable(rdataRva, strsSize, rtDllName) {
     let iatWsSize = (wscount + 1) * 8
     let iatShOffset = iatWsOffset + iatWsSize
     let iatShSize = (shcount + 1) * 8
-    let dllNamesOffset = iatShOffset + iatShSize
+    let iatPsOffset = iatShOffset + iatShSize
+    let iatPsSize = (pscount + 1) * 8
+    let dllNamesOffset = iatPsOffset + iatPsSize
     let dllK32Name = "kernel32.dll"
     let dllRtName = rtDllName
     let dllAdvName = "advapi32.dll"
@@ -8026,6 +8047,7 @@ func buildImportTable(rdataRva, strsSize, rtDllName) {
     let dllDwmName = "dwmapi.dll"
     let dllWsName = "ws2_32.dll"
     let dllShName = "shell32.dll"
+    let dllPsName = "psapi.dll"
     let dllK32Offset = dllNamesOffset
     let dllRtOffset = dllK32Offset + len(dllK32Name) + 1
     let dllAdvOffset = dllRtOffset + len(dllRtName) + 1
@@ -8039,7 +8061,8 @@ func buildImportTable(rdataRva, strsSize, rtDllName) {
     let dllDwmOffset = dllUxOffset + len(dllUxName) + 1
     let dllWsOffset = dllDwmOffset + len(dllDwmName) + 1
     let dllShOffset = dllWsOffset + len(dllWsName) + 1
-    let hintsOffset = dllShOffset + len(dllShName) + 1
+    let dllPsOffset = dllShOffset + len(dllShName) + 1
+    let hintsOffset = dllPsOffset + len(dllPsName) + 1
     // Pad to 2-byte alignment
     if hintsOffset % 2 != 0 { hintsOffset += 1 }
 
@@ -8058,6 +8081,7 @@ func buildImportTable(rdataRva, strsSize, rtDllName) {
     let iltDwmRva = rdataRva + iltDwmOffset
     let iltWsRva = rdataRva + iltWsOffset
     let iltShRva = rdataRva + iltShOffset
+    let iltPsRva = rdataRva + iltPsOffset
     let iatK32Rva = rdataRva + iatK32Offset
     let iatRtRva = rdataRva + iatRtOffset
     let iatAdvRva = rdataRva + iatAdvOffset
@@ -8071,6 +8095,7 @@ func buildImportTable(rdataRva, strsSize, rtDllName) {
     let iatDwmRva = rdataRva + iatDwmOffset
     let iatWsRva = rdataRva + iatWsOffset
     let iatShRva = rdataRva + iatShOffset
+    let iatPsRva = rdataRva + iatPsOffset
     let dllK32Rva = rdataRva + dllK32Offset
     let dllRtRva = rdataRva + dllRtOffset
     let dllAdvRva = rdataRva + dllAdvOffset
@@ -8084,6 +8109,7 @@ func buildImportTable(rdataRva, strsSize, rtDllName) {
     let dllDwmRva = rdataRva + dllDwmOffset
     let dllWsRva = rdataRva + dllWsOffset
     let dllShRva = rdataRva + dllShOffset
+    let dllPsRva = rdataRva + dllPsOffset
     let hintsRva = rdataRva + hintsOffset
 
     // Build IMAGE_IMPORT_BY_NAME entries (hint + name)
@@ -8222,6 +8248,16 @@ func buildImportTable(rdataRva, strsSize, rtDllName) {
         if hintOff % 2 != 0 { sbHint = sbAppend(sbHint, hexByte(0))  hintOff += 1 }
         hf16 += 1
     }
+    let hf17 = 0
+    while hf17 < pscount {
+        let hfname17 = funcAt(psfuncs, hf17)
+        if hintOff > 0 { sbHintOff = sbAppend(sbHintOff, "\n") }
+        sbHintOff = sbAppend(sbHintOff, hintOff + "")
+        sbHint = sbAppend(sbHint, hexByte(0) + hexByte(0) + hexStrZ(hfname17))
+        hintOff += 2 + len(hfname17) + 1
+        if hintOff % 2 != 0 { sbHint = sbAppend(sbHint, hexByte(0))  hintOff += 1 }
+        hf17 += 1
+    }
     let hintTable = sbToString(sbHint)
     let hintOffsets = sbToString(sbHintOff)
 
@@ -8359,6 +8395,16 @@ func buildImportTable(rdataRva, strsSize, rtDllName) {
     sbIltSh = sbAppend(sbIltSh, hexQword64(0, 0))
     let iltSh = sbToString(sbIltSh)
 
+    let sbIltPs = sbNew()
+    let psi = 0
+    while psi < pscount {
+        let hintRvaPs = hintsRva + toInt(getLine(hintOffsets, baseAfterUser + gdicount + cctlcount + cdlgcount + olecount + uxcount + dwmcount + wscount + shcount + psi))
+        sbIltPs = sbAppend(sbIltPs, hexQword64(hintRvaPs, 0))
+        psi += 1
+    }
+    sbIltPs = sbAppend(sbIltPs, hexQword64(0, 0))
+    let iltPs = sbToString(sbIltPs)
+
     // Build IMAGE_IMPORT_DESCRIPTOR (20 bytes each):
     // OriginalFirstThunk(4) TimeDateStamp(4) ForwarderChain(4) Name(4) FirstThunk(4)
     let descSb = sbNew()
@@ -8375,6 +8421,7 @@ func buildImportTable(rdataRva, strsSize, rtDllName) {
     descSb = sbAppend(descSb, hexDword(iltDwmRva)  + hexDword(0) + hexDword(0) + hexDword(dllDwmRva)  + hexDword(iatDwmRva))
     descSb = sbAppend(descSb, hexDword(iltWsRva)   + hexDword(0) + hexDword(0) + hexDword(dllWsRva)   + hexDword(iatWsRva))
     descSb = sbAppend(descSb, hexDword(iltShRva)   + hexDword(0) + hexDword(0) + hexDword(dllShRva)   + hexDword(iatShRva))
+    descSb = sbAppend(descSb, hexDword(iltPsRva)   + hexDword(0) + hexDword(0) + hexDword(dllPsRva)   + hexDword(iatPsRva))
     descSb = sbAppend(descSb, hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0) + hexDword(0))  // null descriptor
     let desc = sbToString(descSb)
 
@@ -8396,6 +8443,7 @@ func buildImportTable(rdataRva, strsSize, rtDllName) {
     outSb = sbAppend(outSb, iltDwm)
     outSb = sbAppend(outSb, iltWs)
     outSb = sbAppend(outSb, iltSh)
+    outSb = sbAppend(outSb, iltPs)
     outSb = sbAppend(outSb, iltK32)   // IAT kernel32
     outSb = sbAppend(outSb, iltRt)    // IAT krypton_rt
     outSb = sbAppend(outSb, iltAdv)   // IAT advapi32
@@ -8409,6 +8457,7 @@ func buildImportTable(rdataRva, strsSize, rtDllName) {
     outSb = sbAppend(outSb, iltDwm)   // IAT dwmapi
     outSb = sbAppend(outSb, iltWs)    // IAT ws2_32
     outSb = sbAppend(outSb, iltSh)    // IAT shell32
+    outSb = sbAppend(outSb, iltPs)    // IAT psapi
     outSb = sbAppend(outSb, hexStrZ(dllK32Name))
     outSb = sbAppend(outSb, hexStrZ(dllRtName))
     outSb = sbAppend(outSb, hexStrZ(dllAdvName))
@@ -8422,14 +8471,15 @@ func buildImportTable(rdataRva, strsSize, rtDllName) {
     outSb = sbAppend(outSb, hexStrZ(dllDwmName))
     outSb = sbAppend(outSb, hexStrZ(dllWsName))
     outSb = sbAppend(outSb, hexStrZ(dllShName))
-    let dllNamesEndOff = dllShOffset + len(dllShName) + 1
+    outSb = sbAppend(outSb, hexStrZ(dllPsName))
+    let dllNamesEndOff = dllPsOffset + len(dllPsName) + 1
     if dllNamesEndOff % 2 != 0 { outSb = sbAppend(outSb, hexByte(0)) }
     outSb = sbAppend(outSb, hintTable)
     let out = sbToString(outSb)
 
-    // Return CSV: "hexdata,iatK32Rva,descRva,totalSize,iatAdvRva,iatPdhRva,iatUserRva,iatGdiRva,iatCctlRva,iatCdlgRva,iatOleRva,iatUxRva,iatDwmRva,iatWsRva,iatShRva"
-    let iatTotal = iatK32Size + iatRtSize + iatAdvSize + iatPdhSize + iatUserSize + iatGdiSize + iatCctlSize + iatCdlgSize + iatOleSize + iatUxSize + iatDwmSize + iatWsSize + iatShSize
-    emit out + "," + iatK32Rva + "," + descRva + "," + iatTotal + "," + iatAdvRva + "," + iatPdhRva + "," + iatUserRva + "," + iatGdiRva + "," + iatCctlRva + "," + iatCdlgRva + "," + iatOleRva + "," + iatUxRva + "," + iatDwmRva + "," + iatWsRva + "," + iatShRva
+    // Return CSV: "hexdata,iatK32Rva,descRva,totalSize,iatAdvRva,iatPdhRva,iatUserRva,iatGdiRva,iatCctlRva,iatCdlgRva,iatOleRva,iatUxRva,iatDwmRva,iatWsRva,iatShRva,iatPsRva"
+    let iatTotal = iatK32Size + iatRtSize + iatAdvSize + iatPdhSize + iatUserSize + iatGdiSize + iatCctlSize + iatCdlgSize + iatOleSize + iatUxSize + iatDwmSize + iatWsSize + iatShSize + iatPsSize
+    emit out + "," + iatK32Rva + "," + descRva + "," + iatTotal + "," + iatAdvRva + "," + iatPdhRva + "," + iatUserRva + "," + iatGdiRva + "," + iatCctlRva + "," + iatCdlgRva + "," + iatOleRva + "," + iatUxRva + "," + iatDwmRva + "," + iatWsRva + "," + iatShRva + "," + iatPsRva
 }
 
 // ── Entry point wrapper ───────────────────────────────────────────
@@ -8747,6 +8797,7 @@ just run {
     let realIatDwmRva = toInt(split(realImportData, 12))
     let realIatWsRva = toInt(split(realImportData, 13))
     let realIatShRva = toInt(split(realImportData, 14))
+    let realIatPsRva = toInt(split(realImportData, 15))
     let realIatRtRva = realIatK32 + (countFuncs(KR32_FUNCS) + 1) * 8
 
     // Build export table (DLL only, if any exports exist)
@@ -8787,8 +8838,8 @@ just run {
     // Order MUST match iatEntryRvaFor prefix→line mapping:
     //   0 k32, 1 rt, 2 adv, 3 pdh, 4 user,
     //   5 gdi, 6 comctl, 7 comdlg, 8 ole, 9 uxtheme, 10 dwm,
-    //   11 ws, 12 sh
-    let iatBases = realIatK32 + "\n" + realIatRtRva + "\n" + realIatAdvRva + "\n" + realIatPdhRva + "\n" + realIatUserRva + "\n" + realIatGdiRva + "\n" + realIatCctlRva + "\n" + realIatCdlgRva + "\n" + realIatOleRva + "\n" + realIatUxRva + "\n" + realIatDwmRva + "\n" + realIatWsRva + "\n" + realIatShRva
+    //   11 ws, 12 sh, 13 ps
+    let iatBases = realIatK32 + "\n" + realIatRtRva + "\n" + realIatAdvRva + "\n" + realIatPdhRva + "\n" + realIatUserRva + "\n" + realIatGdiRva + "\n" + realIatCctlRva + "\n" + realIatCdlgRva + "\n" + realIatOleRva + "\n" + realIatUxRva + "\n" + realIatDwmRva + "\n" + realIatWsRva + "\n" + realIatShRva + "\n" + realIatPsRva
     let fi2 = 0
     while fi2 < funcCount {
         let entry3 = getLine(funcTable, fi2)
