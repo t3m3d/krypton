@@ -4,6 +4,29 @@ All notable changes to the Krypton language and compiler.
 
 ## [Unreleased]
 
+- **GUI frontend modernization** (`stdlib/gui.k`). New helpers, all
+  opt-in so existing programs are byte-identical:
+    - `guiEnableModernChrome()` -- per-monitor v2 DPI via
+      `SetProcessDpiAwarenessContext(-4)` + caches a Segoe UI 9pt
+      logical font as `guiState["__krk_font"]`. Call before window
+      creation.
+    - `guiApplyFont(hwnd)` -- swap a widget from MS Sans Serif to the
+      cached Segoe UI font via `WM_SETFONT`.
+    - `guiEnableDarkTitle(hwnd)` -- `DwmSetWindowAttribute(hwnd, 20, ...)`
+      for the Win11 dark immersive title bar.
+    - `guiApplyExplorerTheme(hwnd)` -- `SetWindowTheme(hwnd, "Explorer",
+      NULL)` -- modern chrome on listview headers, edits, buttons.
+  - `compiler/windows_x86/x64.k` exposes `SetProcessDpiAwarenessContext`
+    (added to `KRUSER_FUNCS` + arg/return-type tables).
+  - `headers/user32.krh` declaration added.
+  - New `examples/win_modern_demo.k` demonstrates the full stack.
+  - New `runtime/krypton.exe.manifest.template` -- default Common-
+    Controls v6 + PerMonitorV2 + UTF-8 sidecar manifest. Ship it
+    renamed to `<exe>.exe.manifest` next to GUI binaries until
+    `x64.k` learns to embed it in the PE rsrc section. Doing so is
+    the only remaining piece needed for the comctl32 v6 chrome (the
+    DPI / font / dark-title / theme helpers above all work without
+    the manifest).
 - **Windows: wininet.dll wired into the IAT** (`compiler/windows_x86/x64.k`).
   In-process HTTP/HTTPS client without spawning curl: `InternetOpenA`,
   `InternetOpenUrlA`, `InternetReadFile`, `HttpQueryInfoA`,
