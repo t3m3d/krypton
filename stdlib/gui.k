@@ -129,8 +129,23 @@ func _krkWndProc(hwnd, msg, wParam, lParam) {
 // 2026-05-11 Phase D: pure-Krypton guiInit. Registers a window class
 // "PureKWnd" with our trampoline as lpfnWndProc, calls
 // InitCommonControlsEx with the full set of common-control classes.
-// Idempotent via guiState flag. SetUiFont / dark-mode / themes are
-// separate calls now (user opts in explicitly).
+// Idempotent via guiState flag.
+//
+// 2026-06-13 frontend modernization:
+//   - Opt-in per-monitor-v2 DPI awareness via guiEnableModernChrome().
+//     SetProcessDpiAwarenessContext(-4) tells Windows we'll handle DPI
+//     per-monitor.  Skip if the call returns false (older Windows).
+//   - Cache a Segoe UI 9pt logical font as guiState["__krk_font"].
+//     guiApplyFont(hwnd) sets it on a widget; guiButton/guiTextInput/...
+//     can call it after CreateWindowExA to drop the 1992 MS Sans Serif
+//     look that's been making everything look trash on Windows.
+//   - guiEnableDarkTitle(hwnd) flips DWMWA_USE_IMMERSIVE_DARK_MODE=20.
+//   - guiApplyExplorerTheme(hwnd) calls SetWindowTheme(hwnd, "Explorer",
+//     NULL) -- the secret sauce for non-blue listview headers etc.
+//
+// Common-Controls v6 manifest is the remaining gap.  Without it the
+// comctl32 classes still use the v5 chrome.  Lives in x64.k as a
+// separate PE rsrc-section emission task.
 func guiInit() {
     if guiStateGet("__krk_inited") == "1" { emit "1" }
     let icc = bufNew("8")
@@ -152,6 +167,74 @@ func guiInit() {
     RegisterClassExA(wcx)
     guiStateSet("__krk_inited", "1")
     emit "1"
+}
+
+// Modernize the frontend chrome.  Call once before any window creation
+// for the v2 path (DPI must be set before any HWND exists); the Segoe
+// font + theme helpers below also work post-creation.  Returns "1" on
+// success, "0" if any step couldn't apply.
+//
+// DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4 (signed).  We pass it
+// as the unsigned u64 representation 18446744073709551612.
+let _GUI_DPI_PER_MONITOR_V2 = "18446744073709551612"
+
+func guiEnableModernChrome() {
+    let dpiOk = SetProcessDpiAwarenessContext(_GUI_DPI_PER_MONITOR_V2)
+    _guiCacheDefaultFont()
+    guiStateSet("__krk_modern", "1")
+    emit dpiOk
+}
+
+// Create Segoe UI 9pt + cache as guiState["__krk_font"] (raw HFONT).
+// Logical font: lfHeight=-12 (9pt at 96 DPI), lfWeight=400, lfQuality=5
+// (CLEARTYPE_QUALITY), lfFaceName="Segoe UI\0...".
+func _guiCacheDefaultFont() {
+    if guiStateGet("__krk_font") != "" { emit "1" }
+    let lf = bufNew("92")
+    // Zero the buf.
+    let i = 0
+    while i < 92 { bufSetByte(lf, toStr(i), "0")  i += 1 }
+    bufSetDwordAt(lf, "0", "4294967284")  // lfHeight = -12 (DWORD signed)
+    bufSetDwordAt(lf, "16", "400")        // lfWeight
+    bufSetByte(lf, "27", "5")             // lfQuality = CLEARTYPE_QUALITY
+    let face = "Segoe UI"
+    let fi = 0
+    while fi < len(face) {
+        bufSetByte(lf, toStr(28 + fi), toStr(ord(face[fi])))
+        fi += 1
+    }
+    let hFont = CreateFontIndirectA(lf)
+    if ptrToInt(hFont) == "0" { emit "0" }
+    guiStateSet("__krk_font", hFont)
+    emit "1"
+}
+
+// Apply the cached Segoe UI font to a widget (no-op if no font cached).
+let _WM_SETFONT = "48"
+func guiApplyFont(hwnd) {
+    let font = guiStateGet("__krk_font")
+    if font == "" { emit "0" }
+    let h = _guiResolveHwnd(hwnd)
+    SendMessageA(h, _WM_SETFONT, font, "1")
+    emit "1"
+}
+
+// Flip the title bar to the dark Win11 chrome on a top-level window.
+// DWMWA_USE_IMMERSIVE_DARK_MODE = 20.  Returns the DwmSetWindowAttribute
+// status code (0 on success).
+let _DWMWA_USE_IMMERSIVE_DARK_MODE = "20"
+func guiEnableDarkTitle(hwnd) {
+    let h = _guiResolveHwnd(hwnd)
+    let v = bufNew("4")
+    bufSetDwordAt(v, "0", "1")
+    emit DwmSetWindowAttribute(h, _DWMWA_USE_IMMERSIVE_DARK_MODE, v, "4")
+}
+
+// Re-theme a widget with the modern "Explorer" theme.  Hides the
+// legacy chrome on ListView/TreeView/Edit/Button/etc.
+func guiApplyExplorerTheme(hwnd) {
+    let h = _guiResolveHwnd(hwnd)
+    emit SetWindowTheme(h, "Explorer", "0")
 }
 // 2026-05-11 Phase B: cfunc krGuiWindow returns hwnd as "0x%llx" hex,
 // which __user_rt_atoi reads as 0 (atoi stops at the 'x'). All

@@ -112,6 +112,12 @@ jxt {
     func MapWindowPoints(from, to, points, count)
     func AdjustWindowRectEx(rect, style, hasMenu, exStyle)
 
+    // Per-monitor v2 DPI awareness (Win10 1703+).  Pass
+    // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4 to opt every HWND
+    // into independent scaling for hi-DPI laptops.  Must be called
+    // before any window is created.
+    func SetProcessDpiAwarenessContext(value) -> BOOL
+
     // ── Focus + activation ───────────────────────────────────────
     func SetFocus(hwnd)
     func SetForegroundWindow(hwnd)
