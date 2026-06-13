@@ -203,6 +203,10 @@ let g_ENTRY_OFF       = 0x460       // file offset of `_main`'s first instructio
 // functions; emitAllocN/Var trampoline into it. Its text instruction index
 // (= total user-func instrs) is set in emitTextFromIR before the emit loop.
 let g_RT_ALLOC_INSTR  = 0
+// Number of module globals (__main__ user LOCALs). Set by parseFullIR. The
+// conservative GC mark scans the globals region [globals_base, +nG*8) for
+// roots, since __main__'s "locals" live there (not in a stack frame).
+let g_NGLOBALS        = 0
 // Dynamic layout — recomputed by computeLayout() in the driver.
 let g_TEXT_VMSIZE         = 0x4000
 let g_DATA_CONST_FILE_OFF = 0x4000
@@ -1514,6 +1518,7 @@ func parseFullIR(ir) {
     let globalsStr = collectModuleGlobals(ir)
     let numGlobals = 0
     if len(globalsStr) > 0 { numGlobals = lineCount(globalsStr) }
+    g_NGLOBALS = numGlobals   // expose to the GC mark (globals-region scan)
 
     // sbStrings holds interned globals as a newline-separated string. Using sb
     // for O(name_length) append (vs O(total_strings_length) for string concat).
@@ -2258,7 +2263,7 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_GCLIMIT"      { emit 4 }   // adrp + add + ldr [x1,#32] + push
     if opTok == "BUILTIN_GCSETLIMIT"   { emit 5 }   // pop + adrp + add + str [x1,#32] + push
     if opTok == "BUILTIN_GCRESET"      { emit 9 }   // adrp + add + 5 stores (bump, alloc_total, shadow_count, gcAllocsHead, free_head) + movz + push
-    if opTok == "BUILTIN_GCCOLLECT"    { emit 46 }  // real: mark + sweep inline (sweep parks unmarked onto free_head), returns swept count
+    if opTok == "BUILTIN_GCCOLLECT"    { emit 61 }  // conservative stack+globals scan mark + sweep inline (parks unmarked onto free_head), returns swept count
     // 2.0 GC builtins (stub-only; real impl pending mark-sweep port). Each
     // either takes 0 args + pushes 0 (count/checkpoint/walk), or takes 1 arg,
     // discards it, and pushes 0 (push/pop/restore). Tier-3 calling convention:
@@ -2267,7 +2272,7 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_GCSHADOWPUSH"     { emit 8 }   // count-only: pop+adrp+add+ldr+add+str+movz+push (no root store)
     if opTok == "BUILTIN_GCSHADOWPOP"      { emit 8 }   // real: pop+adrp+add+ldr+sub+str+movz+push
     if opTok == "BUILTIN_GCSHADOWCOUNT"    { emit 4 }   // real: adrp+add+ldr+push
-    if opTok == "BUILTIN_GCMARK"           { emit 27 }  // shadow-walk + mark-bit set
+    if opTok == "BUILTIN_GCMARK"           { emit 43 }  // conservative stack + globals scan, mark-bit set
     if opTok == "BUILTIN_GCSWEEP"          { emit 25 }  // alloc-list walk + unlink unmarked + push onto free_head
     if opTok == "BUILTIN_GCFREELISTCOUNT"  { emit 10 }  // real: walk free_head (+88), count
     if opTok == "BUILTIN_GCALLOCCOUNT"     { emit 10 }  // real: walk gcAllocsHead, count
@@ -2334,7 +2339,7 @@ func computeFunctionInstrs(parsed, fIdx) {
     if frame > 0 { n = n + 1 }     // sub sp
     n = n + nP                     // save each param
     // __main__ also saves argc/argv to fixed cells (4 instr)
-    if funcName(parsed, fIdx) == "__main__" { n = n + 19 }  // 5 argc/argv/envp save + 14 mmap-heap seed
+    if funcName(parsed, fIdx) == "__main__" { n = n + 26 }  // 5 argc/argv/envp + 14 mmap-heap seed + 7 stack-base/heap-min capture
     let oi = 0
     while oi < nO {
         let opLine = funcOp(parsed, fIdx, oi)
@@ -2380,7 +2385,7 @@ func buildFunctionLabelTable(parsed, fIdx, funcStartInstr) {
     let n = funcStartInstr + 2
     if frame > 0 { n = n + 1 }
     n = n + nP
-    if funcName(parsed, fIdx) == "__main__" { n = n + 19 }  // 5 argc/argv/envp save + 14 mmap-heap seed
+    if funcName(parsed, fIdx) == "__main__" { n = n + 26 }  // 5 argc/argv/envp + 14 mmap-heap seed + 7 stack-base/heap-min capture
     let opBase = funcStartLine(parsed, fIdx) + 1 + nP + funcNLocals(parsed, fIdx)
     let oi = 0
     while oi < nO {
@@ -2562,6 +2567,23 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
         s = sbAppend(s, arm64_b_cond(0x3, 2))            // 12: b.lo SKIP (mmap failed → keep 0)
         s = sbAppend(s, arm64_str_imm(0, 9, 0))          // 13: bump_cell+0 = mmap base
         instrIdx = instrIdx + 14
+        // Stage 6 / conservative GC: set up the stack-scan base cells at
+        // [bump_cell + 0x50000000] (the old shadow-stack region):
+        //   +0  stack_base = main's fp (outermost frame; scan upper bound)
+        //   +8  heap_min   = real heap base (mmap base, or bump_cell+96 if mmap
+        //                    failed) — the TIGHT lower bound for the root filter
+        //                    so stack/text/data addresses never pass it (marking
+        //                    writes to [v-8], so a loose bound could SIGBUS on
+        //                    read-only __TEXT or corrupt data).
+        // x9 = bump_cell (re-derived above), x29 = fp. 6 instr.
+        s = sbAppend(s, arm64_movz_x_imm_lsl16(14, 0x5000))  // 0: x14 = 0x50000000
+        s = sbAppend(s, arm64_add_xxx(14, 9, 14))            // 1: x14 = bump_cell + 0x50000000
+        s = sbAppend(s, arm64_str_imm(29, 14, 0))            // 2: [scan+0] = fp (stack_base)
+        s = sbAppend(s, arm64_ldr_imm(0, 9, 0))              // 3: x0 = bump_cell+0 (mmap base or 0)
+        s = sbAppend(s, arm64_cbnz(0, 2))                    // 4: if non-zero skip (mmap ok)
+        s = sbAppend(s, arm64_add_imm(0, 9, 96))             // 5: x0 = bump_cell+96 (mmap failed)
+        s = sbAppend(s, arm64_str_imm(0, 14, 1))             // 6: [scan+8] = heap_min
+        instrIdx = instrIdx + 7
     }
 
     // Cache the op-block base line once (funcOp re-derived it per op, re-parsing
@@ -3991,67 +4013,86 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_push_x0())
             instrIdx = instrIdx + 9
         } else if opTok == "BUILTIN_GCCOLLECT" {
-            // gcCollect: run mark phase + sweep phase inline; return swept count.
-            // 46 instructions = MARK (idx 2..22) + SWEEP (idx 23..43) + return (44..45).
-            // Stage 6 phase 1: sweep pushes unmarked nodes onto free_head (+56).
+            // gcCollect: conservative MARK (stack + globals scan, like
+            // BUILTIN_GCMARK but no marked counter) + SWEEP inline; return swept
+            // count. 61 instructions = MARK (idx 2..37) + SWEEP (38..60).
+            // SWEEP parks unmarked nodes onto free_head (+88).
             let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
+            let glbBase = g_TEXT_VMSIZE + 0x6F004000
+            let imm21g = glbBase / 4096 - (textOff + (instrIdx + 22) * 4) / 4096
             s = sbAppend(s, arm64_adrp(1, imm21))  // 0
-            s = sbAppend(s, arm64_add_imm(1, 1, 0))  // 1
-            // ── MARK PHASE ──
-            s = sbAppend(s, arm64_ldr_imm(2, 1, 5))  // 2: shadow count
-            s = sbAppend(s, arm64_cbz(2, 21))  // 3: → MARK_DONE @ 23+1=... wait
-                                                                // 3 + 20 = 23 ✓ (lands at MARK_DONE)
-            // hmm reconsidering: cbz at idx 3, target idx 23 → rel = 20
-            s = sbAppend(s, arm64_movz_x_imm_lsl16(9, 0x5000))  // x9 = 0x50000000 (shadow base offset, 1.25GB)
-            s = sbAppend(s, arm64_add_xxx(3, 1, 9))  // 5: x3 = bump_cell + 0x20000000
-            s = sbAppend(s, arm64_add_imm(9, 1, 80))  // 6: min user_ptr
-            s = sbAppend(s, arm64_ldr_imm(10, 1, 0))  // 7: heap top (bump)
-            s = sbAppend(s, arm64_movz_x_imm(6, 0))  // 8: i = 0
-            // MARK_LOOP @ idx 9:
-            s = sbAppend(s, arm64_cmp_xx(6, 2))  // 9
-            s = sbAppend(s, arm64_b_cond(0xa, 13))  // 10: b.ge → MARK_DONE (+13 = 23)
-            s = sbAppend(s, arm64_ldr_reg_lsl3(4, 3, 6))  // 11: v = shadow[i]
+            s = sbAppend(s, arm64_add_imm(1, 1, 0))  // 1: x1 = bump_cell
+            // ── MARK PHASE (stack scan) ──
+            s = sbAppend(s, arm64_movz_x_imm_lsl16(14, 0x5000))  // 2: x14 = 0x50000000
+            s = sbAppend(s, arm64_add_xxx(3, 1, 14))  // 3: x3 = scan-base cell
+            s = sbAppend(s, arm64_ldr_imm(9, 3, 1))  // 4: x9 = heap_min (scan+8)
+            s = sbAppend(s, arm64_ldr_imm(3, 3, 0))  // 5: x3 = stack_base (scan+0)
+            s = sbAppend(s, arm64_add_imm(2, 31, 0))  // 6: x2 = sp (cur)
+            s = sbAppend(s, arm64_ldr_imm(10, 1, 0))  // 7: x10 = bump (heap top)
+            s = sbAppend(s, arm64_movz_x_imm_lsl48(12, 0x8000))  // 8: x12 = 1<<63
+            // STACK_LOOP @ idx 9:
+            s = sbAppend(s, arm64_cmp_xx(2, 3))  // 9
+            s = sbAppend(s, arm64_b_cond(0xa, 12))  // 10: b.ge → GLOBALS (+12 = 22)
+            s = sbAppend(s, arm64_ldr_imm(4, 2, 0))  // 11: v = *cur
             s = sbAppend(s, arm64_cmp_xx(4, 9))  // 12
-            s = sbAppend(s, arm64_b_cond(0xb, 8))  // 13: b.lt → MARK_SKIP (+8 = 21)
+            s = sbAppend(s, arm64_b_cond(0xb, 7))  // 13: b.lt → SSKIP (+7 = 20)
             s = sbAppend(s, arm64_cmp_xx(4, 10))  // 14
-            s = sbAppend(s, arm64_b_cond(0xa, 6))  // 15: b.ge → MARK_SKIP (+6 = 21)
+            s = sbAppend(s, arm64_b_cond(0xa, 5))  // 15: b.ge → SSKIP (+5 = 20)
             s = sbAppend(s, arm64_sub_imm(7, 4, 8))  // 16
             s = sbAppend(s, arm64_ldr_imm(8, 7, 0))  // 17
-            s = sbAppend(s, arm64_movz_x_imm_lsl48(12, 0x8000))  // 18
-            s = sbAppend(s, arm64_orr_xxx(8, 8, 12))  // 19
-            s = sbAppend(s, arm64_str_imm(8, 7, 0))  // 20
-            // MARK_SKIP @ idx 21:
-            s = sbAppend(s, arm64_add_imm(6, 6, 1))  // 21: i++
-            s = sbAppend(s, arm64_b(0 - 13))  // 22: → MARK_LOOP (idx 9)
-            // MARK_DONE @ idx 23 — start SWEEP:
-            s = sbAppend(s, arm64_ldr_imm(10, 1, 6))  // 23: current = head
-            s = sbAppend(s, arm64_add_imm(11, 1, 48))  // 24: prev_next = &head
-            s = sbAppend(s, arm64_movz_x_imm(5, 0))  // 25: swept = 0
-            // SWEEP_LOOP @ idx 26:
-            s = sbAppend(s, arm64_cbz(10, 18))  // 26: → SWEEP_DONE (+18 = 44)
-            s = sbAppend(s, arm64_ldr_imm(4, 10, 1))  // 27: size_flags
-            s = sbAppend(s, arm64_cmp_imm(4, 0))  // 28
-            s = sbAppend(s, arm64_b_cond(0xb, 9))  // 29: b.lt → SWEEP_MARKED (+9 = 38)
-            // UNMARKED — unlink from alloc list, push onto freelist (+56)
-            s = sbAppend(s, arm64_ldr_imm(12, 10, 0))  // 30: next (alloc list)
-            s = sbAppend(s, arm64_str_imm(12, 11, 0))  // 31: *prev_next = next (unlink)
-            s = sbAppend(s, arm64_ldr_imm(13, 1, 11))  // 32: x13 = old free_head (+88)
-            s = sbAppend(s, arm64_str_imm(13, 10, 0))  // 33: current.next = old free_head
-            s = sbAppend(s, arm64_str_imm(10, 1, 11))  // 34: free_head = current
-            s = sbAppend(s, arm64_mov_xx(10, 12))  // 35: current = next
-            s = sbAppend(s, arm64_add_imm(5, 5, 1))  // 36: swept++
-            s = sbAppend(s, arm64_b(0 - 11))  // 37: → SWEEP_LOOP (37-11=26)
-            // SWEEP_MARKED @ idx 38:
-            s = sbAppend(s, arm64_movz_x_imm_lsl48(12, 0x8000))  // 38
-            s = sbAppend(s, arm64_eor_xxx(4, 4, 12))  // 39: clear mark
-            s = sbAppend(s, arm64_str_imm(4, 10, 1))  // 40
-            s = sbAppend(s, arm64_mov_xx(11, 10))  // 41: prev_next = &cur.next
-            s = sbAppend(s, arm64_ldr_imm(10, 10, 0))  // 42: current = cur.next
-            s = sbAppend(s, arm64_b(0 - 17))  // 43: → SWEEP_LOOP (43-17=26)
-            // SWEEP_DONE @ idx 44:
-            s = sbAppend(s, arm64_mov_xx(0, 5))  // 44: x0 = swept count
-            s = sbAppend(s, arm64_push_x0())  // 45: push
-            instrIdx = instrIdx + 46
+            s = sbAppend(s, arm64_orr_xxx(8, 8, 12))  // 18
+            s = sbAppend(s, arm64_str_imm(8, 7, 0))  // 19
+            // SSKIP @ idx 20:
+            s = sbAppend(s, arm64_add_imm(2, 2, 8))  // 20: cur += 8
+            s = sbAppend(s, arm64_b(0 - 12))  // 21: → STACK_LOOP (21-12=9)
+            // GLOBALS setup @ idx 22:
+            s = sbAppend(s, arm64_adrp(6, imm21g))  // 22: x6 = globals page
+            s = sbAppend(s, arm64_add_imm(6, 6, glbBase - (glbBase / 4096) * 4096))  // 23: x6 = globals_base
+            s = sbAppend(s, arm64_movz_x_imm(13, g_NGLOBALS))  // 24: x13 = nG
+            // GLOOP @ idx 25:
+            s = sbAppend(s, arm64_cbz(13, 13))  // 25: cbz nG → MARK_DONE (+13 = 38)
+            s = sbAppend(s, arm64_ldr_imm(4, 6, 0))  // 26: v = *cur2
+            s = sbAppend(s, arm64_cmp_xx(4, 9))  // 27
+            s = sbAppend(s, arm64_b_cond(0xb, 7))  // 28: b.lt → GSKIP (+7 = 35)
+            s = sbAppend(s, arm64_cmp_xx(4, 10))  // 29
+            s = sbAppend(s, arm64_b_cond(0xa, 5))  // 30: b.ge → GSKIP (+5 = 35)
+            s = sbAppend(s, arm64_sub_imm(7, 4, 8))  // 31
+            s = sbAppend(s, arm64_ldr_imm(8, 7, 0))  // 32
+            s = sbAppend(s, arm64_orr_xxx(8, 8, 12))  // 33
+            s = sbAppend(s, arm64_str_imm(8, 7, 0))  // 34
+            // GSKIP @ idx 35:
+            s = sbAppend(s, arm64_add_imm(6, 6, 8))  // 35: cur2 += 8
+            s = sbAppend(s, arm64_sub_imm(13, 13, 1))  // 36: nG--
+            s = sbAppend(s, arm64_b(0 - 12))  // 37: → GLOOP (37-12=25)
+            // MARK_DONE @ idx 38 — start SWEEP:
+            s = sbAppend(s, arm64_ldr_imm(10, 1, 6))  // 38: current = head (+48)
+            s = sbAppend(s, arm64_add_imm(11, 1, 48))  // 39: prev_next = &head
+            s = sbAppend(s, arm64_movz_x_imm(5, 0))  // 40: swept = 0
+            // SWEEP_LOOP @ idx 41:
+            s = sbAppend(s, arm64_cbz(10, 18))  // 41: → SWEEP_DONE (+18 = 59)
+            s = sbAppend(s, arm64_ldr_imm(4, 10, 1))  // 42: size_flags
+            s = sbAppend(s, arm64_cmp_imm(4, 0))  // 43
+            s = sbAppend(s, arm64_b_cond(0xb, 9))  // 44: b.lt → SWEEP_MARKED (+9 = 53)
+            // UNMARKED — unlink + push onto freelist (+88)
+            s = sbAppend(s, arm64_ldr_imm(12, 10, 0))  // 45: next
+            s = sbAppend(s, arm64_str_imm(12, 11, 0))  // 46: *prev_next = next
+            s = sbAppend(s, arm64_ldr_imm(13, 1, 11))  // 47: old free_head
+            s = sbAppend(s, arm64_str_imm(13, 10, 0))  // 48: cur.next = old free_head
+            s = sbAppend(s, arm64_str_imm(10, 1, 11))  // 49: free_head = cur
+            s = sbAppend(s, arm64_mov_xx(10, 12))  // 50: current = next
+            s = sbAppend(s, arm64_add_imm(5, 5, 1))  // 51: swept++
+            s = sbAppend(s, arm64_b(0 - 11))  // 52: → SWEEP_LOOP (52-11=41)
+            // SWEEP_MARKED @ idx 53:
+            s = sbAppend(s, arm64_movz_x_imm_lsl48(12, 0x8000))  // 53
+            s = sbAppend(s, arm64_eor_xxx(4, 4, 12))  // 54: clear mark
+            s = sbAppend(s, arm64_str_imm(4, 10, 1))  // 55
+            s = sbAppend(s, arm64_mov_xx(11, 10))  // 56: prev_next = &cur.next
+            s = sbAppend(s, arm64_ldr_imm(10, 10, 0))  // 57: current = cur.next
+            s = sbAppend(s, arm64_b(0 - 17))  // 58: → SWEEP_LOOP (58-17=41)
+            // SWEEP_DONE @ idx 59:
+            s = sbAppend(s, arm64_mov_xx(0, 5))  // 59: x0 = swept count
+            s = sbAppend(s, arm64_push_x0())  // 60: push
+            instrIdx = instrIdx + 61
         } else if opTok == "BUILTIN_GCALLOCCOUNT" {
             // Walk gcAllocsHead linked list, count entries. 10 instructions.
             let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
@@ -4110,43 +4151,71 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_push_x0())  // 3: push
             instrIdx = instrIdx + 4
         } else if opTok == "BUILTIN_GCMARK" {
-            // Mark phase: walk gcShadowCount entries of the shadow stack at
-            // bump_cell+0x2000000. For each value v in [bump_cell+80, bump_cell+heap_top),
-            // treat (v-16) as a header_ptr and set bit 63 of its size_flags word.
-            // Range filter is conservative — may over-mark on false positives
-            // (which is safe; only under-marking is unsafe). 27 instructions.
+            // Mark phase (conservative scan): two ranges feed the same heap-
+            // range filter (v in [heap_min, bump) → set bit 63 of [v-8]):
+            //   (1) machine stack [sp, stack_base)  — function frame locals +
+            //       eval-stack temporaries. stack_base = main's fp at scan+0.
+            //   (2) globals region [globals_base, +nG*8) — __main__'s module
+            //       "locals" live HERE (LOAD_GLOBAL), NOT on the stack, so the
+            //       stack scan alone misses every top-level root.
+            // heap_min (scan+8) is the TIGHT real heap base so stack/text/data
+            // words never pass the filter (marking writes to [v-8], so a loose
+            // bound could SIGBUS on read-only __TEXT). Over-marking is safe;
+            // under-marking is not. 43 instructions. (Replaces the old shadow-
+            // array walk — push-on-STORE/pop-at-func-exit leaked + mis-rooted.)
             let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
+            let glbBase = g_TEXT_VMSIZE + 0x6F004000
+            let imm21g = glbBase / 4096 - (textOff + (instrIdx + 24) * 4) / 4096
             s = sbAppend(s, arm64_adrp(1, imm21))  // 0
-            s = sbAppend(s, arm64_add_imm(1, 1, 0))  // 1
-            s = sbAppend(s, arm64_ldr_imm(2, 1, 5))  // 2: x2 = gcShadowCount (+40)
-            s = sbAppend(s, arm64_cbz(2, 22))  // 3: → END if count==0
-            s = sbAppend(s, arm64_movz_x_imm_lsl16(9, 0x5000))  // x9 = 0x50000000 (shadow base offset, 1.25GB)
-            s = sbAppend(s, arm64_add_xxx(3, 1, 9))  // 5: x3 = bump_cell + 0x20000000
-            s = sbAppend(s, arm64_add_imm(9, 1, 80))  // 6: x9 = bump_cell+80 (min user_ptr)
+            s = sbAppend(s, arm64_add_imm(1, 1, 0))  // 1: x1 = bump_cell
+            s = sbAppend(s, arm64_movz_x_imm_lsl16(14, 0x5000))  // 2: x14 = 0x50000000
+            s = sbAppend(s, arm64_add_xxx(3, 1, 14))  // 3: x3 = scan-base cell
+            s = sbAppend(s, arm64_ldr_imm(9, 3, 1))  // 4: x9 = heap_min (scan+8)
+            s = sbAppend(s, arm64_ldr_imm(3, 3, 0))  // 5: x3 = stack_base (scan+0)
+            s = sbAppend(s, arm64_add_imm(2, 31, 0))  // 6: x2 = sp (cur)
             s = sbAppend(s, arm64_ldr_imm(10, 1, 0))  // 7: x10 = bump (heap top)
-            s = sbAppend(s, arm64_movz_x_imm(6, 0))  // 8: i = 0
-            s = sbAppend(s, arm64_movz_x_imm(5, 0))  // 9: marked = 0
-            // LOOP @ instrIdx+10:
-            s = sbAppend(s, arm64_cmp_xx(6, 2))  // 10: cmp i, count
-            s = sbAppend(s, arm64_b_cond(0xa, 14))  // 11: b.ge → END (+14)
-            s = sbAppend(s, arm64_ldr_reg_lsl3(4, 3, 6))  // 12: x4 = shadow[i]
-            s = sbAppend(s, arm64_cmp_xx(4, 9))  // 13: cmp v, min_user
-            s = sbAppend(s, arm64_b_cond(0xb, 9))  // 14: b.lt → SKIP (+9)
-            s = sbAppend(s, arm64_cmp_xx(4, 10))  // 15: cmp v, heap_top
-            s = sbAppend(s, arm64_b_cond(0xa, 7))  // 16: b.ge → SKIP (+7)
-            s = sbAppend(s, arm64_sub_imm(7, 4, 8))  // 17: x7 = v - 8 (size_flags addr)
-            s = sbAppend(s, arm64_ldr_imm(8, 7, 0))  // 18: x8 = size_flags
-            s = sbAppend(s, arm64_movz_x_imm_lsl48(12, 0x8000))  // 19: x12 = 1<<63
-            s = sbAppend(s, arm64_orr_xxx(8, 8, 12))  // 20: x8 |= mark bit
-            s = sbAppend(s, arm64_str_imm(8, 7, 0))  // 21: store size_flags
-            s = sbAppend(s, arm64_add_imm(5, 5, 1))  // 22: marked++
-            // SKIP @ instrIdx+23:
-            s = sbAppend(s, arm64_add_imm(6, 6, 1))  // 23: i++
-            s = sbAppend(s, arm64_b(0 - 14))  // 24: back to LOOP
-            // END @ instrIdx+25:
-            s = sbAppend(s, arm64_mov_xx(0, 5))  // 25: x0 = marked
-            s = sbAppend(s, arm64_push_x0())  // 26: push
-            instrIdx = instrIdx + 27
+            s = sbAppend(s, arm64_movz_x_imm(5, 0))  // 8: marked = 0
+            s = sbAppend(s, arm64_movz_x_imm_lsl48(12, 0x8000))  // 9: x12 = 1<<63
+            // STACK_LOOP @10:
+            s = sbAppend(s, arm64_cmp_xx(2, 3))  // 10: cmp cur, stack_base
+            s = sbAppend(s, arm64_b_cond(0xa, 13))  // 11: b.ge → GLOBALS (+13 = 24)
+            s = sbAppend(s, arm64_ldr_imm(4, 2, 0))  // 12: v = *cur
+            s = sbAppend(s, arm64_cmp_xx(4, 9))  // 13
+            s = sbAppend(s, arm64_b_cond(0xb, 8))  // 14: b.lt → SSKIP (+8 = 22)
+            s = sbAppend(s, arm64_cmp_xx(4, 10))  // 15
+            s = sbAppend(s, arm64_b_cond(0xa, 6))  // 16: b.ge → SSKIP (+6 = 22)
+            s = sbAppend(s, arm64_sub_imm(7, 4, 8))  // 17
+            s = sbAppend(s, arm64_ldr_imm(8, 7, 0))  // 18
+            s = sbAppend(s, arm64_orr_xxx(8, 8, 12))  // 19
+            s = sbAppend(s, arm64_str_imm(8, 7, 0))  // 20
+            s = sbAppend(s, arm64_add_imm(5, 5, 1))  // 21: marked++
+            // SSKIP @22:
+            s = sbAppend(s, arm64_add_imm(2, 2, 8))  // 22: cur += 8
+            s = sbAppend(s, arm64_b(0 - 13))  // 23: → STACK_LOOP (23-13=10)
+            // GLOBALS setup @24:
+            s = sbAppend(s, arm64_adrp(6, imm21g))  // 24: x6 = globals page
+            s = sbAppend(s, arm64_add_imm(6, 6, glbBase - (glbBase / 4096) * 4096))  // 25: x6 = globals_base (pageoff)
+            s = sbAppend(s, arm64_movz_x_imm(13, g_NGLOBALS))  // 26: x13 = nG (count)
+            // GLOOP @27:
+            s = sbAppend(s, arm64_cbz(13, 14))  // 27: cbz nG → END (+14 = 41)
+            s = sbAppend(s, arm64_ldr_imm(4, 6, 0))  // 28: v = *cur2
+            s = sbAppend(s, arm64_cmp_xx(4, 9))  // 29
+            s = sbAppend(s, arm64_b_cond(0xb, 8))  // 30: b.lt → GSKIP (+8 = 38)
+            s = sbAppend(s, arm64_cmp_xx(4, 10))  // 31
+            s = sbAppend(s, arm64_b_cond(0xa, 6))  // 32: b.ge → GSKIP (+6 = 38)
+            s = sbAppend(s, arm64_sub_imm(7, 4, 8))  // 33
+            s = sbAppend(s, arm64_ldr_imm(8, 7, 0))  // 34
+            s = sbAppend(s, arm64_orr_xxx(8, 8, 12))  // 35
+            s = sbAppend(s, arm64_str_imm(8, 7, 0))  // 36
+            s = sbAppend(s, arm64_add_imm(5, 5, 1))  // 37: marked++
+            // GSKIP @38:
+            s = sbAppend(s, arm64_add_imm(6, 6, 8))  // 38: cur2 += 8
+            s = sbAppend(s, arm64_sub_imm(13, 13, 1))  // 39: nG--
+            s = sbAppend(s, arm64_b(0 - 13))  // 40: → GLOOP (40-13=27)
+            // END @41:
+            s = sbAppend(s, arm64_mov_xx(0, 5))  // 41: x0 = marked
+            s = sbAppend(s, arm64_push_x0())  // 42: push
+            instrIdx = instrIdx + 43
         } else if opTok == "BUILTIN_GCSWEEP" {
             // Sweep phase: walk gcAllocsHead linked list. For each header:
             //   - if bit 63 of size_flags is set → clear it (kept)
