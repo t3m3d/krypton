@@ -80,7 +80,37 @@ do FizzBuzz-style printing of mixed STR / `toStr(int)` returns from
 inside `for i in range(...)` look broken even though the FE output is
 correct.
 
-## Gap 3: multi-arg `print` with STR + int worked-around in snek
+## Gap 3a: builtin `isAlpha` rejects `_` -- documented but worth noting
+
+Not really a Linux gap (same on Windows), but caught while debugging gap 2.
+`isAlpha` is a Krypton builtin (per `compile.k` builtins list) and matches
+ONLY A-Z/a-z, no underscore. Any user `func isAlpha(c)` is silently
+shadowed by the builtin and never called -- which is what made `__init__`
+tokenise as five `OP _` + `NAME init` tokens for an embarrassingly long
+time in snek before I noticed.
+
+Worth either:
+- documenting the shadow rule loudly, or
+- adding `_` to the builtin so user code matches Python's `isidentifier()`
+  intuition.
+
+Snek now uses `snekIsAlpha` / `snekIsAlNum` to dodge the collision.
+
+## Gap 3b: envGet -> toStr chain mis-prints on Linux
+
+```krypton
+let p = envNew()
+envSet(p, "x", "3")
+print(envGet(p, "x"))         // 3              OK
+print(toStr(envGet(p, "x")))  // <pointer>      BROKEN
+```
+
+Same family as gap 1 (toStr of pointer-to-string returns pointer). Surfaced
+via the class lowering: `print(p.x)` lowers to
+`print(toStr(envGet(p, "x")))` and we get the heap address. Fixing gap 1
+likely fixes this too.
+
+## Gap 4: multi-arg `print` with STR + int worked-around in snek
 
 See commit `086fdcb`. We dodge gap 1 by not wrapping STR args in
 `toStr()`. So `print("z =", z)` lowers to `print("z =" + " " + toStr(z))`
