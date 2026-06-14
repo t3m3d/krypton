@@ -1488,6 +1488,56 @@ func irCall(tokens, pos, ntoks, lc, types) {
         }
     }
 
+    // A4 (variadic, printf-style): format(fmt, ...) / printf(fmt, ...) with a
+    // STRING-LITERAL format are expanded at compile time into a concat of the
+    // literal pieces interleaved with the args (each %verb consumes one arg;
+    // %% = literal %). %s/%d/%f all just insert the arg (ADD auto-stringifies an
+    // int). printf raw-writes the result (no extra newline — the \n is in fmt).
+    // A non-literal fmt isn't expandable here and falls through (runtime format
+    // is a dead stub — unchanged). Pure FE, reuses string concat; no backend work.
+    if fname == "format" || fname == "printf" {
+        let fmtTok = tokAt(tokens, pos + 2)
+        if tokType(fmtTok) == "STR" {
+            let fmt = tokVal(fmtTok)
+            let out = "PUSH \"\"\n"
+            let piece = ""
+            let fp = pos + 3
+            let fi = 0
+            while fi < len(fmt) {
+                let ch = fmt[fi]
+                if ch == "%" && fi + 1 < len(fmt) {
+                    let v = fmt[fi + 1]
+                    if v == "%" {
+                        piece = piece + "%"
+                        fi = fi + 2
+                    } else {
+                        out = out + "PUSH \"" + piece + "\"\nADD\n"
+                        piece = ""
+                        if tokAt(tokens, fp) == "COMMA" { fp = fp + 1 }
+                        if tokAt(tokens, fp) != "RPAREN" {
+                            let ap = irExpr(tokens, fp, ntoks, lc, types)
+                            out = out + pairVal(ap) + "ADD\n"
+                            fp = pairPos(ap)
+                        } else {
+                            out = out + "PUSH \"\"\nADD\n"
+                        }
+                        fi = fi + 2
+                    }
+                } else {
+                    piece = piece + ch
+                    fi = fi + 1
+                }
+            }
+            out = out + "PUSH \"" + piece + "\"\nADD\n"
+            while fp < ntoks && tokAt(tokens, fp) != "RPAREN" { fp = fp + 1 }
+            fp = fp + 1
+            if fname == "printf" {
+                emit out + "BUILTIN print 1\n," + fp
+            }
+            emit out + "," + fp
+        }
+    }
+
     let p = pos + 2
     let code = ""
     let argc = 0
