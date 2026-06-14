@@ -211,6 +211,7 @@ let g_RT_ALLOC_INSTR  = 0
 let g_F_LOAD1_INSTR   = 0
 let g_F_LOAD2_INSTR   = 0
 let g_F_BOX_INSTR     = 0
+let g_F_FORMAT_INSTR  = 0   // __f_format: x0=value, x1=prec -> x0=string
 // Number of module globals (__main__ user LOCALs). Set by parseFullIR. The
 // conservative GC mark scans the globals region [globals_base, +nG*8) for
 // roots, since __main__'s "locals" live there (not in a stack frame).
@@ -326,6 +327,13 @@ func arm64_fcvtzs_x_d(xd, dn) { emit hexDword(0x9e78 * 0x10000 + dn * 32 + xd) }
 // LDR Dt, [Xn, #imm] / STR Dt, [Xn, #imm] — 64-bit FP load/store, imm = byteoff/8.
 func arm64_ldr_d(dt, xn, imm12) { emit hexDword(0xfd40 * 0x10000 + imm12 * 0x400 + xn * 32 + dt) }
 func arm64_str_d(dt, xn, imm12) { emit hexDword(0xfd00 * 0x10000 + imm12 * 0x400 + xn * 32 + dt) }
+func arm64_fabs_d(dd, dn)     { emit hexDword(0x1E60C000 + dn * 32 + dd) }
+// FCMP Dn, #0.0 (compare against zero immediate): 0x1E602008 | Dn<<5
+func arm64_fcmp_d_zero(dn)    { emit hexDword(0x1E602008 + dn * 32) }
+// UDIV Xd, Xn, Xm: 0x9AC00800 | Xm<<16 | Xn<<5 | Xd  (>0x7EFFFFFF: split)
+func arm64_udiv(xd, xn, xm)   { emit hexDword(0x9ac0 * 0x10000 + 0x800 + xm * 0x10000 + xn * 32 + xd) }
+// MSUB Xd, Xn, Xm, Xa = Xa - Xn*Xm : 0x9B008000 | Xm<<16 | Xa<<10 | Xn<<5 | Xd
+func arm64_msub(xd, xn, xm, xa) { emit hexDword(0x9b00 * 0x10000 + 0x8000 + xm * 0x10000 + xa * 0x400 + xn * 32 + xd) }
 // Load a full 64-bit immediate into Xd: movz + 3×movk. Always 4 instrs (fixed count).
 func arm64_load64(xd, val) {
     let v = val
@@ -1349,6 +1357,7 @@ func rtAllocInstrCount() { emit 123 }
 func fLoad1InstrCount() { emit 7 }
 func fLoad2InstrCount() { emit 7 }
 func fBoxInstrCount()   { emit 6 }
+func fFormatInstrCount() { emit 59 }
 // __f_load1: x0 -> d0. If x0 < 1<<32 it's a smart-int -> scvtf; else a box ptr -> deref.
 func emitFLoad1Helper() {
     let s = ""
@@ -1384,6 +1393,73 @@ func emitFBoxHelper() {
     s = s + arm64_ldp_fp_lr_post16()                          // 3: restore lr
     s = s + arm64_str_d(0, 0, 0)                              // 4: str d0,[x0]
     s = s + arm64_ret()                                       // 5
+    emit s
+}
+// __f_format: x0=value (box ptr or int), x1=prec -> x0=decimal string.
+// scale=10^prec; digits = round(|value|*scale) as one integer; written right-to
+// -left into a 48B buffer (lowest `prec` digits = fraction, then '.', then the
+// integer part, then '-'). 59 instructions.
+func emitFFormatHelper() {
+    let s = ""
+    s = s + arm64_stp_fp_lr_pre16()              // 0: save lr
+    s = s + arm64_movz_x_imm_lsl32(12, 1)        // 1: x12 = 1<<32 (int/ptr boundary)
+    s = s + arm64_cmp_xx(0, 12)                  // 2
+    s = s + arm64_b_cond(0x3, 3)                 // 3: b.lo -> 6 (INT)
+    s = s + arm64_ldr_d(0, 0, 0)                 // 4: ldr d0,[x0] (box)
+    s = s + arm64_b(2)                           // 5: -> 7
+    s = s + arm64_scvtf_d_x(0, 0)                // 6: scvtf d0,x0 (int)
+    s = s + arm64_fcmp_d_zero(0)                 // 7: compare to 0.0
+    s = s + arm64_cset(13, 0x4)                  // 8: x13 = neg (MI)
+    s = s + arm64_fabs_d(0, 0)                   // 9: d0 = |value|
+    s = s + arm64_mov_xx(14, 1)                  // 10: x14 = prec
+    s = s + arm64_movz_x_imm(3, 1)               // 11: scale acc = 1
+    s = s + arm64_mov_xx(4, 1)                   // 12: counter = prec
+    s = s + arm64_cbz(4, 5)                      // 13: -> 18 (pow done)
+    s = s + arm64_movz_x_imm(5, 10)              // 14
+    s = s + arm64_mul_xxx(3, 3, 5)               // 15: scale *= 10
+    s = s + arm64_sub_imm(4, 4, 1)               // 16
+    s = s + arm64_b(0 - 4)                       // 17: -> 13
+    s = s + arm64_mov_xx(15, 3)                  // 18: x15 = scale = 10^prec
+    s = s + arm64_scvtf_d_x(1, 3)                // 19: d1 = (double)scale
+    s = s + arm64_fmul_d(0, 0, 1)                // 20
+    s = s + arm64_frintn_d(0, 0)                 // 21: round to nearest
+    s = s + arm64_fcvtzs_x_d(16, 0)              // 22: x16 = all digits
+    s = s + arm64_movz_x_imm(4, 48)              // 23: buffer size
+    s = s + arm64_bl(g_RT_ALLOC_INSTR - (g_F_FORMAT_INSTR + 24))  // 24: x0 = buf
+    s = s + arm64_add_imm(6, 0, 47)              // 25: cursor = buf+47
+    s = s + arm64_movz_x_imm(7, 0)               // 26
+    s = s + arm64_strb_imm(7, 6, 0)              // 27: NUL terminator
+    s = s + arm64_sub_imm(6, 6, 1)               // 28: cursor--
+    s = s + arm64_mov_xx(8, 14)                  // 29: x8 = prec (frac counter)
+    s = s + arm64_cbz(8, 10)                     // 30: prec==0 -> 40
+    s = s + arm64_movz_x_imm(5, 10)              // 31
+    s = s + arm64_udiv(9, 16, 5)                 // 32: q = x16/10
+    s = s + arm64_msub(10, 9, 5, 16)             // 33: digit = x16 - q*10
+    s = s + arm64_add_imm(10, 10, 48)            // 34: ascii
+    s = s + arm64_strb_imm(10, 6, 0)             // 35
+    s = s + arm64_sub_imm(6, 6, 1)               // 36
+    s = s + arm64_mov_xx(16, 9)                  // 37: x16 = q
+    s = s + arm64_sub_imm(8, 8, 1)               // 38
+    s = s + arm64_b(0 - 9)                       // 39: -> 30
+    s = s + arm64_cbz(14, 4)                     // 40: prec==0 -> 44 (skip dot)
+    s = s + arm64_movz_x_imm(7, 46)              // 41: '.'
+    s = s + arm64_strb_imm(7, 6, 0)              // 42
+    s = s + arm64_sub_imm(6, 6, 1)               // 43
+    s = s + arm64_movz_x_imm(5, 10)              // 44
+    s = s + arm64_udiv(9, 16, 5)                 // 45: q
+    s = s + arm64_msub(10, 9, 5, 16)             // 46: digit
+    s = s + arm64_add_imm(10, 10, 48)            // 47
+    s = s + arm64_strb_imm(10, 6, 0)             // 48
+    s = s + arm64_sub_imm(6, 6, 1)               // 49
+    s = s + arm64_mov_xx(16, 9)                  // 50: x16 = q
+    s = s + arm64_cbnz(16, 0 - 6)                // 51: x16!=0 -> 45 (intpart loop)
+    s = s + arm64_cbz(13, 4)                     // 52: not neg -> 56
+    s = s + arm64_movz_x_imm(7, 45)              // 53: '-'
+    s = s + arm64_strb_imm(7, 6, 0)              // 54
+    s = s + arm64_sub_imm(6, 6, 1)               // 55
+    s = s + arm64_add_imm(0, 6, 1)               // 56: x0 = string start
+    s = s + arm64_ldp_fp_lr_post16()             // 57: restore lr
+    s = s + arm64_ret()                          // 58
     emit s
 }
 
@@ -1998,6 +2074,8 @@ func parseFullIR(ir) {
                         curOps = sbAppend(curOps, "BUILTIN_FGT\n")  nOps += 1
                     } else if bname == "feq" {
                         curOps = sbAppend(curOps, "BUILTIN_FEQ\n")  nOps += 1
+                    } else if bname == "fformat" {
+                        curOps = sbAppend(curOps, "BUILTIN_FFORMAT\n")  nOps += 1
                     } else if bname == "exit" {
                         curOps = sbAppend(curOps, "BUILTIN_EXIT\n")
                         nOps += 1
@@ -2447,6 +2525,7 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_FLT"    { emit 7 }  // pop x1,pop x0,bl load1,bl load2,fcmp,cset,push
     if opTok == "BUILTIN_FGT"    { emit 7 }
     if opTok == "BUILTIN_FEQ"    { emit 7 }
+    if opTok == "BUILTIN_FFORMAT" { emit 4 }  // pop x1(prec),pop x0(val),bl __f_format,push
     if opTok == "LOAD_SLOT"    { emit 2 }
     if opTok == "STORE_SLOT"   { emit 2 }
     if opTok == "LOAD_GLOBAL"  { emit 4 }
@@ -2467,7 +2546,7 @@ func opInstrCount(opTok) {
     if opTok == "JUMPIFNOT"        { emit 3 }  // pop, cbnz+2 (skip B if truthy), b target
     if opTok == "JUMPIF"           { emit 3 }  // pop, cbz+2 (skip B if falsy),  b target
     if opTok == "LABEL"            { emit 0 }
-    if opTok == "NEG"              { emit 3 }   // pop, neg, push
+    if opTok == "NEG"              { emit 10 }  // polymorphic: int neg / float box fneg+rebox
     if opTok == "NOT"              { emit 4 }   // pop, cmp, cset, push
     if opTok == "INDEX"            { emit 27 }  // pop i, pop s, alloc(21), ldrb, strb char, strb NUL, push
     if opTok == "BUILTIN_KP"       { emit 69 }  // string or int dispatch; inline itoa for ints
@@ -2752,7 +2831,8 @@ func computeUserTextInstrs(parsed) {
 // Total __text size in bytes — all user functions + the __rt_alloc helper.
 func computeTextSize(parsed) {
     emit (computeUserTextInstrs(parsed) + rtAllocInstrCount()
-        + fLoad1InstrCount() + fLoad2InstrCount() + fBoxInstrCount()) * 4
+        + fLoad1InstrCount() + fLoad2InstrCount() + fBoxInstrCount()
+        + fFormatInstrCount()) * 4
 }
 
 // Emit one function: prologue (with param save) + ops + epilogue. instrIdx is
@@ -2969,6 +3049,14 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             else                           { s = sbAppend(s, arm64_cset(0, 0x0)) }  // a==b
             s = sbAppend(s, arm64_push_x0())                            // 6
             instrIdx = instrIdx + 7
+        } else if opTok == "BUILTIN_FFORMAT" {
+            // fformat(value, prec) -> decimal string. value pushed first, prec
+            // second (top). 4 instrs.
+            s = sbAppend(s, arm64_pop(1))                               // 0: x1 = prec
+            s = sbAppend(s, arm64_pop_x0())                             // 1: x0 = value
+            s = sbAppend(s, arm64_bl(g_F_FORMAT_INSTR - (instrIdx + 2)))// 2: x0 = string
+            s = sbAppend(s, arm64_push_x0())                            // 3
+            instrIdx = instrIdx + 4
         } else if opTok == "ADD" {
             // Polymorphic ADD — 193 instructions. Three paths:
             //   INT+INT (0-9):   both < threshold → integer add → push
@@ -3236,10 +3324,20 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_b(target - instrIdx))
             instrIdx = instrIdx + 1
         } else if opTok == "NEG" {
-            s = sbAppend(s, arm64_pop_x0())
-            s = sbAppend(s, arm64_sub_xxx(0, 31, 0))  // sub x0, xzr, x0  (negate)
-            s = sbAppend(s, arm64_push_x0())
-            instrIdx = instrIdx + 3
+            // Polymorphic negate. The FE lowers a negative float literal (-3.14)
+            // to PUSH 3.14 + NEG, so NEG must fneg a float box (pointer operand),
+            // not negate the pointer value. Int operand → integer neg. 10 instrs.
+            s = sbAppend(s, arm64_pop_x0())                            // 0
+            s = sbAppend(s, arm64_movz_x_imm_lsl32(9, 1))             // 1: x9 = 1<<32
+            s = sbAppend(s, arm64_cmp_xx(0, 9))                        // 2
+            s = sbAppend(s, arm64_b_cond(0x3, 5))                     // 3: b.lo -> 8 (INT)
+            s = sbAppend(s, arm64_ldr_d(0, 0, 0))                     // 4: float box deref
+            s = sbAppend(s, arm64_fneg_d(0, 0))                       // 5
+            s = sbAppend(s, arm64_bl(g_F_BOX_INSTR - (instrIdx + 6))) // 6: re-box -> x0
+            s = sbAppend(s, arm64_b(2))                               // 7: -> 9
+            s = sbAppend(s, arm64_sub_xxx(0, 31, 0))                  // 8: INT neg (sub x0,xzr,x0)
+            s = sbAppend(s, arm64_push_x0())                          // 9
+            instrIdx = instrIdx + 10
         } else if opTok == "NOT" {
             s = sbAppend(s, arm64_pop_x0())
             s = sbAppend(s, arm64_cmp_imm(0, 0))  // cmp x0, #0
@@ -6017,6 +6115,7 @@ func emitTextFromIR(parsed, strOffsets, textSz) {
     g_F_LOAD1_INSTR = g_RT_ALLOC_INSTR + rtAllocInstrCount()
     g_F_LOAD2_INSTR = g_F_LOAD1_INSTR + fLoad1InstrCount()
     g_F_BOX_INSTR   = g_F_LOAD2_INSTR + fLoad2InstrCount()
+    g_F_FORMAT_INSTR = g_F_BOX_INSTR + fBoxInstrCount()
     let s = sbNew()
     let oi = 0
     while oi < nF {
@@ -6032,6 +6131,7 @@ func emitTextFromIR(parsed, strOffsets, textSz) {
     s = sbAppend(s, emitFLoad1Helper())
     s = sbAppend(s, emitFLoad2Helper())
     s = sbAppend(s, emitFBoxHelper())
+    s = sbAppend(s, emitFFormatHelper())
     emit sbToString(s)
 }
 

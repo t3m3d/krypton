@@ -19,5 +19,13 @@ just run {
     if feq(fceil(3.2), 4.0)       == 0 { kp("[FAIL] fceil"); exit("1") }
     if feq(fround(3.5), 4.0)      == 0 { kp("[FAIL] fround"); exit("1") }
     if feq(fadd(5, 2.5), 7.5)     == 0 { kp("[FAIL] int-promote"); exit("1") }
-    kp("[PASS] float arith + compares (boxed f64)")
+    // fformat (F2): double -> decimal string.
+    if fformat(3.14159, 2)        != "3.14"     { kp("[FAIL] fformat round-down"); exit("1") }
+    if fformat(3.14159, 4)        != "3.1416"   { kp("[FAIL] fformat round-up"); exit("1") }
+    if fformat(0.05, 2)           != "0.05"     { kp("[FAIL] fformat leading-zero frac"); exit("1") }
+    if fformat(0.0, 2)            != "0.00"     { kp("[FAIL] fformat zero"); exit("1") }
+    if fformat(10.0, 0)           != "10"       { kp("[FAIL] fformat prec0"); exit("1") }
+    if fformat(-3.14, 2)          != "-3.14"    { kp("[FAIL] fformat negative"); exit("1") }
+    if fformat(fdiv(1.0, 3.0), 6) != "0.333333" { kp("[FAIL] fformat repeating"); exit("1") }
+    kp("[PASS] float arith + compares + fformat (boxed f64)")
 }
