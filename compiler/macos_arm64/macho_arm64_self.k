@@ -203,6 +203,14 @@ let g_ENTRY_OFF       = 0x460       // file offset of `_main`'s first instructio
 // functions; emitAllocN/Var trampoline into it. Its text instruction index
 // (= total user-func instrs) is set in emitTextFromIR before the emit loop.
 let g_RT_ALLOC_INSTR  = 0
+// A1 float (boxed-f64): three __text helpers appended after __rt_alloc. Indices
+// set in emitTextFromIR before the emit loop so fp-builtin `bl`s resolve.
+//   __f_load1: x0 -> d0 (int<4GB scvtf, else deref box). preserves d1.
+//   __f_load2: x1 -> d1 (same). preserves d0.
+//   __f_box:   d0 -> x0 (kr_alloc 8B box, str d0).
+let g_F_LOAD1_INSTR   = 0
+let g_F_LOAD2_INSTR   = 0
+let g_F_BOX_INSTR     = 0
 // Number of module globals (__main__ user LOCALs). Set by parseFullIR. The
 // conservative GC mark scans the globals region [globals_base, +nG*8) for
 // roots, since __main__'s "locals" live there (not in a stack frame).
@@ -301,6 +309,31 @@ func _forHas(sym) {
 func arm64_scvtf_d_x(dd, xn) { emit hexDword((0x9e62 * 0x10000 + 0x0) + xn * 32 + dd) }
 // FDIV Dd, Dn, Dm (scalar double): 0x1E601800 | Dm<<16 | Dn<<5 | Dd
 func arm64_fdiv_d(dd, dn, dm) { emit hexDword(0x1E601800 + dm * 0x10000 + dn * 32 + dd) }
+// A1 floating point (boxed-f64): scalar double FP encoders. Opcodes derived from
+// the fdiv anchor (2-source opcode field <<12 + fixed 0x0800) and the scvtf anchor.
+func arm64_fadd_d(dd, dn, dm) { emit hexDword(0x1E602800 + dm * 0x10000 + dn * 32 + dd) }
+func arm64_fsub_d(dd, dn, dm) { emit hexDword(0x1E603800 + dm * 0x10000 + dn * 32 + dd) }
+func arm64_fmul_d(dd, dn, dm) { emit hexDword(0x1E600800 + dm * 0x10000 + dn * 32 + dd) }
+func arm64_fsqrt_d(dd, dn)    { emit hexDword(0x1E61C000 + dn * 32 + dd) }
+func arm64_fneg_d(dd, dn)     { emit hexDword(0x1E614000 + dn * 32 + dd) }
+func arm64_frintm_d(dd, dn)   { emit hexDword(0x1E654000 + dn * 32 + dd) }  // floor
+func arm64_frintp_d(dd, dn)   { emit hexDword(0x1E64C000 + dn * 32 + dd) }  // ceil
+func arm64_frintn_d(dd, dn)   { emit hexDword(0x1E644000 + dn * 32 + dd) }  // round-to-nearest-even
+// FCMP Dn, Dm (sets NZCV): 0x1E602000 | Dm<<16 | Dn<<5
+func arm64_fcmp_d(dn, dm)     { emit hexDword(0x1E602000 + dm * 0x10000 + dn * 32) }
+// FCVTZS Xd, Dn — double -> signed 64-bit int, round toward zero (>0x7EFFFFFF: split).
+func arm64_fcvtzs_x_d(xd, dn) { emit hexDword(0x9e78 * 0x10000 + dn * 32 + xd) }
+// LDR Dt, [Xn, #imm] / STR Dt, [Xn, #imm] — 64-bit FP load/store, imm = byteoff/8.
+func arm64_ldr_d(dt, xn, imm12) { emit hexDword(0xfd40 * 0x10000 + imm12 * 0x400 + xn * 32 + dt) }
+func arm64_str_d(dt, xn, imm12) { emit hexDword(0xfd00 * 0x10000 + imm12 * 0x400 + xn * 32 + dt) }
+// Load a full 64-bit immediate into Xd: movz + 3×movk. Always 4 instrs (fixed count).
+func arm64_load64(xd, val) {
+    let v = val
+    emit arm64_movz_x_imm(xd, v % 65536)
+        + arm64_movk_x_imm_lsl16(xd, (v / 65536) % 65536)
+        + arm64_movk_x_imm_lsl32(xd, (v / 65536 / 65536) % 65536)
+        + arm64_movk_x_imm_lsl48(xd, (v / 65536 / 65536 / 65536) % 65536)
+}
 // instruction count for a CALL_FUNC (must match the byte emitter). The NSRect
 // window-init special form is 15 instrs (3 GP pops + 4×(pop+scvtf) + 2 GP pops + bl + push).
 func cfCount(cname, argc) {
@@ -1312,6 +1345,47 @@ func emitRtAllocHelper(instrIdx, textOff) {
 }
 
 func rtAllocInstrCount() { emit 123 }
+// A1 float helper sizes (must match the emit funcs below).
+func fLoad1InstrCount() { emit 7 }
+func fLoad2InstrCount() { emit 7 }
+func fBoxInstrCount()   { emit 6 }
+// __f_load1: x0 -> d0. If x0 < 1<<32 it's a smart-int -> scvtf; else a box ptr -> deref.
+func emitFLoad1Helper() {
+    let s = ""
+    s = s + arm64_movz_x_imm_lsl32(9, 1)   // 0: x9 = 1<<32 (int/ptr boundary)
+    s = s + arm64_cmp_xx(0, 9)             // 1
+    s = s + arm64_b_cond(0x3, 3)           // 2: b.lo -> idx5 (INT path)
+    s = s + arm64_ldr_d(0, 0, 0)           // 3: ldr d0,[x0] (box deref)
+    s = s + arm64_ret()                    // 4
+    s = s + arm64_scvtf_d_x(0, 0)          // 5: scvtf d0,x0 (int promote)
+    s = s + arm64_ret()                    // 6
+    emit s
+}
+// __f_load2: x1 -> d1 (same logic; preserves d0).
+func emitFLoad2Helper() {
+    let s = ""
+    s = s + arm64_movz_x_imm_lsl32(9, 1)   // 0
+    s = s + arm64_cmp_xx(1, 9)             // 1
+    s = s + arm64_b_cond(0x3, 3)           // 2: b.lo -> idx5
+    s = s + arm64_ldr_d(1, 1, 0)           // 3: ldr d1,[x1]
+    s = s + arm64_ret()                    // 4
+    s = s + arm64_scvtf_d_x(1, 1)          // 5: scvtf d1,x1
+    s = s + arm64_ret()                    // 6
+    emit s
+}
+// __f_box: d0 -> x0. Allocate an 8-byte GC box and store the double. __rt_alloc
+// is integer-only and its collect safepoint spills GP regs (not d-regs), so d0
+// survives the call.
+func emitFBoxHelper() {
+    let s = ""
+    s = s + arm64_movz_x_imm(4, 8)                            // 0: x4 = 8 (alloc size)
+    s = s + arm64_stp_fp_lr_pre16()                           // 1: save lr
+    s = s + arm64_bl(g_RT_ALLOC_INSTR - (g_F_BOX_INSTR + 2))  // 2: bl __rt_alloc -> x0
+    s = s + arm64_ldp_fp_lr_post16()                          // 3: restore lr
+    s = s + arm64_str_d(0, 0, 0)                              // 4: str d0,[x0]
+    s = s + arm64_ret()                                       // 5
+    emit s
+}
 
 // Shared GC collect body: conservative MARK (stack + globals scan) + SWEEP that
 // parks unmarked nodes onto free_head (+88). 60 instructions, idx 0..59, leaves
@@ -1813,7 +1887,16 @@ func parseFullIR(ir) {
                             curOps = sbAppend(curOps, "PUSH_STR " + idx + "\n")
                             nOps += 1
                         } else {
-                            curOps = sbAppend(curOps, "PUSH_INT " + rest + "\n")
+                            // A1 float literal: a decimal point makes it a float
+                            // (3.14, .5, 3.). Materialized at runtime as M/scale.
+                            let hasDot = 0
+                            let di = 0
+                            while di < len(rest) { if rest[di] == "." { hasDot = 1 }  di += 1 }
+                            if hasDot == 1 {
+                                curOps = sbAppend(curOps, "PUSH_FLOAT " + rest + "\n")
+                            } else {
+                                curOps = sbAppend(curOps, "PUSH_INT " + rest + "\n")
+                            }
                             nOps += 1
                         }
                     }
@@ -1893,6 +1976,28 @@ func parseFullIR(ir) {
                     if bname == "kp" {
                         curOps = sbAppend(curOps, "BUILTIN_KP\n")
                         nOps += 1
+                    } else if bname == "fadd" {
+                        curOps = sbAppend(curOps, "BUILTIN_FADD\n")  nOps += 1
+                    } else if bname == "fsub" {
+                        curOps = sbAppend(curOps, "BUILTIN_FSUB\n")  nOps += 1
+                    } else if bname == "fmul" {
+                        curOps = sbAppend(curOps, "BUILTIN_FMUL\n")  nOps += 1
+                    } else if bname == "fdiv" {
+                        curOps = sbAppend(curOps, "BUILTIN_FDIV\n")  nOps += 1
+                    } else if bname == "fsqrt" {
+                        curOps = sbAppend(curOps, "BUILTIN_FSQRT\n")  nOps += 1
+                    } else if bname == "ffloor" {
+                        curOps = sbAppend(curOps, "BUILTIN_FFLOOR\n")  nOps += 1
+                    } else if bname == "fceil" {
+                        curOps = sbAppend(curOps, "BUILTIN_FCEIL\n")  nOps += 1
+                    } else if bname == "fround" {
+                        curOps = sbAppend(curOps, "BUILTIN_FROUND\n")  nOps += 1
+                    } else if bname == "flt" {
+                        curOps = sbAppend(curOps, "BUILTIN_FLT\n")  nOps += 1
+                    } else if bname == "fgt" {
+                        curOps = sbAppend(curOps, "BUILTIN_FGT\n")  nOps += 1
+                    } else if bname == "feq" {
+                        curOps = sbAppend(curOps, "BUILTIN_FEQ\n")  nOps += 1
                     } else if bname == "exit" {
                         curOps = sbAppend(curOps, "BUILTIN_EXIT\n")
                         nOps += 1
@@ -2330,6 +2435,18 @@ func opInstrCount(opTok) {
     if opTok == "PUSH_STR"     { emit 3 }
     if opTok == "FUNCPTR"      { emit 3 }   // adrp + add (func vaddr) + push
     if opTok == "PUSH_INT"     { emit 3 }   // movz low / movk high or nop / push
+    if opTok == "PUSH_FLOAT"   { emit 14 }  // load64 M, scvtf, load64 scale, scvtf, fdiv, fneg/nop, bl box, push
+    if opTok == "BUILTIN_FADD"   { emit 7 }  // pop x1,pop x0,bl load1,bl load2,fadd,bl box,push
+    if opTok == "BUILTIN_FSUB"   { emit 7 }
+    if opTok == "BUILTIN_FMUL"   { emit 7 }
+    if opTok == "BUILTIN_FDIV"   { emit 7 }
+    if opTok == "BUILTIN_FSQRT"  { emit 5 }  // pop x0,bl load1,fsqrt,bl box,push
+    if opTok == "BUILTIN_FFLOOR" { emit 5 }
+    if opTok == "BUILTIN_FCEIL"  { emit 5 }
+    if opTok == "BUILTIN_FROUND" { emit 5 }
+    if opTok == "BUILTIN_FLT"    { emit 7 }  // pop x1,pop x0,bl load1,bl load2,fcmp,cset,push
+    if opTok == "BUILTIN_FGT"    { emit 7 }
+    if opTok == "BUILTIN_FEQ"    { emit 7 }
     if opTok == "LOAD_SLOT"    { emit 2 }
     if opTok == "STORE_SLOT"   { emit 2 }
     if opTok == "LOAD_GLOBAL"  { emit 4 }
@@ -2634,7 +2751,8 @@ func computeUserTextInstrs(parsed) {
 
 // Total __text size in bytes — all user functions + the __rt_alloc helper.
 func computeTextSize(parsed) {
-    emit (computeUserTextInstrs(parsed) + rtAllocInstrCount()) * 4
+    emit (computeUserTextInstrs(parsed) + rtAllocInstrCount()
+        + fLoad1InstrCount() + fLoad2InstrCount() + fBoxInstrCount()) * 4
 }
 
 // Emit one function: prologue (with param save) + ops + epilogue. instrIdx is
@@ -2778,6 +2896,79 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             }
             s = sbAppend(s, arm64_push_x0())
             instrIdx = instrIdx + 3
+        } else if opTok == "PUSH_FLOAT" {
+            // A1 float literal → boxed f64, materialized as M/scale at runtime
+            // (M = all digits as an int, scale = 10^fracDigits). One fdiv; ~15
+            // significant digits. 14 instructions.
+            let lit = restTok
+            let neg = 0
+            let p = 0
+            if len(lit) > 0 && lit[0] == "-" { neg = 1  p = 1 }
+            let M = 0
+            let fracN = 0
+            let seenDot = 0
+            while p < len(lit) {
+                let ch = lit[p]
+                if ch == "." {
+                    seenDot = 1
+                } else {
+                    M = M * 10 + toInt(ch)
+                    if seenDot == 1 { fracN = fracN + 1 }
+                }
+                p += 1
+            }
+            let scale = 1
+            let si = 0
+            while si < fracN { scale = scale * 10  si += 1 }
+            s = sbAppend(s, arm64_load64(0, M))         // 0-3: x0 = M
+            s = sbAppend(s, arm64_scvtf_d_x(0, 0))      // 4: d0 = (double)M
+            s = sbAppend(s, arm64_load64(0, scale))     // 5-8: x0 = scale
+            s = sbAppend(s, arm64_scvtf_d_x(1, 0))      // 9: d1 = (double)scale
+            s = sbAppend(s, arm64_fdiv_d(0, 0, 1))      // 10: d0 = M/scale
+            if neg == 1 {
+                s = sbAppend(s, arm64_fneg_d(0, 0))     // 11
+            } else {
+                s = sbAppend(s, arm64_nop())            // 11 (fixed count)
+            }
+            s = sbAppend(s, arm64_bl(g_F_BOX_INSTR - (instrIdx + 12)))  // 12: d0 -> x0 (box)
+            s = sbAppend(s, arm64_push_x0())            // 13
+            instrIdx = instrIdx + 14
+        } else if opTok == "BUILTIN_FADD" || opTok == "BUILTIN_FSUB" || opTok == "BUILTIN_FMUL" || opTok == "BUILTIN_FDIV" {
+            // Binary float op: pop b,a → load both → op → box → push. 7 instrs.
+            s = sbAppend(s, arm64_pop(1))                               // 0: x1 = b
+            s = sbAppend(s, arm64_pop_x0())                             // 1: x0 = a
+            s = sbAppend(s, arm64_bl(g_F_LOAD1_INSTR - (instrIdx + 2))) // 2: x0 -> d0
+            s = sbAppend(s, arm64_bl(g_F_LOAD2_INSTR - (instrIdx + 3))) // 3: x1 -> d1
+            if opTok == "BUILTIN_FADD"      { s = sbAppend(s, arm64_fadd_d(0, 0, 1)) }
+            else if opTok == "BUILTIN_FSUB" { s = sbAppend(s, arm64_fsub_d(0, 0, 1)) }
+            else if opTok == "BUILTIN_FMUL" { s = sbAppend(s, arm64_fmul_d(0, 0, 1)) }
+            else                            { s = sbAppend(s, arm64_fdiv_d(0, 0, 1)) }  // 4
+            s = sbAppend(s, arm64_bl(g_F_BOX_INSTR - (instrIdx + 5)))   // 5: d0 -> x0
+            s = sbAppend(s, arm64_push_x0())                            // 6
+            instrIdx = instrIdx + 7
+        } else if opTok == "BUILTIN_FSQRT" || opTok == "BUILTIN_FFLOOR" || opTok == "BUILTIN_FCEIL" || opTok == "BUILTIN_FROUND" {
+            // Unary float op: pop a → load → op → box → push. 5 instrs.
+            s = sbAppend(s, arm64_pop_x0())                             // 0: x0 = a
+            s = sbAppend(s, arm64_bl(g_F_LOAD1_INSTR - (instrIdx + 1))) // 1: x0 -> d0
+            if opTok == "BUILTIN_FSQRT"       { s = sbAppend(s, arm64_fsqrt_d(0, 0)) }
+            else if opTok == "BUILTIN_FFLOOR" { s = sbAppend(s, arm64_frintm_d(0, 0)) }
+            else if opTok == "BUILTIN_FCEIL"  { s = sbAppend(s, arm64_frintp_d(0, 0)) }
+            else                              { s = sbAppend(s, arm64_frintn_d(0, 0)) }  // 2
+            s = sbAppend(s, arm64_bl(g_F_BOX_INSTR - (instrIdx + 3)))   // 3: d0 -> x0
+            s = sbAppend(s, arm64_push_x0())                            // 4
+            instrIdx = instrIdx + 5
+        } else if opTok == "BUILTIN_FLT" || opTok == "BUILTIN_FGT" || opTok == "BUILTIN_FEQ" {
+            // Float compare → bool int (1/0). pop b,a → load → fcmp → cset. 7 instrs.
+            s = sbAppend(s, arm64_pop(1))                               // 0: x1 = b
+            s = sbAppend(s, arm64_pop_x0())                             // 1: x0 = a
+            s = sbAppend(s, arm64_bl(g_F_LOAD1_INSTR - (instrIdx + 2))) // 2: a -> d0
+            s = sbAppend(s, arm64_bl(g_F_LOAD2_INSTR - (instrIdx + 3))) // 3: b -> d1
+            s = sbAppend(s, arm64_fcmp_d(0, 1))                         // 4: cmp d0,d1
+            if opTok == "BUILTIN_FLT"      { s = sbAppend(s, arm64_cset(0, 0xb)) }  // a<b
+            else if opTok == "BUILTIN_FGT" { s = sbAppend(s, arm64_cset(0, 0xc)) }  // a>b
+            else                           { s = sbAppend(s, arm64_cset(0, 0x0)) }  // a==b
+            s = sbAppend(s, arm64_push_x0())                            // 6
+            instrIdx = instrIdx + 7
         } else if opTok == "ADD" {
             // Polymorphic ADD — 193 instructions. Three paths:
             //   INT+INT (0-9):   both < threshold → integer add → push
@@ -5821,6 +6012,11 @@ func emitTextFromIR(parsed, strOffsets, textSz) {
     // instr index BEFORE the emit loop so emitAllocN/Var trampolines resolve
     // their `b __rt_alloc` displacement correctly.
     g_RT_ALLOC_INSTR = computeUserTextInstrs(parsed)
+    // A1 float helpers sit right after __rt_alloc; set indices before the emit
+    // loop so fp-builtin `bl __f_*` displacements resolve.
+    g_F_LOAD1_INSTR = g_RT_ALLOC_INSTR + rtAllocInstrCount()
+    g_F_LOAD2_INSTR = g_F_LOAD1_INSTR + fLoad1InstrCount()
+    g_F_BOX_INSTR   = g_F_LOAD2_INSTR + fLoad2InstrCount()
     let s = sbNew()
     let oi = 0
     while oi < nF {
@@ -5832,6 +6028,10 @@ func emitTextFromIR(parsed, strOffsets, textSz) {
     }
     // Append the __rt_alloc helper at instr index g_RT_ALLOC_INSTR.
     s = sbAppend(s, emitRtAllocHelper(g_RT_ALLOC_INSTR, g_TEXT_OFF))
+    // A1 float helpers, in the order their indices were assigned above.
+    s = sbAppend(s, emitFLoad1Helper())
+    s = sbAppend(s, emitFLoad2Helper())
+    s = sbAppend(s, emitFBoxHelper())
     emit sbToString(s)
 }
 
