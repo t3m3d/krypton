@@ -44,5 +44,10 @@ just run {
     if a >= 3.0 == 0 { kp("[FAIL] op >="); exit("1") }
     if a == 3.0 == 0 { kp("[FAIL] op =="); exit("1") }
     if a != b == 0 { kp("[FAIL] op !="); exit("1") }
-    kp("[PASS] float arith + compares + fformat + operators (boxed f64)")
+    // int <-> float conversions.
+    if fformat(intToFloat(5), 2)  != "5.00" { kp("[FAIL] intToFloat"); exit("1") }
+    if floatToInt(3.7)            != 3      { kp("[FAIL] floatToInt trunc"); exit("1") }
+    if floatToInt(fmul(2.5, 4.0)) != 10     { kp("[FAIL] floatToInt expr"); exit("1") }
+    if fformat(intToFloat(10) / 4.0, 2) != "2.50" { kp("[FAIL] int->float in op"); exit("1") }
+    kp("[PASS] float arith + compares + fformat + operators + conv (boxed f64)")
 }

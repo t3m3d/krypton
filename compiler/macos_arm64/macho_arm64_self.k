@@ -2074,6 +2074,10 @@ func parseFullIR(ir) {
                         curOps = sbAppend(curOps, "BUILTIN_FGT\n")  nOps += 1
                     } else if bname == "feq" {
                         curOps = sbAppend(curOps, "BUILTIN_FEQ\n")  nOps += 1
+                    } else if bname == "intToFloat" {
+                        curOps = sbAppend(curOps, "BUILTIN_INTTOFLOAT\n")  nOps += 1
+                    } else if bname == "floatToInt" {
+                        curOps = sbAppend(curOps, "BUILTIN_FLOATTOINT\n")  nOps += 1
                     } else if bname == "fformat" {
                         curOps = sbAppend(curOps, "BUILTIN_FFORMAT\n")  nOps += 1
                     } else if bname == "exit" {
@@ -2526,6 +2530,8 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_FGT"    { emit 7 }
     if opTok == "BUILTIN_FEQ"    { emit 7 }
     if opTok == "BUILTIN_FFORMAT" { emit 4 }  // pop x1(prec),pop x0(val),bl __f_format,push
+    if opTok == "BUILTIN_INTTOFLOAT" { emit 4 }  // pop,scvtf,bl __f_box,push
+    if opTok == "BUILTIN_FLOATTOINT" { emit 4 }  // pop,bl __f_load1,fcvtzs,push
     if opTok == "LOAD_SLOT"    { emit 2 }
     if opTok == "STORE_SLOT"   { emit 2 }
     if opTok == "LOAD_GLOBAL"  { emit 4 }
@@ -3056,6 +3062,20 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_pop_x0())                             // 1: x0 = value
             s = sbAppend(s, arm64_bl(g_F_FORMAT_INSTR - (instrIdx + 2)))// 2: x0 = string
             s = sbAppend(s, arm64_push_x0())                            // 3
+            instrIdx = instrIdx + 4
+        } else if opTok == "BUILTIN_INTTOFLOAT" {
+            // intToFloat(n): int -> boxed f64. 4 instrs.
+            s = sbAppend(s, arm64_pop_x0())                            // 0: x0 = n (int)
+            s = sbAppend(s, arm64_scvtf_d_x(0, 0))                     // 1: d0 = (double)n
+            s = sbAppend(s, arm64_bl(g_F_BOX_INSTR - (instrIdx + 2)))  // 2: d0 -> x0 (box)
+            s = sbAppend(s, arm64_push_x0())                           // 3
+            instrIdx = instrIdx + 4
+        } else if opTok == "BUILTIN_FLOATTOINT" {
+            // floatToInt(x): boxed f64 (or int) -> int, truncating. 4 instrs.
+            s = sbAppend(s, arm64_pop_x0())                             // 0: x0 = value
+            s = sbAppend(s, arm64_bl(g_F_LOAD1_INSTR - (instrIdx + 1)))// 1: x0 -> d0
+            s = sbAppend(s, arm64_fcvtzs_x_d(0, 0))                     // 2: x0 = (int)d0 (trunc)
+            s = sbAppend(s, arm64_push_x0())                           // 3
             instrIdx = instrIdx + 4
         } else if opTok == "ADD" {
             // Polymorphic ADD — 193 instructions. Three paths:
