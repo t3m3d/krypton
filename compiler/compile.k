@@ -217,6 +217,7 @@ func isKW(word) {
     else if word == "struct" { emit 1 }
     else if word == "class" { emit 1 }
     else if word == "type" { emit 1 }
+    else if word == "enum" { emit 1 }
     else if word == "try" { emit 1 }
     else if word == "catch" { emit 1 }
     else if word == "throw" { emit 1 }
@@ -1313,6 +1314,14 @@ func irPrimary(tokens, pos, ntoks, lc, types) {
     // Identifier - function call or variable
     if tt == "ID" {
         let nextTok = tokAt(tokens, pos + 1)
+        // A3 enum member access: EnumName.Member -> int constant (compile-time).
+        if nextTok == "DOT" {
+            let memTk = tokAt(tokens, pos + 2)
+            if len(memTk) >= 3 && substring(memTk, 0, 3) == "ID:" {
+                let ev = irTypeOf(types, tv + "." + substring(memTk, 3, len(memTk)))
+                if len(ev) > 0 { emit "PUSH " + ev + "\n," + (pos + 3) }
+            }
+        }
         if nextTok == "LPAREN" {
             emit irCall(tokens, pos, ntoks, lc, types)
         }
@@ -1576,6 +1585,13 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
     // switch / case / default (A2). No implicit fallthrough (Go-style).
     if tok == "KW:switch" {
         emit irSwitchIR(tokens, pos + 1, ntoks, lc, inFunc, types)
+    }
+
+    // enum decl (A3): compile-time only (scanned by irScanEnums) — emit no code.
+    if tok == "KW:enum" {
+        let ep = pos + 1
+        while ep < ntoks && tokAt(tokens, ep) != "LBRACE" { ep += 1 }
+        emit "," + skipBlock(tokens, ep)
     }
 
     // break
@@ -2259,6 +2275,35 @@ func irTryIR(tokens, pos, ntoks, lc, inFunc, types) {
 // struct nesting, plenty for any practical schema). Eliminates the
 // lexical-ordering requirement; structs can reference each other in
 // any declaration order.
+// A3 enums. Scan `enum Name { A, B, C }` and record each member as a compile-time
+// int constant `Name.Member|<i>` (autoincrement from 0) in the types table. Member
+// access (Name.Member) resolves to PUSH <i> in irPrimary; the decl emits no code.
+// Uses substring (string==) not startsWith==\"1\" (the latter is dead on macho).
+func irScanEnums(tokens, ntoks) {
+    let sb = sbNew()
+    let i = 0
+    while i < ntoks {
+        if tokAt(tokens, i) == "KW:enum" {
+            let nameTk = tokAt(tokens, i + 1)
+            if len(nameTk) >= 3 && substring(nameTk, 0, 3) == "ID:" && tokAt(tokens, i + 2) == "LBRACE" {
+                let ename = substring(nameTk, 3, len(nameTk))
+                let p = i + 3
+                let val = 0
+                while p < ntoks && tokAt(tokens, p) != "RBRACE" {
+                    let mTk = tokAt(tokens, p)
+                    if len(mTk) >= 3 && substring(mTk, 0, 3) == "ID:" {
+                        sb = sbAppend(sb, ename + "." + substring(mTk, 3, len(mTk)) + "|" + val + "\n")
+                        val = val + 1
+                    }
+                    p = p + 1
+                }
+            }
+        }
+        i = i + 1
+    }
+    emit sbToString(sb)
+}
+
 func irScanStructTypes(tokens, ntoks) {
     let prev = ""
     let curr = irScanStructTypesOnce(tokens, ntoks, "")
@@ -2507,7 +2552,7 @@ func irLambdaIR(tokens, pos, ntoks, lambdaName) {
         }
     }
 
-    let funcTypes = irScanStructTypes(tokens, ntoks) + irScanFuncTypes(tokens, p, ntoks) + paramTypes + captureTypes
+    let funcTypes = irScanStructTypes(tokens, ntoks) + irScanFuncTypes(tokens, p, ntoks) + paramTypes + captureTypes + irScanEnums(tokens, ntoks)
     let bp = irBlockIR(tokens, p, ntoks, 0, "1", funcTypes)
     let bodyCode = pairVal(bp)
     p = pairPos(bp)
@@ -3191,7 +3236,7 @@ just run {
                 while gscan < ntoks {
                     let gstk = tokAt(tokens, gscan)
                     if gdepth == 0 {
-                        if gstk == "KW:let" || gstk == "KW:func" || gstk == "KW:fn" || gstk == "KW:import" || gstk == "KW:struct" || gstk == "KW:type" || gstk == "KW:jxt" || gstk == "KW:export" { gscan = gscan - 1  break }
+                        if gstk == "KW:let" || gstk == "KW:func" || gstk == "KW:fn" || gstk == "KW:import" || gstk == "KW:struct" || gstk == "KW:type" || gstk == "KW:enum" || gstk == "KW:jxt" || gstk == "KW:export" { gscan = gscan - 1  break }
                         if gstk == "RBRACE" { gscan = gscan - 1  break }   // exiting outer block
                     }
                     if gstk == "LPAREN" || gstk == "LBRACE" || gstk == "LBRACK" { gdepth += 1 }
@@ -3210,6 +3255,9 @@ just run {
         } else if tok == "KW:jxt" {
             // skip jxt block entirely - already processed in import loop
             i = skipBlock(tokens, i + 1)
+        } else if tok == "KW:enum" {
+            // A3: enum decl is compile-time only (scanned by irScanEnums) — skip body.
+            i = skipBlock(tokens, i + 2) - 1
         } else if tok == "KW:struct" || tok == "KW:class" || tok == "KW:type" {
             // emit forward decl for struct constructor
             let sn = tokVal(tokAt(tokens, i + 1))
@@ -3251,7 +3299,7 @@ just run {
                 while gscan2 < ntoks {
                     let gstk2 = tokAt(tokens, gscan2)
                     if gdepth2 == 0 {
-                        if gstk2 == "KW:let" || gstk2 == "KW:func" || gstk2 == "KW:fn" || gstk2 == "KW:import" || gstk2 == "KW:struct" || gstk2 == "KW:type" || gstk2 == "KW:jxt" || gstk2 == "KW:export" { break }
+                        if gstk2 == "KW:let" || gstk2 == "KW:func" || gstk2 == "KW:fn" || gstk2 == "KW:import" || gstk2 == "KW:struct" || gstk2 == "KW:type" || gstk2 == "KW:enum" || gstk2 == "KW:jxt" || gstk2 == "KW:export" { break }
                         if gstk2 == "RBRACE" { break }
                     }
                     if gstk2 == "LPAREN" || gstk2 == "LBRACE" || gstk2 == "LBRACK" { gdepth2 += 1 }
@@ -3287,6 +3335,9 @@ just run {
         } else if tok == "KW:export" {
             // skip export keyword, compile func on next pass
             i += 1
+        } else if tok == "KW:enum" {
+            // A3: enum decl — compile-time only; skip its body.
+            i = skipBlock(tokens, i + 2) - 1
         } else if tok == "KW:struct" || tok == "KW:class" || tok == "KW:type" {
             // Inline struct compilation to avoid pairPos issues
             let sname = tokVal(tokAt(tokens, i + 1))
@@ -3486,6 +3537,12 @@ just run {
                     }
                 }
                 iri = scanP
+            } else if irtok == "KW:enum" {
+                // A3: enum decl — compile-time only (scanned by irScanEnums). Skip
+                // body; no constructor (unlike struct).
+                let eP = iri + 2
+                while eP < ntoks && tokAt(tokens, eP) != "LBRACE" { eP += 1 }
+                iri = skipBlock(tokens, eP)
             } else if irtok == "KW:struct" || irtok == "KW:class" || irtok == "KW:type" {
                 // Skip struct/class/type body — `let`s inside are field decls,
                 // not file-scope globals. Without this skip, we'd hoist them
@@ -3539,7 +3596,7 @@ just run {
 
         let irEntry = findEntry(tokens, ntoks)
         if irEntry >= 0 {
-            let mainTypes = irScanStructTypes(tokens, ntoks) + irScanFuncTypes(tokens, irEntry, ntoks)
+            let mainTypes = irScanStructTypes(tokens, ntoks) + irScanFuncTypes(tokens, irEntry, ntoks) + irScanEnums(tokens, ntoks)
             let ep = irBlockIR(tokens, irEntry, ntoks, 0, "0", mainTypes)
             // 2.0-alpha-3 GC stage 3: same shadow-stack save/restore wrap
             // as irFuncIR applies to __main__'s body (and prepended global
