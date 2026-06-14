@@ -27,5 +27,22 @@ just run {
     if fformat(10.0, 0)           != "10"       { kp("[FAIL] fformat prec0"); exit("1") }
     if fformat(-3.14, 2)          != "-3.14"    { kp("[FAIL] fformat negative"); exit("1") }
     if fformat(fdiv(1.0, 3.0), 6) != "0.333333" { kp("[FAIL] fformat repeating"); exit("1") }
-    kp("[PASS] float arith + compares + fformat (boxed f64)")
+    // f64 OPERATORS (FE static type inference): arithmetic + comparisons on
+    // f64-typed locals + float literals, instead of the explicit fadd/.../flt
+    // builtins. Int operands auto-promote.
+    let a: f64 = 3.0
+    let b: f64 = 2.0
+    if fformat(a * b, 2)       != "6.00"  { kp("[FAIL] op *"); exit("1") }
+    if fformat(a + b, 2)       != "5.00"  { kp("[FAIL] op +"); exit("1") }
+    if fformat(a - b, 2)       != "1.00"  { kp("[FAIL] op -"); exit("1") }
+    if fformat(a / b, 2)       != "1.50"  { kp("[FAIL] op /"); exit("1") }
+    if fformat(a * 2.0, 2)     != "6.00"  { kp("[FAIL] op var*lit"); exit("1") }
+    if fformat((a + b) * 2.0, 2) != "10.00" { kp("[FAIL] op nested"); exit("1") }
+    if fformat(a * 2 + 1.5, 2) != "7.50"  { kp("[FAIL] op int-promote"); exit("1") }
+    if a > b == 0  { kp("[FAIL] op >"); exit("1") }
+    if b < a == 0  { kp("[FAIL] op <"); exit("1") }
+    if a >= 3.0 == 0 { kp("[FAIL] op >="); exit("1") }
+    if a == 3.0 == 0 { kp("[FAIL] op =="); exit("1") }
+    if a != b == 0 { kp("[FAIL] op !="); exit("1") }
+    kp("[PASS] float arith + compares + fformat + operators (boxed f64)")
 }
