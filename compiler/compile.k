@@ -232,6 +232,9 @@ func isKW(word) {
     else if word == "callback" { emit 1 }
     else if word == "loop" { emit 1 }
     else if word == "until" { emit 1 }
+    else if word == "switch" { emit 1 }
+    else if word == "case" { emit 1 }
+    else if word == "default" { emit 1 }
     else { emit 0 }
 }
 
@@ -1570,6 +1573,11 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
         emit irMatchIR(tokens, pos + 1, ntoks, lc, inFunc, types)
     }
 
+    // switch / case / default (A2). No implicit fallthrough (Go-style).
+    if tok == "KW:switch" {
+        emit irSwitchIR(tokens, pos + 1, ntoks, lc, inFunc, types)
+    }
+
     // break
     if tok == "KW:break" {
         let p = pos + 1
@@ -2021,6 +2029,76 @@ func irBlockIR(tokens, pos, ntoks, lc, inFunc, types) {
         nlc = nlc + 1
     }
     emit sbToString(sbBlock) + "," + (p + 1)
+}
+
+// A2 switch/case. Lowered entirely to existing IR (temp + EQ + JUMPIF/JUMP/LABEL),
+// so no backend change. The switch value is evaluated ONCE into a temp; each case
+// value emits `LOAD tmp; <val>; EQ; JUMPIF body` (multi-value = several JUMPIFs);
+// no match falls through to default (or end). No implicit fallthrough.
+//
+//   switch X { case A, B: S1   case C: S2   default: S3 }
+//
+// -> LOCAL t; <X>; STORE t
+//    LOAD t;A;EQ;JUMPIF b0  LOAD t;B;EQ;JUMPIF b0  LOAD t;C;EQ;JUMPIF b1
+//    JUMP def
+//    LABEL b0; S1; JUMP end   LABEL b1; S2; JUMP end
+//    LABEL def; S3; JUMP end   LABEL end
+func irSwitchIR(tokens, pos, ntoks, lc, inFunc, types) {
+    let ep = irExpr(tokens, pos, ntoks, lc, types)
+    let exprCode = pairVal(ep)
+    let p = pairPos(ep)
+    let swId = "__sw_" + pos
+    let endLabel = "_swend_" + pos
+    let defLabel = "_swdef_" + pos
+    if tokAt(tokens, p) == "LBRACE" { p += 1 }
+    let checks = sbNew()
+    let bodies = sbNew()
+    let defBody = ""
+    let hasDef = "0"
+    let caseN = 0
+    while tokAt(tokens, p) != "RBRACE" && p < ntoks {
+        if tokAt(tokens, p) == "KW:case" {
+            p += 1
+            let bodyLabel = "_swc_" + pos + "_" + caseN
+            let more = "1"
+            while more == "1" {
+                let vp = irExpr(tokens, p, ntoks, lc, types)
+                checks = sbAppend(checks, "LOAD " + swId + "\n" + pairVal(vp) + "EQ\nJUMPIF " + bodyLabel + "\n")
+                p = pairPos(vp)
+                if tokAt(tokens, p) == "COMMA" { p += 1 } else { more = "0" }
+            }
+            if tokAt(tokens, p) == "COLON" { p += 1 }
+            let bodySb = sbNew()
+            while tokAt(tokens, p) != "KW:case" && tokAt(tokens, p) != "KW:default" && tokAt(tokens, p) != "RBRACE" && p < ntoks {
+                let sp = irStmt(tokens, p, ntoks, lc, inFunc, types)
+                bodySb = sbAppend(bodySb, pairVal(sp))
+                p = pairPos(sp)
+            }
+            bodies = sbAppend(bodies, "LABEL " + bodyLabel + "\n" + sbToString(bodySb) + "JUMP " + endLabel + "\n")
+            caseN = caseN + 1
+        } else if tokAt(tokens, p) == "KW:default" {
+            p += 1
+            if tokAt(tokens, p) == "COLON" { p += 1 }
+            let dSb = sbNew()
+            while tokAt(tokens, p) != "KW:case" && tokAt(tokens, p) != "KW:default" && tokAt(tokens, p) != "RBRACE" && p < ntoks {
+                let sp = irStmt(tokens, p, ntoks, lc, inFunc, types)
+                dSb = sbAppend(dSb, pairVal(sp))
+                p = pairPos(sp)
+            }
+            defBody = sbToString(dSb)
+            hasDef = "1"
+        } else {
+            p += 1
+        }
+    }
+    if tokAt(tokens, p) == "RBRACE" { p += 1 }
+    let out = "LOCAL " + swId + "\n" + exprCode + "STORE " + swId + "\n" + sbToString(checks)
+    if hasDef == "1" {
+        out = out + "JUMP " + defLabel + "\n" + sbToString(bodies) + "LABEL " + defLabel + "\n" + defBody + "JUMP " + endLabel + "\nLABEL " + endLabel + "\n"
+    } else {
+        out = out + "JUMP " + endLabel + "\n" + sbToString(bodies) + "LABEL " + endLabel + "\n"
+    }
+    emit out + "," + p
 }
 
 func irIfIR(tokens, pos, ntoks, lc, inFunc, types) {
