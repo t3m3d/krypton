@@ -4,8 +4,14 @@
 // Native macOS arm64 window with a label and a button. Click the button,
 // the label updates. ~30 lines of Krypton, no Swift / Obj-C source files.
 //
-// Build + run (macOS arm64):
-//   kr cocoa_hello.ks                  # or: kcc -r cocoa_hello.ks
+// Build + run (macOS arm64) — use the REPO native pipeline, not a stale
+// Homebrew `kcc` (releases before the objk foreign-import work silently
+// produce broken objc binaries — SIGILL at launch):
+//   ./build.sh run examples/cocoa_hello.ks
+//   # or directly:
+//   compiler/macos_arm64/kcc-arm64 --ir examples/cocoa_hello.ks > /tmp/ch.kir
+//   compiler/macos_arm64/macho_host --ir /tmp/ch.kir /tmp/cocoa_hello
+//   chmod +x /tmp/cocoa_hello && /tmp/cocoa_hello
 //
 // State pattern: `stdlib/cocoa.k` is fully stateless, so the caller
 // holds every handle (app, win, label, etc.) explicitly. The click
@@ -14,10 +20,10 @@
 // with explicit `funcptr` registration instead of compiler-synthesized
 // selectors.
 //
-// SCAFFOLD — runs on macOS arm64 once agent m lands the macho codegen
-// for objc_msgSend + NSRect ABI + the KrCallbackTarget trampoline.
-// Until then this file parses + the symbols resolve at link, but
-// clicks don't fire.
+// WORKING on macOS arm64 (objk P1-P4 landed): objc_msgSend ABI, NSRect
+// struct ABI, and the KrCallbackTarget trampoline are all in the macho
+// backend. The window opens and the button click updates the label.
+// Non-GUI regression guard for the objc ABI: tests/test_objc_smoke.k.
 
 // Krypton imports are NOT transitive — pull in every layer explicitly.
 import "k:cocoa"

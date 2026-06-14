@@ -145,6 +145,13 @@ if [[ "$MODE" == "test" ]]; then
                 SKIPPED=$((SKIPPED + 1))
                 continue
                 ;;
+            test_objc_smoke.k:linux|test_objc_smoke.k:windows)
+                # objc FFI binds /usr/lib/libobjc.A.dylib via macho dyld chained
+                # fixups — macOS-only; no libobjc on ELF/PE targets.
+                echo -e "${CYAN}SKIP${RESET}  $NAME (macOS-only)"
+                SKIPPED=$((SKIPPED + 1))
+                continue
+                ;;
         esac
         if native_pipeline_available; then
             OUT="/tmp/_kr_test_bin_$$"
