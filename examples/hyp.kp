@@ -1,0 +1,11 @@
+import math
+
+def hypotenuse(a: int, b: int) -> int:
+    return math.isqrt(a * a + b * b)
+
+def factorial(n: int) -> int:
+    return math.factorial(n)
+
+print(hypotenuse(3, 4))
+print(hypotenuse(5, 12))
+print(factorial(6))

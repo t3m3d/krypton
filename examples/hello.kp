@@ -1,0 +1,13 @@
+# examples/hello.kp -- smallest possible test for compiler/snek.k
+#
+# Translate with:
+#   kcc -r compiler/snek.k examples/hello.kp -o /tmp/hello.k
+# Compile + run:
+#   kcc /tmp/hello.k -o /tmp/hello.exe
+#   /tmp/hello.exe
+
+print("hello, world")
+x = 42
+print(x)
+y = x + 8
+print(y)
