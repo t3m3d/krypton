@@ -858,6 +858,43 @@ func emitIsdigit() {
     c = c + e_ret()
     emit c
 }
+// kr_strlen: x0=ptr -> x0=length (bytes before NUL). 32 bytes. (x9/x10 scratch)
+func emitStrlen() {
+    let c = e_movr(9, 0) + e_movz(0, 0)                       // [0,4] x9=ptr; len=0
+    c = c + e_ldrb0(10, 9) + e_cbz(10, 16)                    // [8,12] .l: w10=[x9]; 0 -> .d(28)
+    c = c + e_addi(9, 9, 1) + e_addi(0, 0, 1) + e_b(0 - 16)   // [16,20,24] x9++; len++; -> .l(8)
+    c = c + e_ret()                                           // [28] .d
+    emit c
+}
+// kr_replace(x0=s, x1=find, x2=rep) -> new string with all `find` replaced by
+// `rep`. Empty find returns s. Alloc upper bound ls*(lr+1)+1. 228 bytes.
+// Held across the alloc bl (which clobbers x0-x10): s/find/rep/lf/lr in
+// x23-x27 (untouched by kr_strlen/kr_rawalloc); lr saved in x21; buf in x16.
+func emitReplace(strlenOff, allocOff, thisOff) {
+    let c = e_movr(21, 30)                                    // [0] save lr
+    c = c + e_movr(23, 0) + e_movr(24, 1) + e_movr(25, 2)     // [4,8,12] s; find; rep
+    c = c + e_movr(0, 24) + e_bl(strlenOff - (thisOff + 20)) + e_movr(26, 0)  // [16,20,24] lf = strlen(find)
+    c = c + e_cbz(26, 188)                                    // [28] lf==0 -> .ret_s (216)
+    c = c + e_movr(0, 25) + e_bl(strlenOff - (thisOff + 36)) + e_movr(27, 0)  // [32,36,40] lr = strlen(rep)
+    c = c + e_movr(0, 23) + e_bl(strlenOff - (thisOff + 48)) + e_movr(11, 0)  // [44,48,52] ls = strlen(s)
+    c = c + e_addi(0, 27, 1) + e_mul(0, 11, 0) + e_addi(0, 0, 1)              // [56,60,64] bufsize = ls*(lr+1)+1
+    c = c + e_bl(allocOff - (thisOff + 68))                   // [68] x0 = buf
+    c = c + e_movr(16, 0) + e_movr(28, 0)                     // [72,76] buf=x16; dst=x28 (src stays in x23=s)
+    c = c + e_ldrb0(10, 23) + e_cbz(10, 116)                  // [80,84] .scan: *src; 0 -> .done (200)
+    c = c + e_movr(9, 23) + e_movr(12, 24) + e_movr(13, 26)   // [88,92,96] p=src; q=find; n=lf
+    c = c + e_cbz(13, 36)                                     // [100] .mc: n==0 -> .match (136)
+    c = c + e_ldrb0(14, 9) + e_ldrb0(15, 12)                  // [104,108] *p, *q
+    c = c + e_cmp(14, 15) + e_bne(64)                         // [112,116] differ -> .nomatch (180)
+    c = c + e_addi(9, 9, 1) + e_addi(12, 12, 1) + e_subi(13, 13, 1) + e_b(0 - 32)  // [120,124,128,132] -> .mc (100)
+    c = c + e_movr(12, 25) + e_movr(13, 27)                   // [136,140] .match: q=rep; n=lr
+    c = c + e_cbz(13, 28)                                     // [144] .cprep: n==0 -> .cprepdone (172)
+    c = c + e_ldrb0(14, 12) + e_strb(14, 28) + e_addi(12, 12, 1) + e_addi(28, 28, 1) + e_subi(13, 13, 1) + e_b(0 - 24)  // [148..168] dst[k]=rep[k] -> .cprep (144)
+    c = c + e_addr(23, 23, 26) + e_b(0 - 96)                  // [172,176] .cprepdone: src += lf; -> .scan (80)
+    c = c + e_ldrb0(14, 23) + e_strb(14, 28) + e_addi(23, 23, 1) + e_addi(28, 28, 1) + e_b(0 - 116)  // [180..196] .nomatch: *dst++=*src++; -> .scan (80)
+    c = c + e_strb(31, 28) + e_movr(0, 16) + e_movr(30, 21) + e_ret()  // [200,204,208,212] .done: *dst=0; x0=buf; ret
+    c = c + e_movr(0, 23) + e_movr(30, 21) + e_ret()          // [216,220,224] .ret_s: x0=s; ret
+    emit c
+}
 
 // ── IR helpers ───────────────────────────────────────────────────────────────
 func opcode(ln) {                       // first token of an IR line
@@ -1109,6 +1146,7 @@ func opSize(ln) {
         if startsWith(b, "arg")        { emit 24 }  // 1-arg: pop + atoi + bl kr_arg + push
         if startsWith(b, "printErr")   { emit 20 }  // 1-arg: pop + bl kr_printerr + push
         if startsWith(b, "isDigit")    { emit 20 }  // 1-arg: pop + bl kr_isdigit + push
+        if startsWith(b, "replace")    { emit 36 }  // 3-arg: pop x2/x1/x0 + bl kr_replace + push
         if startsWith(b, "gcCollect")    { emit 12 }  // no-op (bump allocator): push 0
         if startsWith(b, "gcAllocCount") { emit 20 }  // load gcGlobals[count]
         if startsWith(b, "gcAllocated")  { emit 20 }  // load gcGlobals[bytes]
@@ -1209,7 +1247,9 @@ just run {
     let argOff = argcountOff + 20          // kr_argcount is 20 bytes
     let printerrOff = argOff + 36          // kr_arg is 36 bytes
     let isdigitOff = printerrOff + 64      // kr_printerr is 64 bytes
-    let nlOff = isdigitOff + 32            // kr_isdigit is 32 bytes
+    let strlenOff = isdigitOff + 32        // kr_isdigit is 32 bytes
+    let replaceOff = strlenOff + 32        // kr_strlen is 32 bytes
+    let nlOff = replaceOff + 228           // kr_replace is 228 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -1464,6 +1504,8 @@ just run {
             else if startsWith(b, "arg") { code = sbAppend(code, c_pop0() + e_bl(atoiOff - (off + 8)) + e_bl(argOff - (off + 12)) + c_push())  off = off + 24 }
             if startsWith(b, "printErr")   { code = sbAppend(code, c_pop0() + e_bl(printerrOff - (off + 8)) + c_push())  off = off + 20 }
             if startsWith(b, "isDigit")    { code = sbAppend(code, c_pop0() + e_bl(isdigitOff - (off + 8)) + c_push())  off = off + 20 }
+            // replace(s, find, rep): pop rep->x2, find->x1, s->x0; kr_replace; push.
+            if startsWith(b, "replace")    { code = sbAppend(code, e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_bl(replaceOff - (off + 24)) + c_push())  off = off + 36 }
             // writeFile(path, content): pop0->x0=content, pop1->x1=path; kr_writefile. 28 bytes.
             if startsWith(b, "writeFile")  { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(writefileOff - (off + 16)) + c_push())  off = off + 28 }
             if startsWith(b, "kp") {
@@ -1633,6 +1675,8 @@ just run {
     bb = sbAppend(bb, emitArg(opOff))
     bb = sbAppend(bb, emitPrinterr(nlOff))
     bb = sbAppend(bb, emitIsdigit())
+    bb = sbAppend(bb, emitStrlen())
+    bb = sbAppend(bb, emitReplace(strlenOff, allocOff, replaceOff))
     bb = sbAppend(bb, "")     // guards: x86 backend drops trailing sbAppends (scales w/ chain len)
     bb = sbAppend(bb, "")
     bb = sbAppend(bb, "")
