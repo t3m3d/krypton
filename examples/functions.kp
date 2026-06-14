@@ -1,0 +1,12 @@
+def square(x):
+    return x * x
+
+def countdown(n):
+    while n > 0:
+        print(n)
+        n = n - 1
+    print("liftoff")
+
+print(square(5))
+print(square(7))
+countdown(3)
