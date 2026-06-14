@@ -140,7 +140,10 @@ stderr.
 | 7     | list comprehensions, dict literals + access,            | ✓      |
 |       | try/except (try body emitted, except ignored),          |        |
 |       | break/continue, assert, str/int/repr/input aliases      |        |
-| 8+    | class definitions, real exception catching, generators  | TODO   |
+| 8     | comparison chaining `a < b < c`, negative indexing      | ✓      |
+|       | `xs[-1]`                                                |        |
+| 9+    | class definitions, real exception catching, generators, | TODO   |
+|       | for-loop tuple unpacking, free-var capture in listcomp  |        |
 
 ## Known limits
 
