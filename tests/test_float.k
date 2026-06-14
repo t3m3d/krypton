@@ -49,5 +49,14 @@ just run {
     if floatToInt(3.7)            != 3      { kp("[FAIL] floatToInt trunc"); exit("1") }
     if floatToInt(fmul(2.5, 4.0)) != 10     { kp("[FAIL] floatToInt expr"); exit("1") }
     if fformat(intToFloat(10) / 4.0, 2) != "2.50" { kp("[FAIL] int->float in op"); exit("1") }
-    kp("[PASS] float arith + compares + fformat + operators + conv (boxed f64)")
+    // A7: float compound assignment (typed f64 target + untyped via rhs literal).
+    let c: f64 = 3.0
+    c += 1.5  if fformat(c, 1) != "4.5" { kp("[FAIL] f +="); exit("1") }
+    c *= 2.0  if fformat(c, 1) != "9.0" { kp("[FAIL] f *="); exit("1") }
+    c -= 1.0  if fformat(c, 1) != "8.0" { kp("[FAIL] f -="); exit("1") }
+    c /= 2.0  if fformat(c, 1) != "4.0" { kp("[FAIL] f /="); exit("1") }
+    c++       if fformat(c, 1) != "5.0" { kp("[FAIL] f ++"); exit("1") }
+    let d = 1.0
+    d += 0.5  if fformat(d, 1) != "1.5" { kp("[FAIL] untyped f += (rhs-typed)"); exit("1") }
+    kp("[PASS] float arith + compares + fformat + operators + conv + compound (boxed f64)")
 }
