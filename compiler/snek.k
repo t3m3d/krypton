@@ -542,6 +542,30 @@ func astDict(n, pairList) {
     emit "DICT|" + toStr(n) + "|" + pairList
 }
 
+// CLASS: "CLASS|<name>|<bodyLen>|<body>" where body is a length-prefixed
+// stmt list containing only DEFs (methods).  Lowering happens at emit
+// time: emit a factory `func <Name>(...)` + one `func <Name>_<method>(self, ...)`
+// per non-__init__ method.  Field access `self.x` lowers to envGet/envSet.
+//
+// Limitations (MVP):
+//   - No inheritance (subclass DSL not parsed).
+//   - No class attributes (only instance state via self.x).
+//   - Method dispatch `obj.method(args)` only resolves when obj was
+//     assigned `var = ClassName(...)` literal (we track the binding).
+//     Untracked obj.method calls fall through to the existing dotted-call
+//     lowering (treats method as stdlib helper).
+//   - Magic methods other than __init__ aren't recognised specially.
+func astClass(name, body) {
+    emit "CLASS|" + name + "|" + toStr(len(body)) + "|" + body
+}
+
+// ASSIGN_FIELD: "ASSIGN_FIELD|<obj>|<field>|<exprLen>|<expr>"
+// `obj.field = expr` lowers to `envSet(obj, "field", toStr(expr))`.
+// Parsed at statement level by spotting `NAME.NAME =` at the start.
+func astAssignField(obj, field, expr) {
+    emit "ASSIGN_FIELD|" + obj + "|" + field + "|" + toStr(len(expr)) + "|" + expr
+}
+
 // LISTCOMP: "LISTCOMP|<id>|<var>|<eLen>|<expr><iLen>|<iter><cLen>|<cond>"
 // `<id>` is a per-comprehension unique integer (parser position). Each
 // LISTCOMP gets a hoisted helper func `_snek_lc_<id>()` generated at
@@ -625,6 +649,7 @@ func parseBlock(toks, pos) {
 func parseStatement(toks, pos) {
     // Block-introducing keywords.
     if atKw(toks, pos, "def")    == "1" { emit parseDef(toks, pos) }
+    if atKw(toks, pos, "class")  == "1" { emit parseClass(toks, pos) }
     if atKw(toks, pos, "if")     == "1" { emit parseIf(toks, pos) }
     if atKw(toks, pos, "while")  == "1" { emit parseWhile(toks, pos) }
     if atKw(toks, pos, "for")    == "1" { emit parseFor(toks, pos) }
@@ -738,7 +763,20 @@ func parseStatement(toks, pos) {
     // Lookahead: NAME "=" ... is an assignment, NAME "+=" etc. an
     // augmented assignment that desugars to `NAME = NAME <op> expr`.
     // NAME "," NAME ... "=" is tuple unpacking.
+    // NAME "." NAME "=" ... is field assignment (e.g. self.x = v).
     if atKind(toks, pos, "NAME") == "1" {
+        // Field-assignment sniff: NAME . NAME = EXPR
+        if atOp(toks, pos + 1, ".") == "1" && atKind(toks, pos + 2, "NAME") == "1" && atOp(toks, pos + 3, "=") == "1" {
+            let objT = peekTok(toks, pos)
+            let objName = tokVal(objT)
+            let fieldT = peekTok(toks, pos + 2)
+            let fieldName = tokVal(fieldT)
+            pos = pos + 4                            // consume NAME . NAME =
+            let r = parseExpr(toks, pos)
+            pos = pkPos(r)
+            if atKind(toks, pos, "NL") == "1" { pos = pos + 1 }
+            emit pkPair(astAssignField(objName, fieldName, pkNode(r)), pos)
+        }
         // Tuple unpacking sniff: starts with `NAME ,` and contains an `=`
         // before the next NL.  We peek up to the `=` to confirm.
         if atOp(toks, pos + 1, ",") == "1" {
@@ -876,6 +914,32 @@ func parseDef(toks, pos) {
     let body = pkNode(br)
     pos = pkPos(br)
     emit pkPair(astDef(name, args, body), pos)
+}
+
+// class NAME : NL INDENT <method_defs> DEDENT
+// MVP: bare `class Foo:` only -- no inheritance, no class attributes
+// (everything is per-instance via self.x), no decorators.  Body is parsed
+// as a regular block; the methods land as DEFs which the emitter
+// recognises and lifts into top-level `<Class>_<method>` funcs.
+func parseClass(toks, pos) {
+    pos = pos + 1                                   // consume 'class'
+    let nameT = peekTok(toks, pos)
+    let className = tokVal(nameT)
+    pos = pos + 1
+    // Skip optional `(BaseClass)` -- inheritance isn't supported but
+    // we accept the syntax so existing Python code parses.
+    if atOp(toks, pos, "(") == "1" {
+        while atOp(toks, pos, ")") == "0" && atKind(toks, pos, "EOF") == "0" {
+            pos = pos + 1
+        }
+        if atOp(toks, pos, ")") == "1" { pos = pos + 1 }
+    }
+    if atOp(toks, pos, ":") == "1" { pos = pos + 1 }
+    if atKind(toks, pos, "NL") == "1" { pos = pos + 1 }
+    let br = parseBlock(toks, pos)
+    let body = pkNode(br)
+    pos = pkPos(br)
+    emit pkPair(astClass(className, body), pos)
 }
 
 // if cond : block (elif cond : block)* (else : block)?
@@ -1529,7 +1593,24 @@ func emitExpr(node) {
 
     if kind == "NUM"  { emit rest }
     if kind == "STR"  { emit "\"" + _unescFld(rest) + "\"" }
-    if kind == "NAME" { emit rest }
+    if kind == "NAME" {
+        // Field-access lowering: `obj.field` -> `envGet(obj, "field")`,
+        // except for the stdlib module prefixes (math/os/sys) where dotted
+        // names are constants like `math.pi` -- those keep the raw dotted
+        // form and downstream module-prefix lowering takes care of them.
+        let dot = indexOf(rest, ".")
+        if dot > 0 {
+            let modPart = substring(rest, 0, dot)
+            let isMod = "0"
+            if modPart == "math" { isMod = "1" }
+            if modPart == "os"   { isMod = "1" }
+            if modPart == "sys"  { isMod = "1" }
+            if isMod == "0" {
+                emit "envGet(" + modPart + ", \"" + substring(rest, dot + 1, len(rest)) + "\")"
+            }
+        }
+        emit rest
+    }
     if kind == "BOOL" { emit "\"" + rest + "\"" }
     if kind == "NONE" { emit "\"\"" }
 
@@ -1562,6 +1643,20 @@ func emitExpr(node) {
         // the Krypton pow builtin sees proper ints.
         if op == "POW" {
             emit "pow(toInt(" + emitExpr(lf) + "), toInt(" + emitExpr(rt) + "))"
+        }
+        // Python string multiplication: `"-" * 20` -> repeat("-", 20).
+        // Detect at compile time when either side of `*` is a STR literal;
+        // dispatch to the Krypton repeat() builtin. Numeric `*` falls
+        // through unchanged. We can only catch the literal-string case
+        // -- `s * n` where s is a NAME holding a string can't be detected
+        // here (no type info); user can write repeat(s, n) explicitly.
+        if op == "*" {
+            if startsWith(lf, "STR|") {
+                emit "repeat(" + emitExpr(lf) + ", " + emitExpr(rt) + ")"
+            }
+            if startsWith(rt, "STR|") {
+                emit "repeat(" + emitExpr(rt) + ", " + emitExpr(lf) + ")"
+            }
         }
         emit "(" + emitExpr(lf) + " " + opOut + " " + emitExpr(rt) + ")"
     }
@@ -1954,6 +2049,82 @@ func emitStmt(node, decls, indent) {
         emit pkPair(sig + "\n" + bodySrc + close, decls)
     }
 
+    if kind == "CLASS" {
+        // rest = "<name>|<bodyLen>|<body>"
+        // Lower a class to a factory func + per-method top-level funcs.
+        let b1 = indexOf(rest, "|")
+        let className = substring(rest, 0, b1)
+        let after1 = substring(rest, b1 + 1, len(rest))
+        let b2 = indexOf(after1, "|")
+        let bodyLen = toInt(substring(after1, 0, b2))
+        let body = substring(after1, b2 + 1, b2 + 1 + bodyLen)
+        // Walk the body's stmt list; expect each item to be a DEF.
+        // For DEF "__init__", capture args + body for the factory.
+        // For other DEFs, emit as `<ClassName>_<method>(self, ...)`.
+        let n = listCount(body)
+        let c = listStart(body)
+        let initArgs = ""          // CSV of __init__ params EXCLUDING self
+        let initBody = "0|"        // length-prefixed empty stmt list
+        let methodsOut = sbNew()
+        let i = 0
+        while i < n {
+            let g = listGet(body, c)
+            c = lgCursor(g)
+            let stmt = lgItem(g)
+            let stbar = indexOf(stmt, "|")
+            let stkind = substring(stmt, 0, stbar)
+            let strest = substring(stmt, stbar + 1, len(stmt))
+            if stkind == "DEF" {
+                // parse "<name>|<argsCSV>|<bodyLen>|<body>"
+                let mb1 = indexOf(strest, "|")
+                let mname = substring(strest, 0, mb1)
+                let maft1 = substring(strest, mb1 + 1, len(strest))
+                let mb2 = indexOf(maft1, "|")
+                let margsCSV = substring(maft1, 0, mb2)
+                let maft2 = substring(maft1, mb2 + 1, len(maft1))
+                let mb3 = indexOf(maft2, "|")
+                let mbodyLen = toInt(substring(maft2, 0, mb3))
+                let mbody = substring(maft2, mb3 + 1, mb3 + 1 + mbodyLen)
+                if mname == "__init__" {
+                    // Strip leading "self," from args -- factory caller
+                    // doesn't pass self.
+                    let commaAt = indexOf(margsCSV, ",")
+                    if commaAt > 0 { initArgs = substring(margsCSV, commaAt + 1, len(margsCSV)) }
+                    if commaAt < 0 { initArgs = "" }
+                    initBody = mbody
+                } else {
+                    // Regular method: emit at module scope.
+                    let methodSig = indent + "func " + className + "_" + mname + "(" + margsCSV + ") {"
+                    let methodBody = emitStmtList(mbody, margsCSV, indent + "    ")
+                    methodsOut = sbAppend(methodsOut, methodSig + "\n" + methodBody + indent + "}\n")
+                }
+            }
+            i = i + 1
+        }
+        // Emit factory.
+        let factorySig = indent + "func " + className + "(" + initArgs + ") {"
+        let factoryHead = indent + "    let self = envNew()\n" +
+                          indent + "    envSet(self, \"__class__\", \"" + className + "\")\n"
+        let factoryBody = emitStmtList(initBody, "self," + initArgs, indent + "    ")
+        let factoryTail = indent + "    emit self\n" + indent + "}\n"
+        let factoryAll = factorySig + "\n" + factoryHead + factoryBody + factoryTail
+        emit pkPair(factoryAll + sbToString(methodsOut), decls)
+    }
+
+    if kind == "ASSIGN_FIELD" {
+        // rest = "<obj>|<field>|<exprLen>|<expr>"
+        let b1 = indexOf(rest, "|")
+        let objName = substring(rest, 0, b1)
+        let aft1 = substring(rest, b1 + 1, len(rest))
+        let b2 = indexOf(aft1, "|")
+        let fieldName = substring(aft1, 0, b2)
+        let aft2 = substring(aft1, b2 + 1, len(aft1))
+        let b3 = indexOf(aft2, "|")
+        let eLen = toInt(substring(aft2, 0, b3))
+        let expr = substring(aft2, b3 + 1, b3 + 1 + eLen)
+        emit pkPair(indent + "envSet(" + objName + ", \"" + fieldName + "\", toStr(" + emitExpr(expr) + "))", decls)
+    }
+
     if kind == "IF" {
         // rest = "<cLen>|<cond><tLen>|<then><eLen>|<else>"
         let b1 = indexOf(rest, "|")
@@ -2154,7 +2325,11 @@ func emitProgram(stmts) {
             defs = sbAppend(defs, toStr(len(stmt)) + "|" + stmt)
             nDefs = nDefs + 1
         }
-        if kind != "IMPORT" && kind != "DEF" {
+        if kind == "CLASS" {
+            defs = sbAppend(defs, toStr(len(stmt)) + "|" + stmt)
+            nDefs = nDefs + 1
+        }
+        if kind != "IMPORT" && kind != "DEF" && kind != "CLASS" {
             main = sbAppend(main, toStr(len(stmt)) + "|" + stmt)
             nMain = nMain + 1
         }
