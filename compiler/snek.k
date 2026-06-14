@@ -1022,6 +1022,10 @@ func parseComparison(toks, pos) {
     let r = parseAddExpr(toks, pos)
     let left = pkNode(r)
     pos = pkPos(r)
+    // Python comparison chaining: `a < b < c` -> `(a < b) and (b < c)`.
+    // `chain` accumulates the AND of all adjacent pairs; for a single
+    // comparison we just emit it without an AND wrap.
+    let chain = ""
     while atOp(toks, pos, "==") == "1" || atOp(toks, pos, "!=") == "1" ||
           atOp(toks, pos, "<")  == "1" || atOp(toks, pos, "<=") == "1" ||
           atOp(toks, pos, ">")  == "1" || atOp(toks, pos, ">=") == "1" ||
@@ -1029,18 +1033,13 @@ func parseComparison(toks, pos) {
           atKw(toks, pos, "is") == "1" {
         let t = peekTok(toks, pos)
         let op = tokVal(t)
-        // KW "in" lowers via an "IN" op alias so emit can swap arg
-        // order (Python: needle in haystack -> Krypton: contains(haystack, needle))
         if tokKind(t) == "KW" && op == "in" { op = "IN" }
-        // "not in" -- two KW tokens treated as one op.
         if tokKind(t) == "KW" && op == "not" {
             if atKw(toks, pos + 1, "in") == "1" {
                 op = "NOTIN"
                 pos = pos + 1
             }
         }
-        // "is" / "is not" -- Python identity ops; lowered to == / != for
-        // our string-comparison semantics.
         if tokKind(t) == "KW" && op == "is" {
             op = "=="
             if atKw(toks, pos + 1, "not") == "1" {
@@ -1052,9 +1051,12 @@ func parseComparison(toks, pos) {
         let rr = parseAddExpr(toks, pos)
         let right = pkNode(rr)
         pos = pkPos(rr)
-        left = astBin(op, left, right)
+        let step = astBin(op, left, right)
+        if chain == "" { chain = step } else { chain = astBin("AND", chain, step) }
+        left = right
     }
-    emit pkPair(left, pos)
+    if chain == "" { emit pkPair(left, pos) }
+    emit pkPair(chain, pos)
 }
 
 func parseAddExpr(toks, pos) {
@@ -1583,11 +1585,13 @@ func emitExpr(node) {
         let iLen = toInt(substring(aft1, 0, b2))
         let idx = substring(aft1, b2 + 1, b2 + 1 + iLen)
         // Dict-style access if the key is a STR literal -- use the
-        // hoisted _snek_dict_get helper.  Otherwise list-style: split.
+        // hoisted _snek_dict_get helper.  Otherwise list-style: split
+        // with negative-index normalization so `xs[-1]` gets the last.
         if startsWith(idx, "STR|") {
             emit "_snek_dict_get(" + emitExpr(obj) + ", " + emitExpr(idx) + ")"
         }
-        emit "split(" + emitExpr(obj) + ", " + emitExpr(idx) + ")"
+        let objSrc = emitExpr(obj)
+        emit "split(" + objSrc + ", _snek_norm_idx(" + objSrc + ", " + emitExpr(idx) + "))"
     }
 
     if kind == "LISTCOMP" {
@@ -1971,6 +1975,12 @@ func emitProgram(stmts) {
     out = sbAppend(out, "        __i = __i + 2\n")
     out = sbAppend(out, "    }\n")
     out = sbAppend(out, "    emit \"\"\n")
+    out = sbAppend(out, "}\n\n")
+    // Always-emit negative-index helper so `xs[-1]` works as Python's
+    // last-element shortcut.  Trivial: returns count(xs) + i for negative i.
+    out = sbAppend(out, "func _snek_norm_idx(__xs, __i) {\n")
+    out = sbAppend(out, "    if __i < 0 { emit count(__xs) + __i }\n")
+    out = sbAppend(out, "    emit __i\n")
     out = sbAppend(out, "}\n\n")
     // Hoist any list-comprehension helpers ahead of user funcs.
     let lcHelpers = collectListCompHelpers(stmts)
