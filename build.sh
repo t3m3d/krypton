@@ -152,6 +152,13 @@ if [[ "$MODE" == "test" ]]; then
                 SKIPPED=$((SKIPPED + 1))
                 continue
                 ;;
+            test_float.k:linux|test_float.k:windows)
+                # A1 float (fadd/fsub/.../flt) has macho codegen only so far;
+                # the ELF/PE backends don't implement the fp builtins yet.
+                echo -e "${CYAN}SKIP${RESET}  $NAME (macOS-only until A1 mirrors)"
+                SKIPPED=$((SKIPPED + 1))
+                continue
+                ;;
         esac
         if native_pipeline_available; then
             OUT="/tmp/_kr_test_bin_$$"
