@@ -417,7 +417,7 @@ func emitRawAlloc(opOff, thisOff) {
     c = c + e_addi(0, 7, 16) + e_ret()                           // [116,120] return cur+16
     // ── bump path ──
     c = c + e_ldr0(3, 10) + e_cbnz(3, 12)                         // [124,128] .bump: x3=raw_next; !=0 -> .have(140)
-    c = c + e_movz(3, (opOff + 64) % 65536) + e_movk16(3, 32512 + (opOff + 64) / 65536)  // [132,136] lazy init cursor=rawBase+64
+    c = c + e_movz(3, (opOff + 80) % 65536) + e_movk16(3, 32512 + (opOff + 80) / 65536)  // [132,136] lazy init cursor=rawBase+80 (GB+64/72 = argc/argv)
     c = c + e_addr(4, 3, 1) + e_str0(4, 10)                       // [140,144] .have: raw_next = cursor+total
     c = c + e_movz(5, 4) + e_lslv(6, 0, 5) + e_str8(6, 3, 1) + e_str0(31, 3)  // [148,152,156,160] hdr: [+8]=n<<2; [+0]=0
     c = c + e_ldr8(7, 10, 2) + e_addr(7, 7, 1) + e_str8(7, 10, 2)  // [164,168,172] allocated += total
@@ -816,6 +816,38 @@ func emitPrint(nlOff) {
     c = c + e_movz(1, lo) + e_movk16(1, hi) + e_movz(2, 1) + e_movz(0, 1) + e_movz(8, 64) + e_svc() + e_ret()
     emit c
 }
+// kr_argcount() -> argc-1 (user args, excludes program name). argc stashed at
+// GB+64 by _start. 20 bytes.
+func emitArgcount(opOff) {
+    let c = e_movz(9, opOff % 65536) + e_movk16(9, 32512 + opOff / 65536)  // x9 = GB
+    c = c + e_ldr8(0, 9, 8)                       // x0 = argc (GB+64)
+    c = c + e_subi(0, 0, 1)                        // argc - 1 (skip argv[0])
+    c = c + e_ret()
+    emit c
+}
+// kr_arg(x0=idx) -> argv[idx+1] as a C-string ptr (idx+1 skips program name).
+// argv base stashed at GB+72 by _start. 36 bytes.
+func emitArg(opOff) {
+    let c = e_movz(9, opOff % 65536) + e_movk16(9, 32512 + opOff / 65536)  // x9 = GB
+    c = c + e_ldr8(1, 9, 9)                        // x1 = argv ptr (GB+72)
+    c = c + e_addi(0, 0, 1)                        // idx + 1
+    c = c + e_movz(2, 3) + e_lslv(0, 0, 2)         // x0 = (idx+1) << 3  (qword index)
+    c = c + e_addr(1, 1, 0)                         // x1 = &argv[idx+1]
+    c = c + e_ldr0(0, 1)                            // x0 = argv[idx+1]
+    c = c + e_ret()
+    emit c
+}
+// kr_printerr: x0=ptr -> write the NUL-terminated string + newline to fd 2.
+// Same shape as kr_print but fd=2 (stderr). 64 bytes.
+func emitPrinterr(nlOff) {
+    let lo = nlOff % 65536
+    let hi = 32512 + nlOff / 65536
+    let c = e_movr(1, 0) + e_movz(2, 0)
+    c = c + e_ldrbO(3, 1, 2) + e_cbz(3, 12) + e_addi(2, 2, 1) + e_b(0 - 12)           // strlen
+    c = c + e_movz(0, 2) + e_movz(8, 64) + e_svc()                                    // write(2,buf,len)
+    c = c + e_movz(1, lo) + e_movk16(1, hi) + e_movz(2, 1) + e_movz(0, 2) + e_movz(8, 64) + e_svc() + e_ret()
+    emit c
+}
 
 // ── IR helpers ───────────────────────────────────────────────────────────────
 func opcode(ln) {                       // first token of an IR line
@@ -1063,6 +1095,9 @@ func opSize(ln) {
         if startsWith(b, "unixConnect") { emit 128 }   // socket+connect(AF_UNIX) inline
         if startsWith(b, "readFile")   { emit 20 }  // 1-arg (path)
         if startsWith(b, "writeFile")  { emit 28 }  // 2-arg (path, content)
+        if startsWith(b, "argCount")   { emit 12 }  // 0-arg: bl kr_argcount + push (BEFORE "arg")
+        if startsWith(b, "arg")        { emit 24 }  // 1-arg: pop + atoi + bl kr_arg + push
+        if startsWith(b, "printErr")   { emit 20 }  // 1-arg: pop + bl kr_printerr + push
         if startsWith(b, "gcCollect")    { emit 12 }  // no-op (bump allocator): push 0
         if startsWith(b, "gcAllocCount") { emit 20 }  // load gcGlobals[count]
         if startsWith(b, "gcAllocated")  { emit 20 }  // load gcGlobals[bytes]
@@ -1091,7 +1126,7 @@ just run {
     let nlines = toInt(lineCount(ir))
 
     let HDR = 120
-    let START = 32                       // _start size (2x movz/movk + bl + 3 exit)
+    let START = 56                       // _start: argc/argv capture (6) + x20/x22 (4) + bl + 3 exit = 14 instr
 
     // ONE O(n) pass: total code size + precomputed LABEL/FUNC offset tables
     // ("name off\n" per entry). Replaces the old per-jump full-IR re-walk in
@@ -1101,7 +1136,7 @@ just run {
     let codeSize = 0
     let labelTabB = sbNew()
     let funcTabB = sbNew()
-    let aoff = 152
+    let aoff = HDR + START               // first code byte after HDR + _start (was 152 @ START=32)
     let i = 0
     while i < nlines {
         let ln0 = getLine(ir, i)
@@ -1159,7 +1194,10 @@ just run {
     let rawallocOff = getlineOff + 224   // kr_getline is 224 bytes (pointer-keyed cache)
     let rawfreeOff = rawallocOff + 196   // kr_rawalloc is 196 bytes (freelist-first)
     let rawreallocOff = rawfreeOff + 80  // kr_rawfree is 80 bytes
-    let nlOff = rawreallocOff + 108      // kr_rawrealloc is 108 bytes
+    let argcountOff = rawreallocOff + 108  // kr_rawrealloc is 108 bytes
+    let argOff = argcountOff + 20          // kr_argcount is 20 bytes
+    let printerrOff = argOff + 36          // kr_arg is 36 bytes
+    let nlOff = printerrOff + 64           // kr_printerr is 64 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -1190,10 +1228,15 @@ just run {
 
     // ── _start: x20=op stack, x22=heap, bl __main__, exit(0) ──────────────────
     let mainOff = toInt(funcVaddrOf(funcTab, "__main__"))
-    let code = sbAppend(sbNew(), e_movz(20, opOff % 65536) + e_movk16(20, 32512 + opOff / 65536))
-    code = sbAppend(code, e_movz(22, heapOff % 65536) + e_movk16(22, 32512 + heapOff / 65536))
-    code = sbAppend(code, e_bl(mainOff - (HDR + 16)))
-    code = sbAppend(code, e_movz(0, 0) + e_movz(8, 93) + e_svc())
+    // capture argc/argv from the entry stack (sp=argc, [sp+8]=&argv[0]) into GB
+    // slots 8/9 (GB+64/+72) BEFORE any function touches sp. GB = load_base+opOff.
+    let code = sbAppend(sbNew(), e_ldr0(10, 31) + e_addi(11, 31, 8))                            // [0,4] x10=argc, x11=&argv[0]
+    code = sbAppend(code, e_movz(9, opOff % 65536) + e_movk16(9, 32512 + opOff / 65536))        // [8,12] x9=GB
+    code = sbAppend(code, e_str8(10, 9, 8) + e_str8(11, 9, 9))                                  // [16,20] GB+64=argc; GB+72=argv
+    code = sbAppend(code, e_movz(20, opOff % 65536) + e_movk16(20, 32512 + opOff / 65536))      // [24,28] x20=op stack
+    code = sbAppend(code, e_movz(22, heapOff % 65536) + e_movk16(22, 32512 + heapOff / 65536))  // [32,36] x22=heap
+    code = sbAppend(code, e_bl(mainOff - (HDR + 40)))                                           // [40] bl __main__
+    code = sbAppend(code, e_movz(0, 0) + e_movz(8, 93) + e_svc())                               // [44,48,52] exit(0)
     let off = HDR + START
 
     // ── functions: each gets a frame on sp (x19=locals base); op stack is x20 ──
@@ -1403,6 +1446,11 @@ just run {
             }
             // readFile(path): pop0->x0=path; kr_readfile. 20 bytes.
             if startsWith(b, "readFile")   { code = sbAppend(code, c_pop0() + e_bl(readfileOff - (off + 8)) + c_push())  off = off + 20 }
+            // argCount() -> argc-1 (0-arg); arg(idx) -> argv[idx+1] (idx via atoi, string index).
+            // argCount must be checked first (it also startsWith "arg") -> else-if pair.
+            if startsWith(b, "argCount") { code = sbAppend(code, e_bl(argcountOff - off) + c_push())  off = off + 12 }
+            else if startsWith(b, "arg") { code = sbAppend(code, c_pop0() + e_bl(atoiOff - (off + 8)) + e_bl(argOff - (off + 12)) + c_push())  off = off + 24 }
+            if startsWith(b, "printErr")   { code = sbAppend(code, c_pop0() + e_bl(printerrOff - (off + 8)) + c_push())  off = off + 20 }
             // writeFile(path, content): pop0->x0=content, pop1->x1=path; kr_writefile. 28 bytes.
             if startsWith(b, "writeFile")  { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(writefileOff - (off + 16)) + c_push())  off = off + 28 }
             if startsWith(b, "kp") {
@@ -1568,6 +1616,9 @@ just run {
     bb = sbAppend(bb, emitRawAlloc(opOff, rawallocOff))
     bb = sbAppend(bb, emitRawFree(opOff, rawfreeOff))
     bb = sbAppend(bb, emitRawRealloc(rawallocOff, rawfreeOff, rawreallocOff))
+    bb = sbAppend(bb, emitArgcount(opOff))
+    bb = sbAppend(bb, emitArg(opOff))
+    bb = sbAppend(bb, emitPrinterr(nlOff))
     bb = sbAppend(bb, "")     // guards: x86 backend drops trailing sbAppends (scales w/ chain len)
     bb = sbAppend(bb, "")
     bb = sbAppend(bb, "")
