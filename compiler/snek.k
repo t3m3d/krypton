@@ -104,7 +104,11 @@ func isAlpha(c) {
     let n = charCode(c)
     if n >= 65 && n <= 90  { emit "1" }
     if n >= 97 && n <= 122 { emit "1" }
-    if c == "_"            { emit "1" }
+    // ASCII 95 = '_' -- check by code so we survive the Linux Krypton
+    // runtime where `c == "_"` returns false (string equality on a
+    // 1-byte literal underscore behaves differently across backends;
+    // charCode is reliable on both Windows + Linux).
+    if n == 95             { emit "1" }
     emit "0"
 }
 
