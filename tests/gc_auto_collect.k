@@ -1,11 +1,14 @@
 // Stage 6 phase 3: auto-trigger gcCollect on alloc-count threshold.
-// gcSetThreshold(N) (N = int; 0 disables) makes __rt_alloc self-collect once
-// allocs-since-collect >= N. The collect runs behind a register safepoint, so
+// gcSetThreshold(N) (N int or numeric string; 0 disables) makes __rt_alloc
+// self-collect once allocs-since-collect >= N. The threshold arg is parsed via
+// int-passthrough + atoi so "100" and 100 both work — unified with the Windows
+// ABI so this one test runs on both backends (handoff_w2m_phase3_review.md item 4).
+// The collect runs behind a register safepoint, so
 // live roots the caller keeps in registers across an alloc (e.g. `s` here)
 // survive. Without auto-collect the 600 dead temps accumulate (live ~600);
 // with it the live alloc-list stays tiny and dead temps land on the freelist.
 just run {
-    gcSetThreshold(100)
+    gcSetThreshold("100")
     let s = ""
     let i = 0
     while i < 600 {
