@@ -1486,6 +1486,12 @@ func emitExpr(node) {
         if name == "repr"  { nameOut = "toStr" }
         if name == "input" { nameOut = "readLine" }
         if name == "abs"   { nameOut = "abs" }
+        if name == "ord"   { nameOut = "charCode" }
+        if name == "chr"   { nameOut = "fromCharCode" }
+        if name == "min"   { nameOut = "min" }
+        if name == "max"   { nameOut = "max" }
+        if name == "sum"   { nameOut = "sum" }
+        if name == "type"  { nameOut = "toStr" }
         if name == "range" && n == 1 {
             // Render: range(0, <arg0>) -- inline since we have one arg.
             let aBar = indexOf(argBody, "|")

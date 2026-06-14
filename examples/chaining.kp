@@ -1,0 +1,24 @@
+# comparison chaining (Python's a < b < c == (a < b) and (b < c))
+
+def classify(n):
+    if 0 < n < 10:
+        return "small"
+    if 10 <= n <= 100:
+        return "medium"
+    if n > 100:
+        return "large"
+    return "non-positive"
+
+print(classify(5))
+print(classify(50))
+print(classify(500))
+print(classify(-1))
+
+# Equal chains
+def all_same(a, b, c):
+    if a == b == c:
+        return "yes"
+    return "no"
+
+print(all_same(7, 7, 7))
+print(all_same(7, 8, 7))
