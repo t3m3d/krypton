@@ -417,7 +417,7 @@ func emitRawAlloc(opOff, thisOff) {
     c = c + e_addi(0, 7, 16) + e_ret()                           // [116,120] return cur+16
     // ── bump path ──
     c = c + e_ldr0(3, 10) + e_cbnz(3, 12)                         // [124,128] .bump: x3=raw_next; !=0 -> .have(140)
-    c = c + e_movz(3, (opOff + 80) % 65536) + e_movk16(3, 32512 + (opOff + 80) / 65536)  // [132,136] lazy init cursor=rawBase+80 (GB+64/72 = argc/argv)
+    c = c + e_movz(3, (opOff + 96) % 65536) + e_movk16(3, 32512 + (opOff + 96) / 65536)  // [132,136] lazy init cursor=rawBase+96 (GB+64/72/80 = argc/argv/envp)
     c = c + e_addr(4, 3, 1) + e_str0(4, 10)                       // [140,144] .have: raw_next = cursor+total
     c = c + e_movz(5, 4) + e_lslv(6, 0, 5) + e_str8(6, 3, 1) + e_str0(31, 3)  // [148,152,156,160] hdr: [+8]=n<<2; [+0]=0
     c = c + e_ldr8(7, 10, 2) + e_addr(7, 7, 1) + e_str8(7, 10, 2)  // [164,168,172] allocated += total
@@ -895,6 +895,23 @@ func emitReplace(strlenOff, allocOff, thisOff) {
     c = c + e_movr(0, 23) + e_movr(30, 21) + e_ret()          // [216,220,224] .ret_s: x0=s; ret
     emit c
 }
+// kr_environ(x0=name) -> ptr to env var value ("name=VALUE" -> &VALUE), or a
+// fresh "" if unset. envp stashed at GB+80 by _start. 120 bytes.
+func emitEnviron(opOff, allocOff, thisOff) {
+    let c = e_movr(21, 30)                                    // [0] save lr (for not-found alloc)
+    c = c + e_movz(9, opOff % 65536) + e_movk16(9, 32512 + opOff / 65536)  // [4,8] x9=GB
+    c = c + e_ldr8(9, 9, 10)                                  // [12] x9 = envp (GB+80)
+    c = c + e_ldr0(10, 9) + e_cbz(10, 80)                     // [16,20] .loop: entry=*envp; 0 -> .notfound(100)
+    c = c + e_movr(11, 0) + e_movr(12, 10)                    // [24,28] np=name; ep=entry
+    c = c + e_ldrb0(13, 11) + e_cbz(13, 28)                   // [32,36] .cmp: nc=[np]; 0 -> .nameend(64)
+    c = c + e_ldrb0(14, 12) + e_cmp(13, 14) + e_bne(44)       // [40,44,48] ec=[ep]; differ -> .next(92)
+    c = c + e_addi(11, 11, 1) + e_addi(12, 12, 1) + e_b(0 - 28)  // [52,56,60] np++; ep++; -> .cmp(32)
+    c = c + e_ldrb0(14, 12) + e_movz(15, 61) + e_cmp(14, 15) + e_bne(16)  // [64,68,72,76] .nameend: [ep]=='='? no -> .next(92)
+    c = c + e_addi(0, 12, 1) + e_movr(30, 21) + e_ret()       // [80,84,88] x0=&value; ret
+    c = c + e_addi(9, 9, 8) + e_b(0 - 80)                     // [92,96] .next: envp++; -> .loop(16)
+    c = c + e_movz(0, 1) + e_bl(allocOff - (thisOff + 104)) + e_strb(31, 0) + e_movr(30, 21) + e_ret()  // [100,104,108,112,116] .notfound: ""
+    emit c
+}
 
 // ── IR helpers ───────────────────────────────────────────────────────────────
 func opcode(ln) {                       // first token of an IR line
@@ -1147,6 +1164,7 @@ func opSize(ln) {
         if startsWith(b, "printErr")   { emit 20 }  // 1-arg: pop + bl kr_printerr + push
         if startsWith(b, "isDigit")    { emit 20 }  // 1-arg: pop + bl kr_isdigit + push
         if startsWith(b, "replace")    { emit 36 }  // 3-arg: pop x2/x1/x0 + bl kr_replace + push
+        if startsWith(b, "environ")    { emit 20 }  // 1-arg: pop + bl kr_environ + push
         if startsWith(b, "gcCollect")    { emit 12 }  // no-op (bump allocator): push 0
         if startsWith(b, "gcAllocCount") { emit 20 }  // load gcGlobals[count]
         if startsWith(b, "gcAllocated")  { emit 20 }  // load gcGlobals[bytes]
@@ -1175,7 +1193,7 @@ just run {
     let nlines = toInt(lineCount(ir))
 
     let HDR = 120
-    let START = 56                       // _start: argc/argv capture (6) + x20/x22 (4) + bl + 3 exit = 14 instr
+    let START = 76                       // _start: argc/argv/envp capture (11) + x20/x22 (4) + bl + 3 exit = 19 instr
 
     // ONE O(n) pass: total code size + precomputed LABEL/FUNC offset tables
     // ("name off\n" per entry). Replaces the old per-jump full-IR re-walk in
@@ -1249,7 +1267,8 @@ just run {
     let isdigitOff = printerrOff + 64      // kr_printerr is 64 bytes
     let strlenOff = isdigitOff + 32        // kr_isdigit is 32 bytes
     let replaceOff = strlenOff + 32        // kr_strlen is 32 bytes
-    let nlOff = replaceOff + 228           // kr_replace is 228 bytes
+    let environOff = replaceOff + 228      // kr_replace is 228 bytes
+    let nlOff = environOff + 120           // kr_environ is 120 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -1285,10 +1304,11 @@ just run {
     let code = sbAppend(sbNew(), e_ldr0(10, 31) + e_addi(11, 31, 8))                            // [0,4] x10=argc, x11=&argv[0]
     code = sbAppend(code, e_movz(9, opOff % 65536) + e_movk16(9, 32512 + opOff / 65536))        // [8,12] x9=GB
     code = sbAppend(code, e_str8(10, 9, 8) + e_str8(11, 9, 9))                                  // [16,20] GB+64=argc; GB+72=argv
-    code = sbAppend(code, e_movz(20, opOff % 65536) + e_movk16(20, 32512 + opOff / 65536))      // [24,28] x20=op stack
-    code = sbAppend(code, e_movz(22, heapOff % 65536) + e_movk16(22, 32512 + heapOff / 65536))  // [32,36] x22=heap
-    code = sbAppend(code, e_bl(mainOff - (HDR + 40)))                                           // [40] bl __main__
-    code = sbAppend(code, e_movz(0, 0) + e_movz(8, 93) + e_svc())                               // [44,48,52] exit(0)
+    code = sbAppend(code, e_addi(12, 10, 1) + e_movz(13, 3) + e_lslv(12, 12, 13) + e_addr(12, 11, 12) + e_str8(12, 9, 10))  // [24,28,32,36,40] envp = argv+(argc+1)*8 -> GB+80
+    code = sbAppend(code, e_movz(20, opOff % 65536) + e_movk16(20, 32512 + opOff / 65536))      // [44,48] x20=op stack
+    code = sbAppend(code, e_movz(22, heapOff % 65536) + e_movk16(22, 32512 + heapOff / 65536))  // [52,56] x22=heap
+    code = sbAppend(code, e_bl(mainOff - (HDR + 60)))                                           // [60] bl __main__
+    code = sbAppend(code, e_movz(0, 0) + e_movz(8, 93) + e_svc())                               // [64,68,72] exit(0)
     let off = HDR + START
 
     // ── functions: each gets a frame on sp (x19=locals base); op stack is x20 ──
@@ -1506,6 +1526,7 @@ just run {
             if startsWith(b, "isDigit")    { code = sbAppend(code, c_pop0() + e_bl(isdigitOff - (off + 8)) + c_push())  off = off + 20 }
             // replace(s, find, rep): pop rep->x2, find->x1, s->x0; kr_replace; push.
             if startsWith(b, "replace")    { code = sbAppend(code, e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_bl(replaceOff - (off + 24)) + c_push())  off = off + 36 }
+            if startsWith(b, "environ")    { code = sbAppend(code, c_pop0() + e_bl(environOff - (off + 8)) + c_push())  off = off + 20 }
             // writeFile(path, content): pop0->x0=content, pop1->x1=path; kr_writefile. 28 bytes.
             if startsWith(b, "writeFile")  { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(writefileOff - (off + 16)) + c_push())  off = off + 28 }
             if startsWith(b, "kp") {
@@ -1677,6 +1698,7 @@ just run {
     bb = sbAppend(bb, emitIsdigit())
     bb = sbAppend(bb, emitStrlen())
     bb = sbAppend(bb, emitReplace(strlenOff, allocOff, replaceOff))
+    bb = sbAppend(bb, emitEnviron(opOff, allocOff, environOff))
     bb = sbAppend(bb, "")     // guards: x86 backend drops trailing sbAppends (scales w/ chain len)
     bb = sbAppend(bb, "")
     bb = sbAppend(bb, "")
