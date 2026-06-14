@@ -1,0 +1,13 @@
+len: 5
+first: 10
+third: 30
+slice: hello
+rest: world
+total: 20
+countdown:
+3
+2
+1
+found lo in hello world
+x is 42 and y is 100
+second word: beta
