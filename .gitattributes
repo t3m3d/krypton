@@ -6,6 +6,11 @@ kr      text eol=lf
 *.sh    text eol=lf
 *.ks    text eol=lf
 
+# Snek test goldens MUST stay LF — Windows core.autocrlf otherwise rewrites
+# them to CRLF on commit, which then diff-fails against the LF stdout of
+# every Linux-piped binary. tests/snek_smoke{,_linux}.sh compare byte-for-byte.
+*.expected text eol=lf
+
 # ── Krypton language tagging for GitHub Linguist ──────────────────────
 # Krypton isn't yet in github-linguist/linguist's languages.yml — an
 # upstream PR adding it is in flight (Agent M, 2026-06-04). Until that
