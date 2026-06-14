@@ -348,25 +348,38 @@ func emitSplit(allocOff, thisOff) {
     emit c
 }
 // kr_getline(x0=idx, x1=s) -> idx-th '\n'-separated line (no trailing \n).
-// Byte-identical to emitSplit with the separator '\n'(10) instead of ','(44). 160 bytes.
-func emitGetline(allocOff, thisOff) {
-    let c = e_movr(26, 30) + e_movr(11, 0) + e_movr(10, 1) + e_movz(9, 10)  // [0] lr; rem=idx; ptr=s; x9='\n'
-    c = c + e_cmpi0(11) + e_beq(32)                                // [16] .skip: rem==0 -> .scan_setup (48)
-    c = c + e_ldrb0(3, 10) + e_cbz(3, 112)                         // [24] c=[ptr]; c==0 -> .empty (140)
-    c = c + e_addi(10, 10, 1) + e_cmp(3, 9) + e_bne(8)             // [32] ptr++; c!='\n' -> .skipcont (48)
-    c = c + e_subi(11, 11, 1)                                      // [44] rem--
-    c = c + e_b(0 - 32)                                            // [48] .skipcont: -> .skip (16)
-    c = c + e_movr(12, 10)                                         // [52] .scan_setup: line start
-    c = c + e_ldrb0(3, 10) + e_cbz(3, 20)                          // [56] .scan: c=[ptr]; c==0 -> .got_end (80)
-    c = c + e_cmp(3, 9) + e_beq(12)                                // [64] c=='\n' -> .got_end (80)
-    c = c + e_addi(10, 10, 1) + e_b(0 - 20)                        // [72] ptr++; -> .scan (56)
-    c = c + e_subr(13, 10, 12) + e_addi(0, 13, 1)                  // [80] .got_end: len=ptr-start; x0=len+1
-    c = c + e_bl(allocOff - (thisOff + 88))                        // [88] x0=buf
-    c = c + e_movr(1, 0) + e_movz(5, 0)                            // [92] dst=buf; i=0
-    c = c + e_cmp(5, 13) + e_bge(20)                               // [100] .cp: i>=len -> .cpdone (124)
-    c = c + e_ldrbO(4, 12, 5) + e_strbR(4, 1, 5) + e_addi(5, 5, 1) + e_b(0 - 20)  // [108] dst[i]=start[i]
-    c = c + e_strbR(31, 1, 13) + e_movr(0, 1) + e_movr(30, 26) + e_ret()  // [124] .cpdone: dst[len]=0; return
-    c = c + e_movz(0, 1) + e_bl(allocOff - (thisOff + 144)) + e_strb(31, 0) + e_movr(30, 26) + e_ret()  // [140] .empty: ""
+// POINTER-KEYED CACHE (ported from macos_arm64 BUILTIN_GETLINE): cache slots
+// GB+40(ptr)/+48(idx)/+56(off) in the gcGlobals reserved region. Same string &
+// cached_idx<=idx -> resume the line-skip from the cached line start (rem =
+// idx-cache_idx) instead of rescanning from s -> sequential getLine (tokAt /
+// codegen line-loops) is O(1) amortized, killing the O(n^2) that stalled
+// self-host. Cache miss (other string or idx<cached) rescans from 0, always
+// correct. GB = load_base + opOff (folded 0x7F00 into movk hi). 224 bytes.
+func emitGetline(allocOff, opOff, thisOff) {
+    let c = e_movr(26, 30) + e_movr(4, 0) + e_movr(3, 1) + e_movz(9, 10)  // [0,4,8,12] lr; idx=x4; s=x3; x9='\n'
+    c = c + e_movz(14, opOff % 65536) + e_movk16(14, 32512 + opOff / 65536)  // [16,20] x14 = GB (VBASE+opOff)
+    c = c + e_ldr8(7, 14, 5) + e_ldr8(8, 14, 6) + e_ldr8(15, 14, 7)  // [24,28,32] cache ptr/idx/off
+    c = c + e_movr(11, 4) + e_movr(10, 3)                          // [36,40] MISS default: rem=idx; ptr=s
+    c = c + e_cmp(7, 3) + e_bne(20)                                // [44,48] cache_ptr!=s -> .skip (68)
+    c = c + e_cmp(8, 4) + e_bgt(12)                                // [52,56] cache_idx>idx -> .skip (68)
+    c = c + e_subr(11, 4, 8) + e_movr(10, 15)                      // [60,64] HIT: rem=idx-cache_idx; ptr=cache_off
+    c = c + e_cmpi0(11) + e_beq(32)                                // [68,72] .skip: rem==0 -> .scan_setup (104)
+    c = c + e_ldrb0(6, 10) + e_cbz(6, 124)                         // [76,80] c=[ptr]; c==0 -> .empty (204)
+    c = c + e_addi(10, 10, 1) + e_cmp(6, 9) + e_bne(8)             // [84,88,92] ptr++; c!='\n' -> .skipcont (100)
+    c = c + e_subi(11, 11, 1)                                      // [96] rem--
+    c = c + e_b(0 - 32)                                            // [100] .skipcont: -> .skip (68)
+    c = c + e_str8(3, 14, 5) + e_str8(4, 14, 6) + e_str8(10, 14, 7)  // [104,108,112] .scan_setup: cache=(s,idx,linestart)
+    c = c + e_movr(12, 10)                                         // [116] x12 = line start
+    c = c + e_ldrb0(6, 10) + e_cbz(6, 20)                          // [120,124] .scan: c=[ptr]; c==0 -> .got_end (144)
+    c = c + e_cmp(6, 9) + e_beq(12)                                // [128,132] c=='\n' -> .got_end (144)
+    c = c + e_addi(10, 10, 1) + e_b(0 - 20)                        // [136,140] ptr++; -> .scan (120)
+    c = c + e_subr(13, 10, 12) + e_addi(0, 13, 1)                  // [144,148] .got_end: len=ptr-start; x0=len+1
+    c = c + e_bl(allocOff - (thisOff + 152))                       // [152] x0=buf
+    c = c + e_movr(1, 0) + e_movz(5, 0)                            // [156,160] dst=buf; i=0
+    c = c + e_cmp(5, 13) + e_bge(20)                               // [164,168] .cp: i>=len -> .cpdone (188)
+    c = c + e_ldrbO(4, 12, 5) + e_strbR(4, 1, 5) + e_addi(5, 5, 1) + e_b(0 - 20)  // [172,176,180,184] dst[i]=start[i]
+    c = c + e_strbR(31, 1, 13) + e_movr(0, 1) + e_movr(30, 26) + e_ret()  // [188,192,196,200] .cpdone: dst[len]=0; return
+    c = c + e_movz(0, 1) + e_bl(allocOff - (thisOff + 208)) + e_strb(31, 0) + e_movr(30, 26) + e_ret()  // [204,208,212,216,220] .empty: ""
     emit c
 }
 // kr_linecount(x0=s) -> # of '\n'-separated lines. 1 + internal newlines, trailing
@@ -933,35 +946,48 @@ func opBytes(ir, i) {
     }
     emit toInt(opSize(ln)) + ""
 }
-// absolute byte offset of LABEL `name` (walks _start + all function code).
-func labelAbsOffset(ir, name) {
-    let n = toInt(lineCount(ir))
-    let i = 0
-    let off = 152                       // HDR(120) + _start(32)
-    while i < n {
-        let ln = getLine(ir, i)
-        if opcode(ln) == "LABEL" {
-            if operand(ln) == name { emit off + "" }
-        }
-        off = off + toInt(opBytes(ir, i))
-        i = i + 1
+// Look up `name` in a "\nNAME VAL\nNAME VAL..." table. Uses indexOf (NOT getLine)
+// so it does NOT touch / evict the kr_getline pointer cache — critical: these
+// lookups interleave with the main codegen IR walk, and a single-entry getLine
+// cache would be thrashed if every jump/load did a getLine on a SECOND string,
+// re-introducing O(n^2). indexOf is a plain char-scan over the (small) table.
+// Returns the VAL string (digits after "NAME ") or "0" if absent.
+func tabLookup(tab, name) {
+    let p = toInt(indexOf(tab, "\n" + name + " "))
+    if p < 0 { emit "0" }
+    let vs = p + len(name) + 2                 // skip "\n" + name + " "
+    let n = len(tab)
+    let e = vs
+    let stop = 0
+    while e < n && stop == 0 {
+        if tab[e] == "\n" { stop = 1 }
+        else { e = e + 1 }
     }
-    emit "0"
+    emit substring(tab, vs, e)
 }
-// absolute byte offset of FUNC `name`.
-func funcVaddrOf(ir, name) {
+// absolute byte offset of LABEL/FUNC `name`, via the precomputed offset table.
+func labelAbsOffset(tab, name) { emit tabLookup(tab, name) }
+func funcVaddrOf(tab, name) { emit tabLookup(tab, name) }
+// per-function local-slot table "\nNAME SLOT..." (params then locals, in order).
+// Built ONCE per function at its FUNC line (forward walk, getLine-cache friendly);
+// STORE/LOAD then resolve slots via tabLookup (indexOf, no getLine) instead of
+// re-walking the IR per access (localSlotIn was O(funcLen) getLine per LOAD/STORE).
+func buildSlots(ir, fStart) {
     let n = toInt(lineCount(ir))
-    let i = 0
-    let off = 152
-    while i < n {
+    let i = fStart + 1
+    let slot = 0
+    let out = sbNew()
+    let keep = 1
+    while i < n && keep == 1 {
         let ln = getLine(ir, i)
-        if opcode(ln) == "FUNC" {
-            if headName(ln) == name { emit off + "" }
-        }
-        off = off + toInt(opBytes(ir, i))
+        let op = opcode(ln)
+        if op == "FUNC" { keep = 0 }
+        else if op == "END" { keep = 0 }
+        else if op == "PARAM" { out = sbAppend(out, "\n" + operand(ln) + " " + (slot + ""))  slot = slot + 1 }
+        else if op == "LOCAL" { out = sbAppend(out, "\n" + operand(ln) + " " + (slot + ""))  slot = slot + 1 }
         i = i + 1
     }
-    emit "0"
+    emit sbToString(out)
 }
 // byte size of a non-structural op (body of a function).
 func opSize(ln) {
@@ -1067,10 +1093,28 @@ just run {
     let HDR = 120
     let START = 32                       // _start size (2x movz/movk + bl + 3 exit)
 
-    // total function code size (multi-function, context-aware)
+    // ONE O(n) pass: total code size + precomputed LABEL/FUNC offset tables
+    // ("name off\n" per entry). Replaces the old per-jump full-IR re-walk in
+    // labelAbsOffset/funcVaddrOf (J jumps * n lines * opBytes = O(n^2), which
+    // blew up compile time + RAM on big self-host IR). aoff mirrors the old
+    // off seed: HDR(120) + _start(32) = 152, advanced by opBytes per line.
     let codeSize = 0
+    let labelTabB = sbNew()
+    let funcTabB = sbNew()
+    let aoff = 152
     let i = 0
-    while i < nlines { codeSize = codeSize + toInt(opBytes(ir, i))  i = i + 1 }
+    while i < nlines {
+        let ln0 = getLine(ir, i)
+        let op0 = opcode(ln0)
+        if op0 == "LABEL" { labelTabB = sbAppend(labelTabB, "\n" + operand(ln0) + " " + (aoff + "")) }
+        if op0 == "FUNC"  { funcTabB = sbAppend(funcTabB, "\n" + headName(ln0) + " " + (aoff + "")) }
+        let bs = toInt(opBytes(ir, i))
+        aoff = aoff + bs
+        codeSize = codeSize + bs
+        i = i + 1
+    }
+    let labelTab = sbToString(labelTabB)
+    let funcTab = sbToString(funcTabB)
 
     let allocOff  = HDR + START + codeSize
     let strIntOff = allocOff + 16
@@ -1112,7 +1156,7 @@ just run {
     let cmpOff = isnumOff + 60            // kr_isnum is 60 bytes
     let linecountOff = cmpOff + 144      // kr_cmp is 144 bytes
     let getlineOff = linecountOff + 76   // kr_linecount is 76 bytes
-    let rawallocOff = getlineOff + 160   // kr_getline is 160 bytes
+    let rawallocOff = getlineOff + 224   // kr_getline is 224 bytes (pointer-keyed cache)
     let rawfreeOff = rawallocOff + 196   // kr_rawalloc is 196 bytes (freelist-first)
     let rawreallocOff = rawfreeOff + 80  // kr_rawfree is 80 bytes
     let nlOff = rawreallocOff + 108      // kr_rawrealloc is 108 bytes
@@ -1145,7 +1189,7 @@ just run {
     let opOff = heapOff + 1048576 + 65536           // x20 start = heap + 1 MiB + 64 KiB
 
     // ── _start: x20=op stack, x22=heap, bl __main__, exit(0) ──────────────────
-    let mainOff = toInt(funcVaddrOf(ir, "__main__"))
+    let mainOff = toInt(funcVaddrOf(funcTab, "__main__"))
     let code = sbAppend(sbNew(), e_movz(20, opOff % 65536) + e_movk16(20, 32512 + opOff / 65536))
     code = sbAppend(code, e_movz(22, heapOff % 65536) + e_movk16(22, 32512 + heapOff / 65536))
     code = sbAppend(code, e_bl(mainOff - (HDR + 16)))
@@ -1155,7 +1199,8 @@ just run {
     // ── functions: each gets a frame on sp (x19=locals base); op stack is x20 ──
     let curF = 0
     let frame = 0
-    let sidx = 0
+    let curSlots = ""                 // per-function local-slot table (rebuilt at each FUNC)
+    let strCursor = dataOff           // running offset into the string-literal data
     let fieldCursor = fieldBase       // running offset into the field-name table
     i = 0
     while i < nlines {
@@ -1163,6 +1208,7 @@ just run {
         let op = opcode(ln)
         if op == "FUNC" {
             curF = i
+            curSlots = buildSlots(ir, i)
             let argc = toInt(funcArgc(ln))
             frame = toInt(countLocals(ir, i)) * 16
             code = sbAppend(code, e_subi(31, 31, 16) + e_str0(19, 31) + e_str8(30, 31, 1))   // save x19, x30
@@ -1176,26 +1222,16 @@ just run {
         }
         if op == "PUSH" {
             if isStrPush(ln) == "1" {
-                let sOff = dataOff
-                let j = 0
-                let k = 0
-                while j < nlines {
-                    let lj = getLine(ir, j)
-                    if isStrPush(lj) == "1" {
-                        if k == sidx { j = nlines }
-                        else { sOff = sOff + (len(quoted(lj)) + 1)  k = k + 1 }
-                    }
-                    j = j + 1
-                }
+                let sOff = strCursor                              // O(1): running data offset (was O(n) full-IR re-walk per string)
+                strCursor = strCursor + (len(quoted(ln)) + 1)
                 code = sbAppend(code, e_movz(0, sOff % 65536) + e_movk16(0, 32512 + sOff / 65536) + c_push())
-                sidx = sidx + 1
             } else {
                 code = sbAppend(code, c_loadImm(toInt(operand(ln))) + c_push())
             }
             off = off + 16
         }
-        if op == "STORE" { code = sbAppend(code, c_pop0() + e_strIdx(0, 19, toInt(localSlotIn(ir, curF, operand(ln)))))  off = off + 12 }
-        if op == "LOAD"  { code = sbAppend(code, e_ldrIdx(0, 19, toInt(localSlotIn(ir, curF, operand(ln)))) + c_push())   off = off + 12 }
+        if op == "STORE" { code = sbAppend(code, c_pop0() + e_strIdx(0, 19, toInt(tabLookup(curSlots, operand(ln)))))  off = off + 12 }
+        if op == "LOAD"  { code = sbAppend(code, e_ldrIdx(0, 19, toInt(tabLookup(curSlots, operand(ln)))) + c_push())   off = off + 12 }
         if op == "ADD" { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(plusOff - (off + 16)) + c_push())  off = off + 28 }  // polymorphic via kr_plus
         if op == "CAT" { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(plusOff - (off + 16)) + c_push())  off = off + 28 }  // template-string concat via kr_plus
         if op == "SUB" { code = sbAppend(code, c_pop1() + c_pop0() + e_subr(0, 0, 1) + c_push())  off = off + 28 }
@@ -1230,9 +1266,9 @@ just run {
         if op == "NEQ" { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(eqOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 1) + c_push())   off = off + 36 }
         if op == "LTE" { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(cmpOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 12) + c_push())  off = off + 36 }
         if op == "GTE" { code = sbAppend(code, c_pop1() + c_pop0() + e_bl(cmpOff - (off + 16)) + e_cmpi0(0) + e_cset(0, 11) + c_push())  off = off + 36 }
-        if op == "JUMP" { code = sbAppend(code, e_b(toInt(labelAbsOffset(ir, operand(ln))) - off))  off = off + 4 }
-        if op == "JUMPIFNOT" { code = sbAppend(code, c_pop0() + e_bl(istruthyOff - (off + 8)) + e_cbz(0, toInt(labelAbsOffset(ir, operand(ln))) - (off + 12)))  off = off + 16 }
-        if op == "JUMPIF" { code = sbAppend(code, c_pop0() + e_bl(istruthyOff - (off + 8)) + e_cbnz(0, toInt(labelAbsOffset(ir, operand(ln))) - (off + 12)))  off = off + 16 }
+        if op == "JUMP" { code = sbAppend(code, e_b(toInt(labelAbsOffset(labelTab, operand(ln))) - off))  off = off + 4 }
+        if op == "JUMPIFNOT" { code = sbAppend(code, c_pop0() + e_bl(istruthyOff - (off + 8)) + e_cbz(0, toInt(labelAbsOffset(labelTab, operand(ln))) - (off + 12)))  off = off + 16 }
+        if op == "JUMPIF" { code = sbAppend(code, c_pop0() + e_bl(istruthyOff - (off + 8)) + e_cbnz(0, toInt(labelAbsOffset(labelTab, operand(ln))) - (off + 12)))  off = off + 16 }
         if op == "NOT" { code = sbAppend(code, c_pop0() + e_bl(istruthyOff - (off + 8)) + e_movz(1, 1) + e_eor(0, 0, 1) + c_push())  off = off + 28 }
         if op == "NEG" { code = sbAppend(code, c_pop0() + e_subr(0, 31, 0) + c_push())  off = off + 20 }
         if op == "CALL" {
@@ -1260,7 +1296,7 @@ just run {
             if cn == "intToPtr"   { code = sbAppend(code, c_pop0() + e_bl(atoiOff - (off + 8)) + c_push())  off = off + 20 }  // parse decimal string -> raw ptr
             if cn == "ptrEq"      { code = sbAppend(code, c_pop0() + c_pop1() + e_cmp(0, 1) + e_cset(0, 1) + c_push())  off = off + 32 }  // raw int64 compare -> 1 if equal (cset cc=NE: csinc NE = 1 when Z/EQ)
             if cn != "bitAnd" && cn != "bitOr" && cn != "bitXor" && cn != "bitNot" && cn != "shl" && cn != "shr" && cn != "rawAlloc" && cn != "rawFree" && cn != "rawRealloc" && cn != "rawReadQword" && cn != "rawWriteQword" && cn != "rawReadByte" && cn != "rawReadWord" && cn != "rawWriteWord" && cn != "ptrAdd" && cn != "ptrToInt" && cn != "intToPtr" && cn != "ptrEq" {
-                code = sbAppend(code, e_bl(toInt(funcVaddrOf(ir, cn)) - off))  off = off + 4
+                code = sbAppend(code, e_bl(toInt(funcVaddrOf(funcTab, cn)) - off))  off = off + 4
             }
         }
         if op == "BUILTIN" {
@@ -1528,7 +1564,7 @@ just run {
     bb = sbAppend(bb, emitIsnum())
     bb = sbAppend(bb, emitCmp(atoiOff, isnumOff, cmpOff))
     bb = sbAppend(bb, emitLinecount())
-    bb = sbAppend(bb, emitGetline(allocOff, getlineOff))
+    bb = sbAppend(bb, emitGetline(allocOff, opOff, getlineOff))
     bb = sbAppend(bb, emitRawAlloc(opOff, rawallocOff))
     bb = sbAppend(bb, emitRawFree(opOff, rawfreeOff))
     bb = sbAppend(bb, emitRawRealloc(rawallocOff, rawfreeOff, rawreallocOff))
