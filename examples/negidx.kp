@@ -1,0 +1,13 @@
+# negative indexing
+
+xs = "alpha,bravo,charlie,delta,echo"
+print(xs[-1])   # echo
+print(xs[-2])   # delta
+print(xs[0])    # alpha
+print(xs[2])    # charlie
+
+# in a function
+def last(items):
+    return items[-1]
+
+print(last("1,2,3,4,5"))
