@@ -59,7 +59,7 @@ module snek
 // inside a func).  Wrap in a func so the value comes from the helper's
 // own slot, not the read-broken module slot.
 func snekKeywords() {
-    emit "and,or,not,if,else,elif,while,def,return,True,False,None,pass,import,from,as,for,in"
+    emit "and,or,not,if,else,elif,while,def,return,True,False,None,pass,import,from,as,for,in,lambda,is,raise,try,except,finally,with"
 }
 
 
@@ -160,8 +160,10 @@ func lex(src) {
         // ── start-of-line whitespace: measure indent ──
         if atLineStart == "1" {
             let col = 0
-            while i < n && (src[i] == " " || src[i] == "\t") {
-                if src[i] == "\t" { col = col + 8 } else { col = col + 1 }
+            while i < n && (src[i] == " " || src[i] == "\t" || src[i] == "\r") {
+                if src[i] == "\t" { col = col + 8 }
+                if src[i] == " "  { col = col + 1 }
+                // CR contributes 0 -- silently skipped so CRLF endings work.
                 i = i + 1
             }
             // blank or comment-only line: skip indent handling, eat to NL
@@ -199,8 +201,10 @@ func lex(src) {
             continue
         }
 
-        // ── whitespace (space / tab) inside a line ──
-        if c == " " || c == "\t" {
+        // ── whitespace (space / tab / CR) inside a line ──
+        // Note: CR is skipped silently so CRLF line endings don't emit a
+        // stray empty-val OP token before the NL.
+        if c == " " || c == "\t" || c == "\r" {
             i = i + 1
             continue
         }
@@ -509,6 +513,36 @@ func astSlice(obj, a, b) {
     emit "SLICE|" + toStr(len(obj)) + "|" + obj + toStr(len(a)) + "|" + a + toStr(len(b)) + "|" + b
 }
 
+// LAMBDA: "LAMBDA|<paramsCSV>|<exprLen>|<expr>"
+// Python `lambda x: x*2` -> Krypton `func(x) { emit x*2 }`.
+func astLambda(params, body) {
+    emit "LAMBDA|" + params + "|" + toStr(len(body)) + "|" + body
+}
+
+// RAISE: "RAISE|<exprLen>|<expr>"
+// Python `raise Error("msg")` lowers to printErr + exit("1"); the expression's
+// rendered text becomes the error line.
+func astRaise(expr) { emit "RAISE|" + toStr(len(expr)) + "|" + expr }
+
+// TUPASSIGN: "TUPASSIGN|<namesCSV>|<exprLen>|<expr>"
+// `a, b, c = some_iterable` -- iterable should be a comma-string (or a
+// tuple expression `1, 2, 3` which we lower to one).  Emit unpacks via
+// split() at named offsets.
+func astTupAssign(names, expr) {
+    emit "TUPASSIGN|" + names + "|" + toStr(len(expr)) + "|" + expr
+}
+
+// LISTCOMP: "LISTCOMP|<id>|<var>|<eLen>|<expr><iLen>|<iter><cLen>|<cond>"
+// `<id>` is a per-comprehension unique integer (parser position). Each
+// LISTCOMP gets a hoisted helper func `_snek_lc_<id>()` generated at
+// emitProgram pre-pass time. The use-site emits a bare call.
+// Limit: the comprehension's iter and expr must reference only the loop
+// var or top-level globals; locals from the calling scope aren't passed
+// in. Real closure-style free-var capture is a phase-7 item.
+func astListComp(id, expr, varName, iter, cond) {
+    emit "LISTCOMP|" + toStr(id) + "|" + varName + "|" + toStr(len(expr)) + "|" + expr + toStr(len(iter)) + "|" + iter + toStr(len(cond)) + "|" + cond
+}
+
 // String-field escape: replace | with ; so it can ride inside a node.
 func _escFld(s) {
     emit replace(s, "|", ";")
@@ -590,6 +624,19 @@ func parseStatement(toks, pos) {
         if atKind(toks, pos, "NL") == "1" { pos = pos + 1 }
         emit pkPair(astPass(), pos)
     }
+    if atKw(toks, pos, "raise") == "1" {
+        pos = pos + 1
+        // Bare `raise` with no expression -- emit a default.
+        if atKind(toks, pos, "NL") == "1" {
+            pos = pos + 1
+            emit pkPair(astRaise(astStr("Exception")), pos)
+        }
+        let r = parseExpr(toks, pos)
+        let expr = pkNode(r)
+        pos = pkPos(r)
+        if atKind(toks, pos, "NL") == "1" { pos = pos + 1 }
+        emit pkPair(astRaise(expr), pos)
+    }
     if atKw(toks, pos, "import") == "1" {
         pos = pos + 1
         let modT = peekTok(toks, pos)
@@ -617,7 +664,76 @@ func parseStatement(toks, pos) {
 
     // Lookahead: NAME "=" ... is an assignment, NAME "+=" etc. an
     // augmented assignment that desugars to `NAME = NAME <op> expr`.
+    // NAME "," NAME ... "=" is tuple unpacking.
     if atKind(toks, pos, "NAME") == "1" {
+        // Tuple unpacking sniff: starts with `NAME ,` and contains an `=`
+        // before the next NL.  We peek up to the `=` to confirm.
+        if atOp(toks, pos + 1, ",") == "1" {
+            let scan = pos
+            let isTup = "0"
+            while atKind(toks, scan, "NL") == "0" && atKind(toks, scan, "EOF") == "0" {
+                if atOp(toks, scan, "=") == "1" { isTup = "1"  break }
+                scan = scan + 1
+            }
+            if isTup == "1" {
+                // Collect NAMEs separated by commas until `=`.
+                let names = ""
+                while atOp(toks, pos, "=") == "0" && atKind(toks, pos, "EOF") == "0" {
+                    if atOp(toks, pos, ",") == "1" { pos = pos + 1 }
+                    if atOp(toks, pos, "=") == "1" { continue }
+                    let nT = peekTok(toks, pos)
+                    if names == "" { names = tokVal(nT) } else { names = names + "," + tokVal(nT) }
+                    pos = pos + 1
+                }
+                if atOp(toks, pos, "=") == "1" { pos = pos + 1 }
+                // RHS: either an explicit tuple literal `1, 2, 3` or a
+                // single expression (e.g. a func that returns comma-string).
+                // Parse one expr, then if comma follows, gather more.
+                let exprList = sbNew()
+                let nExprs = 0
+                let r0 = parseExpr(toks, pos)
+                let e0 = pkNode(r0)
+                pos = pkPos(r0)
+                exprList = sbAppend(exprList, e0)
+                nExprs = 1
+                while atOp(toks, pos, ",") == "1" {
+                    pos = pos + 1
+                    let rN = parseExpr(toks, pos)
+                    let eN = pkNode(rN)
+                    pos = pkPos(rN)
+                    exprList = sbAppend(exprList, ";SEP;")
+                    exprList = sbAppend(exprList, eN)
+                    nExprs = nExprs + 1
+                }
+                if atKind(toks, pos, "NL") == "1" { pos = pos + 1 }
+                // If RHS was multiple exprs, build a tuple-literal call:
+                //   build a comma-string out of toStr of each.
+                // If single expr, just pass as-is.
+                let rhsExpr = e0
+                if nExprs > 1 {
+                    // Build as nested BIN(+) of toStr(...) + "," chain.
+                    let listBody = sbToString(exprList)
+                    let pieces = sbNew()
+                    let cur = 0
+                    let total = len(listBody)
+                    let idx = 0
+                    let acc = ""
+                    while idx < nExprs {
+                        let sep = indexOf(substring(listBody, cur, total), ";SEP;")
+                        let piece = ""
+                        if sep < 0 { piece = substring(listBody, cur, total)  cur = total }
+                        if sep >= 0 { piece = substring(listBody, cur, cur + sep)  cur = cur + sep + 5 }
+                        // wrap in toStr(...) and accumulate
+                        let toStrPiece = astCall("toStr", 1, toStr(len(piece)) + "|" + piece)
+                        if idx == 0 { acc = toStrPiece }
+                        if idx > 0  { acc = astBin("+", astBin("+", acc, astStr(",")), toStrPiece) }
+                        idx = idx + 1
+                    }
+                    rhsExpr = acc
+                }
+                emit pkPair(astTupAssign(names, rhsExpr), pos)
+            }
+        }
         let nxt = peekTok(toks, pos + 1)
         let nxtKind = tokKind(nxt)
         let nxtVal = tokVal(nxt)
@@ -1019,6 +1135,24 @@ func parsePrimary(toks, pos) {
         if v == "True"  { emit parsePostfix(toks, pos + 1, astBool("1")) }
         if v == "False" { emit parsePostfix(toks, pos + 1, astBool("0")) }
         if v == "None"  { emit parsePostfix(toks, pos + 1, astNone()) }
+        // Lambda: `lambda PARAMS : EXPR` -- desugars to Krypton's
+        // anonymous func with a single-expr body.
+        if v == "lambda" {
+            pos = pos + 1
+            let params = ""
+            while atOp(toks, pos, ":") == "0" && atKind(toks, pos, "EOF") == "0" {
+                if atOp(toks, pos, ",") == "1" { pos = pos + 1 }
+                if atOp(toks, pos, ":") == "1" { continue }
+                let pT = peekTok(toks, pos)
+                if params == "" { params = tokVal(pT) } else { params = params + "," + tokVal(pT) }
+                pos = pos + 1
+            }
+            if atOp(toks, pos, ":") == "1" { pos = pos + 1 }
+            let r = parseExpr(toks, pos)
+            let body = pkNode(r)
+            pos = pkPos(r)
+            emit parsePostfix(toks, pos, astLambda(params, body))
+        }
     }
 
     if k == "OP" && v == "(" {
@@ -1029,11 +1163,44 @@ func parsePrimary(toks, pos) {
         emit parsePostfix(toks, pos, pkNode(r))
     }
 
-    // List literal: [e1, e2, ...]   (also supports empty list `[]`)
+    // List literal `[e1, e2, ...]`, empty list `[]`, or list comprehension
+    // `[expr for var in iter (if cond)?]`.
     if k == "OP" && v == "[" {
         pos = pos + 1
+        // Empty list shortcut.
+        if atOp(toks, pos, "]") == "1" {
+            pos = pos + 1
+            emit parsePostfix(toks, pos, astList(0, ""))
+        }
+        // Parse first expr to see if it's followed by `for` (comprehension).
+        let lcId = pos                              // unique-per-program-ish
+        let r0 = parseExpr(toks, pos)
+        let firstExpr = pkNode(r0)
+        pos = pkPos(r0)
+        // Comprehension?
+        if atKw(toks, pos, "for") == "1" {
+            pos = pos + 1
+            let varT = peekTok(toks, pos)
+            let varName = tokVal(varT)
+            pos = pos + 1
+            if atKw(toks, pos, "in") == "1" { pos = pos + 1 }
+            let ri = parseExpr(toks, pos)
+            let iter = pkNode(ri)
+            pos = pkPos(ri)
+            let cond = ""
+            if atKw(toks, pos, "if") == "1" {
+                pos = pos + 1
+                let rc = parseExpr(toks, pos)
+                cond = pkNode(rc)
+                pos = pkPos(rc)
+            }
+            if atOp(toks, pos, "]") == "1" { pos = pos + 1 }
+            emit parsePostfix(toks, pos, astListComp(lcId, firstExpr, varName, iter, cond))
+        }
+        // Regular list literal: collect remaining elements after firstExpr.
         let elems = sbNew()
-        let nElems = 0
+        elems = sbAppend(elems, toStr(len(firstExpr)) + "|" + firstExpr)
+        let nElems = 1
         while atOp(toks, pos, "]") == "0" && atKind(toks, pos, "EOF") == "0" {
             if atOp(toks, pos, ",") == "1" { pos = pos + 1 }
             if atOp(toks, pos, "]") == "1" { continue }
@@ -1291,6 +1458,26 @@ func emitExpr(node) {
         emit "split(" + emitExpr(obj) + ", " + emitExpr(idx) + ")"
     }
 
+    if kind == "LISTCOMP" {
+        // rest = "<id>|<var>|..." -- at use sites we just call the
+        // hoisted helper; the actual loop logic lives in the helper
+        // generated by collectListCompHelpers (called from emitProgram).
+        let b1 = indexOf(rest, "|")
+        let lcId = substring(rest, 0, b1)
+        emit "_snek_lc_" + lcId + "()"
+    }
+
+    if kind == "LAMBDA" {
+        // rest = "<paramsCSV>|<exprLen>|<expr>"
+        let b1 = indexOf(rest, "|")
+        let params = substring(rest, 0, b1)
+        let aft1 = substring(rest, b1 + 1, len(rest))
+        let b2 = indexOf(aft1, "|")
+        let eLen = toInt(substring(aft1, 0, b2))
+        let expr = substring(aft1, b2 + 1, b2 + 1 + eLen)
+        emit "func(" + params + ") { emit " + emitExpr(expr) + " }"
+    }
+
     if kind == "SLICE" {
         // rest = "<oLen>|<obj><aLen>|<a><bLen>|<b>"
         let b1 = indexOf(rest, "|")
@@ -1388,6 +1575,48 @@ func emitStmt(node, decls, indent) {
 
     if kind == "PASS" {
         emit pkPair(indent + "// pass", decls)
+    }
+
+    if kind == "RAISE" {
+        // rest = "<exprLen>|<expr>"
+        let b1 = indexOf(rest, "|")
+        let eLen = toInt(substring(rest, 0, b1))
+        let expr = substring(rest, b1 + 1, b1 + 1 + eLen)
+        // Render as:
+        //   printErr(toStr(<expr>))
+        //   exit("1")
+        emit pkPair(indent + "printErr(toStr(" + emitExpr(expr) + "))\n" + indent + "exit(\"1\")", decls)
+    }
+
+    if kind == "TUPASSIGN" {
+        // rest = "<namesCSV>|<exprLen>|<expr>"
+        let b1 = indexOf(rest, "|")
+        let namesCsv = substring(rest, 0, b1)
+        let after1 = substring(rest, b1 + 1, len(rest))
+        let b2 = indexOf(after1, "|")
+        let eLen = toInt(substring(after1, 0, b2))
+        let expr = substring(after1, b2 + 1, b2 + 1 + eLen)
+        let exprSrc = emitExpr(expr)
+        // Emit:
+        //   let __tup_N = <expr>
+        //   let a = split(__tup_N, 0)
+        //   let b = split(__tup_N, 1)
+        //   ...
+        let nNames = count(namesCsv)
+        let acc = sbNew()
+        // Use a fairly unique tmp name; collisions across nested
+        // tuple-unpacks at the same scope would need a counter (TODO).
+        let tmp = "__snek_tup"
+        acc = sbAppend(acc, indent + "let " + tmp + " = " + exprSrc)
+        let newDecls = markDeclared(decls, tmp)
+        let i = 0
+        while i < nNames {
+            let n = split(namesCsv, i)
+            acc = sbAppend(acc, "\n" + indent + "let " + n + " = split(" + tmp + ", " + toStr(i) + ")")
+            newDecls = markDeclared(newDecls, n)
+            i = i + 1
+        }
+        emit pkPair(sbToString(acc), newDecls)
     }
 
     if kind == "IMPORT" {
@@ -1507,9 +1736,76 @@ func emitStmtList(list, parentDecls, indent) {
     emit sbToString(out)
 }
 
+// Raw-text scan for LISTCOMP nodes anywhere in the program. For each
+// found, generate a helper `func _snek_lc_<id>() { ... }` and emit it
+// at module scope (alongside user funcs). The use-site emits a bare
+// call `_snek_lc_<id>()` via emitExpr.
+//
+// Limitation: doesn't handle nested comprehensions (inner LISTCOMP would
+// be re-scanned). Detect + warn? Phase-7 item.
+func collectListCompHelpers(progAst) {
+    let helpers = sbNew()
+    let n = len(progAst)
+    let cursor = 0
+    while cursor < n {
+        let sub = substring(progAst, cursor, n)
+        let idx = indexOf(sub, "LISTCOMP|")
+        if idx < 0 { break }
+        let start = cursor + idx
+        let p = start + 9                            // past "LISTCOMP|"
+        let b1 = indexOf(substring(progAst, p, n), "|")
+        let lcId = substring(progAst, p, p + b1)
+        p = p + b1 + 1
+        let b2 = indexOf(substring(progAst, p, n), "|")
+        let varName = substring(progAst, p, p + b2)
+        p = p + b2 + 1
+        let b3 = indexOf(substring(progAst, p, n), "|")
+        let eLen = toInt(substring(progAst, p, p + b3))
+        p = p + b3 + 1
+        let exprStr = substring(progAst, p, p + eLen)
+        p = p + eLen
+        let b4 = indexOf(substring(progAst, p, n), "|")
+        let iLen = toInt(substring(progAst, p, p + b4))
+        p = p + b4 + 1
+        let iterStr = substring(progAst, p, p + iLen)
+        p = p + iLen
+        let b5 = indexOf(substring(progAst, p, n), "|")
+        let cLen = toInt(substring(progAst, p, p + b5))
+        p = p + b5 + 1
+        let condStr = substring(progAst, p, p + cLen)
+        p = p + cLen
+        let exprSrc = emitExpr(exprStr)
+        let iterSrc = emitExpr(iterStr)
+        helpers = sbAppend(helpers, "func _snek_lc_" + lcId + "() {\n")
+        helpers = sbAppend(helpers, "    let __out = \"\"\n")
+        helpers = sbAppend(helpers, "    let __first = \"1\"\n")
+        helpers = sbAppend(helpers, "    for " + varName + " in " + iterSrc + " {\n")
+        if condStr != "" {
+            let condSrc = emitExpr(condStr)
+            helpers = sbAppend(helpers, "        if " + condSrc + " {\n")
+            helpers = sbAppend(helpers, "            if __first == \"1\" { __out = toStr(" + exprSrc + ")  __first = \"0\" } else { __out = __out + \",\" + toStr(" + exprSrc + ") }\n")
+            helpers = sbAppend(helpers, "        }\n")
+        }
+        if condStr == "" {
+            helpers = sbAppend(helpers, "        if __first == \"1\" { __out = toStr(" + exprSrc + ")  __first = \"0\" } else { __out = __out + \",\" + toStr(" + exprSrc + ") }\n")
+        }
+        helpers = sbAppend(helpers, "    }\n")
+        helpers = sbAppend(helpers, "    emit __out\n")
+        helpers = sbAppend(helpers, "}\n")
+        cursor = start + 9
+    }
+    emit sbToString(helpers)
+}
+
 func emitProgram(stmts) {
     let out = sbNew()
     out = sbAppend(out, "// generated by compiler/snek.k -- do not edit by hand\n\n")
+    // Hoist any list-comprehension helpers ahead of user funcs.
+    let lcHelpers = collectListCompHelpers(stmts)
+    if len(lcHelpers) > 0 {
+        out = sbAppend(out, lcHelpers)
+        out = sbAppend(out, "\n")
+    }
     // First pass: any DEF emits BEFORE the just-run block so funcs are
     // defined at module scope.  Then a single just-run wraps the rest.
     let n = listCount(stmts)
