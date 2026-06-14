@@ -894,6 +894,7 @@ func irTernary(tokens, pos, ntoks, lc, types) {
     let pair = irOr(tokens, pos, ntoks, lc, types)
     let code = pairVal(pair)
     let p = pairPos(pair)
+    let ty = pairType(pair)   // A7: propagate f64 on pass-through (no ?:)
     let nlc = lc
     if tokAt(tokens, p) == "QUESTION" {
         let trueLabel = irLabel("_tern_t", p)
@@ -912,6 +913,7 @@ func irTernary(tokens, pos, ntoks, lc, types) {
         let out = code + "JUMPIFNOT " + trueLabel + "\n" + tcode + "JUMP " + endLabel + "\n" + "LABEL " + trueLabel + "\n" + fcode + "LABEL " + endLabel + "\n"
         emit out + "," + p
     }
+    if ty == "f64" { emit code + "," + p + ";f64" }
     emit code + "," + p
 }
 
@@ -919,8 +921,10 @@ func irOr(tokens, pos, ntoks, lc, types) {
     let pair = irAnd(tokens, pos, ntoks, lc, types)
     let code = pairVal(pair)
     let p = pairPos(pair)
+    let ty = pairType(pair)   // A7: propagate f64 on pass-through
     let nlc = lc
     while tokAt(tokens, p) == "OR" {
+        ty = ""
         let shortLabel = irLabel("_or", p)
         let endLabel = irLabel("_orend", p)
         nlc = nlc + 1
@@ -937,6 +941,7 @@ func irOr(tokens, pos, ntoks, lc, types) {
                     + "PUSH 1\n"
                     + "LABEL " + endLabel + "\n"
     }
+    if ty == "f64" { emit code + "," + p + ";f64" }
     emit code + "," + p
 }
 
@@ -944,8 +949,10 @@ func irAnd(tokens, pos, ntoks, lc, types) {
     let pair = irEquality(tokens, pos, ntoks, lc, types)
     let code = pairVal(pair)
     let p = pairPos(pair)
+    let ty = pairType(pair)   // A7: propagate f64 on pass-through
     let nlc = lc
     while tokAt(tokens, p) == "AND" {
+        ty = ""
         let shortLabel = irLabel("_and", p)
         let endLabel = irLabel("_andend", p)
         nlc = nlc + 1
@@ -959,6 +966,7 @@ func irAnd(tokens, pos, ntoks, lc, types) {
                     + "PUSH 0\n"
                     + "LABEL " + endLabel + "\n"
     }
+    if ty == "f64" { emit code + "," + p + ";f64" }
     emit code + "," + p
 }
 
@@ -1743,10 +1751,14 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
             let rcode = pairVal(pair)
             let p = pairPos(pair)
             if tokAt(tokens, p) == "SEMI" { p += 1 }
+            // A7: float-aware compound assignment — if the target is an f64 var or
+            // the rhs is a float, use fadd/fsub/fmul/fdiv (MOD has no float form).
+            let isFloat = irTypeOf(types, name) == "f64" || pairType(pair) == "f64"
             let op = "ADD\n"
-            if nt == "MINUSEQ" { op = "SUB\n" }
-            if nt == "STAREQ"  { op = "MUL\n" }
-            if nt == "SLASHEQ" { op = "DIV\n" }
+            if isFloat { op = "BUILTIN fadd 2\n" }
+            if nt == "MINUSEQ" { op = "SUB\n"  if isFloat { op = "BUILTIN fsub 2\n" } }
+            if nt == "STAREQ"  { op = "MUL\n"  if isFloat { op = "BUILTIN fmul 2\n" } }
+            if nt == "SLASHEQ" { op = "DIV\n"  if isFloat { op = "BUILTIN fdiv 2\n" } }
             if nt == "MODEQ"   { op = "MOD\n" }
             emit "LOAD " + name + "\n" + rcode + op + "STORE " + name + "\nLOAD " + name + "\nBUILTIN gcShadowPush 1\nPOP\n," + p
         }
@@ -1759,8 +1771,11 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
             let name = tokVal(tok)
             let p = pos + 2
             if tokAt(tokens, p) == "SEMI" { p += 1 }
+            // A7: f64 ++/-- uses fadd/fsub (the int 1 auto-promotes).
+            let isFloat = irTypeOf(types, name) == "f64"
             let op = "ADD\n"
-            if nt == "MINUSMINUS" { op = "SUB\n" }
+            if isFloat { op = "BUILTIN fadd 2\n" }
+            if nt == "MINUSMINUS" { op = "SUB\n"  if isFloat { op = "BUILTIN fsub 2\n" } }
             emit "LOAD " + name + "\nPUSH 1\n" + op + "STORE " + name + "\n," + p
         }
     }
