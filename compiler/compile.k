@@ -28,6 +28,21 @@ func pairPos(pair) {
     emit toInt(substring(pair, c + 1, len(pair)))
 }
 
+// A1 float: expression result-type channel. Pairs are "code,pos" or, for
+// float-typed results, "code,pos;f64". pairVal/pairPos are unaffected (toInt
+// stops at ';'). pairType returns the type after ';' (or "" = untyped/int).
+// Lets operators (irAdditive/Multiplicative/Relational/Equality) emit the
+// fadd/fmul/flt/... builtins when an operand is f64 instead of integer ADD/MUL.
+func pairType(pair) {
+    let c = findLastComma(pair)
+    if c < 0 { emit "" }
+    let rest = substring(pair, c + 1, len(pair))
+    let s = 0
+    while s < len(rest) && rest[s] != ";" { s += 1 }
+    if s >= len(rest) { emit "" }
+    emit substring(rest, s + 1, len(rest))
+}
+
 // === Lexer helpers ===
 
 func isDigit(c) {
@@ -947,14 +962,24 @@ func irEquality(tokens, pos, ntoks, lc, types) {
     let pair = irRelational(tokens, pos, ntoks, lc, types)
     let code = pairVal(pair)
     let p = pairPos(pair)
+    let ety = pairType(pair)
     while tokAt(tokens, p) == "EQ" || tokAt(tokens, p) == "NEQ" {
         let op = tokAt(tokens, p)
         let rp = irRelational(tokens, p + 1, ntoks, lc, types)
         let rcode = pairVal(rp)
         p = pairPos(rp)
-        if op == "EQ" { code = code + rcode + "EQ\n" }
-        else { code = code + rcode + "NEQ\n" }
+        // A1: float == via feq; != as !(a==b). bit-equality on the f64 bits.
+        let isFloat = ety == "f64" || pairType(rp) == "f64"
+        if isFloat {
+            if op == "EQ" { code = code + rcode + "BUILTIN feq 2\n" }
+            else          { code = code + rcode + "BUILTIN feq 2\nPUSH 0\nEQ\n" }
+        } else {
+            if op == "EQ" { code = code + rcode + "EQ\n" }
+            else { code = code + rcode + "NEQ\n" }
+        }
+        ety = ""
     }
+    if ety == "f64" { emit code + "," + p + ";f64" }
     emit code + "," + p
 }
 
@@ -962,16 +987,31 @@ func irRelational(tokens, pos, ntoks, lc, types) {
     let pair = irAdditive(tokens, pos, ntoks, lc, types)
     let code = pairVal(pair)
     let p = pairPos(pair)
+    let lty = pairType(pair)
     while tokAt(tokens, p) == "LT" || tokAt(tokens, p) == "GT" || tokAt(tokens, p) == "LTE" || tokAt(tokens, p) == "GTE" {
         let op = tokAt(tokens, p)
         let rp = irAdditive(tokens, p + 1, ntoks, lc, types)
         let rcode = pairVal(rp)
         p = pairPos(rp)
-        if op == "LT" { code = code + rcode + "LT\n" }
-        if op == "GT" { code = code + rcode + "GT\n" }
-        if op == "LTE" { code = code + rcode + "LTE\n" }
-        if op == "GTE" { code = code + rcode + "GTE\n" }
+        // A1: float compares. Only flt/fgt/feq exist as builtins, so synthesize
+        // <= as !(a>b) and >= as !(a<b). Result is a bool int (not f64).
+        let isFloat = lty == "f64" || pairType(rp) == "f64"
+        if isFloat {
+            if op == "LT"  { code = code + rcode + "BUILTIN flt 2\n" }
+            if op == "GT"  { code = code + rcode + "BUILTIN fgt 2\n" }
+            if op == "LTE" { code = code + rcode + "BUILTIN fgt 2\nPUSH 0\nEQ\n" }
+            if op == "GTE" { code = code + rcode + "BUILTIN flt 2\nPUSH 0\nEQ\n" }
+        } else {
+            if op == "LT" { code = code + rcode + "LT\n" }
+            if op == "GT" { code = code + rcode + "GT\n" }
+            if op == "LTE" { code = code + rcode + "LTE\n" }
+            if op == "GTE" { code = code + rcode + "GTE\n" }
+        }
+        lty = ""
     }
+    // propagate float-ness on pass-through (no relational op consumed) so an
+    // enclosing != / == sees an f64 operand.
+    if lty == "f64" { emit code + "," + p + ";f64" }
     emit code + "," + p
 }
 
@@ -979,14 +1019,26 @@ func irAdditive(tokens, pos, ntoks, lc, types) {
     let pair = irMultiplicative(tokens, pos, ntoks, lc, types)
     let code = pairVal(pair)
     let p = pairPos(pair)
+    let ty = pairType(pair)
     while tokAt(tokens, p) == "PLUS" || tokAt(tokens, p) == "MINUS" {
         let op = tokAt(tokens, p)
         let rp = irMultiplicative(tokens, p + 1, ntoks, lc, types)
         let rcode = pairVal(rp)
         p = pairPos(rp)
-        if op == "PLUS" { code = code + rcode + "ADD\n" }
-        else { code = code + rcode + "SUB\n" }
+        // A1: float if either operand is f64 → fadd/fsub (auto-promote int operand).
+        // NOTE: `+` on a string stays integer-ADD here (ADD is polymorphic at
+        // runtime: it only float-ifies when a STATIC f64 is involved; string
+        // concat is unaffected because neither operand is f64-typed).
+        let isFloat = ty == "f64" || pairType(rp) == "f64"
+        if op == "PLUS" {
+            if isFloat { code = code + rcode + "BUILTIN fadd 2\n"  ty = "f64" }
+            else       { code = code + rcode + "ADD\n" }
+        } else {
+            if isFloat { code = code + rcode + "BUILTIN fsub 2\n"  ty = "f64" }
+            else       { code = code + rcode + "SUB\n" }
+        }
     }
+    if ty == "f64" { emit code + "," + p + ";f64" }
     emit code + "," + p
 }
 
@@ -994,15 +1046,26 @@ func irMultiplicative(tokens, pos, ntoks, lc, types) {
     let pair = irPow(tokens, pos, ntoks, lc, types)
     let code = pairVal(pair)
     let p = pairPos(pair)
+    let ty = pairType(pair)
     while tokAt(tokens, p) == "STAR" || tokAt(tokens, p) == "SLASH" || tokAt(tokens, p) == "MOD" {
         let op = tokAt(tokens, p)
         let rp = irPow(tokens, p + 1, ntoks, lc, types)
         let rcode = pairVal(rp)
         p = pairPos(rp)
-        if op == "STAR" { code = code + rcode + "MUL\n" }
-        if op == "SLASH" { code = code + rcode + "DIV\n" }
-        if op == "MOD" { code = code + rcode + "MOD\n" }
+        // A1: float if either operand is f64. STAR/SLASH → fmul/fdiv (auto-promote
+        // an int operand). MOD has no float form → stays integer.
+        let isFloat = ty == "f64" || pairType(rp) == "f64"
+        if op == "STAR" {
+            if isFloat { code = code + rcode + "BUILTIN fmul 2\n"  ty = "f64" }
+            else       { code = code + rcode + "MUL\n" }
+        }
+        if op == "SLASH" {
+            if isFloat { code = code + rcode + "BUILTIN fdiv 2\n"  ty = "f64" }
+            else       { code = code + rcode + "DIV\n" }
+        }
+        if op == "MOD" { code = code + rcode + "MOD\n"  ty = "" }
     }
+    if ty == "f64" { emit code + "," + p + ";f64" }
     emit code + "," + p
 }
 
@@ -1011,12 +1074,15 @@ func irPow(tokens, pos, ntoks, lc, types) {
     let pair = irUnary(tokens, pos, ntoks, lc, types)
     let code = pairVal(pair)
     let p = pairPos(pair)
+    let ty = pairType(pair)
     if tokAt(tokens, p) == "STARSTAR" {
         let rp = irPow(tokens, p + 1, ntoks, lc, types)
         let rcode = pairVal(rp)
         p = pairPos(rp)
         code = code + rcode + "BUILTIN pow 2\n"
+        ty = ""   // ** is integer-only (no fpow); result is not float
     }
+    if ty == "f64" { emit code + "," + p + ";f64" }
     emit code + "," + p
 }
 
@@ -1026,6 +1092,8 @@ func irUnary(tokens, pos, ntoks, lc, types) {
         let pair = irUnary(tokens, pos + 1, ntoks, lc, types)
         let code = pairVal(pair)
         let p = pairPos(pair)
+        // A1: -float stays float (backend NEG is float-aware).
+        if pairType(pair) == "f64" { emit code + "NEG\n," + p + ";f64" }
         emit code + "NEG\n," + p
     }
     if tok == "BANG" {
@@ -1041,6 +1109,10 @@ func irPostfix(tokens, pos, ntoks, lc, types) {
     let pair = irPrimary(tokens, pos, ntoks, lc, types)
     let code = pairVal(pair)
     let p = pairPos(pair)
+    // A1: propagate the primary's float-ness when no postfix (.field/[i]) is
+    // applied. Postfix results (field reads, indexing) aren't float-typed yet.
+    let primaryType = pairType(pair)
+    let primaryEnd = p
     // 1.8.10: deferred-offset state for nested-struct chains.
     // When we walk `outer.inner.field`, the outer LOAD goes onto the
     // value stack once, then we accumulate (innerOff + fieldOff) into
@@ -1124,6 +1196,7 @@ func irPostfix(tokens, pos, ntoks, lc, types) {
             }
         }
     }
+    if p == primaryEnd && primaryType == "f64" { emit code + "," + p + ";f64" }
     emit code + "," + p
 }
 
@@ -1134,6 +1207,14 @@ func irPrimary(tokens, pos, ntoks, lc, types) {
 
     // Integer/float literal
     if tt == "INT" {
+        // A1: a decimal point makes it a float literal → tag the pair f64 so
+        // enclosing operators emit fadd/fmul/etc.
+        let hasDot = "0"
+        let di = 0
+        while di < len(tv) { if tv[di] == "." { hasDot = "1" }  di += 1 }
+        if hasDot == "1" {
+            emit "PUSH " + tv + "\n," + (pos + 1) + ";f64"
+        }
         emit "PUSH " + tv + "\n," + (pos + 1)
     }
 
@@ -1264,6 +1345,11 @@ func irPrimary(tokens, pos, ntoks, lc, types) {
             if startsWith(varType, "__cap__:") == "1" {
                 let capName = substring(varType, 8, len(varType))
                 emit "LOAD __env\nPUSH \"" + capName + "\"\nBUILTIN envGet 2\n," + (pos + 1)
+            }
+            // A1: an f64-annotated local loads a float box — tag the pair so
+            // operators float-ify. No inert TYPE comment (it's not a pointer type).
+            if varType == "f64" {
+                emit "LOAD " + tv + "\n," + (pos + 1) + ";f64"
             }
             emit "LOAD " + tv + "\n; TYPE " + varType + "\n," + (pos + 1)
         }
@@ -1895,9 +1981,20 @@ func irLetIR(tokens, pos, ntoks, lc, inFunc, types) {
             }
         }
     }
-    let p = irSkipTypeAnnotation(tokens, pos + 1)
-    // skip ASSIGN
-    p += 1
+    // Skip an optional `: TYPE` annotation by scanning to the ASSIGN. The
+    // type-body skip (irSkipTypeBody) mis-handles some bare primitive type
+    // names (i32/f64/...), landing before `=` → the initializer was dropped and
+    // the local default-inited to "". Scanning to ASSIGN is robust for
+    // `let NAME [: TYPE] = EXPR`; `=` (ASSIGN) never appears inside a type or
+    // an initializer expression (which uses EQ/NEQ, not ASSIGN).
+    let p = pos + 1
+    while p < ntoks && tokAt(tokens, p) != "ASSIGN" && tokAt(tokens, p) != "SEMI" { p += 1 }
+    if tokAt(tokens, p) != "ASSIGN" {
+        // declaration without initializer — default to empty string.
+        emit "LOCAL " + name + "\nPUSH \"\"\nSTORE " + name +
+             "\nLOAD " + name + "\nBUILTIN gcShadowPush 1\nPOP\n," + p
+    }
+    p += 1   // skip ASSIGN
     let pair = irExpr(tokens, p, ntoks, lc, types)
     let code = pairVal(pair)
     p = pairPos(pair)
@@ -2205,6 +2302,22 @@ func irScanFuncTypes(tokens, bodyStart, ntoks) {
         if tk == "LBRACE" { depth += 1  p += 1  continue }
         if tk == "RBRACE" { depth -= 1  p += 1  continue }
         if tk == "KW:let" || tk == "KW:const" {
+            // A1: narrow f64/f32 tracking for float-operator inference. Done
+            // here with substring (string==) because `startsWith(...) == "1"`
+            // is dead on macho (startsWith returns int 1; 1 == "1" is false).
+            // We deliberately record ONLY float scalar types — the general
+            // type-annotation tracking below stays gated by the (dormant)
+            // startsWith check so we don't activate the buggy pointer/struct/
+            // closure specialization paths that programs currently work around.
+            let f64Tk = tokAt(tokens, p + 1)
+            if len(f64Tk) >= 3 && substring(f64Tk, 0, 3) == "ID:" {
+                if tokAt(tokens, p + 2) == "COLON" {
+                    let tTk = tokAt(tokens, p + 3)
+                    if tTk == "ID:f64" || tTk == "ID:f32" {
+                        sb = sbAppend(sb, substring(f64Tk, 3, len(f64Tk)) + "|" + substring(tTk, 3, len(tTk)) + "\n")
+                    }
+                }
+            }
             let nameTk = tokAt(tokens, p + 1)
             if startsWith(nameTk, "ID:") == "1" {
                 let nameStr = substring(nameTk, 3, len(nameTk))
