@@ -1,0 +1,13 @@
+# Python string multiplication: "-" * 20
+
+print("-" * 20)
+print("=" * 30)
+print("ab" * 4)
+
+# Variable width:
+n = 5
+print("*" * n)
+
+# Used inside an f-string
+title = "header"
+print(f"{title}\n{'-' * len(title)}")

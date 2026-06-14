@@ -1,0 +1,28 @@
+# Simple classes -- MVP supports __init__ + field access via envGet/envSet.
+# Method calls beyond __init__ need unbound form Class_method(self, args)
+# until proper instance dispatch lands.
+
+class Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+    def magnitude(self):
+        return self.x * self.x + self.y * self.y
+
+class Greeter:
+    def __init__(self, name):
+        self.name = name
+
+    def greet(self):
+        return "hello " + self.name
+
+
+p = Point(3, 4)
+print("p.x:", p.x)
+print("p.y:", p.y)
+print("p.magnitude:", Point_magnitude(p))
+
+g = Greeter("world")
+print(g.name)
+print(Greeter_greet(g))
