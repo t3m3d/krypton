@@ -100,22 +100,20 @@ func tokLine(t)  { emit splitChar(t, "\t", 2) }
 // Lexer
 // ──────────────────────────────────────────────────────────────────────
 
-func isAlpha(c) {
-    // Linux Krypton native pipeline misbehaves with both `c == "_"` AND
-    // `charCode(c) == 95` when c is the loop-extracted src[i] -- the
-    // charCode call appears to read a different byte than what's actually
-    // at src[i].  contains() walks the alphabet string and survives both
-    // platforms.  Trades constant-time check for an O(53) scan but lex
-    // throughput is fine.
+// NB: `isAlpha` and `isAlNum` are Krypton BUILTINS that don't accept `_`,
+// so we MUST use a different name -- a user `func isAlpha` is shadowed
+// by the builtin and never called, which is what caused __init__ to lex
+// as five OP-_ + NAME(init) tokens for months.
+func snekIsAlpha(c) {
     if contains("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_", c) == "1" {
         emit "1"
     }
     emit "0"
 }
 
-func isAlNum(c) {
-    if isAlpha(c) == "1" { emit "1" }
-    if isDigit(c) == "1" { emit "1" }
+func snekIsAlNum(c) {
+    if snekIsAlpha(c) == "1" { emit "1" }
+    if isDigit(c)     == "1" { emit "1" }
     emit "0"
 }
 
@@ -284,9 +282,9 @@ func lex(src) {
         }
 
         // ── identifier / keyword ──
-        if isAlpha(c) == "1" {
+        if snekIsAlpha(c) == "1" {
             let start = i
-            while i < n && isAlNum(src[i]) == "1" { i = i + 1 }
+            while i < n && snekIsAlNum(src[i]) == "1" { i = i + 1 }
             let s = substring(src, start, i)
             let kind = "NAME"
             if isKeyword(s) == "1" { kind = "KW" }
