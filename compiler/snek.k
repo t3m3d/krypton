@@ -101,14 +101,15 @@ func tokLine(t)  { emit splitChar(t, "\t", 2) }
 // ──────────────────────────────────────────────────────────────────────
 
 func isAlpha(c) {
-    let n = charCode(c)
-    if n >= 65 && n <= 90  { emit "1" }
-    if n >= 97 && n <= 122 { emit "1" }
-    // ASCII 95 = '_' -- check by code so we survive the Linux Krypton
-    // runtime where `c == "_"` returns false (string equality on a
-    // 1-byte literal underscore behaves differently across backends;
-    // charCode is reliable on both Windows + Linux).
-    if n == 95             { emit "1" }
+    // Linux Krypton native pipeline misbehaves with both `c == "_"` AND
+    // `charCode(c) == 95` when c is the loop-extracted src[i] -- the
+    // charCode call appears to read a different byte than what's actually
+    // at src[i].  contains() walks the alphabet string and survives both
+    // platforms.  Trades constant-time check for an O(53) scan but lex
+    // throughput is fine.
+    if contains("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_", c) == "1" {
+        emit "1"
+    }
     emit "0"
 }
 
