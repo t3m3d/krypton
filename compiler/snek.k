@@ -923,12 +923,39 @@ func parseIfTail(toks, pos) {
     emit pkPair(astIf(cond, thenB, elseB), pos)
 }
 
-// for NAME in EXPR : NL INDENT body DEDENT
+// for NAME (, NAME ...)? in EXPR : NL INDENT body DEDENT
+// Multi-var unpacking `for k, v in xs` rewrites the body so the loop var
+// is `__snek_pair` and each declared name pulls one position out via split:
+//   for __snek_pair in xs { let k = split(__pair,0); let v = split(__pair,1); body }
+//
+// SEMANTICS CAVEAT: this lowering only fits the case where every iter
+// element is itself a comma-string ("k,v"). Python's typical pattern
+// `for k, v in d.items()` needs an items()-style lowering that yields
+// pairs -- not shipped yet. For now this parses cleanly + works for
+// hand-crafted ";"-separated pair lists once we get a chunk() helper.
 func parseFor(toks, pos) {
     pos = pos + 1                                   // consume 'for'
     let varT = peekTok(toks, pos)
     let varName = tokVal(varT)
-    pos = pos + 1                                   // consume var name
+    pos = pos + 1                                   // consume first var name
+    let multiVars = ""
+    let firstComma = "1"
+    while atOp(toks, pos, ",") == "1" {
+        pos = pos + 1
+        let vT = peekTok(toks, pos)
+        let vN = tokVal(vT)
+        // Krypton has no else, so two ifs guarded by firstComma flag.
+        if firstComma == "1" {
+            multiVars = varName + "," + vN
+            firstComma = "0"
+        }
+        // Append only when we've seen more than one comma -- skip when
+        // multiVars was just set to "<varName>,<vN>" above.
+        if firstComma == "0" && multiVars != varName + "," + vN {
+            multiVars = multiVars + "," + vN
+        }
+        pos = pos + 1
+    }
     if atKw(toks, pos, "in") == "1" { pos = pos + 1 }
     let ie = parseExpr(toks, pos)
     let iter = pkNode(ie)
@@ -938,6 +965,33 @@ func parseFor(toks, pos) {
     let bb = parseBlock(toks, pos)
     let body = pkNode(bb)
     pos = pkPos(bb)
+    if multiVars != "" {
+        // Rewrite: for __snek_pair in iter { let var0 = split(__snek_pair, 0); ... ; <body> }
+        // We do this by wrapping body in additional ASSIGN nodes at the front.
+        let unpackBody = sbNew()
+        let n = count(multiVars)
+        let nUnpack = 0
+        let i = 0
+        while i < n {
+            let vn = split(multiVars, i)
+            // Build: ASSIGN|vn|<exprLen>|CALL|split|2|<...>
+            let splitCall = astCall("split", 2,
+                toStr(len(astName("__snek_pair"))) + "|" + astName("__snek_pair") +
+                toStr(len(astNum(toStr(i)))) + "|" + astNum(toStr(i)))
+            let assignNode = "ASSIGN|" + vn + "|" + toStr(len(splitCall)) + "|" + splitCall
+            unpackBody = sbAppend(unpackBody, toStr(len(assignNode)) + "|" + assignNode)
+            nUnpack = nUnpack + 1
+            i = i + 1
+        }
+        // Append original body's items after the unpack let-statements.
+        // body format = "<m>|<len0>|<stmt0>..."
+        let bb1 = indexOf(body, "|")
+        let m = toInt(substring(body, 0, bb1))
+        let bodyRest = substring(body, bb1 + 1, len(body))
+        unpackBody = sbAppend(unpackBody, bodyRest)
+        let newBody = toStr(nUnpack + m) + "|" + sbToString(unpackBody)
+        emit pkPair(astFor("__snek_pair", iter, newBody), pos)
+    }
     emit pkPair(astFor(varName, iter, body), pos)
 }
 
