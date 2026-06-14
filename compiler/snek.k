@@ -59,7 +59,7 @@ module snek
 // inside a func).  Wrap in a func so the value comes from the helper's
 // own slot, not the read-broken module slot.
 func snekKeywords() {
-    emit "and,or,not,if,else,elif,while,def,return,True,False,None,pass,import,from,as,for,in,lambda,is,raise,try,except,finally,with"
+    emit "and,or,not,if,else,elif,while,def,return,True,False,None,pass,import,from,as,for,in,lambda,is,raise,try,except,finally,with,assert,global,nonlocal,yield,break,continue,class"
 }
 
 
@@ -308,7 +308,8 @@ func lex(src) {
         // ── single-char operators / punctuation ──
         if c == "+" || c == "-" || c == "*" || c == "/" || c == "%" ||
            c == "(" || c == ")" || c == "," || c == ":" || c == "=" ||
-           c == "<" || c == ">" || c == "." || c == "[" || c == "]" {
+           c == "<" || c == ">" || c == "." || c == "[" || c == "]" ||
+           c == "{" || c == "}" {
             if first == "0" { out = sbAppend(out, "\n") }
             out = sbAppend(out, tok("OP", c, line))
             first = "0"
@@ -532,6 +533,15 @@ func astTupAssign(names, expr) {
     emit "TUPASSIGN|" + names + "|" + toStr(len(expr)) + "|" + expr
 }
 
+// DICT: "DICT|<n>|<kLen0>|<k0><vLen0>|<v0><kLen1>|<k1><vLen1>|<v1>..."
+// Lowered to an alternating comma-string at emit time:
+//   toStr(k0) + "," + toStr(v0) + "," + toStr(k1) + "," + ...
+// Lookup `d["a"]` lowers to a dict-walk helper (emitted lazily once any
+// dict access shows up).  No real hash table; O(n) walk is fine for MVP.
+func astDict(n, pairList) {
+    emit "DICT|" + toStr(n) + "|" + pairList
+}
+
 // LISTCOMP: "LISTCOMP|<id>|<var>|<eLen>|<expr><iLen>|<iter><cLen>|<cond>"
 // `<id>` is a per-comprehension unique integer (parser position). Each
 // LISTCOMP gets a hoisted helper func `_snek_lc_<id>()` generated at
@@ -624,6 +634,16 @@ func parseStatement(toks, pos) {
         if atKind(toks, pos, "NL") == "1" { pos = pos + 1 }
         emit pkPair(astPass(), pos)
     }
+    if atKw(toks, pos, "break") == "1" {
+        pos = pos + 1
+        if atKind(toks, pos, "NL") == "1" { pos = pos + 1 }
+        emit pkPair("BREAK|", pos)
+    }
+    if atKw(toks, pos, "continue") == "1" {
+        pos = pos + 1
+        if atKind(toks, pos, "NL") == "1" { pos = pos + 1 }
+        emit pkPair("CONTINUE|", pos)
+    }
     if atKw(toks, pos, "raise") == "1" {
         pos = pos + 1
         // Bare `raise` with no expression -- emit a default.
@@ -636,6 +656,59 @@ func parseStatement(toks, pos) {
         pos = pkPos(r)
         if atKind(toks, pos, "NL") == "1" { pos = pos + 1 }
         emit pkPair(astRaise(expr), pos)
+    }
+    // try/except: parse + emit the try body verbatim; discard the
+    // except / finally clauses (Krypton has no native exception handling,
+    // and synthesizing one via process-exit catch is heavier than this
+    // MVP wants).  Programs that rely on except recovery won't work yet
+    // -- raised exceptions terminate the program.
+    if atKw(toks, pos, "try") == "1" {
+        pos = pos + 1
+        if atOp(toks, pos, ":") == "1" { pos = pos + 1 }
+        if atKind(toks, pos, "NL") == "1" { pos = pos + 1 }
+        let tb = parseBlock(toks, pos)
+        let tryBody = pkNode(tb)
+        pos = pkPos(tb)
+        // Skip any number of except / else / finally blocks.
+        while atKind(toks, pos, "NL") == "1" { pos = pos + 1 }
+        while atKw(toks, pos, "except") == "1" || atKw(toks, pos, "finally") == "1" || atKw(toks, pos, "else") == "1" {
+            pos = pos + 1
+            // Skip until `:`
+            while atOp(toks, pos, ":") == "0" && atKind(toks, pos, "NL") == "0" && atKind(toks, pos, "EOF") == "0" {
+                pos = pos + 1
+            }
+            if atOp(toks, pos, ":") == "1" { pos = pos + 1 }
+            if atKind(toks, pos, "NL") == "1" { pos = pos + 1 }
+            let sk = parseBlock(toks, pos)
+            pos = pkPos(sk)
+            while atKind(toks, pos, "NL") == "1" { pos = pos + 1 }
+        }
+        // Render the tryBody as a sequence of statements (no wrapper).
+        // Use an inline list-of-stmts approach: we just emit each stmt
+        // straight by wrapping it in a one-element BLOCK marker.  Easiest
+        // is to fake it as a single ASSIGN-with-no-side-effect ... no,
+        // simpler: emit the list-of-stmts directly through the existing
+        // emit pipeline by re-encoding as a sequence of stmts.  But the
+        // parser expects a single AST node here.  Wrap in a TRYBLOCK kind.
+        emit pkPair("TRYBLOCK|" + toStr(len(tryBody)) + "|" + tryBody, pos)
+    }
+    // assert EXPR (, MESSAGE)?  -- lower to `if !cond { printErr(msg); exit(1) }`
+    if atKw(toks, pos, "assert") == "1" {
+        pos = pos + 1
+        let r = parseExpr(toks, pos)
+        let cond = pkNode(r)
+        pos = pkPos(r)
+        let msg = astStr("AssertionError")
+        if atOp(toks, pos, ",") == "1" {
+            pos = pos + 1
+            let rm = parseExpr(toks, pos)
+            msg = pkNode(rm)
+            pos = pkPos(rm)
+        }
+        if atKind(toks, pos, "NL") == "1" { pos = pos + 1 }
+        // Build: if (cond == "0") { raise msg }
+        let negCond = astBin("==", cond, astStr("0"))
+        emit pkPair(astIf(negCond, "1|" + toStr(len(astRaise(msg))) + "|" + astRaise(msg), listEmpty()), pos)
     }
     if atKw(toks, pos, "import") == "1" {
         pos = pos + 1
@@ -1214,6 +1287,33 @@ func parsePrimary(toks, pos) {
         emit parsePostfix(toks, pos, astList(nElems, sbToString(elems)))
     }
 
+    // Dict literal: {k1: v1, k2: v2, ...} or empty {}
+    if k == "OP" && v == "{" {
+        pos = pos + 1
+        if atOp(toks, pos, "}") == "1" {
+            pos = pos + 1
+            emit parsePostfix(toks, pos, astDict(0, ""))
+        }
+        let pairs = sbNew()
+        let nPairs = 0
+        while atOp(toks, pos, "}") == "0" && atKind(toks, pos, "EOF") == "0" {
+            if atOp(toks, pos, ",") == "1" { pos = pos + 1 }
+            if atOp(toks, pos, "}") == "1" { continue }
+            let kr = parseExpr(toks, pos)
+            let kNode = pkNode(kr)
+            pos = pkPos(kr)
+            if atOp(toks, pos, ":") == "1" { pos = pos + 1 }
+            let vr = parseExpr(toks, pos)
+            let vNode = pkNode(vr)
+            pos = pkPos(vr)
+            pairs = sbAppend(pairs, toStr(len(kNode)) + "|" + kNode)
+            pairs = sbAppend(pairs, toStr(len(vNode)) + "|" + vNode)
+            nPairs = nPairs + 1
+        }
+        if atOp(toks, pos, "}") == "1" { pos = pos + 1 }
+        emit parsePostfix(toks, pos, astDict(nPairs, sbToString(pairs)))
+    }
+
     if k == "NAME" {
         pos = pos + 1
         // Build a dotted name (e.g. `math.sqrt`) into a single
@@ -1377,8 +1477,13 @@ func emitExpr(node) {
         }
         // Python builtin remaps: len -> count (works on both strings and
         // comma-list "lists"), range(n) -> range(0, n) (Krypton's range
-        // takes start+stop, never just stop).
-        if name == "len" { nameOut = "count" }
+        // takes start+stop, never just stop), str/int aliases.
+        if name == "len"   { nameOut = "count" }
+        if name == "str"   { nameOut = "toStr" }
+        if name == "int"   { nameOut = "toInt" }
+        if name == "repr"  { nameOut = "toStr" }
+        if name == "input" { nameOut = "readLine" }
+        if name == "abs"   { nameOut = "abs" }
         if name == "range" && n == 1 {
             // Render: range(0, <arg0>) -- inline since we have one arg.
             let aBar = indexOf(argBody, "|")
@@ -1420,6 +1525,31 @@ func emitExpr(node) {
         emit out + ")"
     }
 
+    if kind == "DICT" {
+        // rest = "<n>|<kLen0>|<k0><vLen0>|<v0>..."
+        // Lower to alternating k,v in a single comma-string:
+        //   (toStr(k0) + "," + toStr(v0) + "," + toStr(k1) + ...)
+        let b1 = indexOf(rest, "|")
+        let n = toInt(substring(rest, 0, b1))
+        let body = substring(rest, b1 + 1, len(rest))
+        if n == 0 { emit "\"\"" }
+        let out = ""
+        let cursor = 0
+        let i = 0
+        let totalEntries = n + n
+        while i < totalEntries {
+            let aBar = indexOf(substring(body, cursor, len(body)), "|")
+            let aLen = toInt(substring(body, cursor, cursor + aBar))
+            let aStart = cursor + aBar + 1
+            let arg = substring(body, aStart, aStart + aLen)
+            cursor = aStart + aLen
+            let argSrc = "toStr(" + emitExpr(arg) + ")"
+            if i == 0 { out = argSrc } else { out = out + " + \",\" + " + argSrc }
+            i = i + 1
+        }
+        emit "(" + out + ")"
+    }
+
     if kind == "LIST" {
         // rest = "<n>|<l0>|<e0><l1>|<e1>..."
         // Lower to a comma-string: toStr(e0)+","+toStr(e1)+","+...
@@ -1452,19 +1582,35 @@ func emitExpr(node) {
         let b2 = indexOf(aft1, "|")
         let iLen = toInt(substring(aft1, 0, b2))
         let idx = substring(aft1, b2 + 1, b2 + 1 + iLen)
-        // For comma-string lists we want split(obj, idx); for plain
-        // strings we want a single character.  Use split since lists
-        // are the common case; users wanting a char should pass [i:i+1].
+        // Dict-style access if the key is a STR literal -- use the
+        // hoisted _snek_dict_get helper.  Otherwise list-style: split.
+        if startsWith(idx, "STR|") {
+            emit "_snek_dict_get(" + emitExpr(obj) + ", " + emitExpr(idx) + ")"
+        }
         emit "split(" + emitExpr(obj) + ", " + emitExpr(idx) + ")"
     }
 
     if kind == "LISTCOMP" {
-        // rest = "<id>|<var>|..." -- at use sites we just call the
-        // hoisted helper; the actual loop logic lives in the helper
-        // generated by collectListCompHelpers (called from emitProgram).
+        // rest = "<id>|<var>|<eLen>|<expr><iLen>|<iter><cLen>|<cond>"
+        // We pass `iter` as the helper's argument so the helper sees the
+        // caller's local (e.g. `[w[0] for w in words]` where `words` is
+        // a local).  Free vars OTHER than the loop variable still aren't
+        // captured -- that's the documented limit.
         let b1 = indexOf(rest, "|")
         let lcId = substring(rest, 0, b1)
-        emit "_snek_lc_" + lcId + "()"
+        let aft1 = substring(rest, b1 + 1, len(rest))
+        // skip var name (next |) to reach exprLen
+        let b2 = indexOf(aft1, "|")
+        let aft2 = substring(aft1, b2 + 1, len(aft1))
+        // skip expr
+        let b3 = indexOf(aft2, "|")
+        let eLen = toInt(substring(aft2, 0, b3))
+        let aft3 = substring(aft2, b3 + 1 + eLen, len(aft2))
+        // now read iter
+        let b4 = indexOf(aft3, "|")
+        let iLen = toInt(substring(aft3, 0, b4))
+        let iter = substring(aft3, b4 + 1, b4 + 1 + iLen)
+        emit "_snek_lc_" + lcId + "(" + emitExpr(iter) + ")"
     }
 
     if kind == "LAMBDA" {
@@ -1576,6 +1722,12 @@ func emitStmt(node, decls, indent) {
     if kind == "PASS" {
         emit pkPair(indent + "// pass", decls)
     }
+    if kind == "BREAK" {
+        emit pkPair(indent + "break", decls)
+    }
+    if kind == "CONTINUE" {
+        emit pkPair(indent + "continue", decls)
+    }
 
     if kind == "RAISE" {
         // rest = "<exprLen>|<expr>"
@@ -1586,6 +1738,16 @@ func emitStmt(node, decls, indent) {
         //   printErr(toStr(<expr>))
         //   exit("1")
         emit pkPair(indent + "printErr(toStr(" + emitExpr(expr) + "))\n" + indent + "exit(\"1\")", decls)
+    }
+
+    if kind == "TRYBLOCK" {
+        // rest = "<bodyLen>|<body>"
+        // We just inline the try body straight -- exceptions abort the
+        // program (no real catch).  Body is a length-prefixed stmt list.
+        let b1 = indexOf(rest, "|")
+        let bLen = toInt(substring(rest, 0, b1))
+        let body = substring(rest, b1 + 1, b1 + 1 + bLen)
+        emit pkPair(emitStmtList(body, decls, indent), decls)
     }
 
     if kind == "TUPASSIGN" {
@@ -1775,11 +1937,10 @@ func collectListCompHelpers(progAst) {
         let condStr = substring(progAst, p, p + cLen)
         p = p + cLen
         let exprSrc = emitExpr(exprStr)
-        let iterSrc = emitExpr(iterStr)
-        helpers = sbAppend(helpers, "func _snek_lc_" + lcId + "() {\n")
+        helpers = sbAppend(helpers, "func _snek_lc_" + lcId + "(__src) {\n")
         helpers = sbAppend(helpers, "    let __out = \"\"\n")
         helpers = sbAppend(helpers, "    let __first = \"1\"\n")
-        helpers = sbAppend(helpers, "    for " + varName + " in " + iterSrc + " {\n")
+        helpers = sbAppend(helpers, "    for " + varName + " in __src {\n")
         if condStr != "" {
             let condSrc = emitExpr(condStr)
             helpers = sbAppend(helpers, "        if " + condSrc + " {\n")
@@ -1800,6 +1961,17 @@ func collectListCompHelpers(progAst) {
 func emitProgram(stmts) {
     let out = sbNew()
     out = sbAppend(out, "// generated by compiler/snek.k -- do not edit by hand\n\n")
+    // Always-emit dict access helper.  Cheap (~80 bytes) and lets any
+    // `d["key"]` expression work without per-program scanning.
+    out = sbAppend(out, "func _snek_dict_get(__d, __k) {\n")
+    out = sbAppend(out, "    let __n = count(__d)\n")
+    out = sbAppend(out, "    let __i = 0\n")
+    out = sbAppend(out, "    while __i < __n {\n")
+    out = sbAppend(out, "        if split(__d, __i) == __k { emit split(__d, __i + 1) }\n")
+    out = sbAppend(out, "        __i = __i + 2\n")
+    out = sbAppend(out, "    }\n")
+    out = sbAppend(out, "    emit \"\"\n")
+    out = sbAppend(out, "}\n\n")
     // Hoist any list-comprehension helpers ahead of user funcs.
     let lcHelpers = collectListCompHelpers(stmts)
     if len(lcHelpers) > 0 {
