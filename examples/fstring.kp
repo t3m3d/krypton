@@ -1,0 +1,6 @@
+name = "world"
+age = 42
+print(f"hello, {name}!")
+print(f"you are {age} years old")
+print(f"next year you will be {age + 1}")
+print(f"{name} squared is {len(name) * len(name)}")

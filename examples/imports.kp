@@ -1,0 +1,10 @@
+import math
+
+def hypotenuse(a: int, b: int) -> int:
+    return math.sqrt(a * a + b * b)
+
+def circle_area(r: int) -> int:
+    return math.pi() * r * r
+
+print(hypotenuse(3, 4))
+print(circle_area(10))

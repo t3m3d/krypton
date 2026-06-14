@@ -1,0 +1,37 @@
+# Phase 5: list literals, indexing, slicing, aug-assign, `in`, multi-arg print, len, range(n)
+
+# List literal + indexing + len
+nums = [10, 20, 30, 40, 50]
+print("len:", len(nums))
+print("first:", nums[0])
+print("third:", nums[2])
+
+# Slicing
+greeting = "hello world"
+print("slice:", greeting[0:5])
+print("rest:", greeting[6:11])
+
+# Augmented assignment
+total = 0
+for i in range(5):
+    total += i * 2
+print("total:", total)
+
+# range(n) (1-arg)
+print("countdown:")
+n = 3
+while n > 0:
+    print(n)
+    n -= 1
+
+# `in` operator (substring on strings)
+needle = "lo"
+if needle in greeting:
+    print(f"found {needle} in {greeting}")
+
+# Multi-arg print
+print("x is", 42, "and y is", 100)
+
+# f-string with index
+words = "alpha,beta,gamma,delta"
+print(f"second word: {words[1]}")

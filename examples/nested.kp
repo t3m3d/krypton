@@ -1,0 +1,10 @@
+def greet(name):
+    print("hi")
+    print(name)
+
+x = 5
+if x > 0:
+    print("positive")
+    if x > 3:
+        print("big")
+print("done")
