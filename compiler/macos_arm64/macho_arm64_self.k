@@ -1187,7 +1187,10 @@ func emitAllocVar(instrIdx, textVaddr, textOff) {
 //                         nodes here; __rt_alloc recycles them). MUST avoid the
 //                         getLine cache (+56..72) + envp (+80) — both are
 //                         written constantly during compilation.
-//   +96..  heap (each alloc: 16-byte header [next:8B][size_flags:8B] + user bytes)
+//   +96  collect_threshold (stage 6 ph3: 0=disabled; auto-collect when
+//                         allocs_since >= this), set by gcSetThreshold
+//   +104 allocs_since     (stage 6 ph3: per-alloc counter, reset after collect)
+//   +112..  heap (each alloc: 16-byte header [next:8B][size_flags:8B] + user bytes)
 //   +0x2000000.. shadow stack (entries at 8 B each, written by gcShadowPush)
 // User-facing pointer returned in x0 = header_ptr + 16.
 func emitAllocN(n, instrIdx, textVaddr, textOff) {
@@ -1248,11 +1251,11 @@ func emitRtAllocHelper(instrIdx, textOff) {
     s = s + arm64_str_imm(11, 0, 0)                     // 18: node.next = old gcAllocsHead
     s = s + arm64_str_imm(0, 1, 6)                      // 19: gcAllocsHead = node (relink)
     s = s + arm64_add_imm(0, 0, 16)                     // 20: x0 = node + 16 (user ptr)
-    s = s + arm64_ret()                                 // 21: return (freelist hit)
+    s = s + arm64_b(13)                                 // 21: → TAIL @34 (was ret; phase-3 auto-collect check)
     // ── BUMP path @22 ──
     s = s + arm64_ldr_imm(0, 1, 0)                      // 22: x0 = current free (bump cell)
     s = s + arm64_cbnz(0, 2)                            // 23: if !=0 → +2 (instr 25)
-    s = s + arm64_add_imm(0, 1, 96)                     // 24: first-time heap base (+96)
+    s = s + arm64_add_imm(0, 1, 112)                    // 24: first-time heap base (+112; ph3 added 2 slots)
     s = s + arm64_add_xxx(2, 0, 4)                      // 25: x2 = x0 + size
     s = s + arm64_add_imm(2, 2, 16)                     // 26: x2 += 16 (header)
     s = s + arm64_str_imm(2, 1, 0)                      // 27: advance bump
@@ -1261,11 +1264,139 @@ func emitRtAllocHelper(instrIdx, textOff) {
     s = s + arm64_str_imm(4, 0, 1)                      // 30: header.size_flags = size
     s = s + arm64_str_imm(0, 1, 6)                      // 31: gcAllocsHead = header
     s = s + arm64_add_imm(0, 0, 16)                     // 32: x0 += 16 (user ptr)
-    s = s + arm64_ret()                                 // 33: return (bump)
+    s = s + arm64_b(1)                                  // 33: → TAIL @34 (was ret)
+    // ── TAIL @34: stage-6 phase-3 auto-collect trigger ──
+    // x0 = result ptr, x1 = gcGlobals base (both paths preserve x1). Bump the
+    // allocs_since counter; if a threshold is set and crossed, run a collect.
+    // The collect is gated behind a REGISTER SAFEPOINT: spill x0..x18,x30 so the
+    // conservative stack scan sees roots the caller kept in callee-preserved regs
+    // across the alloc (concat keeps a=x3/b=x6, INDEX keeps base=x4, etc.) — those
+    // are NOT on the eval stack. x0 (just-allocated obj) is spilled too, so it's
+    // marked and survives; then everything is restored.
+    s = s + arm64_ldr_imm(9, 1, 13)                     // 34: x9 = allocs_since (+104)
+    s = s + arm64_add_imm(9, 9, 1)                      // 35: x9 += 1
+    s = s + arm64_str_imm(9, 1, 13)                     // 36: store allocs_since
+    s = s + arm64_ldr_imm(2, 1, 12)                     // 37: x2 = collect_threshold (+96)
+    s = s + arm64_cbz(2, 84)                            // 38: threshold 0 → DONE @122
+    s = s + arm64_cmp_xx(9, 2)                          // 39: cmp allocs_since, threshold
+    s = s + arm64_b_cond(0x3, 82)                       // 40: b.lo → DONE @122 (not yet)
+    // SAFEPOINT spill x0..x18 + x30 (10 pairs) @41..50:
+    s = s + arm64_stp_pre16(0, 1)                       // 41
+    s = s + arm64_stp_pre16(2, 3)                       // 42
+    s = s + arm64_stp_pre16(4, 5)                       // 43
+    s = s + arm64_stp_pre16(6, 7)                       // 44
+    s = s + arm64_stp_pre16(8, 9)                       // 45
+    s = s + arm64_stp_pre16(10, 11)                     // 46
+    s = s + arm64_stp_pre16(12, 13)                     // 47
+    s = s + arm64_stp_pre16(14, 15)                     // 48
+    s = s + arm64_stp_pre16(16, 17)                     // 49
+    s = s + arm64_stp_pre16(18, 30)                     // 50
+    // COLLECT body @51..110 (60 instr; scans [sp,stack_base] incl spilled regs):
+    s = s + emitGcCollectBody(instrIdx + 51, textOff)   // 51..110
+    // reset counter (collect re-derived x1 = gcGlobals base) @111:
+    s = s + arm64_str_imm(31, 1, 13)                    // 111: allocs_since = 0 (+104)
+    // RESTORE x0..x18 + x30 (reverse order) @112..121:
+    s = s + arm64_ldp_post16(18, 30)                    // 112
+    s = s + arm64_ldp_post16(16, 17)                    // 113
+    s = s + arm64_ldp_post16(14, 15)                    // 114
+    s = s + arm64_ldp_post16(12, 13)                    // 115
+    s = s + arm64_ldp_post16(10, 11)                    // 116
+    s = s + arm64_ldp_post16(8, 9)                      // 117
+    s = s + arm64_ldp_post16(6, 7)                      // 118
+    s = s + arm64_ldp_post16(4, 5)                      // 119
+    s = s + arm64_ldp_post16(2, 3)                      // 120
+    s = s + arm64_ldp_post16(0, 1)                      // 121
+    // DONE @122:
+    s = s + arm64_ret()                                 // 122: return (x0 = result)
     emit s
 }
 
-func rtAllocInstrCount() { emit 34 }
+func rtAllocInstrCount() { emit 123 }
+
+// Shared GC collect body: conservative MARK (stack + globals scan) + SWEEP that
+// parks unmarked nodes onto free_head (+88). 60 instructions, idx 0..59, leaves
+// the swept count in x0 (NO push — caller decides). Used inline by
+// BUILTIN_GCCOLLECT (appends a push) and by __rt_alloc's phase-3 auto-trigger
+// (discards x0; result already spilled). Clobbers x1..x14 + the scan temps;
+// re-derives x1 = gcGlobals base internally.
+func emitGcCollectBody(instrIdx, textOff) {
+    let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
+    let glbBase = g_TEXT_VMSIZE + 0x6F004000
+    let imm21g = glbBase / 4096 - (textOff + (instrIdx + 22) * 4) / 4096
+    let s = ""
+    s = s + arm64_adrp(1, imm21)  // 0
+    s = s + arm64_add_imm(1, 1, 0)  // 1: x1 = bump_cell
+    // ── MARK PHASE (stack scan) ──
+    s = s + arm64_movz_x_imm_lsl16(14, 0x5000)  // 2: x14 = 0x50000000
+    s = s + arm64_add_xxx(3, 1, 14)  // 3: x3 = scan-base cell
+    s = s + arm64_ldr_imm(9, 3, 1)  // 4: x9 = heap_min (scan+8)
+    s = s + arm64_ldr_imm(3, 3, 0)  // 5: x3 = stack_base (scan+0)
+    s = s + arm64_add_imm(2, 31, 0)  // 6: x2 = sp (cur)
+    s = s + arm64_ldr_imm(10, 1, 0)  // 7: x10 = bump (heap top)
+    s = s + arm64_movz_x_imm_lsl48(12, 0x8000)  // 8: x12 = 1<<63
+    // STACK_LOOP @ idx 9:
+    s = s + arm64_cmp_xx(2, 3)  // 9
+    s = s + arm64_b_cond(0xa, 12)  // 10: b.ge → GLOBALS (+12 = 22)
+    s = s + arm64_ldr_imm(4, 2, 0)  // 11: v = *cur
+    s = s + arm64_cmp_xx(4, 9)  // 12
+    s = s + arm64_b_cond(0xb, 7)  // 13: b.lt → SSKIP (+7 = 20)
+    s = s + arm64_cmp_xx(4, 10)  // 14
+    s = s + arm64_b_cond(0xa, 5)  // 15: b.ge → SSKIP (+5 = 20)
+    s = s + arm64_sub_imm(7, 4, 8)  // 16
+    s = s + arm64_ldr_imm(8, 7, 0)  // 17
+    s = s + arm64_orr_xxx(8, 8, 12)  // 18
+    s = s + arm64_str_imm(8, 7, 0)  // 19
+    // SSKIP @ idx 20:
+    s = s + arm64_add_imm(2, 2, 8)  // 20: cur += 8
+    s = s + arm64_b(0 - 12)  // 21: → STACK_LOOP (21-12=9)
+    // GLOBALS setup @ idx 22:
+    s = s + arm64_adrp(6, imm21g)  // 22: x6 = globals page
+    s = s + arm64_add_imm(6, 6, glbBase - (glbBase / 4096) * 4096)  // 23: x6 = globals_base
+    s = s + arm64_movz_x_imm(13, g_NGLOBALS)  // 24: x13 = nG
+    // GLOOP @ idx 25:
+    s = s + arm64_cbz(13, 13)  // 25: cbz nG → MARK_DONE (+13 = 38)
+    s = s + arm64_ldr_imm(4, 6, 0)  // 26: v = *cur2
+    s = s + arm64_cmp_xx(4, 9)  // 27
+    s = s + arm64_b_cond(0xb, 7)  // 28: b.lt → GSKIP (+7 = 35)
+    s = s + arm64_cmp_xx(4, 10)  // 29
+    s = s + arm64_b_cond(0xa, 5)  // 30: b.ge → GSKIP (+5 = 35)
+    s = s + arm64_sub_imm(7, 4, 8)  // 31
+    s = s + arm64_ldr_imm(8, 7, 0)  // 32
+    s = s + arm64_orr_xxx(8, 8, 12)  // 33
+    s = s + arm64_str_imm(8, 7, 0)  // 34
+    // GSKIP @ idx 35:
+    s = s + arm64_add_imm(6, 6, 8)  // 35: cur2 += 8
+    s = s + arm64_sub_imm(13, 13, 1)  // 36: nG--
+    s = s + arm64_b(0 - 12)  // 37: → GLOOP (37-12=25)
+    // MARK_DONE @ idx 38 — start SWEEP:
+    s = s + arm64_ldr_imm(10, 1, 6)  // 38: current = head (+48)
+    s = s + arm64_add_imm(11, 1, 48)  // 39: prev_next = &head
+    s = s + arm64_movz_x_imm(5, 0)  // 40: swept = 0
+    // SWEEP_LOOP @ idx 41:
+    s = s + arm64_cbz(10, 18)  // 41: → SWEEP_DONE (+18 = 59)
+    s = s + arm64_ldr_imm(4, 10, 1)  // 42: size_flags
+    s = s + arm64_cmp_imm(4, 0)  // 43
+    s = s + arm64_b_cond(0xb, 9)  // 44: b.lt → SWEEP_MARKED (+9 = 53)
+    // UNMARKED — unlink + push onto freelist (+88)
+    s = s + arm64_ldr_imm(12, 10, 0)  // 45: next
+    s = s + arm64_str_imm(12, 11, 0)  // 46: *prev_next = next
+    s = s + arm64_ldr_imm(13, 1, 11)  // 47: old free_head
+    s = s + arm64_str_imm(13, 10, 0)  // 48: cur.next = old free_head
+    s = s + arm64_str_imm(10, 1, 11)  // 49: free_head = cur
+    s = s + arm64_mov_xx(10, 12)  // 50: current = next
+    s = s + arm64_add_imm(5, 5, 1)  // 51: swept++
+    s = s + arm64_b(0 - 11)  // 52: → SWEEP_LOOP (52-11=41)
+    // SWEEP_MARKED @ idx 53:
+    s = s + arm64_movz_x_imm_lsl48(12, 0x8000)  // 53
+    s = s + arm64_eor_xxx(4, 4, 12)  // 54: clear mark
+    s = s + arm64_str_imm(4, 10, 1)  // 55
+    s = s + arm64_mov_xx(11, 10)  // 56: prev_next = &cur.next
+    s = s + arm64_ldr_imm(10, 10, 0)  // 57: current = cur.next
+    s = s + arm64_b(0 - 17)  // 58: → SWEEP_LOOP (58-17=41)
+    // SWEEP_DONE @ idx 59:
+    s = s + arm64_mov_xx(0, 5)  // 59: x0 = swept count
+    emit s
+}
 
 // Polymorphic string concat — emits 111 arm64 instructions assuming the two
 // operands are already in x3 (a) and x6 (b). Either may be an int (raw, less
@@ -1874,6 +2005,9 @@ func parseFullIR(ir) {
                     } else if bname == "gcSetLimit" {
                         curOps = sbAppend(curOps, "BUILTIN_GCSETLIMIT\n")
                         nOps += 1
+                    } else if bname == "gcSetThreshold" {
+                        curOps = sbAppend(curOps, "BUILTIN_GCSETTHRESHOLD\n")
+                        nOps += 1
                     } else if bname == "gcReset" {
                         curOps = sbAppend(curOps, "BUILTIN_GCRESET\n")
                         nOps += 1
@@ -2262,6 +2396,7 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_GCALLOCATED"  { emit 4 }   // adrp + add + ldr [x1,#24] + push
     if opTok == "BUILTIN_GCLIMIT"      { emit 4 }   // adrp + add + ldr [x1,#32] + push
     if opTok == "BUILTIN_GCSETLIMIT"   { emit 5 }   // pop + adrp + add + str [x1,#32] + push
+    if opTok == "BUILTIN_GCSETTHRESHOLD" { emit 5 } // pop + adrp + add + str [x1,#96] + push
     if opTok == "BUILTIN_GCRESET"      { emit 9 }   // adrp + add + 5 stores (bump, alloc_total, shadow_count, gcAllocsHead, free_head) + movz + push
     if opTok == "BUILTIN_GCCOLLECT"    { emit 61 }  // conservative stack+globals scan mark + sweep inline (parks unmarked onto free_head), returns swept count
     // 2.0 GC builtins (stub-only; real impl pending mark-sweep port). Each
@@ -3998,6 +4133,16 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_str_imm(0, 1, 4))  // str x0, [x1, #32] (alloc_limit = arg)
             s = sbAppend(s, arm64_push_x0())
             instrIdx = instrIdx + 4
+        } else if opTok == "BUILTIN_GCSETTHRESHOLD" {
+            // Pop value, store at collect_threshold (+96), push back. 5 instructions.
+            s = sbAppend(s, arm64_pop_x0())
+            instrIdx = instrIdx + 1
+            let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
+            s = sbAppend(s, arm64_adrp(1, imm21))
+            s = sbAppend(s, arm64_add_imm(1, 1, 0))
+            s = sbAppend(s, arm64_str_imm(0, 1, 12))  // str x0, [x1, #96] (collect_threshold = arg)
+            s = sbAppend(s, arm64_push_x0())
+            instrIdx = instrIdx + 4
         } else if opTok == "BUILTIN_GCRESET" {
             // Zero bump_cell, alloc_total, gcShadowCount, gcAllocsHead, free_head.
             // Full heap + roots + alloc-list + freelist reset. Push 0. 9 instructions.
@@ -4013,85 +4158,11 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_push_x0())
             instrIdx = instrIdx + 9
         } else if opTok == "BUILTIN_GCCOLLECT" {
-            // gcCollect: conservative MARK (stack + globals scan, like
-            // BUILTIN_GCMARK but no marked counter) + SWEEP inline; return swept
-            // count. 61 instructions = MARK (idx 2..37) + SWEEP (38..60).
-            // SWEEP parks unmarked nodes onto free_head (+88).
-            let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
-            let glbBase = g_TEXT_VMSIZE + 0x6F004000
-            let imm21g = glbBase / 4096 - (textOff + (instrIdx + 22) * 4) / 4096
-            s = sbAppend(s, arm64_adrp(1, imm21))  // 0
-            s = sbAppend(s, arm64_add_imm(1, 1, 0))  // 1: x1 = bump_cell
-            // ── MARK PHASE (stack scan) ──
-            s = sbAppend(s, arm64_movz_x_imm_lsl16(14, 0x5000))  // 2: x14 = 0x50000000
-            s = sbAppend(s, arm64_add_xxx(3, 1, 14))  // 3: x3 = scan-base cell
-            s = sbAppend(s, arm64_ldr_imm(9, 3, 1))  // 4: x9 = heap_min (scan+8)
-            s = sbAppend(s, arm64_ldr_imm(3, 3, 0))  // 5: x3 = stack_base (scan+0)
-            s = sbAppend(s, arm64_add_imm(2, 31, 0))  // 6: x2 = sp (cur)
-            s = sbAppend(s, arm64_ldr_imm(10, 1, 0))  // 7: x10 = bump (heap top)
-            s = sbAppend(s, arm64_movz_x_imm_lsl48(12, 0x8000))  // 8: x12 = 1<<63
-            // STACK_LOOP @ idx 9:
-            s = sbAppend(s, arm64_cmp_xx(2, 3))  // 9
-            s = sbAppend(s, arm64_b_cond(0xa, 12))  // 10: b.ge → GLOBALS (+12 = 22)
-            s = sbAppend(s, arm64_ldr_imm(4, 2, 0))  // 11: v = *cur
-            s = sbAppend(s, arm64_cmp_xx(4, 9))  // 12
-            s = sbAppend(s, arm64_b_cond(0xb, 7))  // 13: b.lt → SSKIP (+7 = 20)
-            s = sbAppend(s, arm64_cmp_xx(4, 10))  // 14
-            s = sbAppend(s, arm64_b_cond(0xa, 5))  // 15: b.ge → SSKIP (+5 = 20)
-            s = sbAppend(s, arm64_sub_imm(7, 4, 8))  // 16
-            s = sbAppend(s, arm64_ldr_imm(8, 7, 0))  // 17
-            s = sbAppend(s, arm64_orr_xxx(8, 8, 12))  // 18
-            s = sbAppend(s, arm64_str_imm(8, 7, 0))  // 19
-            // SSKIP @ idx 20:
-            s = sbAppend(s, arm64_add_imm(2, 2, 8))  // 20: cur += 8
-            s = sbAppend(s, arm64_b(0 - 12))  // 21: → STACK_LOOP (21-12=9)
-            // GLOBALS setup @ idx 22:
-            s = sbAppend(s, arm64_adrp(6, imm21g))  // 22: x6 = globals page
-            s = sbAppend(s, arm64_add_imm(6, 6, glbBase - (glbBase / 4096) * 4096))  // 23: x6 = globals_base
-            s = sbAppend(s, arm64_movz_x_imm(13, g_NGLOBALS))  // 24: x13 = nG
-            // GLOOP @ idx 25:
-            s = sbAppend(s, arm64_cbz(13, 13))  // 25: cbz nG → MARK_DONE (+13 = 38)
-            s = sbAppend(s, arm64_ldr_imm(4, 6, 0))  // 26: v = *cur2
-            s = sbAppend(s, arm64_cmp_xx(4, 9))  // 27
-            s = sbAppend(s, arm64_b_cond(0xb, 7))  // 28: b.lt → GSKIP (+7 = 35)
-            s = sbAppend(s, arm64_cmp_xx(4, 10))  // 29
-            s = sbAppend(s, arm64_b_cond(0xa, 5))  // 30: b.ge → GSKIP (+5 = 35)
-            s = sbAppend(s, arm64_sub_imm(7, 4, 8))  // 31
-            s = sbAppend(s, arm64_ldr_imm(8, 7, 0))  // 32
-            s = sbAppend(s, arm64_orr_xxx(8, 8, 12))  // 33
-            s = sbAppend(s, arm64_str_imm(8, 7, 0))  // 34
-            // GSKIP @ idx 35:
-            s = sbAppend(s, arm64_add_imm(6, 6, 8))  // 35: cur2 += 8
-            s = sbAppend(s, arm64_sub_imm(13, 13, 1))  // 36: nG--
-            s = sbAppend(s, arm64_b(0 - 12))  // 37: → GLOOP (37-12=25)
-            // MARK_DONE @ idx 38 — start SWEEP:
-            s = sbAppend(s, arm64_ldr_imm(10, 1, 6))  // 38: current = head (+48)
-            s = sbAppend(s, arm64_add_imm(11, 1, 48))  // 39: prev_next = &head
-            s = sbAppend(s, arm64_movz_x_imm(5, 0))  // 40: swept = 0
-            // SWEEP_LOOP @ idx 41:
-            s = sbAppend(s, arm64_cbz(10, 18))  // 41: → SWEEP_DONE (+18 = 59)
-            s = sbAppend(s, arm64_ldr_imm(4, 10, 1))  // 42: size_flags
-            s = sbAppend(s, arm64_cmp_imm(4, 0))  // 43
-            s = sbAppend(s, arm64_b_cond(0xb, 9))  // 44: b.lt → SWEEP_MARKED (+9 = 53)
-            // UNMARKED — unlink + push onto freelist (+88)
-            s = sbAppend(s, arm64_ldr_imm(12, 10, 0))  // 45: next
-            s = sbAppend(s, arm64_str_imm(12, 11, 0))  // 46: *prev_next = next
-            s = sbAppend(s, arm64_ldr_imm(13, 1, 11))  // 47: old free_head
-            s = sbAppend(s, arm64_str_imm(13, 10, 0))  // 48: cur.next = old free_head
-            s = sbAppend(s, arm64_str_imm(10, 1, 11))  // 49: free_head = cur
-            s = sbAppend(s, arm64_mov_xx(10, 12))  // 50: current = next
-            s = sbAppend(s, arm64_add_imm(5, 5, 1))  // 51: swept++
-            s = sbAppend(s, arm64_b(0 - 11))  // 52: → SWEEP_LOOP (52-11=41)
-            // SWEEP_MARKED @ idx 53:
-            s = sbAppend(s, arm64_movz_x_imm_lsl48(12, 0x8000))  // 53
-            s = sbAppend(s, arm64_eor_xxx(4, 4, 12))  // 54: clear mark
-            s = sbAppend(s, arm64_str_imm(4, 10, 1))  // 55
-            s = sbAppend(s, arm64_mov_xx(11, 10))  // 56: prev_next = &cur.next
-            s = sbAppend(s, arm64_ldr_imm(10, 10, 0))  // 57: current = cur.next
-            s = sbAppend(s, arm64_b(0 - 17))  // 58: → SWEEP_LOOP (58-17=41)
-            // SWEEP_DONE @ idx 59:
-            s = sbAppend(s, arm64_mov_xx(0, 5))  // 59: x0 = swept count
-            s = sbAppend(s, arm64_push_x0())  // 60: push
+            // gcCollect: conservative MARK (stack + globals scan) + SWEEP inline;
+            // return swept count. Body factored into emitGcCollectBody (60 instr,
+            // idx 0..59, x0=swept); op appends the push. 61 instructions total.
+            s = sbAppend(s, emitGcCollectBody(instrIdx, textOff))  // 0..59
+            s = sbAppend(s, arm64_push_x0())  // 60: push swept count
             instrIdx = instrIdx + 61
         } else if opTok == "BUILTIN_GCALLOCCOUNT" {
             // Walk gcAllocsHead linked list, count entries. 10 instructions.
