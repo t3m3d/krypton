@@ -1159,6 +1159,60 @@ func parseUnary(toks, pos) {
     emit parsePrimary(toks, pos)
 }
 
+// wrapFstrFormat(node, spec) -- given an already-stringified expression
+// node and a Python-style f-string format spec, return a node that
+// applies the right padLeft/padRight wrap.  Recognised subset:
+//   N       -> padLeft (default right-align, space fill)
+//   >N      -> padLeft (explicit right-align)
+//   <N      -> padRight (left-align)
+//   0N      -> padLeft with "0" fill (zero-pad)
+//   0>N     -> same as 0N
+// Anything more exotic (.Nf, ,, etc.) parses out leading width digits
+// and ignores the rest -- no float support yet, no thousand separators.
+func wrapFstrFormat(node, spec) {
+    if spec == "" { emit node }
+    let fill = " "
+    let useLeft = "1"      // "1" = padLeft (right-align), "0" = padRight (left)
+    let p = 0
+    let slen = len(spec)
+    // Detect alignment flag.
+    if p < slen {
+        let c0 = spec[p]
+        if c0 == "<" { useLeft = "0"  p = p + 1 }
+        if c0 == ">" { useLeft = "1"  p = p + 1 }
+    }
+    // Detect fill char.  Python format: `{x:0>5}` -> '0' fill, right-align.
+    // Our simplified rule: a leading '0' digit means zero-fill.
+    if p < slen && spec[p] == "0" {
+        fill = "0"
+        p = p + 1
+    }
+    // Re-check alignment if it follows the fill (e.g. "0>5").
+    if p < slen {
+        let c1 = spec[p]
+        if c1 == "<" { useLeft = "0"  p = p + 1 }
+        if c1 == ">" { useLeft = "1"  p = p + 1 }
+    }
+    // Width digits.
+    let widthStr = ""
+    while p < slen && isDigit(spec[p]) == "1" {
+        widthStr = widthStr + spec[p]
+        p = p + 1
+    }
+    if widthStr == "" { emit node }
+    // Build padLeft(<node>, <width>, <fill>)  or padRight(...).
+    let argList = sbNew()
+    argList = sbAppend(argList, toStr(len(node)) + "|" + node)
+    let widthNode = astNum(widthStr)
+    argList = sbAppend(argList, toStr(len(widthNode)) + "|" + widthNode)
+    let fillNode = astStr(fill)
+    argList = sbAppend(argList, toStr(len(fillNode)) + "|" + fillNode)
+    if useLeft == "1" {
+        emit astCall("padLeft", 3, sbToString(argList))
+    }
+    emit astCall("padRight", 3, sbToString(argList))
+}
+
 // parseFstr(content) -- walks an f-string body and folds the static
 // + dynamic chunks into a left-associative BIN(+) tree of:
 //   astStr(staticPart) + astCall("toStr", [innerExpr]) + ...
@@ -1190,13 +1244,32 @@ func parseFstr(content) {
             }
             let exprStr = substring(content, exprStart, i)
             if i < n { i = i + 1 }
-            let inner = lex(exprStr)
+            // Format spec: split exprStr on top-level ':' once.  Supported:
+            //   :N      pad-left to width N (right-align, space fill)
+            //   :>N     pad-left to width N (explicit right-align)
+            //   :<N     pad-right to width N (left-align)
+            //   :0N     zero-pad-left to width N
+            // Anything more exotic (`.2f`, `,`, etc.) is silently
+            // ignored after extracting any leading width digits.
+            let exprPart = exprStr
+            let specPart = ""
+            let colonAt = indexOf(exprStr, ":")
+            if colonAt > 0 {
+                exprPart = substring(exprStr, 0, colonAt)
+                specPart = substring(exprStr, colonAt + 1, len(exprStr))
+            }
+            let inner = lex(exprPart)
             let r = parseExpr(inner, 0)
             let exprNode = pkNode(r)
             // Wrap in toStr(...) so the result joins as a string.
             let argList = toStr(len(exprNode)) + "|" + exprNode
             let toStrNode = astCall("toStr", 1, argList)
-            parts = sbAppend(parts, toStr(len(toStrNode)) + "|" + toStrNode)
+            // Optionally wrap toStrNode in padLeft / padRight per spec.
+            let wrapped = toStrNode
+            if specPart != "" {
+                wrapped = wrapFstrFormat(toStrNode, specPart)
+            }
+            parts = sbAppend(parts, toStr(len(wrapped)) + "|" + wrapped)
             nParts = nParts + 1
         }
         if c != "{" {

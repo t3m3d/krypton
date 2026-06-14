@@ -1,0 +1,6 @@
+# for-loop tuple unpacking
+
+# Iterate pairs as comma-strings: "a,1", "b,2", "c,3"
+pairs = "a,1,b,2,c,3"
+for k, v in pairs:
+    print(k, "=", v)
