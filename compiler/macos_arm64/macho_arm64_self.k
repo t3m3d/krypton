@@ -2396,7 +2396,7 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_GCALLOCATED"  { emit 4 }   // adrp + add + ldr [x1,#24] + push
     if opTok == "BUILTIN_GCLIMIT"      { emit 4 }   // adrp + add + ldr [x1,#32] + push
     if opTok == "BUILTIN_GCSETLIMIT"   { emit 5 }   // pop + adrp + add + str [x1,#32] + push
-    if opTok == "BUILTIN_GCSETTHRESHOLD" { emit 5 } // pop + adrp + add + str [x1,#96] + push
+    if opTok == "BUILTIN_GCSETTHRESHOLD" { emit 35 } // inline toInt(30) + pop + adrp + add + str [x1,#96] + push
     if opTok == "BUILTIN_GCRESET"      { emit 9 }   // adrp + add + 5 stores (bump, alloc_total, shadow_count, gcAllocsHead, free_head) + movz + push
     if opTok == "BUILTIN_GCCOLLECT"    { emit 61 }  // conservative stack+globals scan mark + sweep inline (parks unmarked onto free_head), returns swept count
     // 2.0 GC builtins (stub-only; real impl pending mark-sweep port). Each
@@ -4134,15 +4134,52 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_push_x0())
             instrIdx = instrIdx + 4
         } else if opTok == "BUILTIN_GCSETTHRESHOLD" {
-            // Pop value, store at collect_threshold (+96), push back. 5 instructions.
-            s = sbAppend(s, arm64_pop_x0())
-            instrIdx = instrIdx + 1
-            let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + instrIdx * 4) / 4096
-            s = sbAppend(s, arm64_adrp(1, imm21))
-            s = sbAppend(s, arm64_add_imm(1, 1, 0))
-            s = sbAppend(s, arm64_str_imm(0, 1, 12))  // str x0, [x1, #96] (collect_threshold = arg)
-            s = sbAppend(s, arm64_push_x0())
-            instrIdx = instrIdx + 4
+            // gcSetThreshold(arg): arg may be an INT (gcSetThreshold(100)) or a
+            // STRING (gcSetThreshold("100")) — unified with the Windows ABI (w's
+            // phase-3 review, handoff_w2m_phase3_review.md item 4) so one test
+            // (tests/gc_auto_collect.k) runs on both backends. Route the arg
+            // through the same int-passthrough + signed-parse as BUILTIN_TOINT
+            // (verbatim, self-relative branches), then store the int at
+            // collect_threshold (+96). 35 instructions.
+            // --- inline toInt (idx 0..29), result pushed ---
+            s = sbAppend(s, arm64_pop(7))  // 0
+            s = sbAppend(s, arm64_movz_x_imm_lsl32(3, 1))  // 1: x3 = 1<<32 (int/ptr boundary)
+            s = sbAppend(s, arm64_cmp_xx(7, 3))  // 2
+            s = sbAppend(s, arm64_b_cond(0x3, 25))  // 3: b.lo INT_MOV@28
+            s = sbAppend(s, arm64_movz_x_imm(0, 0))  // 4: result = 0
+            s = sbAppend(s, arm64_movz_x_imm(4, 10))  // 5: ten
+            s = sbAppend(s, arm64_movz_x_imm(8, 0))  // 6: neg = 0
+            s = sbAppend(s, arm64_movz_x_imm(5, 0))  // 7: i = 0
+            s = sbAppend(s, arm64_ldrb_reg(6, 7, 5))  // 8: c = s[0]
+            s = sbAppend(s, arm64_cmp_imm(6, 0x2D))  // 9: '-' ?
+            s = sbAppend(s, arm64_b_cond(0x1, 3))  // 10: b.ne LOOP@13
+            s = sbAppend(s, arm64_movz_x_imm(8, 1))  // 11: neg = 1
+            s = sbAppend(s, arm64_add_imm(5, 5, 1))  // 12: skip '-'
+            s = sbAppend(s, arm64_ldrb_reg(6, 7, 5))  // 13: LOOP
+            s = sbAppend(s, arm64_cbz(6, 10))  // 14: → DONE@24
+            s = sbAppend(s, arm64_cmp_imm(6, 48))  // 15
+            s = sbAppend(s, arm64_b_cond(0xb, 8))  // 16: b.lt → DONE@24
+            s = sbAppend(s, arm64_cmp_imm(6, 57))  // 17
+            s = sbAppend(s, arm64_b_cond(0xc, 6))  // 18: b.gt → DONE@24
+            s = sbAppend(s, arm64_sub_imm(6, 6, 48))  // 19
+            s = sbAppend(s, arm64_mul_xxx(0, 0, 4))  // 20
+            s = sbAppend(s, arm64_add_xxx(0, 0, 6))  // 21
+            s = sbAppend(s, arm64_add_imm(5, 5, 1))  // 22
+            s = sbAppend(s, arm64_b(0 - 10))  // 23: → LOOP@13
+            s = sbAppend(s, arm64_cbz(8, 2))  // 24: neg==0 → PUSH@26
+            s = sbAppend(s, arm64_sub_xxx(0, 31, 0))  // 25: x0 = -x0
+            s = sbAppend(s, arm64_push_x0())  // 26
+            s = sbAppend(s, arm64_b(3))  // 27: → END@30
+            s = sbAppend(s, arm64_mov_xx(0, 7))  // 28: INT_MOV
+            s = sbAppend(s, arm64_push_x0())  // 29
+            // --- store parsed int at collect_threshold (+96) ---
+            s = sbAppend(s, arm64_pop_x0())  // 30: x0 = parsed int
+            let imm21 = (g_TEXT_VMSIZE + 0x8000) / 4096 - (textOff + (instrIdx + 31) * 4) / 4096
+            s = sbAppend(s, arm64_adrp(1, imm21))  // 31
+            s = sbAppend(s, arm64_add_imm(1, 1, 0))  // 32
+            s = sbAppend(s, arm64_str_imm(0, 1, 12))  // 33: str x0, [x1, #96] (collect_threshold)
+            s = sbAppend(s, arm64_push_x0())  // 34
+            instrIdx = instrIdx + 35
         } else if opTok == "BUILTIN_GCRESET" {
             // Zero bump_cell, alloc_total, gcShadowCount, gcAllocsHead, free_head.
             // Full heap + roots + alloc-list + freelist reset. Push 0. 9 instructions.
