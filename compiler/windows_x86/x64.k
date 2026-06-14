@@ -453,7 +453,7 @@ func emitStringTable(strs) {
 
 let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,GetCurrentThreadId,GetLastError,SetLastError,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA,WaitForSingleObject,TerminateProcess,OpenProcess,CreateFileMappingA,MapViewOfFile,UnmapViewOfFile,GetModuleHandleA,SetEnvironmentVariableA,CreatePipe,PeekNamedPipe,CreateProcessA,InitializeProcThreadAttributeList,UpdateProcThreadAttribute,DeleteProcThreadAttributeList,CreatePseudoConsole,ResizePseudoConsole,ClosePseudoConsole,GetExitCodeProcess,CreateDirectoryA,DeleteFileA,RemoveDirectoryA,MoveFileA,CopyFileA,GetCurrentDirectoryA,SetCurrentDirectoryA,GetTempPathA"
 let KRUSER_FUNCS = "GetSystemMetrics,MessageBoxA,ShowWindow,SetTimer,KillTimer,GetForegroundWindow,SetForegroundWindow,GetMessageA,TranslateMessage,DispatchMessageA,PostQuitMessage,UpdateWindow,DestroyWindow,SetWindowTextA,GetWindowTextA,SendMessageA,GetDlgItem,InvalidateRect,MoveWindow,SetWindowPos,GetClientRect,GetWindowRect,RegisterClassExA,CreateWindowExA,DefWindowProcA,LoadCursorA,LoadIconA,CreateMenu,CreatePopupMenu,AppendMenuA,SetMenu,DrawMenuBar,DestroyMenu,LoadImageA,SetClassLongPtrA,FillRect,GetWindow,SetProcessDpiAwarenessContext"
-let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword,kr_envnew,kr_envset,kr_envget,kr_hasfield,kr_structfields,kr_repeat,kr_padleft,kr_padright,kr_reverse,kr_abs,kr_min,kr_max,kr_endswith,kr_bin,kr_pow,kr_gc_allocated,kr_gc_limit,kr_gc_set_limit,kr_gc_collect,kr_arena_reset,kr_gc_checkpoint,kr_gc_restore,kr_gc_slab_count,kr_gc_slab_bytes,kr_bufgetbyte,kr_bufgetwordat,kr_bufsetwordat,kr_bufsetqwordat,kr_bufgetwordatbe,kr_bufgetdwordatbe,kr_bufgetqwordatbe,kr_gc_alloc_count,kr_gc_shadow_count,kr_gc_shadow_pop_n,kr_gc_shadow_push,kr_gc_walk_allocs,kr_rdtsc,kr_gc_mark,kr_gc_sweep,kr_pause,kr_mfence,kr_lfence,kr_sfence,kr_gc_freelist_count,kr_set_wndproc,kr_wndproc_addr,kr_inttoptr"
+let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword,kr_envnew,kr_envset,kr_envget,kr_hasfield,kr_structfields,kr_repeat,kr_padleft,kr_padright,kr_reverse,kr_abs,kr_min,kr_max,kr_endswith,kr_bin,kr_pow,kr_gc_allocated,kr_gc_limit,kr_gc_set_limit,kr_gc_collect,kr_arena_reset,kr_gc_checkpoint,kr_gc_restore,kr_gc_slab_count,kr_gc_slab_bytes,kr_bufgetbyte,kr_bufgetwordat,kr_bufsetwordat,kr_bufsetqwordat,kr_bufgetwordatbe,kr_bufgetdwordatbe,kr_bufgetqwordatbe,kr_gc_alloc_count,kr_gc_shadow_count,kr_gc_shadow_pop_n,kr_gc_shadow_push,kr_gc_walk_allocs,kr_rdtsc,kr_gc_mark,kr_gc_sweep,kr_pause,kr_mfence,kr_lfence,kr_sfence,kr_gc_freelist_count,kr_set_wndproc,kr_wndproc_addr,kr_inttoptr,kr_gc_set_threshold"
 let KRADV_FUNCS = "RegOpenKeyExA,RegQueryValueExA,RegEnumKeyExA,RegCloseKey,GetUserNameA"
 let KRPDH_FUNCS = "PdhOpenQueryA,PdhAddEnglishCounterA,PdhCollectQueryData,PdhGetFormattedCounterArrayA,PdhCloseQuery"
 // ── Phase A IAT scaffolding (2026-05-11) ──────────────────────────
@@ -1558,6 +1558,7 @@ func resolveBuiltin(name) {
     if name == "rdtsc"          { emit "kr_rdtsc" }
     if name == "gcLimit"        { emit "kr_gc_limit" }
     if name == "gcSetLimit"     { emit "kr_gc_set_limit" }
+    if name == "gcSetThreshold" { emit "kr_gc_set_threshold" }
     if name == "gcCollect"      { emit "kr_gc_collect" }
     if name == "gcReset"        { emit "kr_arena_reset" }
     if name == "gcCheckpoint"   { emit "kr_gc_checkpoint" }
@@ -3162,7 +3163,7 @@ func emitSectionHeader2(name, virtSize, virtAddr, rawSize, rawOffset, charsHex) 
 //   OFF_ARGP=3407   OFF_ARGC=3607  OFF_ARG=3657
 //   TOTAL=3737
 
-func bsHelperBlockSize() { emit 9445 }   // 2026-05-11 Phase D: +5 kr_inttoptr. Phase C: +145 (kr_set_wndproc 12 + kr_wndtramp 121 + kr_wndproc_addr 12). 1.8.1: +44 kr_bufgetbyte. 1.7.8: kr_gc_checkpoint 52→62 (warmup fix). 1.8.0: +35 kr_gc_slab_count + 21 kr_gc_slab_bytes   // 5681 → 5803 (kr_print/'\n' + kr_environ) → 5845 (+42 kr_count_commas) → 5888 (+43 __rt_truthy_int_v2) → 6037 (+149 kr_split_commas) → 6093 (+56 kr_linecount_smart) → 6210 (+3 kr_envnew + 45 kr_envset + 69 kr_envget) → 6322 (+86 kr_hasfield + 26 kr_structfields stub) → 6775 (+66 kr_reverse + 111 kr_repeat + 137 kr_padleft + 139 kr_padright) → 7025 (+32 kr_abs + 48 kr_min + 48 kr_max + 122 kr_endswith) → 7137 (+112 kr_bin) → 7201 (+64 kr_pow) → 7368 (1.7.5: +76 __rt_alloc_v2 + 21 kr_gc_allocated + 21 kr_gc_limit + 23 kr_gc_set_limit + 26 kr_gc_collect) → 7485 (1.7.6: __rt_alloc_v2 grew 76→172 = +96, +21 kr_arena_reset) → 7666 (1.7.7: __rt_alloc_v2 grew 172→277 = +105, kr_arena_reset grew 21→97 = +76) → 7874 (1.8.0) → 7918 (1.8.1)
+func bsHelperBlockSize() { emit 9540 }   // stage-6 ph3: +72 __rt_alloc_v2 auto-collect tail + 23 kr_gc_set_threshold (9445→9540). 2026-05-11 Phase D: +5 kr_inttoptr. Phase C: +145 (kr_set_wndproc 12 + kr_wndtramp 121 + kr_wndproc_addr 12). 1.8.1: +44 kr_bufgetbyte. 1.7.8: kr_gc_checkpoint 52→62 (warmup fix). 1.8.0: +35 kr_gc_slab_count + 21 kr_gc_slab_bytes   // 5681 → 5803 (kr_print/'\n' + kr_environ) → 5845 (+42 kr_count_commas) → 5888 (+43 __rt_truthy_int_v2) → 6037 (+149 kr_split_commas) → 6093 (+56 kr_linecount_smart) → 6210 (+3 kr_envnew + 45 kr_envset + 69 kr_envget) → 6322 (+86 kr_hasfield + 26 kr_structfields stub) → 6775 (+66 kr_reverse + 111 kr_repeat + 137 kr_padleft + 139 kr_padright) → 7025 (+32 kr_abs + 48 kr_min + 48 kr_max + 122 kr_endswith) → 7137 (+112 kr_bin) → 7201 (+64 kr_pow) → 7368 (1.7.5: +76 __rt_alloc_v2 + 21 kr_gc_allocated + 21 kr_gc_limit + 23 kr_gc_set_limit + 26 kr_gc_collect) → 7485 (1.7.6: __rt_alloc_v2 grew 76→172 = +96, +21 kr_arena_reset) → 7666 (1.7.7: __rt_alloc_v2 grew 172→277 = +105, kr_arena_reset grew 21→97 = +76) → 7874 (1.8.0) → 7918 (1.8.1)
 
 // Export offset lookup for bootstrap mode: returns "kr_name:offset\n..." table
 func bootstrapExportOffsets() {
@@ -5106,14 +5107,14 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     // free_head clear). 7965 → 7976.
     // 2.0-alpha-3 stage 6 phase 2: __rt_alloc_v2 grew 313 → 382 (+69
     // freelist consumption). 7976 → 8045.
-    let bufsetbyte_real_impl = 8045
+    let bufsetbyte_real_impl = 8117
     // 2026-05-31: real kr_writebytes impl appended at end of helper block
     // (replaces JMP-to-emp_pos stub which silently returned "" — caused
     // native PE programs using writeBytes() to no-op, e.g. wasm_self.exe
     // claimed "wrote N bytes" but produced no file). 255 bytes; lives at
     // old bsHelperBlockSize (9121). bsHelperBlockSize bumps 9121 → 9376.
     // 2.0-alpha-3 stage 6 phase 2: +69 from __rt_alloc_v2 growth. 9121 → 9190.
-    let writebytes_real_impl = 9190
+    let writebytes_real_impl = 9262
     let bufgetqword_v2_impl = stub_impl_base + 1183     // 20 bytes — load qword + itoa (string return)
     let sizeof_v2_impl = stub_impl_base + 1203          // 108 bytes — 5 structs supported
     let structnew_v2_impl = stub_impl_base + 1311       // 108 bytes — 5 structs supported
@@ -6763,13 +6764,18 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     // slabs except the first one. The huge-allocation fallback (size >
     // SLAB_SIZE-8) still goes straight to HeapAlloc.
     //
-    // gcGlobals layout (48 bytes, expanded from 32 in 1.7.6):
+    // gcGlobals layout (stage-6 ph3: 104 bytes; was 88, was 48 in 1.7.6):
     //   +0  alloc_total (qword)
     //   +8  alloc_limit (qword)
     //   +16 slab_first  (qword) — head of slab linked list (NEW in 1.7.7)
     //   +24 slab_curr   (qword) — current allocation slab (was +16)
     //   +32 slab_off    (qword) — bytes used in slab_curr (was +24)
-    //   +40 reserved    (qword)
+    //   +40 alloc_count (qword) — cumulative alloc count (gcAllocCount)
+    //   +64 gcAllocsHead (qword) — mark-sweep alloc list head
+    //   +72 free_head    (qword) — stage-6 freelist head
+    //   +80 wndproc_funcptr (qword)
+    //   +88 collect_threshold (qword) — stage-6 ph3: 0=disabled; auto-collect when alloc_count >= this
+    //   +96 in_collect_guard  (qword) — stage-6 ph3: re-entry guard for the auto-collect
     //
     // Each slab: [0..7] = ptr to next slab (NULL if last), [8..63MB+8] = payload.
     // slab_off starts at 8 (past the next-pointer prefix).
@@ -6865,10 +6871,10 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x05)+hexDword(v2_fl_head_store))    // [120-126] MOV [RIP+gcAllocsHead], RAX
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xFF)+hexByte(0x05)+hexDword(v2_fl_count_inc))     // [127-133] INC qword [RIP+gcGlobals+40] (alloc_count++)
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC0)+hexByte(0x10))                 // [134-137] ADD RAX, 16 (return user-data ptr)
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))                 // [138-141] ADD RSP, 0x28
-    sb2 = sbAppend(sb2, hexByte(0x5E))                                                           // [142]     POP RSI
-    sb2 = sbAppend(sb2, hexByte(0x5B))                                                           // [143]     POP RBX
-    sb2 = sbAppend(sb2, hexByte(0xC3))                                                           // [144]     RET  (freelist-hit return)
+    // stage-6 phase-3: freelist-hit epilogue [138-144] -> JMP auto-collect tail @382.
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(239))                                             // [138-142] JMP .auto_tail @382 (rel32 = 382 - 143)
+    sb2 = sbAppend(sb2, hexByte(0x90))                                                           // [143] NOP
+    sb2 = sbAppend(sb2, hexByte(0x90))                                                           // [144] NOP
     // .fl_skip at 145 — original slab bump path resumes here.
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x05)+hexDword(v2_slab_curr_load))   // [145-151] MOV RAX, [RIP+slab_curr]
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xC0))                           // [79-81] TEST RAX, RAX
@@ -6931,11 +6937,43 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x05)+hexDword(v2_allocs_store)) // [295-301] MOV [RIP+gcAllocsHead], RAX
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC0)+hexByte(0x10))             // [302-305] ADD RAX, 16 (return user-data ptr)
     // .epilogue at 306 (was 277 in stage 1; +25 for header-write block, +4 for size inflation)
-    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))             // [375-378] ADD RSP, 0x28
-    sb2 = sbAppend(sb2, hexByte(0x5E))                                                       // [379]    POP RSI
-    sb2 = sbAppend(sb2, hexByte(0x5B))                                                       // [380]    POP RBX
-    sb2 = sbAppend(sb2, hexByte(0xC3))                                                       // [381]    RET
-    pos = pos + 382
+    // stage-6 phase-3: slab-path epilogue [375-381] -> JMP auto-collect tail @382.
+    sb2 = sbAppend(sb2, hexByte(0xE9)+hexDword(2))                                           // [375-379] JMP .auto_tail @382 (rel32 = 382 - 380)
+    sb2 = sbAppend(sb2, hexByte(0x90))                                                       // [380] NOP
+    sb2 = sbAppend(sb2, hexByte(0x90))                                                       // [381] NOP
+    // ── auto-collect tail @382..453 (72 B) ──────────────────────────
+    // RAX=result ptr, RSP still has [PUSH RBX; PUSH RSI; SUB RSP,0x28]. If a
+    // threshold(+88) is set and alloc_count(+40) >= it and not already collecting
+    // (guard +96), fire kr_gc_collect. Roots live on the SHADOW STACK (Windows),
+    // so NO register safepoint is needed (unlike the macOS conservative-scan port).
+    // ⚠ agent w: VERIFY RSP 16-alignment at the CALL — entry reaches __rt_alloc_v2
+    //   via JMP (tail-call) so RSP parity needs a Windows run-test; the single
+    //   PUSH RAX may need to be a 16-byte-preserving pair.
+    let v2t_thr    = (gcGlobalsRva + 88) - (textRva + pos + 389)
+    let v2t_grd_ld = (gcGlobalsRva + 96) - (textRva + pos + 401)
+    let v2t_cnt    = (gcGlobalsRva + 40) - (textRva + pos + 413)
+    let v2t_grd_s1 = (gcGlobalsRva + 96) - (textRva + pos + 430)
+    let v2t_grd_s0 = (gcGlobalsRva + 96) - (textRva + pos + 446)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x15)+hexDword(v2t_thr))         // [382-388] MOV RDX,[RIP+collect_threshold(+88)]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xD2))                           // [389-391] TEST RDX,RDX
+    sb2 = sbAppend(sb2, hexByte(0x74)+hexByte(53))                                           // [392-393] JZ .restore@447 (threshold 0 = disabled)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x0D)+hexDword(v2t_grd_ld))      // [394-400] MOV RCX,[RIP+in_collect_guard(+96)]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x85)+hexByte(0xC9))                           // [401-403] TEST RCX,RCX
+    sb2 = sbAppend(sb2, hexByte(0x75)+hexByte(41))                                           // [404-405] JNZ .restore@447 (already collecting)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x8B)+hexByte(0x0D)+hexDword(v2t_cnt))         // [406-412] MOV RCX,[RIP+alloc_count(+40)]
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x39)+hexByte(0xD1))                           // [413-415] CMP RCX,RDX
+    sb2 = sbAppend(sb2, hexByte(0x72)+hexByte(29))                                           // [416-417] JB .restore@447 (not crossed)
+    sb2 = sbAppend(sb2, hexByte(0x50))                                                       // [418] PUSH RAX (preserve result ptr)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xC7)+hexByte(0x05)+hexDword(v2t_grd_s1)+hexByte(0x01)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00))  // [419-429] MOV qword[RIP+guard],1
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(84))                                          // [430-434] CALL kr_gc_collect (fwd: at pos+519, rip-after pos+435 -> 84)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0xC7)+hexByte(0x05)+hexDword(v2t_grd_s0)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00)+hexByte(0x00))  // [435-445] MOV qword[RIP+guard],0
+    sb2 = sbAppend(sb2, hexByte(0x58))                                                       // [446] POP RAX
+    // .restore @447 (shared epilogue for both alloc paths):
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x28))             // [447-450] ADD RSP, 0x28
+    sb2 = sbAppend(sb2, hexByte(0x5E))                                                       // [451] POP RSI
+    sb2 = sbAppend(sb2, hexByte(0x5B))                                                       // [452] POP RBX
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                                       // [453] RET
+    pos = pos + 454
 
     // ── kr_gc_allocated() → int-string of total bytes allocated ────
     // 21 bytes. Reads gcGlobals[0] and tail-calls __rt_itoa.
@@ -6985,8 +7023,8 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     offsets = offsets + "kr_gc_collect:" + pos + "\n"
     // Stage 6 phase 2: __rt_alloc_v2 grew 313 → 382 (+69), so every helper
     // after it shifts +69 in the helper block. mark+sweep targets bumped.
-    let gcc_mark_target  = 8623
-    let gcc_sweep_target = 8754
+    let gcc_mark_target  = 8695
+    let gcc_sweep_target = 8826
     let gcc_mark_disp  = gcc_mark_target  - (pos + 4 + 5)
     let gcc_sweep_disp = gcc_sweep_target - (pos + 9 + 5)
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))  // [0-3]   SUB RSP, 0x28
@@ -7922,6 +7960,23 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     sb2 = sbAppend(sb2, hexByte(0xC3))                                                                                // [254] RET
     pos = pos + 255
 
+    // ── kr_gc_set_threshold(RCX=n_str) → returns input ptr ─────────
+    // stage-6 phase-3: atoi(n) → store at collect_threshold (gcGlobals+88) →
+    // return original n_str. 23 bytes, mirrors kr_gc_set_limit. Appended at the
+    // end of the helper block so kr_gc_collect / the gcc_*_target offsets above
+    // don't shift. (__rt_atoi is the early helper at block offset 197.)
+    offsets = offsets + "kr_gc_set_threshold:" + pos + "\n"
+    let gst_atoi  = 197 - (pos + 10)
+    let gst_store = (gcGlobalsRva + 88) - (textRva + pos + 17)
+    sb2 = sbAppend(sb2, hexByte(0x51))                                            // [0]    PUSH RCX (save input ptr)
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x30))  // [1-4]  SUB RSP, 0x30
+    sb2 = sbAppend(sb2, hexByte(0xE8)+hexDword(gst_atoi))                         // [5-9]  CALL __rt_atoi
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x89)+hexByte(0x05)+hexDword(gst_store))   // [10-16] MOV [RIP+collect_threshold(+88)], RAX
+    sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xC4)+hexByte(0x30))  // [17-20] ADD RSP, 0x30
+    sb2 = sbAppend(sb2, hexByte(0x58))                                            // [21]    POP RAX (restore input ptr → return val)
+    sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [22]    RET
+    pos = pos + 23
+
     emit sb_good + sbToString(sb2) + "\nOFFSETS\n" + offsets
 }
 
@@ -8850,7 +8905,7 @@ just run {
         let gcGlobalsRva = bsRdataRvaB
 
         // Build kernel32-only import table (starting at .rdata+88)
-        let bsImpData = buildBootstrapImportTable(bsRdataRvaB, 88)
+        let bsImpData = buildBootstrapImportTable(bsRdataRvaB, 104)  // stage-6 ph3: gcGlobals 88→104 (collect_threshold@88, in_collect_guard@96)
         let bsImpHex = split(bsImpData, 0)
         let bsIatK32B = toInt(split(bsImpData, 1))
         let bsIatDescRvaB = toInt(split(bsImpData, 2))
