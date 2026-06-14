@@ -1,0 +1,16 @@
+# dict literals + key access
+
+d = {"name": "Alice", "age": 30, "city": "NYC"}
+print(d["name"])
+print(d["age"])
+print(d["city"])
+print(d["missing"])
+
+# Empty
+e = {}
+print("empty:", e)
+
+# Mixed value types still survive as comma-string
+config = {"port": 8080, "host": "localhost", "debug": "True"}
+print("port =", config["port"])
+print("host =", config["host"])

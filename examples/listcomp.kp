@@ -1,0 +1,12 @@
+# list comprehensions
+
+squares = [x * x for x in range(6)]
+print("squares:", squares)
+
+evens = [n for n in range(10) if n % 2 == 0]
+print("evens:", evens)
+
+# Comprehension over another comma-string
+words = "alpha,beta,gamma,delta"
+upper_first = [w[0] for w in words]
+print("first chars:", upper_first)
