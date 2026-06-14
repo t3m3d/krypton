@@ -1320,7 +1320,7 @@ just run {
     }
     let total = fieldBase + fieldBytes
     let heapOff = (total + 15) / 16 * 16            // heap start (offset from load base)
-    let opOff = heapOff + 1048576 + 65536           // x20 start = heap + 1 MiB + 64 KiB
+    let opOff = heapOff + 268435456 + 65536         // x20 start = heap + 256 MiB + 64 KiB (heap grows up from heapOff toward here; op stack grows down from here — 256 MiB keeps them apart so self-hosting big files doesn't collide)
 
     // ── _start: x20=op stack, x22=heap, bl __main__, exit(0) ──────────────────
     let mainOff = toInt(funcVaddrOf(funcTab, "__main__"))
@@ -1778,7 +1778,7 @@ just run {
     eh = eh + le8vaddr(HDR) + le8(64) + le8(0)
     eh = eh + "x00x00x00x00" + "x40x00" + "x38x00" + "x01x00" + "x00x00" + "x00x00" + "x00x00"
     let ph = "x01x00x00x00" + "x07x00x00x00"
-    let memsz = heapOff + 1048576 + 65536 + 67108864       // 1 MiB heap + 64 KiB op stack + 64 MiB raw GC region (BSS)
+    let memsz = heapOff + 268435456 + 65536 + 67108864     // 256 MiB heap + 64 KiB op stack + 64 MiB raw GC region (BSS, demand-paged)
     ph = ph + le8(0) + le8vaddr(0) + le8vaddr(0) + le8(total) + le8(memsz) + le8(65536)
 
     writeBytes(outFile, eh + ph + body + data)
