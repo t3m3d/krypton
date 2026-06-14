@@ -1553,8 +1553,12 @@ func emitExpr(node) {
             let arg = substring(argBody, aBar + 1, aBar + 1 + aLen)
             emit "range(0, " + emitExpr(arg) + ")"
         }
-        // Multi-arg `print(a, b, c)` lowers to `print(toStr(a) + " " + toStr(b) + " " + toStr(c))`
-        // to match Python's space-separated default sep.
+        // Multi-arg `print(a, b, c)` lowers to space-joined concat.
+        // Only non-string args get wrapped in toStr; STR args pass through
+        // as Krypton string literals. (On the Linux native pipeline,
+        // toStr() on a string returns its heap pointer instead of the
+        // string itself, breaking `print(toStr("z =") + ...)`. STR args
+        // already render as `"..."` from emitExpr, so just inline them.)
         if name == "print" && n > 1 {
             let acc = ""
             let i2 = 0
@@ -1565,7 +1569,10 @@ func emitExpr(node) {
                 let aStart = cursor2 + aBar + 1
                 let arg = substring(argBody, aStart, aStart + aLen)
                 cursor2 = aStart + aLen
-                let argSrc = "toStr(" + emitExpr(arg) + ")"
+                let argSrc = emitExpr(arg)
+                if !startsWith(arg, "STR|") {
+                    argSrc = "toStr(" + argSrc + ")"
+                }
                 if i2 == 0 { acc = argSrc } else { acc = acc + " + \" \" + " + argSrc }
                 i2 = i2 + 1
             }
