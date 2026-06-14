@@ -35,6 +35,8 @@ func wordHL(hi16, lo16) {
 // ── instruction encoders (validated against qemu) ────────────────────────────
 func e_movz(rd, imm)   { let p = imm * 32 + rd  emit wordHL(53888 + p / 65536, p % 65536) } // movz Xd,#imm
 func e_movk16(rd, imm) { let p = imm * 32 + rd  emit wordHL(62112 + p / 65536, p % 65536) } // movk Xd,#imm,lsl16
+func e_movk32(rd, imm) { let p = imm * 32 + rd  emit wordHL(62144 + p / 65536, p % 65536) } // movk Xd,#imm,lsl32
+func e_movk48(rd, imm) { let p = imm * 32 + rd  emit wordHL(62176 + p / 65536, p % 65536) } // movk Xd,#imm,lsl48
 func e_movzHi(rd, imm) { let p = imm * 32 + rd  emit wordHL(53920 + p / 65536, p % 65536) } // movz Xd,#imm,lsl16
 func e_addi(rd, rn, imm) { let p = imm * 1024 + rn * 32 + rd  emit wordHL(37120 + p / 65536, p % 65536) }
 func e_subi(rd, rn, imm) { let p = imm * 1024 + rn * 32 + rd  emit wordHL(53504 + p / 65536, p % 65536) }
@@ -912,6 +914,27 @@ func emitEnviron(opOff, allocOff, thisOff) {
     c = c + e_movz(0, 1) + e_bl(allocOff - (thisOff + 104)) + e_strb(31, 0) + e_movr(30, 21) + e_ret()  // [100,104,108,112,116] .notfound: ""
     emit c
 }
+// kr_shellrun(x0=cmd) -> child exit code. fork (clone SIGCHLD) + execve(/bin/sh
+// -c cmd, envp) + wait4. Builds "/bin/sh\0", "-c\0" and the argv vector on a
+// 64-byte stack frame. envp from GB+80. 188 bytes. (syscalls: clone=220,
+// execve=221, wait4=260, exit=93)
+func emitShellrun(opOff, thisOff) {
+    let c = e_movr(21, 30) + e_subi(31, 31, 64)              // [0,4] save lr; frame
+    c = c + e_movz(5, 25135) + e_movk16(5, 28265) + e_movk32(5, 29487) + e_movk48(5, 104) + e_str0(5, 31)  // [8,12,16,20,24] "/bin/sh\0" -> [sp+0]
+    c = c + e_movz(5, 25389) + e_str8(5, 31, 1)             // [28,32] "-c\0" -> [sp+8]
+    c = c + e_addi(5, 31, 0) + e_str8(5, 31, 2)             // [36,40] argv[0]=&"/bin/sh" -> [sp+16]
+    c = c + e_addi(5, 31, 8) + e_str8(5, 31, 3)             // [44,48] argv[1]=&"-c" -> [sp+24]
+    c = c + e_str8(0, 31, 4) + e_str8(31, 31, 5)            // [52,56] argv[2]=cmd; argv[3]=NULL -> [sp+32],[sp+40]
+    c = c + e_movz(9, opOff % 65536) + e_movk16(9, 32512 + opOff / 65536) + e_ldr8(9, 9, 10)  // [60,64,68] x9 = envp (GB+80)
+    c = c + e_movz(0, 17) + e_movz(1, 0) + e_movz(2, 0) + e_movz(3, 0) + e_movz(4, 0) + e_movz(8, 220) + e_svc()  // [72..96] clone(SIGCHLD,0,0,0,0)
+    c = c + e_cbz(0, 56)                                    // [100] x0==0 -> .child (156)
+    c = c + e_addi(1, 31, 48) + e_movz(2, 0) + e_movz(3, 0) + e_movz(8, 260) + e_svc()  // [104..120] parent: wait4(pid, &status@sp+48, 0, 0)
+    c = c + e_ldr8(0, 31, 6) + e_movz(6, 8) + e_lsrv(0, 0, 6) + e_movz(6, 255) + e_and(0, 0, 6)  // [124..140] code = (status>>8)&0xff
+    c = c + e_addi(31, 31, 64) + e_movr(30, 21) + e_ret()   // [144,148,152] restore sp; ret
+    c = c + e_addi(0, 31, 0) + e_addi(1, 31, 16) + e_movr(2, 9) + e_movz(8, 221) + e_svc()  // [156..172] .child: execve("/bin/sh", argv, envp)
+    c = c + e_movz(0, 127) + e_movz(8, 93) + e_svc()        // [176,180,184] execve failed -> exit(127)
+    emit c
+}
 
 // ── IR helpers ───────────────────────────────────────────────────────────────
 func opcode(ln) {                       // first token of an IR line
@@ -1165,6 +1188,7 @@ func opSize(ln) {
         if startsWith(b, "isDigit")    { emit 20 }  // 1-arg: pop + bl kr_isdigit + push
         if startsWith(b, "replace")    { emit 36 }  // 3-arg: pop x2/x1/x0 + bl kr_replace + push
         if startsWith(b, "environ")    { emit 20 }  // 1-arg: pop + bl kr_environ + push
+        if startsWith(b, "shellRun")   { emit 20 }  // 1-arg: pop + bl kr_shellrun + push
         if startsWith(b, "gcCollect")    { emit 12 }  // no-op (bump allocator): push 0
         if startsWith(b, "gcAllocCount") { emit 20 }  // load gcGlobals[count]
         if startsWith(b, "gcAllocated")  { emit 20 }  // load gcGlobals[bytes]
@@ -1268,7 +1292,8 @@ just run {
     let strlenOff = isdigitOff + 32        // kr_isdigit is 32 bytes
     let replaceOff = strlenOff + 32        // kr_strlen is 32 bytes
     let environOff = replaceOff + 228      // kr_replace is 228 bytes
-    let nlOff = environOff + 120           // kr_environ is 120 bytes
+    let shellrunOff = environOff + 120     // kr_environ is 120 bytes
+    let nlOff = shellrunOff + 188          // kr_shellrun is 188 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -1527,6 +1552,7 @@ just run {
             // replace(s, find, rep): pop rep->x2, find->x1, s->x0; kr_replace; push.
             if startsWith(b, "replace")    { code = sbAppend(code, e_ldr0(2, 20) + e_addi(20, 20, 16) + e_ldr0(1, 20) + e_addi(20, 20, 16) + e_ldr0(0, 20) + e_addi(20, 20, 16) + e_bl(replaceOff - (off + 24)) + c_push())  off = off + 36 }
             if startsWith(b, "environ")    { code = sbAppend(code, c_pop0() + e_bl(environOff - (off + 8)) + c_push())  off = off + 20 }
+            if startsWith(b, "shellRun")   { code = sbAppend(code, c_pop0() + e_bl(shellrunOff - (off + 8)) + c_push())  off = off + 20 }
             // writeFile(path, content): pop0->x0=content, pop1->x1=path; kr_writefile. 28 bytes.
             if startsWith(b, "writeFile")  { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(writefileOff - (off + 16)) + c_push())  off = off + 28 }
             if startsWith(b, "kp") {
@@ -1699,6 +1725,7 @@ just run {
     bb = sbAppend(bb, emitStrlen())
     bb = sbAppend(bb, emitReplace(strlenOff, allocOff, replaceOff))
     bb = sbAppend(bb, emitEnviron(opOff, allocOff, environOff))
+    bb = sbAppend(bb, emitShellrun(opOff, shellrunOff))
     bb = sbAppend(bb, "")     // guards: x86 backend drops trailing sbAppends (scales w/ chain len)
     bb = sbAppend(bb, "")
     bb = sbAppend(bb, "")
