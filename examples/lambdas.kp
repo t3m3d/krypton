@@ -1,0 +1,24 @@
+# Lambdas + raise
+
+double = lambda x: x * 2
+inc = lambda x: x + 1
+
+print(double(5))
+print(inc(10))
+
+# Lambda inline (assigned, then called)
+square = lambda n: n * n
+print(square(7))
+
+# Multi-arg lambda
+add = lambda a, b: a + b
+print(add(3, 4))
+
+# Raise (simulates Python's raise SomeError("msg"))
+def check_positive(n):
+    if n <= 0:
+        raise "ValueError: must be positive"
+    return n
+
+print(check_positive(5))
+# check_positive(-1)  # would raise + exit
