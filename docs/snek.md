@@ -136,8 +136,11 @@ stderr.
 | 3     | for/elif/and/or/not + nested blocks                     | ✓      |
 | 4     | import, dotted calls, type hints, f-strings             | ✓      |
 | 5     | lists, indexing, slicing, aug-assign, in/not in/is, **  | ✓      |
-| 6     | lambda, raise, `**` / `//`                              | ✓      |
-| 7+    | list comprehensions, dict literals, try/except, classes | TODO   |
+| 6     | lambda, raise, `**` / `//`, tuple unpacking             | ✓      |
+| 7     | list comprehensions, dict literals + access,            | ✓      |
+|       | try/except (try body emitted, except ignored),          |        |
+|       | break/continue, assert, str/int/repr/input aliases      |        |
+| 8+    | class definitions, real exception catching, generators  | TODO   |
 
 ## Known limits
 
