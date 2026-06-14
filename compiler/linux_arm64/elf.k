@@ -848,6 +848,16 @@ func emitPrinterr(nlOff) {
     c = c + e_movz(1, lo) + e_movk16(1, hi) + e_movz(2, 1) + e_movz(0, 2) + e_movz(8, 64) + e_svc() + e_ret()
     emit c
 }
+// kr_isdigit: x0=ptr to string -> 1 if first byte is '0'..'9', else 0. 32 bytes.
+// (c - '0') unsigned >= 10 -> not a digit (also catches bytes < '0' via wrap).
+func emitIsdigit() {
+    let c = e_ldrb0(1, 0) + e_subi(1, 1, 48)      // w1 = [x0] - '0'
+    c = c + e_movz(2, 10) + e_movz(0, 0)          // x2=10; default result 0
+    c = c + e_cmp(1, 2) + e_bhs(8)                // (c-'0') >= 10 unsigned -> skip (not digit)
+    c = c + e_movz(0, 1)                          // digit -> 1
+    c = c + e_ret()
+    emit c
+}
 
 // ── IR helpers ───────────────────────────────────────────────────────────────
 func opcode(ln) {                       // first token of an IR line
@@ -1098,6 +1108,7 @@ func opSize(ln) {
         if startsWith(b, "argCount")   { emit 12 }  // 0-arg: bl kr_argcount + push (BEFORE "arg")
         if startsWith(b, "arg")        { emit 24 }  // 1-arg: pop + atoi + bl kr_arg + push
         if startsWith(b, "printErr")   { emit 20 }  // 1-arg: pop + bl kr_printerr + push
+        if startsWith(b, "isDigit")    { emit 20 }  // 1-arg: pop + bl kr_isdigit + push
         if startsWith(b, "gcCollect")    { emit 12 }  // no-op (bump allocator): push 0
         if startsWith(b, "gcAllocCount") { emit 20 }  // load gcGlobals[count]
         if startsWith(b, "gcAllocated")  { emit 20 }  // load gcGlobals[bytes]
@@ -1197,7 +1208,8 @@ just run {
     let argcountOff = rawreallocOff + 108  // kr_rawrealloc is 108 bytes
     let argOff = argcountOff + 20          // kr_argcount is 20 bytes
     let printerrOff = argOff + 36          // kr_arg is 36 bytes
-    let nlOff = printerrOff + 64           // kr_printerr is 64 bytes
+    let isdigitOff = printerrOff + 64      // kr_printerr is 64 bytes
+    let nlOff = isdigitOff + 32            // kr_isdigit is 32 bytes
     let dataOff = nlOff + 1
     // Load base = 0x7F000000 (= 32512<<16) so the int/pointer threshold is high
     // enough for real ints (matches the x86 backend). The backend itself can't hold
@@ -1451,6 +1463,7 @@ just run {
             if startsWith(b, "argCount") { code = sbAppend(code, e_bl(argcountOff - off) + c_push())  off = off + 12 }
             else if startsWith(b, "arg") { code = sbAppend(code, c_pop0() + e_bl(atoiOff - (off + 8)) + e_bl(argOff - (off + 12)) + c_push())  off = off + 24 }
             if startsWith(b, "printErr")   { code = sbAppend(code, c_pop0() + e_bl(printerrOff - (off + 8)) + c_push())  off = off + 20 }
+            if startsWith(b, "isDigit")    { code = sbAppend(code, c_pop0() + e_bl(isdigitOff - (off + 8)) + c_push())  off = off + 20 }
             // writeFile(path, content): pop0->x0=content, pop1->x1=path; kr_writefile. 28 bytes.
             if startsWith(b, "writeFile")  { code = sbAppend(code, c_pop0() + c_pop1() + e_bl(writefileOff - (off + 16)) + c_push())  off = off + 28 }
             if startsWith(b, "kp") {
@@ -1619,6 +1632,7 @@ just run {
     bb = sbAppend(bb, emitArgcount(opOff))
     bb = sbAppend(bb, emitArg(opOff))
     bb = sbAppend(bb, emitPrinterr(nlOff))
+    bb = sbAppend(bb, emitIsdigit())
     bb = sbAppend(bb, "")     // guards: x86 backend drops trailing sbAppends (scales w/ chain len)
     bb = sbAppend(bb, "")
     bb = sbAppend(bb, "")
