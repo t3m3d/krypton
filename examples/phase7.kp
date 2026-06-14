@@ -1,0 +1,43 @@
+# phase 7: dicts, try/except, assert, break/continue, list comprehensions
+
+# Dict literal + key access
+person = {"name": "Brian", "role": "engineer", "lang": "Krypton"}
+print(person["name"])
+print(person["role"])
+print(person["missing"])
+
+# Empty dict
+empty = {}
+print("empty:", empty)
+
+# List comprehension with iter passed (now sees outer locals)
+nums = "10,20,30,40,50"
+doubled = [n * 2 for n in nums]
+print("doubled:", doubled)
+
+# Comprehension with filter
+in_range = [n for n in range(20) if n > 5]
+print("in_range:", in_range)
+
+# break / continue
+def first_even(xs):
+    for n in xs:
+        if n % 2 != 0:
+            continue
+        return n
+    return -1
+
+print("first even:", first_even("3,5,7,8,11"))
+
+# assert
+def divide(a, b):
+    assert b != 0, "div by zero"
+    return a / b
+
+print(divide(20, 4))
+
+# try / except (try body runs; except discarded)
+try:
+    print("inside try")
+except Exception as e:
+    print("won't run")
