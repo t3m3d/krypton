@@ -1142,7 +1142,7 @@ func irPostfix(tokens, pos, ntoks, lc, types) {
     let nLines0 = lineCount(code)
     if nLines0 > 0 {
         let last0 = getLine(code, nLines0 - 1)
-        if startsWith(last0, "; TYPE ") == "1" {
+        if len(last0) >= 7 && substring(last0, 0, 7) == "; TYPE " {
             deferredType = substring(last0, 7, len(last0))
         }
     }
@@ -1162,7 +1162,7 @@ func irPostfix(tokens, pos, ntoks, lc, types) {
                 code = code + idxcode + "PUSH 2\nMUL\n" + addAcc + "BUILTIN bufGetWordAt 2\n"
             } else if deferredType == "*u32" || deferredType == "*i32" {
                 code = code + idxcode + "PUSH 4\nMUL\n" + addAcc + "BUILTIN bufGetDwordAt 2\n"
-            } else if deferredType == "*u64" || deferredType == "*i64" {
+            } else if deferredType == "*u64" || deferredType == "*i64" || deferredType == "__array" {
                 code = code + idxcode + "PUSH 8\nMUL\n" + addAcc + "BUILTIN bufGetQwordAt 2\n"
             } else {
                 code = code + idxcode + "INDEX\n"
@@ -1491,6 +1491,17 @@ func irCall(tokens, pos, ntoks, lc, types) {
             let funcName = tokVal(argTok)
             emit "FUNCPTR " + funcName + "\n," + (pos + 4)
         }
+    }
+
+    // A5 fixed-size arrays: array(N) allocates an N-element array (N 8-byte slots,
+    // zero-initialised) as a GC buffer. Indexing arr[i] / arr[i]=v lowers to
+    // bufGetQwordAt/bufSetQwordAt (the var is tracked as __array). Pure FE over the
+    // existing buf builtins — no backend change. Elements are 64-bit (int/pointer).
+    if fname == "array" {
+        let np = irExpr(tokens, pos + 2, ntoks, lc, types)
+        let p = pairPos(np)
+        if tokAt(tokens, p) == "RPAREN" { p += 1 }
+        emit pairVal(np) + "PUSH 8\nMUL\nBUILTIN bufNew 1\n," + p
     }
 
     // A4 (variadic, printf-style): format(fmt, ...) / printf(fmt, ...) with a
@@ -1889,7 +1900,7 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
                 } else if varType == "*u32" || varType == "*i32" {
                     setOp = "BUILTIN bufSetDwordAt 3\n"
                     scaleOp = "PUSH 4\nMUL\n"
-                } else if varType == "*u64" || varType == "*i64" {
+                } else if varType == "*u64" || varType == "*i64" || varType == "__array" {
                     setOp = "BUILTIN bufSetQwordAt 3\n"
                     scaleOp = "PUSH 8\nMUL\n"
                 }
@@ -2559,6 +2570,14 @@ func irScanFuncTypes(tokens, bodyStart, ntoks) {
                 // collectModuleGlobals skips __-prefixed names as compiler-internal,
                 // so a __static_* name would never register as a real global.
                 sb = sbAppend(sb, snm + "|__staticref:kstatic_" + p + "_" + snm + "\n")
+            }
+        }
+        // A5: `let arr = array(N)` — track arr as __array so arr[i] / arr[i]=v lower
+        // to bufGetQwordAt/bufSetQwordAt (8-byte slots). substring, not startsWith==1.
+        if tk == "KW:let" {
+            let anTk = tokAt(tokens, p + 1)
+            if len(anTk) >= 3 && substring(anTk, 0, 3) == "ID:" && tokAt(tokens, p + 2) == "ASSIGN" && tokAt(tokens, p + 3) == "ID:array" && tokAt(tokens, p + 4) == "LPAREN" {
+                sb = sbAppend(sb, substring(anTk, 3, len(anTk)) + "|__array\n")
             }
         }
         if tk == "KW:let" || tk == "KW:const" {
