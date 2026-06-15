@@ -210,6 +210,7 @@ func isKW(word) {
     else if word == "in" { emit 1 }
     else if word == "match" { emit 1 }
     else if word == "do" { emit 1 }
+    else if word == "static" { emit 1 }
     else if word == "const" { emit 1 }
     else if word == "module" { emit 1 }
     else if word == "import" { emit 1 }
@@ -1358,6 +1359,10 @@ func irPrimary(tokens, pos, ntoks, lc, types) {
         // pointer read. Comment is stripped by x64.k's IR cleanup.
         let varType = irTypeOf(types, tv)
         if len(varType) > 0 {
+            // A6: static local — load from its persistent module global.
+            if len(varType) >= 12 && substring(varType, 0, 12) == "__staticref:" {
+                emit "LOAD " + substring(varType, 12, len(varType)) + "\n," + (pos + 1)
+            }
             // 2.0-alpha-3: closure capture — `__cap__:<name>` type
             // means `tv` is a captured free var; rewrite the load as
             // `LOAD __env; PUSH "<name>"; envGet 2`. The lambda body
@@ -1645,6 +1650,20 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
         emit irSwitchIR(tokens, pos + 1, ntoks, lc, inFunc, types)
     }
 
+    // static local decl (A6): its persistent global is initialised once at module
+    // load (collected by the global-init scan). The decl itself emits no per-call
+    // code; references to the name resolve to the global via resolveStatic.
+    if tok == "KW:static" {
+        let sp = pos + 1
+        while sp < ntoks && tokAt(tokens, sp) != "ASSIGN" && tokAt(tokens, sp) != "SEMI" { sp += 1 }
+        if tokAt(tokens, sp) == "ASSIGN" {
+            let vp = irExpr(tokens, sp + 1, ntoks, lc, types)
+            sp = pairPos(vp)
+        }
+        if tokAt(tokens, sp) == "SEMI" { sp += 1 }
+        emit "," + sp
+    }
+
     // enum decl (A3): compile-time only (scanned by irScanEnums) — emit no code.
     if tok == "KW:enum" {
         let ep = pos + 1
@@ -1796,7 +1815,7 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
     if tt == "ID" {
         let nt = tokAt(tokens, pos + 1)
         if nt == "PLUSEQ" || nt == "MINUSEQ" || nt == "STAREQ" || nt == "SLASHEQ" || nt == "MODEQ" {
-            let name = tokVal(tok)
+            let name = resolveStatic(types, tokVal(tok))   // A6: static -> its global
             let pair = irExpr(tokens, pos + 2, ntoks, lc, types)
             let rcode = pairVal(pair)
             let p = pairPos(pair)
@@ -1818,7 +1837,7 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
     if tt == "ID" {
         let nt = tokAt(tokens, pos + 1)
         if nt == "PLUSPLUS" || nt == "MINUSMINUS" {
-            let name = tokVal(tok)
+            let name = resolveStatic(types, tokVal(tok))   // A6: static -> its global
             let p = pos + 2
             if tokAt(tokens, p) == "SEMI" { p += 1 }
             // A7: f64 ++/-- uses fadd/fsub (the int 1 auto-promotes).
@@ -1888,7 +1907,7 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
 
     // plain assignment
     if tt == "ID" && tokAt(tokens, pos + 1) == "ASSIGN" {
-        let name = tokVal(tok)
+        let name = resolveStatic(types, tokVal(tok))   // A6: static -> its global
         let pair = irExpr(tokens, pos + 2, ntoks, lc, types)
         let code = pairVal(pair)
         let p = pairPos(pair)
@@ -1946,6 +1965,17 @@ func irTypeOf(types, name) {
         start = e + 1
     }
     emit ""
+}
+
+// A6: if `name` is a static local (alias `__staticref:<global>` in types),
+// return the mangled global name; otherwise return `name` unchanged. Used at
+// every LOAD/STORE site so references to a static hit its persistent global.
+func resolveStatic(types, name) {
+    let t = irTypeOf(types, name)
+    if len(t) >= 12 && substring(t, 0, 12) == "__staticref:" {
+        emit substring(t, 12, len(t))
+    }
+    emit name
 }
 
 // Phase C 1.8.9: total size in bytes of a struct, derived from the
@@ -2369,6 +2399,34 @@ func irScanEnums(tokens, ntoks) {
     emit sbToString(sb)
 }
 
+// A6: collect every `static let n = v` (in any function) and emit its init as a
+// module global __static_<declpos>_<n> (mangled by the `static` token index — must
+// match irScanFuncTypes). Prepended to __main__ so each static is initialised ONCE
+// at module load; references in the owning function resolve to this global.
+func irScanStatics(tokens, ntoks, types) {
+    let sb = sbNew()
+    let i = 0
+    while i < ntoks {
+        if tokAt(tokens, i) == "KW:static" && tokAt(tokens, i + 1) == "KW:let" {
+            let snTk = tokAt(tokens, i + 2)
+            if len(snTk) >= 3 && substring(snTk, 0, 3) == "ID:" {
+                let snm = substring(snTk, 3, len(snTk))
+                let mangled = "kstatic_" + i + "_" + snm   // non-__ so it registers as a global
+                let ap = i + 3
+                while ap < ntoks && tokAt(tokens, ap) != "ASSIGN" && tokAt(tokens, ap) != "SEMI" { ap += 1 }
+                let vcode = "PUSH 0\n"
+                if tokAt(tokens, ap) == "ASSIGN" {
+                    let vp = irExpr(tokens, ap + 1, ntoks, 0, types)
+                    vcode = pairVal(vp)
+                }
+                sb = sbAppend(sb, "LOCAL " + mangled + "\n" + vcode + "STORE " + mangled + "\nLOAD " + mangled + "\nBUILTIN gcShadowPush 1\nPOP\n")
+            }
+        }
+        i = i + 1
+    }
+    emit sbToString(sb)
+}
+
 func irScanStructTypes(tokens, ntoks) {
     let prev = ""
     let curr = irScanStructTypesOnce(tokens, ntoks, "")
@@ -2489,6 +2547,20 @@ func irScanFuncTypes(tokens, bodyStart, ntoks) {
         let tk = tokAt(tokens, p)
         if tk == "LBRACE" { depth += 1  p += 1  continue }
         if tk == "RBRACE" { depth -= 1  p += 1  continue }
+        // A6 static locals: `static let n = v` — record n as an alias to a
+        // unique module global __static_<declpos>_<n> (mangled by the `static`
+        // token position, so two functions' statics never collide). References
+        // to n in this function resolve to that global (resolveStatic).
+        if tk == "KW:static" && tokAt(tokens, p + 1) == "KW:let" {
+            let snTk = tokAt(tokens, p + 2)
+            if len(snTk) >= 3 && substring(snTk, 0, 3) == "ID:" {
+                let snm = substring(snTk, 3, len(snTk))
+                // NB: the global name must NOT start with __ — the macho backend's
+                // collectModuleGlobals skips __-prefixed names as compiler-internal,
+                // so a __static_* name would never register as a real global.
+                sb = sbAppend(sb, snm + "|__staticref:kstatic_" + p + "_" + snm + "\n")
+            }
+        }
         if tk == "KW:let" || tk == "KW:const" {
             // A1: narrow f64/f32 tracking for float-operator inference. Done
             // here with substring (string==) because `startsWith(...) == "1"`
@@ -3666,7 +3738,7 @@ just run {
             // 2.0-alpha-3 GC stage 3: same shadow-stack save/restore wrap
             // as irFuncIR applies to __main__'s body (and prepended global
             // inits). On normal exit, all per-let pushes get popped.
-            let mainBody = sbToString(sbGlobInit) + pairVal(ep)
+            let mainBody = irScanStatics(tokens, ntoks, mainTypes) + sbToString(sbGlobInit) + pairVal(ep)
             mainBody = "LOCAL __sh_save\nBUILTIN gcShadowCount 0\nSTORE __sh_save\n" + mainBody +
                        "BUILTIN gcShadowCount 0\nLOAD __sh_save\nSUB\nBUILTIN gcShadowPop 1\nPOP\n"
             sbIR = sbAppend(sbIR, "FUNC __main__ 0\n" + mainBody + "END\n")
