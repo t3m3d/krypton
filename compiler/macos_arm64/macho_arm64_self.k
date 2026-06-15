@@ -2078,6 +2078,12 @@ func parseFullIR(ir) {
                         curOps = sbAppend(curOps, "BUILTIN_INTTOFLOAT\n")  nOps += 1
                     } else if bname == "floatToInt" {
                         curOps = sbAppend(curOps, "BUILTIN_FLOATTOINT\n")  nOps += 1
+                    } else if bname == "bufNew" {
+                        curOps = sbAppend(curOps, "BUILTIN_BUFNEW\n")  nOps += 1
+                    } else if bname == "bufGetQwordAt" {
+                        curOps = sbAppend(curOps, "BUILTIN_BUFGETQWORDAT\n")  nOps += 1
+                    } else if bname == "bufSetQwordAt" {
+                        curOps = sbAppend(curOps, "BUILTIN_BUFSETQWORDAT\n")  nOps += 1
                     } else if bname == "fformat" {
                         curOps = sbAppend(curOps, "BUILTIN_FFORMAT\n")  nOps += 1
                     } else if bname == "exit" {
@@ -2531,6 +2537,9 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_FEQ"    { emit 7 }
     if opTok == "BUILTIN_FFORMAT" { emit 4 }  // pop x1(prec),pop x0(val),bl __f_format,push
     if opTok == "BUILTIN_INTTOFLOAT" { emit 4 }  // pop,scvtf,bl __f_box,push
+    if opTok == "BUILTIN_BUFNEW" { emit 5 }          // pop size, alloc, push ptr
+    if opTok == "BUILTIN_BUFGETQWORDAT" { emit 5 }   // pop off, pop buf, add, ldr, push
+    if opTok == "BUILTIN_BUFSETQWORDAT" { emit 6 }   // pop val/off/buf, add, str, push val
     if opTok == "BUILTIN_FLOATTOINT" { emit 4 }  // pop,bl __f_load1,fcvtzs,push
     if opTok == "LOAD_SLOT"    { emit 2 }
     if opTok == "STORE_SLOT"   { emit 2 }
@@ -3077,6 +3086,32 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_fcvtzs_x_d(0, 0))                     // 2: x0 = (int)d0 (trunc)
             s = sbAppend(s, arm64_push_x0())                           // 3
             instrIdx = instrIdx + 4
+        } else if opTok == "BUILTIN_BUFNEW" {
+            // bufNew(size): allocate `size` bytes via the GC allocator, return ptr.
+            // (A5 fixed-size arrays + raw byte buffers.) 5 instrs.
+            s = sbAppend(s, arm64_pop(4))                              // 0: x4 = size
+            s = sbAppend(s, arm64_stp_fp_lr_pre16())                   // 1: save lr
+            s = sbAppend(s, arm64_bl(g_RT_ALLOC_INSTR - (instrIdx + 2)))// 2: x0 = ptr
+            s = sbAppend(s, arm64_ldp_fp_lr_post16())                  // 3
+            s = sbAppend(s, arm64_push_x0())                           // 4
+            instrIdx = instrIdx + 5
+        } else if opTok == "BUILTIN_BUFGETQWORDAT" {
+            // bufGetQwordAt(buf, byteoff) -> 8-byte value at buf+byteoff. 5 instrs.
+            s = sbAppend(s, arm64_pop(1))                              // 0: x1 = byteoff
+            s = sbAppend(s, arm64_pop_x0())                            // 1: x0 = buf
+            s = sbAppend(s, arm64_add_xxx(0, 0, 1))                    // 2: x0 = buf+off
+            s = sbAppend(s, arm64_ldr_imm(0, 0, 0))                    // 3: x0 = [x0]
+            s = sbAppend(s, arm64_push_x0())                           // 4
+            instrIdx = instrIdx + 5
+        } else if opTok == "BUILTIN_BUFSETQWORDAT" {
+            // bufSetQwordAt(buf, byteoff, val): store 8-byte val at buf+byteoff. 6.
+            s = sbAppend(s, arm64_pop(2))                              // 0: x2 = val
+            s = sbAppend(s, arm64_pop(1))                              // 1: x1 = byteoff
+            s = sbAppend(s, arm64_pop_x0())                            // 2: x0 = buf
+            s = sbAppend(s, arm64_add_xxx(0, 0, 1))                    // 3: x0 = buf+off
+            s = sbAppend(s, arm64_str_imm(2, 0, 0))                    // 4: [x0] = x2
+            s = sbAppend(s, arm64_push(2))                             // 5: return val
+            instrIdx = instrIdx + 6
         } else if opTok == "ADD" {
             // Polymorphic ADD — 193 instructions. Three paths:
             //   INT+INT (0-9):   both < threshold → integer add → push
