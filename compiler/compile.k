@@ -210,6 +210,7 @@ func isKW(word) {
     else if word == "in" { emit 1 }
     else if word == "match" { emit 1 }
     else if word == "do" { emit 1 }
+    else if word == "defer" { emit 1 }
     else if word == "static" { emit 1 }
     else if word == "const" { emit 1 }
     else if word == "module" { emit 1 }
@@ -1675,6 +1676,16 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
         emit "," + sp
     }
 
+    // B1 defer: `defer expr` runs expr at function exit (LIFO). Emit the expr's
+    // code wrapped in KDEFER markers; irFuncIR's applyDefers pass relocates it to
+    // before every RETURN + the fall-through end (and strips the markers).
+    if tok == "KW:defer" {
+        let dp = irExpr(tokens, pos + 1, ntoks, lc, types)
+        let p = pairPos(dp)
+        if tokAt(tokens, p) == "SEMI" { p += 1 }
+        emit "KDEFER_START\n" + pairVal(dp) + "POP\nKDEFER_END\n," + p
+    }
+
     // enum decl (A3): compile-time only (scanned by irScanEnums) — emit no code.
     if tok == "KW:enum" {
         let ep = pos + 1
@@ -2715,6 +2726,38 @@ func irLambdaIR(tokens, pos, ntoks, lambdaName) {
     emit "FUNC " + lambdaName + " " + pc + "\n" + allParams + bodyCode + "RETURN\nEND\n\n," + p
 }
 
+// B1 defer: relocate KDEFER_START..KDEFER_END blocks (emitted inline at the defer
+// site by irStmt) to run at function exit. Forward pass: accumulate each deferred
+// block LIFO (prepend), strip it from its inline position, and inject the
+// accumulated-so-far before every RETURN and at the fall-through end. Lexical
+// scope: a return only runs defers declared textually before it.
+func applyDefers(body) {
+    if indexOf(body, "KDEFER_START") < 0 { emit body }
+    let out = sbNew()
+    let deferAccum = ""
+    let nl = lineCount(body)
+    let i = 0
+    while i < nl {
+        let line = getLine(body, i)
+        if line == "KDEFER_START" {
+            let blk = ""
+            i = i + 1
+            while i < nl && getLine(body, i) != "KDEFER_END" {
+                blk = blk + getLine(body, i) + "\n"
+                i = i + 1
+            }
+            deferAccum = blk + deferAccum
+        } else if line == "RETURN" {
+            out = sbAppend(out, deferAccum + "RETURN\n")
+        } else {
+            out = sbAppend(out, line + "\n")
+        }
+        i = i + 1
+    }
+    out = sbAppend(out, deferAccum)
+    emit sbToString(out)
+}
+
 func irFuncIR(tokens, pos, ntoks, structTypes) {
     // pos is at KW:func
     // structTypes: whole-stream struct-type scan, precomputed ONCE by the
@@ -2757,7 +2800,7 @@ func irFuncIR(tokens, pos, ntoks, structTypes) {
     // whole-stream rescan per function here).
     let funcTypes = structTypes + irScanFuncTypes(tokens, p, ntoks) + paramTypes
     let bp = irBlockIR(tokens, p, ntoks, 0, "1", funcTypes)
-    let bodyCode = pairVal(bp)
+    let bodyCode = applyDefers(pairVal(bp))   // B1: relocate defers to exits
     p = pairPos(bp)
     // 1.7.9 — auto-emit gcCheckpoint/gcRestore around functions whose name
     // starts with "pure_". Wraps the body so all per-function allocations
