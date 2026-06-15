@@ -2104,10 +2104,13 @@ func emitStmt(node, decls, indent) {
             }
             i = i + 1
         }
-        // Emit factory.
+        // Emit factory.  envSet returns a new env (Krypton's envSet/envGet
+        // are functional, not in-place); rebind self each time so the
+        // updates accumulate.  Same applies to ASSIGN_FIELD inside __init__
+        // -- the emit there now does `self = envSet(...)`.
         let factorySig = indent + "func " + className + "(" + initArgs + ") {"
         let factoryHead = indent + "    let self = envNew()\n" +
-                          indent + "    envSet(self, \"__class__\", \"" + className + "\")\n"
+                          indent + "    self = envSet(self, \"__class__\", \"" + className + "\")\n"
         let factoryBody = emitStmtList(initBody, "self," + initArgs, indent + "    ")
         let factoryTail = indent + "    emit self\n" + indent + "}\n"
         let factoryAll = factorySig + "\n" + factoryHead + factoryBody + factoryTail
@@ -2125,7 +2128,9 @@ func emitStmt(node, decls, indent) {
         let b3 = indexOf(aft2, "|")
         let eLen = toInt(substring(aft2, 0, b3))
         let expr = substring(aft2, b3 + 1, b3 + 1 + eLen)
-        emit pkPair(indent + "envSet(" + objName + ", \"" + fieldName + "\", toStr(" + emitExpr(expr) + "))", decls)
+        // envSet returns a new env (functional, not in-place) -- must
+        // rebind the obj so subsequent reads see the update.
+        emit pkPair(indent + objName + " = envSet(" + objName + ", \"" + fieldName + "\", toStr(" + emitExpr(expr) + "))", decls)
     }
 
     if kind == "IF" {
