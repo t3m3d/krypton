@@ -1622,6 +1622,23 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
         let pair = irExpr(tokens, pos + 1, ntoks, lc, types)
         let code = pairVal(pair)
         let p = pairPos(pair)
+        // B2 multi-return: `return a, b, c` packs the values into an array(N)
+        // (8-byte slots) and returns it; `let x, y = f()` destructures it.
+        if tokAt(tokens, p) == "COMMA" {
+            let mr = "_mret_" + pos
+            let sets = "LOAD " + mr + "\nPUSH 0\n" + code + "BUILTIN bufSetQwordAt 3\nPOP\n"
+            let nv = 1
+            while tokAt(tokens, p) == "COMMA" {
+                let vp = irExpr(tokens, p + 1, ntoks, lc, types)
+                sets = sets + "LOAD " + mr + "\nPUSH " + (nv * 8) + "\n" + pairVal(vp) + "BUILTIN bufSetQwordAt 3\nPOP\n"
+                p = pairPos(vp)
+                nv = nv + 1
+            }
+            if tokAt(tokens, p) == "SEMI" { p += 1 }
+            let rst = ""
+            if inFunc == "1" { rst = "BUILTIN gcShadowCount 0\nLOAD __sh_save\nSUB\nBUILTIN gcShadowPop 1\nPOP\n" }
+            emit "LOCAL " + mr + "\nPUSH " + (nv * 8) + "\nBUILTIN bufNew 1\nSTORE " + mr + "\n" + sets + "LOAD " + mr + "\n" + rst + "RETURN\n," + p
+        }
         if tokAt(tokens, p) == "SEMI" { p += 1 }
         // 2.0-alpha-3 stage 6: restore shadow_sp before early return.
         // The function-exit wrap (irFuncIR) adds the same restore at
@@ -2065,6 +2082,32 @@ func irSkipTypeAnnotation(tokens, pos) {
 
 func irLetIR(tokens, pos, ntoks, lc, inFunc, types) {
     let name = tokVal(tokAt(tokens, pos))
+    // B2 multi-return destructuring: `let a, b, ... = expr` — expr must yield a
+    // multi-return array (8-byte slots); bind each name to a slot.
+    if tokAt(tokens, pos + 1) == "COMMA" {
+        let nms = name
+        let nc = 1
+        let np = pos + 1
+        while tokAt(tokens, np) == "COMMA" {
+            np = np + 1
+            nms = nms + "," + tokVal(tokAt(tokens, np))
+            np = np + 1
+            nc = nc + 1
+        }
+        if tokAt(tokens, np) == "ASSIGN" { np = np + 1 }
+        let rp = irExpr(tokens, np, ntoks, lc, types)
+        let p = pairPos(rp)
+        if tokAt(tokens, p) == "SEMI" { p += 1 }
+        let rt = "_mdes_" + pos
+        let out = "LOCAL " + rt + "\n" + pairVal(rp) + "STORE " + rt + "\n"
+        let k = 0
+        while k < nc {
+            let nm = getNthParam(nms, k)
+            out = out + "LOCAL " + nm + "\nLOAD " + rt + "\nPUSH " + (k * 8) + "\nBUILTIN bufGetQwordAt 2\nSTORE " + nm + "\nLOAD " + nm + "\nBUILTIN gcShadowPush 1\nPOP\n"
+            k = k + 1
+        }
+        emit out + "," + p
+    }
     // Phase C 1.8.9: `let local TYPE name` — heap-allocate sizeof(TYPE)
     // bytes via bufNew and store the pointer in `name`. Same memory
     // model as a heap struct, but the syntax matches what true stack
