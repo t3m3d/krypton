@@ -18,6 +18,7 @@
 //   GET  /logout       -> clear cookie
 
 import "k:server_native"
+import "k:string"
 
 // Module-level `let` constants are silently GC-reused in current Krypton
 // (see feedback_module_mutable_globals.md). Wrap as zero-arg functions.
@@ -121,26 +122,16 @@ func makeSessionToken() {
 }
 
 func validateSession(cookie) {
-    if len(cookie) == 0 { print("[auth] empty cookie")  emit "0" }
-    let parts = split(cookie, "|")
-    let lc = lineCount(parts)
-    if lc < 3 { print("[auth] lineCount=" + toStr(lc) + " parts=[" + parts + "]")  emit "0" }
-    let user = getLine(parts, 0)
-    let exp  = getLine(parts, 1)
-    let sig  = getLine(parts, 2)
-    if user != USER() { print("[auth] user mismatch '" + user + "' vs USER='" + USER() + "'")  emit "0" }
-    if toInt(exp) < toInt(nowEpoch()) { print("[auth] expired exp=" + exp + " now=" + nowEpoch())  emit "0" }
-    let secret = loadOrCreateSecret()
-    let payload = user + "|" + exp
-    let expected = sha256Hex(secret + ":" + payload)
-    if sig != expected {
-        print("[auth] sig mismatch")
-        print("[auth]   payload='" + payload + "'")
-        print("[auth]   secret='" + secret + "'")
-        print("[auth]   sig='" + sig + "'")
-        print("[auth]   expected='" + expected + "'")
-        emit "0"
-    }
+    if len(cookie) == 0 { emit "0" }
+    let parts = splitk(cookie, "|")
+    if length(parts) < 3 { emit "0" }
+    let user = split(parts, 0)
+    let exp  = split(parts, 1)
+    let sig  = split(parts, 2)
+    if user != USER() { emit "0" }
+    if toInt(exp) < toInt(nowEpoch()) { emit "0" }
+    let expected = sha256Hex(loadOrCreateSecret() + ":" + user + "|" + exp)
+    if sig != expected { emit "0" }
     emit "1"
 }
 
