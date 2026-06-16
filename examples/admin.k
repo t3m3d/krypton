@@ -123,7 +123,8 @@ func makeSessionToken() {
 func validateSession(cookie) {
     if len(cookie) == 0 { emit "0" }
     let parts = split(cookie, "|")
-    if length(parts) < 3 { emit "0" }
+    // split returns newline-separated; length counts comma-elements (mismatch).
+    if lineCount(parts) < 3 { emit "0" }
     let user = getLine(parts, 0)
     let exp  = getLine(parts, 1)
     let sig  = getLine(parts, 2)
