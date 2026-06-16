@@ -36,14 +36,11 @@ func fileExistsSh(path) {
 }
 
 func readFileSh(path) {
-    let out = exec("cat " + path)
-    emit out
+    emit readFile(path)
 }
 
 func writeFileSh(path, content) {
-    // base64-encode + decode to dodge shell quoting hell
-    let b64 = exec("printf '%s' \"" + escapeForShell(content) + "\" | base64 -w0")
-    shellRun("printf '%s' '" + b64 + "' | base64 -d > " + path)
+    writeFile(path, content)
     emit ""
 }
 
