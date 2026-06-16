@@ -19,13 +19,15 @@
 
 import "k:server_native"
 
-let PORT       = "8088"
-let STATE_DIR  = "/opt/krypton-admin"
-let REPO_DIR   = STATE_DIR + "/krypton"
-let BLOG_DIR   = REPO_DIR + "/docs/blog"
-let USER       = "t3m3d"
-let SALT       = "kryptoadmin-2026"
-let COOKIE     = "kadmin"
+// Module-level `let` constants are silently GC-reused in current Krypton
+// (see feedback_module_mutable_globals.md). Wrap as zero-arg functions.
+func PORT()       { emit "8088" }
+func STATE_DIR()  { emit "/opt/krypton-admin" }
+func REPO_DIR()   { emit "/opt/krypton-admin/krypton" }
+func BLOG_DIR()   { emit "/opt/krypton-admin/krypton/docs/blog" }
+func USER()       { emit "t3m3d" }
+func SALT()       { emit "kryptoadmin-2026" }
+func COOKIE()     { emit "kadmin" }
 
 // ─── tiny utilities ────────────────────────────────────────────────────
 
@@ -94,7 +96,7 @@ func randHex() {
 // ─── auth ──────────────────────────────────────────────────────────────
 
 func loadOrCreateSecret() {
-    let p = STATE_DIR + "/secret"
+    let p = STATE_DIR() + "/secret"
     if fileExistsSh(p) == "1" { emit trim(readFileSh(p)) }
     let s = randHex()
     writeFileSh(p, s)
@@ -102,18 +104,18 @@ func loadOrCreateSecret() {
 }
 
 func loadPwhash() {
-    let p = STATE_DIR + "/pwhash"
+    let p = STATE_DIR() + "/pwhash"
     if fileExistsSh(p) == "1" { emit trim(readFileSh(p)) }
     emit ""
 }
 
 func savePwhash(pw) {
-    writeFileSh(STATE_DIR + "/pwhash", sha256Hex(SALT + ":" + pw))
+    writeFileSh(STATE_DIR() + "/pwhash", sha256Hex(SALT() + ":" + pw))
 }
 
 func makeSessionToken() {
     let exp = toInt(nowEpoch()) + 604800   // 7 days
-    let payload = USER + "|" + toStr(exp)
+    let payload = USER() + "|" + toStr(exp)
     let sig = sha256Hex(loadOrCreateSecret() + ":" + payload)
     emit payload + "|" + sig
 }
@@ -125,7 +127,7 @@ func validateSession(cookie) {
     let user = getLine(parts, 0)
     let exp  = getLine(parts, 1)
     let sig  = getLine(parts, 2)
-    if user != USER { emit "0" }
+    if user != USER() { emit "0" }
     if toInt(exp) < toInt(nowEpoch()) { emit "0" }
     let expected = sha256Hex(loadOrCreateSecret() + ":" + user + "|" + exp)
     if sig != expected { emit "0" }
@@ -136,9 +138,9 @@ func sessionFromReq(req) {
     let cookieHdr = reqHeader(req, "Cookie")
     if len(cookieHdr) == 0 { emit "" }
     // Cookie: kadmin=value; other=foo
-    let p = indexOf(cookieHdr, COOKIE + "=")
+    let p = indexOf(cookieHdr, COOKIE() + "=")
     if p < 0 { emit "" }
-    let rest = substring(cookieHdr, p + len(COOKIE) + 1, len(cookieHdr))
+    let rest = substring(cookieHdr, p + len(COOKIE()) + 1, len(cookieHdr))
     let semi = indexOf(rest, ";")
     if semi >= 0 { emit substring(rest, 0, semi) }
     emit rest
@@ -185,7 +187,7 @@ func loginPage(msg) {
     emit page(title,
         "<h1>" + title + "</h1>" + warn +
         "<form method=POST action=" + action + ">" +
-        "<label>User</label><input type=text value=\"" + USER + "\" disabled>" +
+        "<label>User</label><input type=text value=\"" + USER() + "\" disabled>" +
         "<label>Password</label><input type=password name=pw autofocus required>" +
         "<p><button type=submit>" + btn + "</button></p>" +
         "</form>"
@@ -193,7 +195,7 @@ func loginPage(msg) {
 }
 
 func listPostsHtml() {
-    let raw = trim(exec("ls -1 " + BLOG_DIR + "/*.md 2>/dev/null | sort -r"))
+    let raw = trim(exec("ls -1 " + BLOG_DIR() + "/*.md 2>/dev/null | sort -r"))
     if len(raw) == 0 { emit "<p class=muted>No posts yet.</p>" }
     let lines = raw
     let n = lineCount(lines)
@@ -249,14 +251,14 @@ func handleLogin(req, client) {
         serveHtml(client, loginPage("First run: use /setup to set the password"))
         emit ""
     }
-    if sha256Hex(SALT + ":" + pw) != stored {
+    if sha256Hex(SALT() + ":" + pw) != stored {
         serveHtml(client, loginPage("Wrong password."))
         emit ""
     }
     let token = makeSessionToken()
     let resp = "HTTP/1.1 302 Found\r\n" +
                "Location: /\r\n" +
-               "Set-Cookie: " + COOKIE + "=" + token + "; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=604800\r\n" +
+               "Set-Cookie: " + COOKIE() + "=" + token + "; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=604800\r\n" +
                "Content-Length: 0\r\nConnection: close\r\n\r\n"
     serverSend(client, resp)
     emit ""
@@ -292,13 +294,13 @@ func handleSave(req, client) {
         }
     }
 
-    let mdPath = BLOG_DIR + "/" + fullSlug + ".md"
+    let mdPath = BLOG_DIR() + "/" + fullSlug + ".md"
     let mdBody = "# " + title + "\n\n**" + date + "**\n\n" + body + "\n"
     writeFileSh(mdPath, mdBody)
 
     // Commit + push (the GitHub Action picks it up and rebuilds + FTPs)
     let gitOut = exec(
-        "cd " + REPO_DIR + " && " +
+        "cd " + REPO_DIR() + " && " +
         "git add docs/blog/" + fullSlug + ".md && " +
         "git -c user.email=admin@krypton-lang.org -c user.name='admin' commit -m 'blog: " + fullSlug + "' 2>&1 && " +
         "git push origin main 2>&1"
@@ -315,7 +317,7 @@ func handleSave(req, client) {
 }
 
 func handleEdit(req, client, slug) {
-    let path = BLOG_DIR + "/" + slug + ".md"
+    let path = BLOG_DIR() + "/" + slug + ".md"
     if fileExistsSh(path) == "0" {
         serve404(client)
         emit ""
@@ -349,7 +351,7 @@ func handleEdit(req, client, slug) {
 func handleLogout(client) {
     let resp = "HTTP/1.1 302 Found\r\n" +
                "Location: /login\r\n" +
-               "Set-Cookie: " + COOKIE + "=; Path=/; Max-Age=0\r\n" +
+               "Set-Cookie: " + COOKIE() + "=; Path=/; Max-Age=0\r\n" +
                "Content-Length: 0\r\nConnection: close\r\n\r\n"
     serverSend(client, resp)
     emit ""
@@ -407,12 +409,12 @@ func dispatch(req, client) {
 // ─── main ─────────────────────────────────────────────────────────────
 
 just run {
-    let sock = serverListen(PORT)
+    let sock = serverListen(PORT())
     if sock < 0 {
-        print("ERROR: serverListen failed on " + PORT)
+        print("ERROR: serverListen failed on " + PORT())
         exit("1")
     }
-    print("[admin] listening on 127.0.0.1:" + PORT)
+    print("[admin] listening on 127.0.0.1:" + PORT())
 
     while toInt("1") == 1 {
         let client = serverAccept(sock)
