@@ -1166,7 +1166,8 @@ func mdToHtml(src) {
 // Blog post registry. Add new posts here (slug, date, title, md path).
 // Newest first.
 func blogPosts() {
-    emit "2026-06-01-elf-from-scratch|2026-06-01|Linux x86_64: writing your own ELF (no linker, no libc)|../../docs/blog/2026-06-01-elf-from-scratch.md" + NL() +
+    emit "2026-06-16-exherbo-store|2026-06-16|Exherbo Linux on the Microsoft Store|../../docs/blog/2026-06-16-exherbo-store.md" + NL() +
+         "2026-06-01-elf-from-scratch|2026-06-01|Linux x86_64: writing your own ELF (no linker, no libc)|../../docs/blog/2026-06-01-elf-from-scratch.md" + NL() +
          "2026-05-30-launch-week|2026-05-30|Launch week: kcss, the lesson runner, and a 95-byte WASM proof|../../docs/blog/2026-05-30-launch-week.md"
 }
 
