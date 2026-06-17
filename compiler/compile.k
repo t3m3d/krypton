@@ -1383,15 +1383,20 @@ func irPrimary(tokens, pos, ntoks, lc, types) {
         // 2.0-alpha-3: tighten heuristic — also require the LBRACE
         // body to start with `<ID>: ...` (field-syntax). Without this,
         // patterns like `while i < N { ... }` would attempt struct-literal
-        // parse on N (NOTE: bug still reproduces even with this fix —
-        // crash is upstream, possibly in tokenization). Kept the
-        // tightening anyway because it's more correct.
+        // parse on N.
+        //
+        // The inner-ID check MUST use substring, not `startsWith(..)=="1"`:
+        // on the macho-built compiler startsWith returns the int 1 and
+        // `1 == "1"` is false, so the whole struct-literal path was dead —
+        // `V { x: .. }` fell through to a bare var load and the `{ .. }` body
+        // desynced the parser, silently dropping the rest of the block. (The
+        // old comment here misblamed tokenization.)
         let firstChar = tv[0]
         if nextTok == "LBRACE" {
             if firstChar >= "A" && firstChar <= "Z" {
                 let inner1 = tokAt(tokens, pos + 2)
                 let inner2 = tokAt(tokens, pos + 3)
-                if startsWith(inner1, "ID:") == "1" {
+                if len(inner1) >= 3 && substring(inner1, 0, 3) == "ID:" {
                     if inner2 == "COLON" {
                         emit irStructLiteralIR(tokens, pos, ntoks, lc, types)
                     }
