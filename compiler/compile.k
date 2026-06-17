@@ -220,6 +220,7 @@ func isKW(word) {
     else if word == "class" { emit 1 }
     else if word == "type" { emit 1 }
     else if word == "enum" { emit 1 }
+    else if word == "interface" { emit 1 }
     else if word == "try" { emit 1 }
     else if word == "catch" { emit 1 }
     else if word == "throw" { emit 1 }
@@ -1183,6 +1184,33 @@ func irPostfix(tokens, pos, ntoks, lc, types) {
             let field = tokVal(tokAt(tokens, p + 1))
             p = p + 2
             let didTypedField = 0
+            // B4 interfaces — UFCS method dispatch: obj.method(args) lowers to
+            // method(obj, args). The receiver is already on the stack (in
+            // `code`); push the user args after it and CALL the free function.
+            // Duck-typed and structural: any `method(obj, ...)` satisfies it,
+            // no vtable, no explicit `satisfies` decl. `interface` blocks are
+            // compile-time signature docs (skipped at codegen). A field that
+            // holds a callable is not reachable this way — `.name(` always
+            // means a method call. (Dynamic dispatch over a heterogeneous
+            // []Interface is the future vtable slab.)
+            if tokAt(tokens, p) == "LPAREN" {
+                let margc = 1                       // receiver is arg 0
+                let mp = p + 1
+                let mcode = ""
+                while tokAt(tokens, mp) != "RPAREN" && mp < ntoks {
+                    if margc > 1 { mp += 1 }        // skip the comma
+                    let mex = irExpr(tokens, mp, ntoks, lc, types)
+                    mcode = mcode + pairVal(mex)
+                    mp = pairPos(mex)
+                    margc += 1
+                }
+                mp += 1                             // past RPAREN
+                code = code + mcode + "CALL " + field + " " + margc + "\n"
+                p = mp
+                deferredType = ""
+                accumOff = 0
+                didTypedField = 1
+            }
             // B3 slice: s.len / s.cap read slots 16 / 24 of the quad.
             if deferredType == "__slice" {
                 if field == "len" { code = code + "PUSH 16\nBUILTIN bufGetQwordAt 2\n"  didTypedField = 1 }
@@ -3693,6 +3721,9 @@ just run {
         } else if tok == "KW:enum" {
             // A3: enum decl is compile-time only (scanned by irScanEnums) — skip body.
             i = skipBlock(tokens, i + 2) - 1
+        } else if tok == "KW:interface" {
+            // B4: interface decl is compile-time signature docs only — skip body.
+            i = skipBlock(tokens, i + 2) - 1
         } else if tok == "KW:struct" || tok == "KW:class" || tok == "KW:type" {
             // emit forward decl for struct constructor
             let sn = tokVal(tokAt(tokens, i + 1))
@@ -3772,6 +3803,9 @@ just run {
             i += 1
         } else if tok == "KW:enum" {
             // A3: enum decl — compile-time only; skip its body.
+            i = skipBlock(tokens, i + 2) - 1
+        } else if tok == "KW:interface" {
+            // B4: interface decl — compile-time signature docs only; skip body.
             i = skipBlock(tokens, i + 2) - 1
         } else if tok == "KW:struct" || tok == "KW:class" || tok == "KW:type" {
             // Inline struct compilation to avoid pairPos issues
@@ -3978,6 +4012,13 @@ just run {
                 let eP = iri + 2
                 while eP < ntoks && tokAt(tokens, eP) != "LBRACE" { eP += 1 }
                 iri = skipBlock(tokens, eP)
+            } else if irtok == "KW:interface" {
+                // B4: interface decl — compile-time signature docs only. Skip the
+                // whole block so its bodyless `func m(...)` method signatures are
+                // NOT compiled as real functions (no constructor, like enum).
+                let ifP = iri + 2
+                while ifP < ntoks && tokAt(tokens, ifP) != "LBRACE" { ifP += 1 }
+                iri = skipBlock(tokens, ifP)
             } else if irtok == "KW:struct" || irtok == "KW:class" || irtok == "KW:type" {
                 // Skip struct/class/type body — `let`s inside are field decls,
                 // not file-scope globals. Without this skip, we'd hoist them
