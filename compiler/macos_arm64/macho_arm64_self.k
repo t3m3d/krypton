@@ -1747,12 +1747,17 @@ func internSb(sbHandle, count, name) {
 // existing curOps (bufNew/bufGet/SetQwordAt + loop labels) at parse time — no
 // new arm64 emit/size handlers, and macho-only (other backends keep their env).
 
-// Register the three reused scratch locals if absent; return updated nLocals.
+// Register the reused scratch locals if absent; return updated nLocals.
+// o=env, i=index, v=value, k=runtime key (dynamic API), r=accumulator
+// (structFields). The immediate-key ops (STRUCTNEW/GET/SETFIELD) use o/i/v;
+// the dynamic builtins (getField/setField/hasField/structFields) also use k/r.
 func efEnsure(sbLocals, nLocals) {
     let n = nLocals
     if findInList(sbToString(sbLocals), n, "__ef_o") < 0 { if n > 0 { sbAppend(sbLocals, "\n") }  sbAppend(sbLocals, "__ef_o")  n += 1 }
     if findInList(sbToString(sbLocals), n, "__ef_i") < 0 { if n > 0 { sbAppend(sbLocals, "\n") }  sbAppend(sbLocals, "__ef_i")  n += 1 }
     if findInList(sbToString(sbLocals), n, "__ef_v") < 0 { if n > 0 { sbAppend(sbLocals, "\n") }  sbAppend(sbLocals, "__ef_v")  n += 1 }
+    if findInList(sbToString(sbLocals), n, "__ef_k") < 0 { if n > 0 { sbAppend(sbLocals, "\n") }  sbAppend(sbLocals, "__ef_k")  n += 1 }
+    if findInList(sbToString(sbLocals), n, "__ef_r") < 0 { if n > 0 { sbAppend(sbLocals, "\n") }  sbAppend(sbLocals, "__ef_r")  n += 1 }
     emit n
 }
 
@@ -2146,6 +2151,111 @@ func parseFullIR(ir) {
                     if bname == "kp" {
                         curOps = sbAppend(curOps, "BUILTIN_KP\n")
                         nOps += 1
+                    } else if bname == "structNew" {
+                        // Dynamic reflection API over the same (keyPtr,value) env
+                        // buffer as STRUCTNEW/GET/SETFIELD. structNew(): empty env.
+                        nLocals = efEnsure(sbLocals, nLocals)
+                        let dnO = nParams + findInList(sbToString(sbLocals), nLocals, "__ef_o")
+                        let dn = "PUSH_INT 520\nBUILTIN_BUFNEW\nSTORE_SLOT " + dnO + "\nLOAD_SLOT " + dnO + "\nPUSH_INT 0\nPUSH_INT 0\nBUILTIN_BUFSETQWORDAT\nPOP\nLOAD_SLOT " + dnO + "\n"
+                        curOps = sbAppend(curOps, dn)
+                        nOps += efCountNL(dn)
+                    } else if bname == "getField" {
+                        // getField(o, k): [o,k] -> value or "". Runtime key from stack.
+                        nLocals = efEnsure(sbLocals, nLocals)
+                        let go = nParams + findInList(sbToString(sbLocals), nLocals, "__ef_o")
+                        let gi = nParams + findInList(sbToString(sbLocals), nLocals, "__ef_i")
+                        let gk = nParams + findInList(sbToString(sbLocals), nLocals, "__ef_k")
+                        let ge = internSb(sbStrings, nStrings, asciiToHex(""))
+                        if ge == nStrings { nStrings += 1 }
+                        let gL = "_dfg_loop_" + i
+                        let gF = "_dfg_found_" + i
+                        let gN = "_dfg_nf_" + i
+                        let gEd = "_dfg_end_" + i
+                        let dg = ""
+                        dg = dg + "STORE_SLOT " + gk + "\nSTORE_SLOT " + go + "\nPUSH_INT 0\nSTORE_SLOT " + gi + "\n"
+                        dg = dg + "LABEL " + gL + "\n"
+                        dg = dg + "LOAD_SLOT " + gi + "\nLOAD_SLOT " + go + "\nPUSH_INT 0\nBUILTIN_BUFGETQWORDAT\nLT\nJUMPIFNOT " + gN + "\n"
+                        dg = dg + "LOAD_SLOT " + go + "\nLOAD_SLOT " + gi + "\nPUSH_INT 16\nMUL\nPUSH_INT 8\nADD\nBUILTIN_BUFGETQWORDAT\nLOAD_SLOT " + gk + "\nEQ\nJUMPIF " + gF + "\n"
+                        dg = dg + "LOAD_SLOT " + gi + "\nPUSH_INT 1\nADD\nSTORE_SLOT " + gi + "\nJUMP " + gL + "\n"
+                        dg = dg + "LABEL " + gF + "\nLOAD_SLOT " + go + "\nLOAD_SLOT " + gi + "\nPUSH_INT 16\nMUL\nPUSH_INT 16\nADD\nBUILTIN_BUFGETQWORDAT\nJUMP " + gEd + "\n"
+                        dg = dg + "LABEL " + gN + "\nPUSH_STR " + ge + "\n"
+                        dg = dg + "LABEL " + gEd + "\n"
+                        curOps = sbAppend(curOps, dg)
+                        nOps += efCountNL(dg)
+                    } else if bname == "setField" {
+                        // setField(o, k, v): [o,k,v] -> env (update or append).
+                        nLocals = efEnsure(sbLocals, nLocals)
+                        let so = nParams + findInList(sbToString(sbLocals), nLocals, "__ef_o")
+                        let si = nParams + findInList(sbToString(sbLocals), nLocals, "__ef_i")
+                        let sv = nParams + findInList(sbToString(sbLocals), nLocals, "__ef_v")
+                        let sk = nParams + findInList(sbToString(sbLocals), nLocals, "__ef_k")
+                        let sL = "_dfs_loop_" + i
+                        let sA = "_dfs_app_" + i
+                        let sU = "_dfs_upd_" + i
+                        let sEd = "_dfs_end_" + i
+                        let ds = ""
+                        ds = ds + "STORE_SLOT " + sv + "\nSTORE_SLOT " + sk + "\nSTORE_SLOT " + so + "\nPUSH_INT 0\nSTORE_SLOT " + si + "\n"
+                        ds = ds + "LABEL " + sL + "\n"
+                        ds = ds + "LOAD_SLOT " + si + "\nLOAD_SLOT " + so + "\nPUSH_INT 0\nBUILTIN_BUFGETQWORDAT\nLT\nJUMPIFNOT " + sA + "\n"
+                        ds = ds + "LOAD_SLOT " + so + "\nLOAD_SLOT " + si + "\nPUSH_INT 16\nMUL\nPUSH_INT 8\nADD\nBUILTIN_BUFGETQWORDAT\nLOAD_SLOT " + sk + "\nEQ\nJUMPIF " + sU + "\n"
+                        ds = ds + "LOAD_SLOT " + si + "\nPUSH_INT 1\nADD\nSTORE_SLOT " + si + "\nJUMP " + sL + "\n"
+                        ds = ds + "LABEL " + sA + "\n"
+                        ds = ds + "LOAD_SLOT " + so + "\nLOAD_SLOT " + si + "\nPUSH_INT 16\nMUL\nPUSH_INT 8\nADD\nLOAD_SLOT " + sk + "\nBUILTIN_BUFSETQWORDAT\nPOP\n"
+                        ds = ds + "LOAD_SLOT " + so + "\nLOAD_SLOT " + si + "\nPUSH_INT 16\nMUL\nPUSH_INT 16\nADD\nLOAD_SLOT " + sv + "\nBUILTIN_BUFSETQWORDAT\nPOP\n"
+                        ds = ds + "LOAD_SLOT " + so + "\nPUSH_INT 0\nLOAD_SLOT " + si + "\nPUSH_INT 1\nADD\nBUILTIN_BUFSETQWORDAT\nPOP\nJUMP " + sEd + "\n"
+                        ds = ds + "LABEL " + sU + "\n"
+                        ds = ds + "LOAD_SLOT " + so + "\nLOAD_SLOT " + si + "\nPUSH_INT 16\nMUL\nPUSH_INT 16\nADD\nLOAD_SLOT " + sv + "\nBUILTIN_BUFSETQWORDAT\nPOP\n"
+                        ds = ds + "LABEL " + sEd + "\nLOAD_SLOT " + so + "\n"
+                        curOps = sbAppend(curOps, ds)
+                        nOps += efCountNL(ds)
+                    } else if bname == "hasField" {
+                        // hasField(o, k): [o,k] -> "1" / "0" (strings, since 1 == "1"
+                        // is false on macho and callers compare against "1"/"0").
+                        nLocals = efEnsure(sbLocals, nLocals)
+                        let ho = nParams + findInList(sbToString(sbLocals), nLocals, "__ef_o")
+                        let hi = nParams + findInList(sbToString(sbLocals), nLocals, "__ef_i")
+                        let hk = nParams + findInList(sbToString(sbLocals), nLocals, "__ef_k")
+                        let h1 = internSb(sbStrings, nStrings, asciiToHex("1"))
+                        if h1 == nStrings { nStrings += 1 }
+                        let h0 = internSb(sbStrings, nStrings, asciiToHex("0"))
+                        if h0 == nStrings { nStrings += 1 }
+                        let hL = "_dfh_loop_" + i
+                        let hY = "_dfh_yes_" + i
+                        let hN = "_dfh_no_" + i
+                        let hEd = "_dfh_end_" + i
+                        let dh = ""
+                        dh = dh + "STORE_SLOT " + hk + "\nSTORE_SLOT " + ho + "\nPUSH_INT 0\nSTORE_SLOT " + hi + "\n"
+                        dh = dh + "LABEL " + hL + "\n"
+                        dh = dh + "LOAD_SLOT " + hi + "\nLOAD_SLOT " + ho + "\nPUSH_INT 0\nBUILTIN_BUFGETQWORDAT\nLT\nJUMPIFNOT " + hN + "\n"
+                        dh = dh + "LOAD_SLOT " + ho + "\nLOAD_SLOT " + hi + "\nPUSH_INT 16\nMUL\nPUSH_INT 8\nADD\nBUILTIN_BUFGETQWORDAT\nLOAD_SLOT " + hk + "\nEQ\nJUMPIF " + hY + "\n"
+                        dh = dh + "LOAD_SLOT " + hi + "\nPUSH_INT 1\nADD\nSTORE_SLOT " + hi + "\nJUMP " + hL + "\n"
+                        dh = dh + "LABEL " + hY + "\nPUSH_STR " + h1 + "\nJUMP " + hEd + "\n"
+                        dh = dh + "LABEL " + hN + "\nPUSH_STR " + h0 + "\n"
+                        dh = dh + "LABEL " + hEd + "\n"
+                        curOps = sbAppend(curOps, dh)
+                        nOps += efCountNL(dh)
+                    } else if bname == "structFields" {
+                        // structFields(o): [o] -> "k1,k2,..," (keys joined). Enough for
+                        // contains()/membership checks.
+                        nLocals = efEnsure(sbLocals, nLocals)
+                        let fo = nParams + findInList(sbToString(sbLocals), nLocals, "__ef_o")
+                        let fi = nParams + findInList(sbToString(sbLocals), nLocals, "__ef_i")
+                        let fr = nParams + findInList(sbToString(sbLocals), nLocals, "__ef_r")
+                        let fe2 = internSb(sbStrings, nStrings, asciiToHex(""))
+                        if fe2 == nStrings { nStrings += 1 }
+                        let fc = internSb(sbStrings, nStrings, asciiToHex(","))
+                        if fc == nStrings { nStrings += 1 }
+                        let fL = "_dff_loop_" + i
+                        let fEd = "_dff_end_" + i
+                        let df = ""
+                        df = df + "STORE_SLOT " + fo + "\nPUSH_STR " + fe2 + "\nSTORE_SLOT " + fr + "\nPUSH_INT 0\nSTORE_SLOT " + fi + "\n"
+                        df = df + "LABEL " + fL + "\n"
+                        df = df + "LOAD_SLOT " + fi + "\nLOAD_SLOT " + fo + "\nPUSH_INT 0\nBUILTIN_BUFGETQWORDAT\nLT\nJUMPIFNOT " + fEd + "\n"
+                        df = df + "LOAD_SLOT " + fr + "\nLOAD_SLOT " + fo + "\nLOAD_SLOT " + fi + "\nPUSH_INT 16\nMUL\nPUSH_INT 8\nADD\nBUILTIN_BUFGETQWORDAT\nCAT\nPUSH_STR " + fc + "\nCAT\nSTORE_SLOT " + fr + "\n"
+                        df = df + "LOAD_SLOT " + fi + "\nPUSH_INT 1\nADD\nSTORE_SLOT " + fi + "\nJUMP " + fL + "\n"
+                        df = df + "LABEL " + fEd + "\nLOAD_SLOT " + fr + "\n"
+                        curOps = sbAppend(curOps, df)
+                        nOps += efCountNL(df)
                     } else if bname == "fadd" {
                         curOps = sbAppend(curOps, "BUILTIN_FADD\n")  nOps += 1
                     } else if bname == "fsub" {
