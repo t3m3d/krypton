@@ -1737,6 +1737,34 @@ func internSb(sbHandle, count, name) {
     emit count
 }
 
+// ── B-struct env runtime (macho) ─────────────────────────────────────────
+// A struct/env is a fixed-cap GC buffer of (keyPtr, value) pairs preceded by
+// a count qword:  [0]=count, then for pair i:  [8+16*i]=keyPtr, [16+16*i]=value.
+// Values are faithful 64-bit (int OR pointer) — unlike macho's string maps, so
+// p.count = 7 round-trips as the int 7. Keys are interned field-name string
+// pointers compared by EQ (same field name -> same intern -> same address).
+// Cap 32 fields (520 bytes). STRUCTNEW/GETFIELD/SETFIELD are lowered to these
+// existing curOps (bufNew/bufGet/SetQwordAt + loop labels) at parse time — no
+// new arm64 emit/size handlers, and macho-only (other backends keep their env).
+
+// Register the three reused scratch locals if absent; return updated nLocals.
+func efEnsure(sbLocals, nLocals) {
+    let n = nLocals
+    if findInList(sbToString(sbLocals), n, "__ef_o") < 0 { if n > 0 { sbAppend(sbLocals, "\n") }  sbAppend(sbLocals, "__ef_o")  n += 1 }
+    if findInList(sbToString(sbLocals), n, "__ef_i") < 0 { if n > 0 { sbAppend(sbLocals, "\n") }  sbAppend(sbLocals, "__ef_i")  n += 1 }
+    if findInList(sbToString(sbLocals), n, "__ef_v") < 0 { if n > 0 { sbAppend(sbLocals, "\n") }  sbAppend(sbLocals, "__ef_v")  n += 1 }
+    emit n
+}
+
+// Count newline-terminated curOps in a chunk (so nOps stays exact without
+// hand-counting the emitted ops).
+func efCountNL(s) {
+    let c = 0
+    let k = 0
+    while k < len(s) { if s[k] == "\n" { c += 1 }  k += 1 }
+    emit c
+}
+
 // Append a function block (header + params + locals + ops) to a sb.
 func appendFunc(sb, name, params, nParams, locals, nLocals, opsStr, nOps) {
     sb = sbAppend(sb, name + "\t" + nParams + "\t" + nLocals + "\t" + nOps + "\n")
@@ -2024,6 +2052,72 @@ func parseFullIR(ir) {
                 } else if op == "INDEX" {
                     curOps = sbAppend(curOps, "INDEX\n")
                     nOps += 1
+                } else if op == "STRUCTNEW" {
+                    // env = bufNew(520) (cap 32 pairs), count slot zeroed. Leaves
+                    // the env ptr on the stack. See efEnsure header for layout.
+                    nLocals = efEnsure(sbLocals, nLocals)
+                    let snO = nParams + findInList(sbToString(sbLocals), nLocals, "__ef_o")
+                    let sn = ""
+                    sn = sn + "PUSH_INT 520\nBUILTIN_BUFNEW\nSTORE_SLOT " + snO + "\n"
+                    sn = sn + "LOAD_SLOT " + snO + "\nPUSH_INT 0\nPUSH_INT 0\nBUILTIN_BUFSETQWORDAT\nPOP\n"
+                    sn = sn + "LOAD_SLOT " + snO + "\n"
+                    curOps = sbAppend(curOps, sn)
+                    nOps += efCountNL(sn)
+                } else if op == "GETFIELD" {
+                    // [obj] -> value for field `rest`, or "" if absent. Linear scan
+                    // of pairs by interned-keyPtr equality; faithful 64-bit value.
+                    nLocals = efEnsure(sbLocals, nLocals)
+                    let gO = nParams + findInList(sbToString(sbLocals), nLocals, "__ef_o")
+                    let gI = nParams + findInList(sbToString(sbLocals), nLocals, "__ef_i")
+                    let gK = internSb(sbStrings, nStrings, asciiToHex(rest))
+                    if gK == nStrings { nStrings += 1 }
+                    let gE = internSb(sbStrings, nStrings, asciiToHex(""))
+                    if gE == nStrings { nStrings += 1 }
+                    let gLoop = "_efg_loop_" + i
+                    let gFound = "_efg_found_" + i
+                    let gNf = "_efg_nf_" + i
+                    let gEnd = "_efg_end_" + i
+                    let g = ""
+                    g = g + "STORE_SLOT " + gO + "\nPUSH_INT 0\nSTORE_SLOT " + gI + "\n"
+                    g = g + "LABEL " + gLoop + "\n"
+                    g = g + "LOAD_SLOT " + gI + "\nLOAD_SLOT " + gO + "\nPUSH_INT 0\nBUILTIN_BUFGETQWORDAT\nLT\nJUMPIFNOT " + gNf + "\n"
+                    g = g + "LOAD_SLOT " + gO + "\nLOAD_SLOT " + gI + "\nPUSH_INT 16\nMUL\nPUSH_INT 8\nADD\nBUILTIN_BUFGETQWORDAT\nPUSH_STR " + gK + "\nEQ\nJUMPIF " + gFound + "\n"
+                    g = g + "LOAD_SLOT " + gI + "\nPUSH_INT 1\nADD\nSTORE_SLOT " + gI + "\nJUMP " + gLoop + "\n"
+                    g = g + "LABEL " + gFound + "\n"
+                    g = g + "LOAD_SLOT " + gO + "\nLOAD_SLOT " + gI + "\nPUSH_INT 16\nMUL\nPUSH_INT 16\nADD\nBUILTIN_BUFGETQWORDAT\nJUMP " + gEnd + "\n"
+                    g = g + "LABEL " + gNf + "\nPUSH_STR " + gE + "\n"
+                    g = g + "LABEL " + gEnd + "\n"
+                    curOps = sbAppend(curOps, g)
+                    nOps += efCountNL(g)
+                } else if op == "SETFIELD" {
+                    // [obj, val] -> set field `rest` to val (update if present, else
+                    // append). Leaves env on the stack for the following STORE.
+                    nLocals = efEnsure(sbLocals, nLocals)
+                    let sO = nParams + findInList(sbToString(sbLocals), nLocals, "__ef_o")
+                    let sI = nParams + findInList(sbToString(sbLocals), nLocals, "__ef_i")
+                    let sV = nParams + findInList(sbToString(sbLocals), nLocals, "__ef_v")
+                    let sK = internSb(sbStrings, nStrings, asciiToHex(rest))
+                    if sK == nStrings { nStrings += 1 }
+                    let sLoop = "_efs_loop_" + i
+                    let sApp = "_efs_app_" + i
+                    let sUpd = "_efs_upd_" + i
+                    let sEnd = "_efs_end_" + i
+                    let st = ""
+                    st = st + "STORE_SLOT " + sV + "\nSTORE_SLOT " + sO + "\nPUSH_INT 0\nSTORE_SLOT " + sI + "\n"
+                    st = st + "LABEL " + sLoop + "\n"
+                    st = st + "LOAD_SLOT " + sI + "\nLOAD_SLOT " + sO + "\nPUSH_INT 0\nBUILTIN_BUFGETQWORDAT\nLT\nJUMPIFNOT " + sApp + "\n"
+                    st = st + "LOAD_SLOT " + sO + "\nLOAD_SLOT " + sI + "\nPUSH_INT 16\nMUL\nPUSH_INT 8\nADD\nBUILTIN_BUFGETQWORDAT\nPUSH_STR " + sK + "\nEQ\nJUMPIF " + sUpd + "\n"
+                    st = st + "LOAD_SLOT " + sI + "\nPUSH_INT 1\nADD\nSTORE_SLOT " + sI + "\nJUMP " + sLoop + "\n"
+                    st = st + "LABEL " + sApp + "\n"
+                    st = st + "LOAD_SLOT " + sO + "\nLOAD_SLOT " + sI + "\nPUSH_INT 16\nMUL\nPUSH_INT 8\nADD\nPUSH_STR " + sK + "\nBUILTIN_BUFSETQWORDAT\nPOP\n"
+                    st = st + "LOAD_SLOT " + sO + "\nLOAD_SLOT " + sI + "\nPUSH_INT 16\nMUL\nPUSH_INT 16\nADD\nLOAD_SLOT " + sV + "\nBUILTIN_BUFSETQWORDAT\nPOP\n"
+                    st = st + "LOAD_SLOT " + sO + "\nPUSH_INT 0\nLOAD_SLOT " + sI + "\nPUSH_INT 1\nADD\nBUILTIN_BUFSETQWORDAT\nPOP\nJUMP " + sEnd + "\n"
+                    st = st + "LABEL " + sUpd + "\n"
+                    st = st + "LOAD_SLOT " + sO + "\nLOAD_SLOT " + sI + "\nPUSH_INT 16\nMUL\nPUSH_INT 16\nADD\nLOAD_SLOT " + sV + "\nBUILTIN_BUFSETQWORDAT\nPOP\n"
+                    st = st + "LABEL " + sEnd + "\n"
+                    st = st + "LOAD_SLOT " + sO + "\n"
+                    curOps = sbAppend(curOps, st)
+                    nOps += efCountNL(st)
                 } else if op == "LOCAL" {
                     // Module globals are __main__'s LOCALs — in __main__ they have
                     // no frame slot (accessed as globals). But in ANY OTHER function
