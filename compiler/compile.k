@@ -1521,6 +1521,87 @@ func irCall(tokens, pos, ntoks, lc, types) {
         emit pairVal(np) + "PUSH 8\nMUL\nBUILTIN bufNew 1\n," + p
     }
 
+    // B3 slice append: `append(s, v)` where s is a __slice. Cap-aware — if
+    // len < cap, write v in place into the shared backing at byteOff+len*8
+    // (Go-style aliasing) and return a new (base, byteOff, len+1, cap) quad;
+    // otherwise grow: bufNew a cap*2 (>=1) buffer, copy the len elements, append
+    // v, and return a quad over the fresh buffer. The base HANDLE is never
+    // pointer-arithmetic'd (tagged — see slice creation). Returns the new slice
+    // (an expression value). Only fires when arg0 is a bare __slice id; any
+    // other append (lists) falls through to the runtime builtin. No backend
+    // work — labels/jumps + buf builtins only. NB: temps holding heap refs
+    // (_ap_s/_ap_v/_ap_nb) are gcShadowPush'd so the final bufNew(32) can't
+    // collect them.
+    if fname == "append" {
+        let a0 = tokAt(tokens, pos + 2)
+        if len(a0) >= 3 && substring(a0, 0, 3) == "ID:" && irTypeOf(types, substring(a0, 3, len(a0))) == "__slice" {
+            let aS = irExpr(tokens, pos + 2, ntoks, lc, types)
+            let sCode = pairVal(aS)
+            let cp = pairPos(aS)
+            if tokAt(tokens, cp) == "COMMA" { cp += 1 }
+            let aV = irExpr(tokens, cp, ntoks, lc, types)
+            let vCode = pairVal(aV)
+            let rp = pairPos(aV)
+            if tokAt(tokens, rp) == "RPAREN" { rp += 1 }
+            // unique temps/labels per call site
+            let S = "_ap_s_" + pos
+            let V = "_ap_v_" + pos
+            let NL = "_ap_nl_" + pos
+            let NB = "_ap_nb_" + pos
+            let NO = "_ap_no_" + pos
+            let NC = "_ap_nc_" + pos
+            let II = "_ap_i_" + pos
+            let R = "_ap_r_" + pos
+            let Lgrow = "_apgrow_" + pos
+            let Lcapok = "_apcapok_" + pos
+            let Lcloop = "_apcloop_" + pos
+            let Lcend = "_apcend_" + pos
+            let Ldone = "_apdone_" + pos
+            // eval args once; root the heap-holding ones.
+            let o = "LOCAL " + S + "\n" + sCode + "STORE " + S + "\nLOAD " + S + "\nBUILTIN gcShadowPush 1\nPOP\n"
+            o = o + "LOCAL " + V + "\n" + vCode + "STORE " + V + "\nLOAD " + V + "\nBUILTIN gcShadowPush 1\nPOP\n"
+            o = o + "LOCAL " + NL + "\nLOCAL " + NB + "\nLOCAL " + NO + "\nLOCAL " + NC + "\n"
+            // newlen = oldlen + 1
+            o = o + "LOAD " + S + "\nPUSH 16\nBUILTIN bufGetQwordAt 2\nPUSH 1\nADD\nSTORE " + NL + "\n"
+            // if oldlen < oldcap -> in place, else grow
+            o = o + "LOAD " + S + "\nPUSH 16\nBUILTIN bufGetQwordAt 2\nLOAD " + S + "\nPUSH 24\nBUILTIN bufGetQwordAt 2\nLT\nJUMPIFNOT " + Lgrow + "\n"
+            // in place: bufSetQwordAt(base, byteOff + oldlen*8, v)
+            o = o + "LOAD " + S + "\nPUSH 0\nBUILTIN bufGetQwordAt 2\n"
+            o = o + "LOAD " + S + "\nPUSH 8\nBUILTIN bufGetQwordAt 2\nLOAD " + S + "\nPUSH 16\nBUILTIN bufGetQwordAt 2\nPUSH 8\nMUL\nADD\n"
+            o = o + "LOAD " + V + "\nBUILTIN bufSetQwordAt 3\nPOP\n"
+            o = o + "LOAD " + S + "\nPUSH 0\nBUILTIN bufGetQwordAt 2\nSTORE " + NB + "\n"
+            o = o + "LOAD " + S + "\nPUSH 8\nBUILTIN bufGetQwordAt 2\nSTORE " + NO + "\n"
+            o = o + "LOAD " + S + "\nPUSH 24\nBUILTIN bufGetQwordAt 2\nSTORE " + NC + "\n"
+            o = o + "JUMP " + Ldone + "\n"
+            // grow: newcap = oldcap*2 (>=1)
+            o = o + "LABEL " + Lgrow + "\n"
+            o = o + "LOAD " + S + "\nPUSH 24\nBUILTIN bufGetQwordAt 2\nPUSH 2\nMUL\nSTORE " + NC + "\n"
+            o = o + "LOAD " + NC + "\nPUSH 0\nEQ\nJUMPIFNOT " + Lcapok + "\nPUSH 1\nSTORE " + NC + "\nLABEL " + Lcapok + "\n"
+            o = o + "LOAD " + NC + "\nPUSH 8\nMUL\nBUILTIN bufNew 1\nSTORE " + NB + "\nLOAD " + NB + "\nBUILTIN gcShadowPush 1\nPOP\n"
+            o = o + "PUSH 0\nSTORE " + NO + "\n"
+            // copy loop: i=0; while i<oldlen { nb[i*8] = base[byteOff + i*8] }
+            o = o + "LOCAL " + II + "\nPUSH 0\nSTORE " + II + "\n"
+            o = o + "LABEL " + Lcloop + "\n"
+            o = o + "LOAD " + II + "\nLOAD " + S + "\nPUSH 16\nBUILTIN bufGetQwordAt 2\nLT\nJUMPIFNOT " + Lcend + "\n"
+            o = o + "LOAD " + NB + "\nLOAD " + II + "\nPUSH 8\nMUL\n"
+            o = o + "LOAD " + S + "\nPUSH 0\nBUILTIN bufGetQwordAt 2\n"
+            o = o + "LOAD " + S + "\nPUSH 8\nBUILTIN bufGetQwordAt 2\nLOAD " + II + "\nPUSH 8\nMUL\nADD\nBUILTIN bufGetQwordAt 2\n"
+            o = o + "BUILTIN bufSetQwordAt 3\nPOP\n"
+            o = o + "LOAD " + II + "\nPUSH 1\nADD\nSTORE " + II + "\nJUMP " + Lcloop + "\nLABEL " + Lcend + "\n"
+            // append v at oldlen, byteOff 0
+            o = o + "LOAD " + NB + "\nLOAD " + S + "\nPUSH 16\nBUILTIN bufGetQwordAt 2\nPUSH 8\nMUL\nLOAD " + V + "\nBUILTIN bufSetQwordAt 3\nPOP\n"
+            o = o + "LABEL " + Ldone + "\n"
+            // build result quad
+            o = o + "LOCAL " + R + "\nPUSH 32\nBUILTIN bufNew 1\nSTORE " + R + "\n"
+            o = o + "LOAD " + R + "\nPUSH 0\nLOAD " + NB + "\nBUILTIN bufSetQwordAt 3\nPOP\n"
+            o = o + "LOAD " + R + "\nPUSH 8\nLOAD " + NO + "\nBUILTIN bufSetQwordAt 3\nPOP\n"
+            o = o + "LOAD " + R + "\nPUSH 16\nLOAD " + NL + "\nBUILTIN bufSetQwordAt 3\nPOP\n"
+            o = o + "LOAD " + R + "\nPUSH 24\nLOAD " + NC + "\nBUILTIN bufSetQwordAt 3\nPOP\n"
+            o = o + "LOAD " + R + "\nBUILTIN gcShadowPush 1\nPOP\nLOAD " + R + "\n"
+            emit o + "," + rp
+        }
+    }
+
     // A4 (variadic, printf-style): format(fmt, ...) / printf(fmt, ...) with a
     // STRING-LITERAL format are expanded at compile time into a concat of the
     // literal pieces interleaved with the args (each %verb consumes one arg;
@@ -2727,6 +2808,22 @@ func irScanFuncTypes(tokens, bodyStart, ntoks) {
                         slP += 1
                     }
                     if slIs == 1 { sb = sbAppend(sb, substring(slNm, 3, len(slNm)) + "|__slice\n") }
+                }
+            }
+        }
+        // B3: `let s2 = append(SRC, v)` where SRC is already a tracked __slice
+        // -> s2 is also a __slice. Check the in-progress table (contains used
+        // bare, not == "1" which is dead on macho). \n-anchored to avoid a
+        // suffix false-match (e.g. "s" vs "xs").
+        if tk == "KW:let" {
+            let apNm = tokAt(tokens, p + 1)
+            if len(apNm) >= 3 && substring(apNm, 0, 3) == "ID:" && tokAt(tokens, p + 2) == "ASSIGN" && tokAt(tokens, p + 3) == "ID:append" && tokAt(tokens, p + 4) == "LPAREN" {
+                let apSrc = tokAt(tokens, p + 5)
+                if len(apSrc) >= 3 && substring(apSrc, 0, 3) == "ID:" {
+                    let apS = substring(apSrc, 3, len(apSrc))
+                    if contains("\n" + sbToString(sb), "\n" + apS + "|__slice\n") {
+                        sb = sbAppend(sb, substring(apNm, 3, len(apNm)) + "|__slice\n")
+                    }
                 }
             }
         }
