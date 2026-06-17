@@ -1165,6 +1165,15 @@ func irPostfix(tokens, pos, ntoks, lc, types) {
                 code = code + idxcode + "PUSH 4\nMUL\n" + addAcc + "BUILTIN bufGetDwordAt 2\n"
             } else if deferredType == "*u64" || deferredType == "*i64" || deferredType == "__array" {
                 code = code + idxcode + "PUSH 8\nMUL\n" + addAcc + "BUILTIN bufGetQwordAt 2\n"
+            } else if deferredType == "__slice" {
+                // B3 slice read s[i]: bufGetQwordAt(base, byteOff + i*8). base
+                // (slot 0) is a pristine handle; byteOff (slot 8) carries the
+                // start. The handle is never arithmetic'd. Re-emit the LOAD by
+                // name (the primary at `pos` is the slice ID) since the value
+                // is needed twice and there is no stack-dup op.
+                let slvn = substring(tokAt(tokens, pos), 3, len(tokAt(tokens, pos)))
+                code = "LOAD " + slvn + "\nPUSH 0\nBUILTIN bufGetQwordAt 2\n" +
+                       "LOAD " + slvn + "\nPUSH 8\nBUILTIN bufGetQwordAt 2\n" + idxcode + "PUSH 8\nMUL\nADD\n" + addAcc + "BUILTIN bufGetQwordAt 2\n"
             } else {
                 code = code + idxcode + "INDEX\n"
             }
@@ -1174,6 +1183,13 @@ func irPostfix(tokens, pos, ntoks, lc, types) {
             let field = tokVal(tokAt(tokens, p + 1))
             p = p + 2
             let didTypedField = 0
+            // B3 slice: s.len / s.cap read slots 16 / 24 of the quad.
+            if deferredType == "__slice" {
+                if field == "len" { code = code + "PUSH 16\nBUILTIN bufGetQwordAt 2\n"  didTypedField = 1 }
+                if field == "cap" { code = code + "PUSH 24\nBUILTIN bufGetQwordAt 2\n"  didTypedField = 1 }
+                deferredType = ""
+                accumOff = 0
+            }
             if startsWith(deferredType, "*") == "1" {
                 let sname = substring(deferredType, 1, len(deferredType))
                 let info = irTypeOf(types, sname + "." + field)
@@ -1920,6 +1936,7 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
             if tokAt(tokens, pB) == "RBRACK" && tokAt(tokens, pB + 1) == "ASSIGN" {
                 let setOp = ""
                 let scaleOp = ""
+                let baseExtra = ""
                 if varType == "*u8" {
                     setOp = "BUILTIN bufSetByte 3\n"
                 } else if varType == "*u16" || varType == "*i16" {
@@ -1931,13 +1948,27 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
                 } else if varType == "*u64" || varType == "*i64" || varType == "__array" {
                     setOp = "BUILTIN bufSetQwordAt 3\n"
                     scaleOp = "PUSH 8\nMUL\n"
+                } else if varType == "__slice" {
+                    setOp = "BUILTIN bufSetQwordAt 3\n"
+                    scaleOp = "PUSH 8\nMUL\n"
+                }
+                if varType == "__slice" {
+                    // B3 slice write s[i] = v: bufSetQwordAt(base, byteOff + i*8, v).
+                    // base (slot 0) pristine handle, byteOff (slot 8) the start.
+                    let idxp = irExpr(tokens, pos + 2, ntoks, lc, types)
+                    let valp = irExpr(tokens, pB + 2, ntoks, lc, types)
+                    let p = pairPos(valp)
+                    if tokAt(tokens, p) == "SEMI" { p += 1 }
+                    emit "LOAD " + name + "\nPUSH 0\nBUILTIN bufGetQwordAt 2\n" +
+                         "LOAD " + name + "\nPUSH 8\nBUILTIN bufGetQwordAt 2\n" + pairVal(idxp) + "PUSH 8\nMUL\nADD\n" +
+                         pairVal(valp) + "BUILTIN bufSetQwordAt 3\nPOP\n," + p
                 }
                 if len(setOp) > 0 {
                     let idxp = irExpr(tokens, pos + 2, ntoks, lc, types)
                     let valp = irExpr(tokens, pB + 2, ntoks, lc, types)
                     let p = pairPos(valp)
                     if tokAt(tokens, p) == "SEMI" { p += 1 }
-                    emit "LOAD " + name + "\n" + pairVal(idxp) + scaleOp +
+                    emit "LOAD " + name + "\n" + baseExtra + pairVal(idxp) + scaleOp +
                          pairVal(valp) + setOp + "POP\n," + p
                 }
             }
@@ -2179,6 +2210,49 @@ func irLetIR(tokens, pos, ntoks, lc, inFunc, types) {
              "\nLOAD " + name + "\nBUILTIN gcShadowPush 1\nPOP\n," + p
     }
     p += 1   // skip ASSIGN
+    // B3 slices: `let s = SRC[lo:hi]` builds a (base, byteOff, len, cap) quad in
+    // a 32-byte GC buffer (slots 0/8/16/24). SRC is an __array (base = SRC
+    // handle) or __slice (base = SRC slot 0). The base buffer HANDLE is kept
+    // pristine — never pointer-arithmetic'd — because GC handles are tagged and
+    // raw ADD corrupts them; the start position is carried in the byteOff slot
+    // instead, and index reads do bufGetQwordAt(base, byteOff + i*8). byteOff =
+    // (array) lo*8 OR (reslice) SRC.byteOff + lo*8; len = hi-lo; cap = (array)
+    // len OR (reslice) SRC.cap - lo. The let var holds the quad ptr and is
+    // tracked __slice by the pre-pass. Pure FE over the A5 buf builtins (8-byte
+    // slots, int/pointer). append: TODO — pairs with the GC freelist (handoff B3).
+    let s3src = tokAt(tokens, p)
+    if len(s3src) >= 3 && substring(s3src, 0, 3) == "ID:" && tokAt(tokens, p + 1) == "LBRACK" {
+        let s3name = substring(s3src, 3, len(s3src))
+        let s3ty = irTypeOf(types, s3name)
+        if s3ty == "__array" || s3ty == "__slice" {
+            let s3lo = irExpr(tokens, p + 2, ntoks, lc, types)
+            let s3loCode = pairVal(s3lo)
+            let s3q = pairPos(s3lo)
+            if tokAt(tokens, s3q) == "COLON" {
+                let s3hi = irExpr(tokens, s3q + 1, ntoks, lc, types)
+                let s3hiCode = pairVal(s3hi)
+                let s3r = pairPos(s3hi)
+                if tokAt(tokens, s3r) == "RBRACK" { s3r += 1 }
+                if tokAt(tokens, s3r) == "SEMI" { s3r += 1 }
+                // base handle, byte offset, and cap source differ array vs reslice.
+                let s3base = "LOAD " + s3name + "\n"
+                let s3off = s3loCode + "PUSH 8\nMUL\n"
+                let s3cap = s3hiCode + s3loCode + "SUB\n"
+                if s3ty == "__slice" {
+                    s3base = "LOAD " + s3name + "\nPUSH 0\nBUILTIN bufGetQwordAt 2\n"
+                    s3off = "LOAD " + s3name + "\nPUSH 8\nBUILTIN bufGetQwordAt 2\n" + s3loCode + "PUSH 8\nMUL\nADD\n"
+                    s3cap = "LOAD " + s3name + "\nPUSH 24\nBUILTIN bufGetQwordAt 2\n" + s3loCode + "SUB\n"
+                }
+                let s3out = "LOCAL " + name + "\nPUSH 32\nBUILTIN bufNew 1\nSTORE " + name + "\n"
+                s3out = s3out + "LOAD " + name + "\nPUSH 0\n" + s3base + "BUILTIN bufSetQwordAt 3\nPOP\n"
+                s3out = s3out + "LOAD " + name + "\nPUSH 8\n" + s3off + "BUILTIN bufSetQwordAt 3\nPOP\n"
+                s3out = s3out + "LOAD " + name + "\nPUSH 16\n" + s3hiCode + s3loCode + "SUB\nBUILTIN bufSetQwordAt 3\nPOP\n"
+                s3out = s3out + "LOAD " + name + "\nPUSH 24\n" + s3cap + "BUILTIN bufSetQwordAt 3\nPOP\n"
+                s3out = s3out + "LOAD " + name + "\nBUILTIN gcShadowPush 1\nPOP\n"
+                emit s3out + "," + s3r
+            }
+        }
+    }
     let pair = irExpr(tokens, p, ntoks, lc, types)
     let code = pairVal(pair)
     p = pairPos(pair)
@@ -2632,6 +2706,28 @@ func irScanFuncTypes(tokens, bodyStart, ntoks) {
             let anTk = tokAt(tokens, p + 1)
             if len(anTk) >= 3 && substring(anTk, 0, 3) == "ID:" && tokAt(tokens, p + 2) == "ASSIGN" && tokAt(tokens, p + 3) == "ID:array" && tokAt(tokens, p + 4) == "LPAREN" {
                 sb = sbAppend(sb, substring(anTk, 3, len(anTk)) + "|__array\n")
+            }
+        }
+        // B3: `let s = SRC[lo:hi]` — track s as __slice so s[i] double-indirects
+        // through the base ptr and s.len/s.cap read the triple. Detect a COLON at
+        // bracket depth 1. substring, not startsWith==1 (dead on macho).
+        if tk == "KW:let" {
+            let slNm = tokAt(tokens, p + 1)
+            if len(slNm) >= 3 && substring(slNm, 0, 3) == "ID:" && tokAt(tokens, p + 2) == "ASSIGN" {
+                let slSrc = tokAt(tokens, p + 3)
+                if len(slSrc) >= 3 && substring(slSrc, 0, 3) == "ID:" && tokAt(tokens, p + 4) == "LBRACK" {
+                    let slP = p + 5
+                    let slD = 1
+                    let slIs = 0
+                    while slP < nTok && slD > 0 {
+                        let slT = tokAt(tokens, slP)
+                        if slT == "LBRACK" { slD += 1 }
+                        if slT == "RBRACK" { slD -= 1 }
+                        if slT == "COLON" && slD == 1 { slIs = 1 }
+                        slP += 1
+                    }
+                    if slIs == 1 { sb = sbAppend(sb, substring(slNm, 3, len(slNm)) + "|__slice\n") }
+                }
             }
         }
         if tk == "KW:let" || tk == "KW:const" {
