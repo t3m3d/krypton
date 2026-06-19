@@ -1,0 +1,214 @@
+# Handoff w → m: Tier A+B state on x64 (Windows PE) — what's green, what's red, root causes
+
+**From:** agent w (Windows). **Date:** 2026-06-19. **Context:** caught up your Tier A (commit `f188379d`) and Tier B (commit `b600aaa1` etc.) on Windows. Rebuilt the FE, smoke-tested everything, diagnosed two real backend bugs, and burned a 60-minute x64_host_new rebuild attempting a fix that turned out to break x64_host_new's internal data structures. Reverted; documenting so we don't double-build.
+
+## UPDATE 2026-06-19 (FE-only Bug #1 workaround — LANDED, 10/12 Tier-A+B PASS)
+
+After two backend rebuilds failed (see "rebuild attempt #2" below), found a pure-FE workaround that sidesteps the x64.k rebuild blocker entirely.
+
+**Insight:** the existing `ptrToInt`/`intToPtr` builtins on x64 (both 5-byte JMPs into the 64-bit `__rt_atoi`/`__rt_itoa` helpers) round-trip pointers losslessly through the atoi store inside kr_bufsetqwordat. Wrapping every A5/B3/B2 polymorphic-slot store with `BUILTIN ptrToInt 1` before the bufSetQwordAt, and every read with `BUILTIN intToPtr 1` after the bufGetQwordAt, lets pointer values survive. Validated 140702191591424 (heap addr > 2^32) round-tripping cleanly.
+
+**Zero-init gotcha & fix:** raw `intToPtr("0")` returns NULL → kr_eq deref → SEGV. Inlined a zero-guard per call site: `if readback == "0" push literal "0" ptr else intToPtr-unwrap`. Single temp local per site, ~10 IR ops.
+
+**FE sites changed** (all in compile.k):
+- A5 array `arr[i]` reads (irPostfix, ~1177) — read+guard+unwrap.
+- A5 array `arr[i] = v` writes (irStmt, ~2069) — wrap value in `ptrToInt`.
+- B3 slice `s[i]` reads (irPostfix, ~1187) — base ptr unwrap + read+guard+unwrap.
+- B3 slice `s[i] = v` writes (irStmt, ~2077) — base ptr unwrap, value wrap.
+- B3 slice creation (irStmt slot 0 base store, ~2374) — base wrap.
+- B3 slice append (in-place + grow paths) — base unwrap, value wrap, element copy wrap+unwrap.
+- B2 multi-return pack (irStmt return, ~1772) — wrap each value.
+- B2 destructure (irLetIR, ~2276) — unwrap each slot.
+
+Phase C typed `*u64`/`*i64` lowering UNCHANGED (already correct for int storage). Other typed pointer widths (`*u8`/`*u16`/`*u32`) UNCHANGED (sub-qword, no pointer storage).
+
+**Result (Tier-A+B smoke):**
+- BEFORE Bug #1 workaround (with Bug #3 only): 7/12 PASS.
+- AFTER: **10/12 PASS** — test_array, test_multiret, test_slices, test_slice_append, test_struct_edge all flipped from FAIL/SEGV to PASS. Only test_static (Bug #2, A6 backend gap) and test_struct_literal (Bug #4, structFields stub) remain — both need x64.k rebuild to fix.
+
+**Full repo suite:** 64 PASS / 4 FAIL / 1 SEGV (was 60 PASS / 7 FAIL / 2 SEGV). Remaining FAILs: test_static, test_struct_literal, test_defer (pre-existing mutable-module-global bug), test_unixconnect (Linux-only).
+
+**Tradeoff acknowledged:** each polymorphic slot access now does two extra small heap allocations (ptrToInt + intToPtr each itoa to a fresh string). Negligible for typical code. The zero-guard adds one branch + one local per call site.
+
+**This is committable.** kcc.exe (466 KB) installed at `kcc.exe` + `c:/krypton/bin/kcc.exe`. No x64.k change, no krypton_rt.dll rebuild needed. Just the compile.k FE edits.
+
+---
+
+## UPDATE 2026-06-19 (after rebuild attempt #2 — reverted, rebuild itself is broken)
+
+**The 56-min x64_host_new rebuild produced an ACCESS_VIOLATION (0xC0000005) on startup**, even with strictly additive changes (new `bufSetQwordRaw`/`bufGetQwordRaw` stubs that touch zero existing code paths). Same outcome as the earlier in-place patch attempt. Root cause is in the rebuild pipeline itself, not the source edit:
+
+- PE file structurally valid (MZ + PE + x64 + console subsystem + entry point look fine).
+- Direct invocation: `x64_host_v2.exe in.kir out.exe` → exit code 0xC0000005, no stdout, no stderr, no output file.
+- The kcc parent peaked at 37 GB during the rebuild (this 68 GB box). Either the OOM-adjacent pressure corrupts the produced bytes, or the kcc.exe I rebuilt earlier today has a latent O(n²)/codegen bug that only fires on very large IR like x64.k (9191 lines).
+- Smaller programs compile and run fine with this same kcc.exe — the regression is x64.k-shape-specific.
+
+**Source state after this session**: x64.k + runtime/krypton_rt.k + most compile.k edits REVERTED. Only the Bug #3 FE fix (interface-skip in function-table pre-scan) remains. Smoke still passes (test_switch / test_enum / test_format / test_interfaces / test_struct_env all green on the May 31 backend with the new kcc.exe).
+
+**Saved artifacts for the next attempt**:
+- `/tmp/x64_host_v2.exe` — the broken rebuild output (1.4 MB). Inspect with `dumpbin /headers` or a disassembler to see if it's an obviously-bad PE or a subtle one.
+- `kcc_pre_tierA.exe.bak` — the original 151 KB kcc.exe. Might successfully rebuild x64_host_new (worth comparing).
+- `c:/krypton/bin/x64_host_new.exe.may31.bak` — known-good May 31 backend (currently installed).
+
+**Recommended next steps for the qword raw fix**:
+1. **Bisect the rebuild break**: revert FE entirely, rebuild x64_host_new from a stock x64.k (zero changes). If THAT produces a working binary, the rebuild pipeline is fine and my code was the issue. If it ALSO breaks, the rebuild pipeline is poisoned and needs a separate fix (look at the FE rebuild's compile.k changes for an O(n²) or wrong-codegen at scale).
+2. **Try the C-emit + gcc path**: install gcc (via MSYS2), then `kcc x64.k > x.c && gcc x.c -O2 -o x.exe -lm -w`. Bypasses the native pipeline entirely. The 25-35 GB OOM was specifically about kcc-bin during native rebuild, per `project_x64k_rebuild_oom.md`. C-emit might dodge it.
+3. **Rebuild on a beefier box / from macho cross-compile**: matches what the memory note suggested for the OOM issue.
+
+The qword raw design itself is documented in this handoff (helper-block bytes, FE site list, runtime export). It's mechanically applicable as soon as a clean rebuild exists.
+
+---
+
+## UPDATE 2026-06-19 (third pass — proper qword raw fix in flight)
+
+After the FE-only Bug #3 fix landed (interfaces PASS), I came back for the kr_bufsetqwordat root cause with a non-breaking design: **additive new builtins** `bufSetQwordRaw` / `bufGetQwordRaw` for polymorphic 8-byte slot storage. Existing `bufSetQwordAt` / `bufGetQwordAt` stay atoi/itoa (Phase C `*u64` typed pointer + x64_host_new internals depend on that).
+
+**x64.k changes** (additive):
+- Two new machine-code stubs after kr_bufsetqwordat (~7338): `kr_bufsetqwordraw` (43 B) + `kr_bufgetqwordraw` (31 B). True raw store/load — no atoi/itoa on val/result. Matches macho's `bufSetQwordAt` semantics directly.
+- KRRT_FUNCS list: added `kr_bufsetqwordraw,kr_bufgetqwordraw`.
+- builtinName(): added `bufSetQwordRaw → kr_bufsetqwordraw`, `bufGetQwordRaw → kr_bufgetqwordraw`.
+- bsHelperBlockSize: 9542 → 9616.
+
+**runtime/krypton_rt.k changes**: added `export func kr_bufsetqwordraw / kr_bufgetqwordraw` (emit-passthroughs).
+
+**compile.k FE changes** (use raw for polymorphic slots):
+- A5 array element get/set (`arr[i]`/`arr[i] = v`) — RAW.
+- B3 slice element get/set — RAW.
+- B3 slice slot 0 (base PTR) reads + writes everywhere — RAW (atoi truncates 64-bit heap addresses).
+- B3 slice append: base reads + element copies + element writes — RAW.
+- B2 multi-return pack + destructure — RAW.
+- Phase C typed `*u64`/`*i64` — UNCHANGED (atoi safe for int storage).
+- Slice slot 8/16/24 (byteOff/len/cap, int-only) — UNCHANGED.
+
+**Rebuild order required** (all currently in progress / pending):
+1. x64_host_new.exe — IN FLIGHT (background `bx3b2erdx`, ~60 min wall, started ~01:33).
+2. Install new x64_host_new at `c:/krypton/bin/x64_host_new.exe`.
+3. krypton_rt.dll — rebuilt via `kcc -o runtime/krypton_rt.dll runtime/krypton_rt.k` (bootstrap mode triggered by .dll output named krypton_rt.dll). Bootstrap mode emits the helper block as the DLL's text + export table from `OFFSETS` lines — so the new exports come automatically.
+4. Install krypton_rt.dll at runtime/ + repo root.
+5. kcc.exe — rebuild from current compile.k (10 min, has the new FE A5/B3/B2 lowering).
+6. Install kcc.exe.
+7. Re-smoke Tier A+B — should turn most green.
+
+**Rollback** if any rebuild produces a broken binary:
+- `cp /c/krypton/bin/x64_host_new.exe.may31.bak /c/krypton/bin/x64_host_new.exe` (already kept).
+- Revert compile.k FE changes (commits not made — uncommitted edits).
+- Revert x64.k stub additions (also uncommitted).
+- Keep current kcc.exe (has the Bug #3 fix from earlier — that one is safe).
+
+---
+
+## UPDATE 2026-06-19 (earlier same session)
+
+Bug #3 fixed in pure FE — see "compile.k:649 patch" below. Re-smoked:
+- test_interfaces: SEGV → **PASS**
+- test_slices / test_slice_append: SEGV → FAIL (still wrong data from Bug #1, but no crash — interface fix shed the broken `double()` ghost-func from the func-table, which was confusing the IR for these tests too).
+
+Net Tier-A+B: 7/12 PASS (was 6/12). Bug #1, #2, #4 still open and need backend work.
+
+**Full repo smoke (post-fix):** 60 PASS / 7 FAIL / 2 SEGV / 2 SKIP. That's 84.5% on the full Krypton test suite — basically all the pre-existing tests still work; the regressions are the 5 Tier-A/B that need backend fixes + 2 pre-existing Windows issues (test_defer relies on a mutable module global per `feedback_module_mutable_globals.md`; test_unixconnect is Linux-only).
+
+**compile.k:649 patch** — added `else if tok == "KW:interface" { i = skipBlock(tokens, i + 2) - 1 }` to the function-table pre-scan loop. The interface-skip in the codegen loops (3 sites) was already there; the function-table scan was the missing one.
+
+## Smoke matrix (after kcc.exe rebuild from current `compile.k`)
+
+| Tier-A | x64/PE |
+|--------|--------|
+| switch | ✅ |
+| enum   | ✅ |
+| printf/format | ✅ |
+| static locals | ❌ — separate backend gap, see Bug #2 |
+| fixed-size arrays (string elems) | ❌ — Bug #1 |
+| compound assign | (no isolated test; smoke green via above) |
+| floating point | not started — plan at `handoffs/w_a1_float_x64_plan.md` |
+
+| Tier-B | x64/PE |
+|--------|--------|
+| defer (B1) | (no isolated test) |
+| multi-return (B2) | ❌ — depends on A5 (Bug #1) |
+| slices (B3) | 💥 SEGV — depends on A5 |
+| slice append | 💥 SEGV — depends on A5 |
+| interfaces UFCS (B4) | 💥 SEGV — Bug #3 |
+| struct env  | ✅ |
+| struct literal | ❌ — Bug #4 |
+| struct edge | 💥 SEGV — likely Bug #1 or Bug #3 |
+
+## Bug #1 — `kr_bufsetqwordat` atoi-corrupts pointer values
+
+`compiler/windows_x86/x64.k` line ~7320. The runtime stub atoi's val_str before storing, so any non-numeric pointer (string literal, computed kr_plus result, struct/env pointer) gets stored as `0` (`atoi("hi") == 0`). Same problem in `kr_bufgetqwordat` (~5434): always itoa's the loaded qword back to a string, so even if you stored a pointer raw, you'd get back a `itoa(addr)` decimal string of the pointer address, not the original string.
+
+Mirrors are RAW on macho:
+```
+bufSetQwordAt: pop val; pop off; pop buf; [buf+off] = val   (6 instrs)
+bufGetQwordAt: pop off; pop buf; x0 = [buf+off]; push       (5 instrs)
+```
+
+**Why this matters:** A5 arrays + B3 slices + struct env all store polymorphic 8-byte values (int OR pointer). On macho the FE lowering "just works" because the helpers are raw. On x64 only ints round-trip.
+
+**What I tried:** patched x64.k to NOP out the val-side atoi and the load-side itoa, MOV [RBX+RSI], RDI for raw store. Mechanically clean (51-byte/44-byte layouts preserved, offsets table unchanged). Built fine. **Killed x64_host_new internally** — x64_host_new uses bufSet/GetQwordAt on its own data structures (env, struct ledger) and expected the atoi/itoa round-trip. Switching to raw broke the type-tracking inside x64_host_new → SEGV on `kp("hello")`. Reverted.
+
+**Real fix (need to coordinate):** add NEW separate builtins `bufSetQwordRaw`/`bufGetQwordRaw` (raw store/load — additive, no behavior change to existing stubs), then change the A5/B3 FE lowering in `compile.k` to use the raw variants. The existing typed-pointer `*u64` code can stay on atoi/itoa (its semantics ARE "store an int"). Macho could mirror the new builtin names for cross-backend parity.
+
+Or, alternately: change x64_host_new's internal `let env = ...` patterns to not rely on the atoi side-effect, then the simpler raw flip works. Heavier change.
+
+## Bug #2 — A6 static locals never registered on x64
+
+`compiler/windows_x86/x64.k` has zero references to `staticref` / `kstatic` / module globals. The FE (`compile.k:2667`) emits `kstatic_<i>_<n>` LOCALs in `__main__`'s prologue and tags downstream refs as `__staticref:kstatic_*`. macho's `collectModuleGlobals` recognises non-`__`-prefixed locals as module globals (M's handoff calls out the `__` gotcha). x64 doesn't have that wiring at all — `LOAD kstatic_*` from inside `counter()` falls through to a normal local lookup, finds nothing, the static is never read back.
+
+Test repro: `tests/test_static.k`, first call returns the init value, second call returns the same init value again, [FAIL] c2.
+
+**Fix:** real backend work. Either replicate macho's module-globals region or thread `__staticref:` resolution through `LOAD`/`STORE` op handlers to access `__main__`'s frame slots from any function.
+
+## Bug #3 — `interface` block bodies compile as real functions
+
+The FE-skip for `KW:interface` at `compile.k:3729`, `:3812`, `:4020` does `skipBlock(tokens, i + 2) - 1` which moves to past the matching `}`. Outer loop does `i += 1`. Looks right, but the emitted IR for `tests/test_interfaces.k` proves something's off — the IR contains TWO `double` functions:
+```
+FUNC double 0
+LOCAL __sh_save
+...
+LOAD m              ← undefined! refs the interface's `func plus(m)`
+CALL plus 1
+...
+
+FUNC double 1
+PARAM n
+...                 ← the real func double(n) { return n*2 }
+```
+
+The first `FUNC double 0` is the interface method declaration leaking into the global namespace as a 0-arg function with a body that LOADs the OTHER interface method's parameter. Then `x.double()` resolves to the broken 0-arg version → SEGV.
+
+The skipBlock semantics look correct on inspection. Likely the issue is `irScanFuncTypes` or `funcLookup` scanning `tokens` directly and treating `func` keywords inside the interface block as real declarations. The FE skip happens at IR-emit time; the function-table pre-scan probably doesn't.
+
+**Fix:** make the function-table pre-scan also skip `interface { ... }` blocks. Macho doesn't hit this because... I'm not sure why — maybe macho's interface-block detection happens earlier in tokenisation? Worth checking.
+
+## Bug #4 — `kr_structfields` is a stub that always returns "a"
+
+`compiler/windows_x86/x64.k:6344`:
+```c
+// PARTIAL IMPL: returns single field name ("a") if env has nodes,
+// else "". This satisfies test_structs's `contains(fields, "a")`
+// assertion for the specific test pattern. Proper impl... Deferred. 24 bytes.
+```
+
+`test_struct_literal` does `if !contains(fields, "b")` → true → [FAIL]. Real impl: walk the env linked list and concat keys with commas via kr_sbnew/sbAppend.
+
+**Fix:** replace the 24-byte stub with a proper enumerator. ~80 bytes of machine code; need to know kr_sbnew/sbAppend offsets at emit time (which is what the deferred comment notes is hard from this position in the source).
+
+## What I shipped this session
+
+- Rebuilt `kcc.exe` from current `compile.k` (native -o, 11 min). Installed `kcc.exe` + `/c/krypton/bin/kcc.exe`. Backup at `kcc_pre_tierA.exe.bak`. A2/A3/A4/A7 light up immediately on x64 once the FE is fresh.
+- Diagnosed all four bugs above + smoked the whole Tier-A+B surface.
+- Drafted `handoffs/w_a1_float_x64_plan.md` for the A1 SSE2 backend implementation (~400-500 lines of new x64.k; estimate ~60-80min of rebuild risk).
+- Memory file `project_tier_a_b_landing_w.md` captures session state for next w session.
+
+## What I did NOT ship
+
+- A1 float on x64 (size + rebuild risk; planned, not built).
+- A6 static locals on x64.
+- structFields proper impl.
+- kr_bufsetqwordat polymorphic fix (needs FE + backend rebuild together).
+
+## What's blocked
+
+`compiler/windows_x86/x64.k` regen ate ~37 GB RAM and 60 min wall on this 68 GB box; per `memory/project_x64k_rebuild_oom.md` this has been a known soft block since pre-2.0. The rebuild DID succeed, but the patched binary broke (root cause: x64_host_new uses the patched helpers itself). A clean rebuild attempt to land the proper fix (additive new builtins) needs another 60+ min and one more retry budget.
+
+— w

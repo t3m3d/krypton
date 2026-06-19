@@ -646,6 +646,13 @@ func scanFunctions(tokens, ntoks) {
         let tok = tokAt(tokens, i)
         if tok == "KW:jxt" {
             i = skipBlock(tokens, i + 1)
+        } else if tok == "KW:interface" {
+            // B4: interface bodies are signature docs, not real functions —
+            // skip the whole block so the `func double()` declarations inside
+            // don't leak into the global function table as 0-arg stubs that
+            // shadow the real `func double(n)`. (skipBlock returns past `}`,
+            // we want to land AT `}` so the outer i+=1 advances past it.)
+            i = skipBlock(tokens, i + 2) - 1
         } else if tok == "KW:func" {
             let nameTok = tokAt(tokens, i + 1)
             let fname = tokVal(nameTok)
@@ -1164,17 +1171,37 @@ func irPostfix(tokens, pos, ntoks, lc, types) {
                 code = code + idxcode + "PUSH 2\nMUL\n" + addAcc + "BUILTIN bufGetWordAt 2\n"
             } else if deferredType == "*u32" || deferredType == "*i32" {
                 code = code + idxcode + "PUSH 4\nMUL\n" + addAcc + "BUILTIN bufGetDwordAt 2\n"
-            } else if deferredType == "*u64" || deferredType == "*i64" || deferredType == "__array" {
+            } else if deferredType == "*u64" || deferredType == "*i64" {
+                // Phase C typed *u64/*i64: ints only — bufGetQwordAt's atoi/itoa is fine.
                 code = code + idxcode + "PUSH 8\nMUL\n" + addAcc + "BUILTIN bufGetQwordAt 2\n"
+            } else if deferredType == "__array" {
+                // A5 array: polymorphic 8-byte slot. bufGetQwordAt-then-intToPtr
+                // recovers stored ptrs (Bug #1 workaround), but intToPtr("0") = 0
+                // (NULL) crashes downstream kr_eq derefs — happens on uninit
+                // slots OR an explicit `arr[i] = 0`. Inline branch: if the
+                // readback string is "0", push the literal "0" ptr; else
+                // intToPtr-unwrap. Single temp local per call site.
+                // 2026-06-19 (w): FE-only Bug #1 workaround with zero-guard.
+                let arTmp = "_ar" + pos
+                let arZL  = "_arz" + pos
+                let arDL  = "_ard" + pos
+                code = code + idxcode + "PUSH 8\nMUL\n" + addAcc + "BUILTIN bufGetQwordAt 2\n" +
+                       "LOCAL " + arTmp + "\nSTORE " + arTmp + "\n" +
+                       "LOAD " + arTmp + "\nPUSH \"0\"\nEQ\nJUMPIF " + arZL + "\n" +
+                       "LOAD " + arTmp + "\nBUILTIN intToPtr 1\nJUMP " + arDL + "\n" +
+                       "LABEL " + arZL + "\nPUSH \"0\"\nLABEL " + arDL + "\n"
             } else if deferredType == "__slice" {
-                // B3 slice read s[i]: bufGetQwordAt(base, byteOff + i*8). base
-                // (slot 0) is a pristine handle; byteOff (slot 8) carries the
-                // start. The handle is never arithmetic'd. Re-emit the LOAD by
-                // name (the primary at `pos` is the slice ID) since the value
-                // is needed twice and there is no stack-dup op.
+                // B3 slice read s[i]: same zero-guarded unwrap.
                 let slvn = substring(tokAt(tokens, pos), 3, len(tokAt(tokens, pos)))
-                code = "LOAD " + slvn + "\nPUSH 0\nBUILTIN bufGetQwordAt 2\n" +
-                       "LOAD " + slvn + "\nPUSH 8\nBUILTIN bufGetQwordAt 2\n" + idxcode + "PUSH 8\nMUL\nADD\n" + addAcc + "BUILTIN bufGetQwordAt 2\n"
+                let slTmp = "_sl" + pos
+                let slZL  = "_slz" + pos
+                let slDL  = "_sld" + pos
+                code = "LOAD " + slvn + "\nPUSH 0\nBUILTIN bufGetQwordAt 2\nBUILTIN intToPtr 1\n" +
+                       "LOAD " + slvn + "\nPUSH 8\nBUILTIN bufGetQwordAt 2\n" + idxcode + "PUSH 8\nMUL\nADD\n" + addAcc + "BUILTIN bufGetQwordAt 2\n" +
+                       "LOCAL " + slTmp + "\nSTORE " + slTmp + "\n" +
+                       "LOAD " + slTmp + "\nPUSH \"0\"\nEQ\nJUMPIF " + slZL + "\n" +
+                       "LOAD " + slTmp + "\nBUILTIN intToPtr 1\nJUMP " + slDL + "\n" +
+                       "LABEL " + slZL + "\nPUSH \"0\"\nLABEL " + slDL + "\n"
             } else {
                 code = code + idxcode + "INDEX\n"
             }
@@ -1598,11 +1625,12 @@ func irCall(tokens, pos, ntoks, lc, types) {
             o = o + "LOAD " + S + "\nPUSH 16\nBUILTIN bufGetQwordAt 2\nPUSH 1\nADD\nSTORE " + NL + "\n"
             // if oldlen < oldcap -> in place, else grow
             o = o + "LOAD " + S + "\nPUSH 16\nBUILTIN bufGetQwordAt 2\nLOAD " + S + "\nPUSH 24\nBUILTIN bufGetQwordAt 2\nLT\nJUMPIFNOT " + Lgrow + "\n"
-            // in place: bufSetQwordAt(base, byteOff + oldlen*8, v)
-            o = o + "LOAD " + S + "\nPUSH 0\nBUILTIN bufGetQwordAt 2\n"
+            // in place: bufSetQwordAt(base_intToPtr, byteOff + oldlen*8, ptrToInt(v))
+            // 2026-06-19 (w): same wrap as slice element accesses.
+            o = o + "LOAD " + S + "\nPUSH 0\nBUILTIN bufGetQwordAt 2\nBUILTIN intToPtr 1\n"
             o = o + "LOAD " + S + "\nPUSH 8\nBUILTIN bufGetQwordAt 2\nLOAD " + S + "\nPUSH 16\nBUILTIN bufGetQwordAt 2\nPUSH 8\nMUL\nADD\n"
-            o = o + "LOAD " + V + "\nBUILTIN bufSetQwordAt 3\nPOP\n"
-            o = o + "LOAD " + S + "\nPUSH 0\nBUILTIN bufGetQwordAt 2\nSTORE " + NB + "\n"
+            o = o + "LOAD " + V + "\nBUILTIN ptrToInt 1\nBUILTIN bufSetQwordAt 3\nPOP\n"
+            o = o + "LOAD " + S + "\nPUSH 0\nBUILTIN bufGetQwordAt 2\nBUILTIN intToPtr 1\nSTORE " + NB + "\n"
             o = o + "LOAD " + S + "\nPUSH 8\nBUILTIN bufGetQwordAt 2\nSTORE " + NO + "\n"
             o = o + "LOAD " + S + "\nPUSH 24\nBUILTIN bufGetQwordAt 2\nSTORE " + NC + "\n"
             o = o + "JUMP " + Ldone + "\n"
@@ -1616,17 +1644,19 @@ func irCall(tokens, pos, ntoks, lc, types) {
             o = o + "LOCAL " + II + "\nPUSH 0\nSTORE " + II + "\n"
             o = o + "LABEL " + Lcloop + "\n"
             o = o + "LOAD " + II + "\nLOAD " + S + "\nPUSH 16\nBUILTIN bufGetQwordAt 2\nLT\nJUMPIFNOT " + Lcend + "\n"
+            // copy loop element: read with intToPtr from old base; write with ptrToInt to new base.
+            // NB is a fresh bufNew pointer (already a real ptr — wrap on store only).
             o = o + "LOAD " + NB + "\nLOAD " + II + "\nPUSH 8\nMUL\n"
-            o = o + "LOAD " + S + "\nPUSH 0\nBUILTIN bufGetQwordAt 2\n"
-            o = o + "LOAD " + S + "\nPUSH 8\nBUILTIN bufGetQwordAt 2\nLOAD " + II + "\nPUSH 8\nMUL\nADD\nBUILTIN bufGetQwordAt 2\n"
-            o = o + "BUILTIN bufSetQwordAt 3\nPOP\n"
+            o = o + "LOAD " + S + "\nPUSH 0\nBUILTIN bufGetQwordAt 2\nBUILTIN intToPtr 1\n"
+            o = o + "LOAD " + S + "\nPUSH 8\nBUILTIN bufGetQwordAt 2\nLOAD " + II + "\nPUSH 8\nMUL\nADD\nBUILTIN bufGetQwordAt 2\nBUILTIN intToPtr 1\n"
+            o = o + "BUILTIN ptrToInt 1\nBUILTIN bufSetQwordAt 3\nPOP\n"
             o = o + "LOAD " + II + "\nPUSH 1\nADD\nSTORE " + II + "\nJUMP " + Lcloop + "\nLABEL " + Lcend + "\n"
             // append v at oldlen, byteOff 0
-            o = o + "LOAD " + NB + "\nLOAD " + S + "\nPUSH 16\nBUILTIN bufGetQwordAt 2\nPUSH 8\nMUL\nLOAD " + V + "\nBUILTIN bufSetQwordAt 3\nPOP\n"
+            o = o + "LOAD " + NB + "\nLOAD " + S + "\nPUSH 16\nBUILTIN bufGetQwordAt 2\nPUSH 8\nMUL\nLOAD " + V + "\nBUILTIN ptrToInt 1\nBUILTIN bufSetQwordAt 3\nPOP\n"
             o = o + "LABEL " + Ldone + "\n"
-            // build result quad
+            // build result quad — slot 0 = base ptr (ptrToInt wrapped store).
             o = o + "LOCAL " + R + "\nPUSH 32\nBUILTIN bufNew 1\nSTORE " + R + "\n"
-            o = o + "LOAD " + R + "\nPUSH 0\nLOAD " + NB + "\nBUILTIN bufSetQwordAt 3\nPOP\n"
+            o = o + "LOAD " + R + "\nPUSH 0\nLOAD " + NB + "\nBUILTIN ptrToInt 1\nBUILTIN bufSetQwordAt 3\nPOP\n"
             o = o + "LOAD " + R + "\nPUSH 8\nLOAD " + NO + "\nBUILTIN bufSetQwordAt 3\nPOP\n"
             o = o + "LOAD " + R + "\nPUSH 16\nLOAD " + NL + "\nBUILTIN bufSetQwordAt 3\nPOP\n"
             o = o + "LOAD " + R + "\nPUSH 24\nLOAD " + NC + "\nBUILTIN bufSetQwordAt 3\nPOP\n"
@@ -1755,12 +1785,15 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
         // B2 multi-return: `return a, b, c` packs the values into an array(N)
         // (8-byte slots) and returns it; `let x, y = f()` destructures it.
         if tokAt(tokens, p) == "COMMA" {
+            // B2: pack return values via ptrToInt-wrapped bufSetQwordAt so
+            // polymorphic vals (string returns, struct returns) survive the
+            // qword store's atoi. 2026-06-19 (w) Bug #1 FE workaround.
             let mr = "_mret_" + pos
-            let sets = "LOAD " + mr + "\nPUSH 0\n" + code + "BUILTIN bufSetQwordAt 3\nPOP\n"
+            let sets = "LOAD " + mr + "\nPUSH 0\n" + code + "BUILTIN ptrToInt 1\nBUILTIN bufSetQwordAt 3\nPOP\n"
             let nv = 1
             while tokAt(tokens, p) == "COMMA" {
                 let vp = irExpr(tokens, p + 1, ntoks, lc, types)
-                sets = sets + "LOAD " + mr + "\nPUSH " + (nv * 8) + "\n" + pairVal(vp) + "BUILTIN bufSetQwordAt 3\nPOP\n"
+                sets = sets + "LOAD " + mr + "\nPUSH " + (nv * 8) + "\n" + pairVal(vp) + "BUILTIN ptrToInt 1\nBUILTIN bufSetQwordAt 3\nPOP\n"
                 p = pairPos(vp)
                 nv = nv + 1
             }
@@ -2059,23 +2092,31 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
                 } else if varType == "*u32" || varType == "*i32" {
                     setOp = "BUILTIN bufSetDwordAt 3\n"
                     scaleOp = "PUSH 4\nMUL\n"
-                } else if varType == "*u64" || varType == "*i64" || varType == "__array" {
+                } else if varType == "*u64" || varType == "*i64" {
+                    // Phase C typed: bare atoi/itoa is correct (ints only).
                     setOp = "BUILTIN bufSetQwordAt 3\n"
                     scaleOp = "PUSH 8\nMUL\n"
+                } else if varType == "__array" {
+                    // A5 polymorphic: wrap value in ptrToInt so atoi inside
+                    // bufSetQwordAt sees a numeric string and stores the raw
+                    // 64-bit pointer value. Reader intToPtr's it back.
+                    // 2026-06-19 (w): FE-only Bug #1 workaround.
+                    setOp = "BUILTIN ptrToInt 1\nBUILTIN bufSetQwordAt 3\n"
+                    scaleOp = "PUSH 8\nMUL\n"
                 } else if varType == "__slice" {
-                    setOp = "BUILTIN bufSetQwordAt 3\n"
+                    setOp = "BUILTIN ptrToInt 1\nBUILTIN bufSetQwordAt 3\n"
                     scaleOp = "PUSH 8\nMUL\n"
                 }
                 if varType == "__slice" {
-                    // B3 slice write s[i] = v: bufSetQwordAt(base, byteOff + i*8, v).
-                    // base (slot 0) pristine handle, byteOff (slot 8) the start.
+                    // B3 slice write s[i] = v: bufSetQwordAt(base, byteOff + i*8, ptrToInt(v)).
+                    // base (slot 0) intToPtr'd back from its stored decimal addr.
                     let idxp = irExpr(tokens, pos + 2, ntoks, lc, types)
                     let valp = irExpr(tokens, pB + 2, ntoks, lc, types)
                     let p = pairPos(valp)
                     if tokAt(tokens, p) == "SEMI" { p += 1 }
-                    emit "LOAD " + name + "\nPUSH 0\nBUILTIN bufGetQwordAt 2\n" +
+                    emit "LOAD " + name + "\nPUSH 0\nBUILTIN bufGetQwordAt 2\nBUILTIN intToPtr 1\n" +
                          "LOAD " + name + "\nPUSH 8\nBUILTIN bufGetQwordAt 2\n" + pairVal(idxp) + "PUSH 8\nMUL\nADD\n" +
-                         pairVal(valp) + "BUILTIN bufSetQwordAt 3\nPOP\n," + p
+                         pairVal(valp) + "BUILTIN ptrToInt 1\nBUILTIN bufSetQwordAt 3\nPOP\n," + p
                 }
                 if len(setOp) > 0 {
                     let idxp = irExpr(tokens, pos + 2, ntoks, lc, types)
@@ -2243,12 +2284,14 @@ func irLetIR(tokens, pos, ntoks, lc, inFunc, types) {
         let rp = irExpr(tokens, np, ntoks, lc, types)
         let p = pairPos(rp)
         if tokAt(tokens, p) == "SEMI" { p += 1 }
+        // 2026-06-19 (w): intToPtr-unwrap each slot (mirrors the pack-time
+        // ptrToInt wrap) so string/struct returns are recovered as pointers.
         let rt = "_mdes_" + pos
         let out = "LOCAL " + rt + "\n" + pairVal(rp) + "STORE " + rt + "\n"
         let k = 0
         while k < nc {
             let nm = getNthParam(nms, k)
-            out = out + "LOCAL " + nm + "\nLOAD " + rt + "\nPUSH " + (k * 8) + "\nBUILTIN bufGetQwordAt 2\nSTORE " + nm + "\nLOAD " + nm + "\nBUILTIN gcShadowPush 1\nPOP\n"
+            out = out + "LOCAL " + nm + "\nLOAD " + rt + "\nPUSH " + (k * 8) + "\nBUILTIN bufGetQwordAt 2\nBUILTIN intToPtr 1\nSTORE " + nm + "\nLOAD " + nm + "\nBUILTIN gcShadowPush 1\nPOP\n"
             k = k + 1
         }
         emit out + "," + p
@@ -2353,12 +2396,16 @@ func irLetIR(tokens, pos, ntoks, lc, inFunc, types) {
                 let s3off = s3loCode + "PUSH 8\nMUL\n"
                 let s3cap = s3hiCode + s3loCode + "SUB\n"
                 if s3ty == "__slice" {
-                    s3base = "LOAD " + s3name + "\nPUSH 0\nBUILTIN bufGetQwordAt 2\n"
+                    // reslicing: pull base ptr via intToPtr (matches store path).
+                    s3base = "LOAD " + s3name + "\nPUSH 0\nBUILTIN bufGetQwordAt 2\nBUILTIN intToPtr 1\n"
                     s3off = "LOAD " + s3name + "\nPUSH 8\nBUILTIN bufGetQwordAt 2\n" + s3loCode + "PUSH 8\nMUL\nADD\n"
                     s3cap = "LOAD " + s3name + "\nPUSH 24\nBUILTIN bufGetQwordAt 2\n" + s3loCode + "SUB\n"
                 }
+                // 2026-06-19 (w): slot 0 = base ptr, wrap in ptrToInt so the
+                // bufSetQwordAt atoi stores the full 64-bit address. Slots
+                // 8/16/24 are ints and bypass the wrap.
                 let s3out = "LOCAL " + name + "\nPUSH 32\nBUILTIN bufNew 1\nSTORE " + name + "\n"
-                s3out = s3out + "LOAD " + name + "\nPUSH 0\n" + s3base + "BUILTIN bufSetQwordAt 3\nPOP\n"
+                s3out = s3out + "LOAD " + name + "\nPUSH 0\n" + s3base + "BUILTIN ptrToInt 1\nBUILTIN bufSetQwordAt 3\nPOP\n"
                 s3out = s3out + "LOAD " + name + "\nPUSH 8\n" + s3off + "BUILTIN bufSetQwordAt 3\nPOP\n"
                 s3out = s3out + "LOAD " + name + "\nPUSH 16\n" + s3hiCode + s3loCode + "SUB\nBUILTIN bufSetQwordAt 3\nPOP\n"
                 s3out = s3out + "LOAD " + name + "\nPUSH 24\n" + s3cap + "BUILTIN bufSetQwordAt 3\nPOP\n"
