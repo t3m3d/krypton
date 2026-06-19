@@ -2,6 +2,41 @@
 
 **From:** agent w (Windows). **Date:** 2026-06-19. **Context:** caught up your Tier A (commit `f188379d`) and Tier B (commit `b600aaa1` etc.) on Windows. Rebuilt the FE, smoke-tested everything, diagnosed two real backend bugs, and burned a 60-minute x64_host_new rebuild attempting a fix that turned out to break x64_host_new's internal data structures. Reverted; documenting so we don't double-build.
 
+## UPDATE 2026-06-19 (rebuild blocker — deeper than the optimizer, ~3 hour bisect)
+
+Targeted the x64.k rebuild block. Findings:
+
+**Bisect attempts:**
+- New kcc.exe (with my Tier-A FE + Bug #1/3 fixes) → x64_host_new.exe rebuild: produces a 1.4 MB binary that ACCESS_VIOLATIONs on startup before printing anything.
+- Same input via `kcc --ir x64.k > /tmp/x64.ir` then `x64_host_new.exe` directly (skip optimizer entirely): produces a 1.4 MB binary that prints the usage line cleanly on no-args invocation, but SEGV's the moment it's given real IR to process. So the optimizer affects startup behaviour but is NOT the root cause — the backend itself can't process its own output IR.
+- OLD pre-Tier-A kcc.exe (151 KB, kcc_pre_tierA.exe.bak) compiling current x64.k: the kcc-bin process climbed to 34 GB / 70 min CPU then HUNG (CPU frozen at the same number across multiple minutes, memory still resident). Killed. Either it would have eventually finished or there's an actual deadlock at scale — either way not a quick option.
+
+**Where the issue lives, most-likely → least-likely:**
+1. The new Tier-A FE emits IR for x64.k that has a subtle defect the backend can't lower correctly (something scale-only — compile.k 4K lines builds fine, x64.k 9K lines does not). Could be polymorphic ADD coalescing a string-typed value as int, an off-by-one in label/jump numbering at large IR counts, a stale local-table entry, etc. Hard to bisect without minimal repro.
+2. optimize_host (May 11, 2026) has an O(n^2) or off-by-one at IR-count > 70K — its output is silently wrong, but x64_host_new's pre-existing tolerance papered over it until something else also tipped over.
+3. x64_host_new itself regresses past a certain helper-block / function-table size.
+
+**What I tried and didn't help:**
+- Reverting all my edits to baseline x64.k (still broken at x64.k rebuild)
+- Skipping optimize_host (still broken once backend processes any IR)
+- Switching backend binaries (May 31 backend works for normal-size programs but produces broken output when fed x64.k IR from new kcc.exe; my freshly-built backend doesn't work at all)
+
+**State at session close:**
+- `c:/krypton/bin/x64_host_new.exe` = May 31 known-good (790 KB). Backup at `x64_host_new.exe.may31.bak`.
+- `c:/krypton/bin/kcc.exe` = today's FE-fix build (466 KB). Compiles all current Tier-A+B + standard programs correctly via the May 31 backend.
+- `/tmp/x64_host_v2.exe` (1.4 MB, broken) — kept for forensic analysis.
+- `/tmp/x64.ir` (909 KB, 78K lines) — the FE output for x64.k from new kcc.exe. A diff against an OLD-kcc x64.k IR would point at the FE regression. Couldn't get OLD-kcc to finish.
+
+**Recommended next attack:**
+- Generate the IR diff: get OLD kcc to emit x64.k IR (try `kcc --ir` instead of `-o`; the FE-only path is faster than the full pipeline and might not hang).
+- Look for divergence patterns — likely a polymorphic-op site that's now emitting differently, or a label/jump that's shifted.
+- OR: skip the rebuild entirely and add A1 float / A6 / structFields backend support by patching the bytes of x64_host_new.exe.may31.bak directly. The kr_structfields stub is 24 bytes at a known offset — could be hand-patched. Same for A6 if we wire `__staticref` resolution. A1 float is too big for binary patching.
+- OR: get gcc on this box (MSYS2 minimal) and use the C-emit path — bypasses native rebuild entirely.
+
+The FE workaround for Bug #1 + the Bug #3 FE fix from this session are already shipped (commit 47a2fe92) and ride the May 31 backend cleanly. They're not blocked on the rebuild.
+
+---
+
 ## UPDATE 2026-06-19 (FE-only Bug #1 workaround — LANDED, 10/12 Tier-A+B PASS)
 
 After two backend rebuilds failed (see "rebuild attempt #2" below), found a pure-FE workaround that sidesteps the x64.k rebuild blocker entirely.
