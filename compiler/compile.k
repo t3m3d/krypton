@@ -1813,8 +1813,14 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
         let restoreCode = ""
         if inFunc == "1" {
             restoreCode = "BUILTIN gcShadowCount 0\nLOAD __sh_save\nSUB\nBUILTIN gcShadowPop 1\nPOP\n"
+            emit code + restoreCode + "RETURN\n," + p
         }
-        emit code + restoreCode + "RETURN\n," + p
+        // Top-level `return`/`emit <v>` = process exit. A plain RETURN here would
+        // `ret` the raw value as the exit code; a string value is a heap pointer,
+        // so dyld exit()s on garbage → SIGTRAP/SIGSEGV (test_line_ops `emit "ok"`).
+        // Route through BUILTIN exit, which atoi-or-0's the value (string → 0,
+        // numeric string/int → its value) and does a clean exit syscall.
+        emit code + "BUILTIN exit 1\n," + p
     }
 
     // if statement
