@@ -1,0 +1,5369 @@
+; Krypton IR
+; Source: compiler/windows_x86/x64.k
+
+FUNC irGetOp 1
+PARAM line
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL t
+LOAD line
+BUILTIN trim 1
+STORE t
+LOAD t
+BUILTIN gcShadowPush 1
+POP
+LOCAL i
+PUSH 0
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+LABEL _wloop_18
+LOAD i
+LOAD t
+BUILTIN len 1
+LT
+JUMPIFNOT _and_24
+LOAD t
+LOAD i
+INDEX
+PUSH " "
+NEQ
+JUMP _andend_24
+LABEL _and_24
+PUSH 0
+LABEL _andend_24
+BUILTIN isTruthy 1
+JUMPIFNOT _wend_18
+LOAD i
+PUSH 1
+ADD
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+JUMP _wloop_18
+LABEL _wend_18
+LOAD t
+PUSH 0
+LOAD i
+BUILTIN substring 3
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC irGetArg1 1
+PARAM line
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL t
+LOAD line
+BUILTIN trim 1
+STORE t
+LOAD t
+BUILTIN gcShadowPush 1
+POP
+LOCAL i
+PUSH 0
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+LABEL _wloop_64
+LOAD i
+LOAD t
+BUILTIN len 1
+LT
+JUMPIFNOT _and_70
+LOAD t
+LOAD i
+INDEX
+PUSH " "
+NEQ
+JUMP _andend_70
+LABEL _and_70
+PUSH 0
+LABEL _andend_70
+BUILTIN isTruthy 1
+JUMPIFNOT _wend_64
+LOAD i
+PUSH 1
+ADD
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+JUMP _wloop_64
+LABEL _wend_64
+LOAD i
+LOAD t
+BUILTIN len 1
+GTE
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_83
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_83
+LOAD i
+PUSH 1
+ADD
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+LOCAL start
+LOAD i
+STORE start
+LOAD start
+BUILTIN gcShadowPush 1
+POP
+LABEL _wloop_101
+LOAD i
+LOAD t
+BUILTIN len 1
+LT
+JUMPIFNOT _and_107
+LOAD t
+LOAD i
+INDEX
+PUSH " "
+NEQ
+JUMP _andend_107
+LABEL _and_107
+PUSH 0
+LABEL _andend_107
+BUILTIN isTruthy 1
+JUMPIFNOT _wend_101
+LOAD i
+PUSH 1
+ADD
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+JUMP _wloop_101
+LABEL _wend_101
+LOAD t
+LOAD start
+LOAD i
+BUILTIN substring 3
+BUILTIN trim 1
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC irGetArg2 1
+PARAM line
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL t
+LOAD line
+BUILTIN trim 1
+STORE t
+LOAD t
+BUILTIN gcShadowPush 1
+POP
+LOCAL i
+PUSH 0
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+LOCAL sp
+PUSH 0
+STORE sp
+LOAD sp
+BUILTIN gcShadowPush 1
+POP
+LABEL _wloop_154
+LOAD i
+LOAD t
+BUILTIN len 1
+LT
+BUILTIN isTruthy 1
+JUMPIFNOT _wend_154
+LOAD t
+LOAD i
+INDEX
+PUSH " "
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_162
+LOAD sp
+PUSH 1
+ADD
+STORE sp
+LOAD sp
+BUILTIN gcShadowPush 1
+POP
+LOAD sp
+PUSH 2
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_173
+LOAD t
+LOAD i
+PUSH 1
+ADD
+LOAD t
+BUILTIN len 1
+BUILTIN substring 3
+BUILTIN trim 1
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_173
+LABEL _endif_162
+LOAD i
+PUSH 1
+ADD
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+JUMP _wloop_154
+LABEL _wend_154
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC irGetRest 1
+PARAM line
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL t
+LOAD line
+BUILTIN trim 1
+STORE t
+LOAD t
+BUILTIN gcShadowPush 1
+POP
+LOCAL i
+PUSH 0
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+LABEL _wloop_221
+LOAD i
+LOAD t
+BUILTIN len 1
+LT
+JUMPIFNOT _and_227
+LOAD t
+LOAD i
+INDEX
+PUSH " "
+NEQ
+JUMP _andend_227
+LABEL _and_227
+PUSH 0
+LABEL _andend_227
+BUILTIN isTruthy 1
+JUMPIFNOT _wend_221
+LOAD i
+PUSH 1
+ADD
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+JUMP _wloop_221
+LABEL _wend_221
+LOAD i
+LOAD t
+BUILTIN len 1
+GTE
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_240
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_240
+LOAD t
+LOAD i
+PUSH 1
+ADD
+LOAD t
+BUILTIN len 1
+BUILTIN substring 3
+BUILTIN trim 1
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC hexByte 1
+PARAM n
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL HEX
+PUSH "0123456789ABCDEF"
+STORE HEX
+LOAD HEX
+BUILTIN gcShadowPush 1
+POP
+LOCAL v
+LOAD n
+BUILTIN toInt 1
+STORE v
+LOAD v
+BUILTIN gcShadowPush 1
+POP
+LOAD v
+PUSH 0
+LT
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_290
+LOAD v
+PUSH 256
+ADD
+STORE v
+LOAD v
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_290
+LOAD v
+PUSH 255
+GT
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_301
+LOAD v
+PUSH 256
+MOD
+STORE v
+LOAD v
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_301
+PUSH "x"
+LOAD HEX
+LOAD v
+PUSH 16
+DIV
+INDEX
+ADD
+LOAD HEX
+LOAD v
+PUSH 16
+MOD
+INDEX
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC hexWord 1
+PARAM n
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL v
+LOAD n
+BUILTIN toInt 1
+STORE v
+LOAD v
+BUILTIN gcShadowPush 1
+POP
+LOAD v
+PUSH 256
+MOD
+CALL hexByte 1
+LOAD v
+PUSH 256
+DIV
+PUSH 256
+MOD
+CALL hexByte 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC hexDword 1
+PARAM n
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL v
+LOAD n
+BUILTIN toInt 1
+STORE v
+LOAD v
+BUILTIN gcShadowPush 1
+POP
+LOCAL b0
+LOAD v
+PUSH 256
+MOD
+STORE b0
+LOAD b0
+BUILTIN gcShadowPush 1
+POP
+LOAD b0
+PUSH 0
+LT
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_380
+LOAD b0
+PUSH 256
+ADD
+STORE b0
+LOAD b0
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_380
+LOCAL q1
+LOAD v
+PUSH 256
+DIV
+STORE q1
+LOAD q1
+BUILTIN gcShadowPush 1
+POP
+LOAD v
+PUSH 256
+MOD
+PUSH 0
+NEQ
+JUMPIFNOT _and_402
+LOAD v
+PUSH 0
+LT
+JUMP _andend_402
+LABEL _and_402
+PUSH 0
+LABEL _andend_402
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_397
+LOAD q1
+PUSH 1
+SUB
+STORE q1
+LOAD q1
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_397
+LOCAL b1
+LOAD q1
+PUSH 256
+MOD
+STORE b1
+LOAD b1
+BUILTIN gcShadowPush 1
+POP
+LOAD b1
+PUSH 0
+LT
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_420
+LOAD b1
+PUSH 256
+ADD
+STORE b1
+LOAD b1
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_420
+LOCAL q2
+LOAD q1
+PUSH 256
+DIV
+STORE q2
+LOAD q2
+BUILTIN gcShadowPush 1
+POP
+LOAD q1
+PUSH 256
+MOD
+PUSH 0
+NEQ
+JUMPIFNOT _and_442
+LOAD q1
+PUSH 0
+LT
+JUMP _andend_442
+LABEL _and_442
+PUSH 0
+LABEL _andend_442
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_437
+LOAD q2
+PUSH 1
+SUB
+STORE q2
+LOAD q2
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_437
+LOCAL b2
+LOAD q2
+PUSH 256
+MOD
+STORE b2
+LOAD b2
+BUILTIN gcShadowPush 1
+POP
+LOAD b2
+PUSH 0
+LT
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_460
+LOAD b2
+PUSH 256
+ADD
+STORE b2
+LOAD b2
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_460
+LOCAL q3
+LOAD q2
+PUSH 256
+DIV
+STORE q3
+LOAD q3
+BUILTIN gcShadowPush 1
+POP
+LOAD q2
+PUSH 256
+MOD
+PUSH 0
+NEQ
+JUMPIFNOT _and_482
+LOAD q2
+PUSH 0
+LT
+JUMP _andend_482
+LABEL _and_482
+PUSH 0
+LABEL _andend_482
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_477
+LOAD q3
+PUSH 1
+SUB
+STORE q3
+LOAD q3
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_477
+LOCAL b3
+LOAD q3
+PUSH 256
+MOD
+STORE b3
+LOAD b3
+BUILTIN gcShadowPush 1
+POP
+LOAD b3
+PUSH 0
+LT
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_500
+LOAD b3
+PUSH 256
+ADD
+STORE b3
+LOAD b3
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_500
+LOAD b0
+CALL hexByte 1
+LOAD b1
+CALL hexByte 1
+ADD
+LOAD b2
+CALL hexByte 1
+ADD
+LOAD b3
+CALL hexByte 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC hexQword 1
+PARAM n
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOAD n
+CALL hexDword 1
+PUSH 0
+CALL hexDword 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC hexQword64 2
+PARAM lo
+PARAM hi
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOAD lo
+CALL hexDword 1
+LOAD hi
+CALL hexDword 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC hexPad 1
+PARAM n
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL out
+PUSH ""
+STORE out
+LOAD out
+BUILTIN gcShadowPush 1
+POP
+LOCAL i
+PUSH 0
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+LABEL _wloop_582
+LOAD i
+LOAD n
+LT
+BUILTIN isTruthy 1
+JUMPIFNOT _wend_582
+LOAD out
+PUSH 0
+CALL hexByte 1
+ADD
+STORE out
+LOAD out
+BUILTIN gcShadowPush 1
+POP
+LOAD i
+PUSH 1
+ADD
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+JUMP _wloop_582
+LABEL _wend_582
+LOAD out
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC hexStr 1
+PARAM s
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL out
+PUSH ""
+STORE out
+LOAD out
+BUILTIN gcShadowPush 1
+POP
+LOCAL i
+PUSH 0
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+LABEL _wloop_616
+LOAD i
+LOAD s
+BUILTIN len 1
+LT
+BUILTIN isTruthy 1
+JUMPIFNOT _wend_616
+LOAD out
+LOAD s
+LOAD i
+INDEX
+BUILTIN charCode 1
+CALL hexByte 1
+ADD
+STORE out
+LOAD out
+BUILTIN gcShadowPush 1
+POP
+LOAD i
+PUSH 1
+ADD
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+JUMP _wloop_616
+LABEL _wend_616
+LOAD out
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC hexStrZ 1
+PARAM s
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOAD s
+CALL hexStr 1
+PUSH 0
+CALL hexByte 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC hexPadTo 2
+PARAM current
+PARAM target
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL n
+LOAD target
+LOAD current
+SUB
+STORE n
+LOAD n
+BUILTIN gcShadowPush 1
+POP
+LOAD n
+PUSH 0
+LTE
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_676
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_676
+LOAD n
+CALL hexPad 1
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_rex 4
+PARAM w
+PARAM r
+PARAM x
+PARAM b
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL v
+PUSH 64
+LOAD w
+PUSH 8
+MUL
+ADD
+LOAD r
+PUSH 4
+MUL
+ADD
+LOAD x
+PUSH 2
+MUL
+ADD
+LOAD b
+ADD
+STORE v
+LOAD v
+BUILTIN gcShadowPush 1
+POP
+LOAD v
+CALL hexByte 1
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_modrm 3
+PARAM mod
+PARAM reg
+PARAM rm
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOAD mod
+PUSH 64
+MUL
+LOAD reg
+PUSH 8
+MOD
+PUSH 8
+MUL
+ADD
+LOAD rm
+PUSH 8
+MOD
+ADD
+CALL hexByte 1
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_push_r 1
+PARAM r
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOAD r
+PUSH 8
+GTE
+BUILTIN isTruthy 1
+JUMPIFNOT _else_764
+PUSH "41"
+PUSH 80
+LOAD r
+ADD
+PUSH 8
+SUB
+CALL hexByte 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+JUMP _endif_764
+LABEL _else_764
+PUSH 80
+LOAD r
+ADD
+CALL hexByte 1
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_764
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_pop_r 1
+PARAM r
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOAD r
+PUSH 8
+GTE
+BUILTIN isTruthy 1
+JUMPIFNOT _else_798
+PUSH "41"
+PUSH 88
+LOAD r
+ADD
+PUSH 8
+SUB
+CALL hexByte 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+JUMP _endif_798
+LABEL _else_798
+PUSH 88
+LOAD r
+ADD
+CALL hexByte 1
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_798
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_ret 0
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+PUSH "C3"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_nop 0
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+PUSH "90"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_sub_rsp 1
+PARAM n
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+PUSH "4883EC"
+LOAD n
+CALL hexByte 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_add_rsp 1
+PARAM n
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+PUSH "4883C4"
+LOAD n
+CALL hexByte 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_mov_rr 2
+PARAM dst
+PARAM src
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL rexB
+PUSH 0
+STORE rexB
+LOAD rexB
+BUILTIN gcShadowPush 1
+POP
+LOCAL rexR
+PUSH 0
+STORE rexR
+LOAD rexR
+BUILTIN gcShadowPush 1
+POP
+LOAD src
+PUSH 8
+GTE
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_886
+PUSH 1
+STORE rexR
+LOAD rexR
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_886
+LOAD dst
+PUSH 8
+GTE
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_895
+PUSH 1
+STORE rexB
+LOAD rexB
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_895
+PUSH 1
+LOAD rexR
+PUSH 0
+LOAD rexB
+CALL x64_rex 4
+PUSH "89"
+ADD
+PUSH 3
+LOAD src
+PUSH 8
+MOD
+LOAD dst
+PUSH 8
+MOD
+CALL x64_modrm 3
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_mov_r_imm32 2
+PARAM r
+PARAM imm
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOAD r
+PUSH 8
+GTE
+BUILTIN isTruthy 1
+JUMPIFNOT _else_939
+PUSH "41"
+PUSH 184
+LOAD r
+ADD
+PUSH 8
+SUB
+CALL hexByte 1
+ADD
+LOAD imm
+CALL hexDword 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+JUMP _endif_939
+LABEL _else_939
+PUSH 184
+LOAD r
+ADD
+CALL hexByte 1
+LOAD imm
+CALL hexDword 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_939
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_mov_r_imm64 3
+PARAM r
+PARAM lo
+PARAM hi
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL rexB
+PUSH 0
+STORE rexB
+LOAD rexB
+BUILTIN gcShadowPush 1
+POP
+LOAD r
+PUSH 8
+GTE
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_991
+PUSH 1
+STORE rexB
+LOAD rexB
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_991
+PUSH 1
+PUSH 0
+PUSH 0
+LOAD rexB
+CALL x64_rex 4
+PUSH 184
+LOAD r
+PUSH 8
+MOD
+ADD
+CALL hexByte 1
+ADD
+LOAD lo
+CALL hexDword 1
+ADD
+LOAD hi
+CALL hexDword 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_call_rel32 1
+PARAM offset
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+PUSH "E8"
+LOAD offset
+CALL hexDword 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_jmp_rel32 1
+PARAM offset
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+PUSH "E9"
+LOAD offset
+CALL hexDword 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_jmp_rel8 1
+PARAM offset
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+PUSH "EB"
+LOAD offset
+CALL hexByte 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_jz_rel8 1
+PARAM offset
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+PUSH "74"
+LOAD offset
+CALL hexByte 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_jnz_rel8 1
+PARAM offset
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+PUSH "75"
+LOAD offset
+CALL hexByte 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_test_rax_rax 0
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+PUSH "4885C0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_xor_eax_eax 0
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+PUSH "33C0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_call_mem_rip 1
+PARAM offset
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+PUSH "FF15"
+LOAD offset
+CALL hexDword 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_lea_rcx_rip 1
+PARAM offset
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+PUSH "488D0D"
+LOAD offset
+CALL hexDword 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_lea_rdx_rip 1
+PARAM offset
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+PUSH "488D15"
+LOAD offset
+CALL hexDword 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_mov_rcx_rsp_slot 1
+PARAM slot
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL off
+LOAD slot
+PUSH 8
+MUL
+PUSH 32
+ADD
+STORE off
+LOAD off
+BUILTIN gcShadowPush 1
+POP
+PUSH "488B4C24"
+LOAD off
+CALL hexByte 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_mov_rsp_slot_rax 1
+PARAM slot
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL off
+LOAD slot
+PUSH 8
+MUL
+PUSH 32
+ADD
+STORE off
+LOAD off
+BUILTIN gcShadowPush 1
+POP
+PUSH "48894424"
+LOAD off
+CALL hexByte 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_push_imm8 1
+PARAM v
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+PUSH "6A"
+LOAD v
+CALL hexByte 1
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_xor_r9_r9 0
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+PUSH "4D33C9"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC x64_xor_r8_r8 0
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+PUSH "4533C0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC alignUp 2
+PARAM v
+PARAM a
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL rem
+LOAD v
+LOAD a
+MOD
+STORE rem
+LOAD rem
+BUILTIN gcShadowPush 1
+POP
+LOAD rem
+PUSH 0
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_1271
+LOAD v
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_1271
+LOAD v
+LOAD a
+LOAD rem
+SUB
+ADD
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC irUndoPrimary 1
+PARAM s
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL out
+LOAD s
+PUSH "\\"
+PUSH "\\"
+ADD
+PUSH "n"
+ADD
+PUSH "\\"
+PUSH "n"
+ADD
+BUILTIN replace 3
+STORE out
+LOAD out
+BUILTIN gcShadowPush 1
+POP
+LOAD out
+PUSH "\\"
+PUSH "\\"
+ADD
+PUSH "t"
+ADD
+PUSH "\\"
+PUSH "t"
+ADD
+BUILTIN replace 3
+STORE out
+LOAD out
+BUILTIN gcShadowPush 1
+POP
+LOAD out
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC irStrLen 1
+PARAM s
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL tv
+LOAD s
+CALL irUndoPrimary 1
+STORE tv
+LOAD tv
+BUILTIN gcShadowPush 1
+POP
+LOCAL m
+LOAD tv
+BUILTIN len 1
+STORE m
+LOAD m
+BUILTIN gcShadowPush 1
+POP
+LOCAL bytes
+PUSH 0
+STORE bytes
+LOAD bytes
+BUILTIN gcShadowPush 1
+POP
+LOCAL j
+PUSH 0
+STORE j
+LOAD j
+BUILTIN gcShadowPush 1
+POP
+LABEL _wloop_1358
+LOAD j
+LOAD m
+LT
+BUILTIN isTruthy 1
+JUMPIFNOT _wend_1358
+LOAD tv
+LOAD j
+INDEX
+PUSH "\\"
+EQ
+JUMPIFNOT _and_1369
+LOAD j
+PUSH 1
+ADD
+LOAD m
+LT
+JUMP _andend_1369
+LABEL _and_1369
+PUSH 0
+LABEL _andend_1369
+BUILTIN isTruthy 1
+JUMPIFNOT _else_1363
+LOCAL c
+LOAD tv
+LOAD j
+PUSH 1
+ADD
+INDEX
+STORE c
+LOAD c
+BUILTIN gcShadowPush 1
+POP
+LOAD c
+PUSH "n"
+EQ
+JUMPIF _or_1389
+LOAD c
+PUSH "t"
+EQ
+JUMP _orend_1389
+LABEL _or_1389
+PUSH 1
+LABEL _orend_1389
+JUMPIF _or_1393
+LOAD c
+PUSH "r"
+EQ
+JUMP _orend_1393
+LABEL _or_1393
+PUSH 1
+LABEL _orend_1393
+JUMPIF _or_1397
+LOAD c
+PUSH "\\"
+EQ
+JUMP _orend_1397
+LABEL _or_1397
+PUSH 1
+LABEL _orend_1397
+JUMPIF _or_1401
+LOAD c
+PUSH "\""
+EQ
+JUMP _orend_1401
+LABEL _or_1401
+PUSH 1
+LABEL _orend_1401
+BUILTIN isTruthy 1
+JUMPIFNOT _else_1386
+LOAD bytes
+PUSH 1
+ADD
+STORE bytes
+LOAD bytes
+BUILTIN gcShadowPush 1
+POP
+LOAD j
+PUSH 2
+ADD
+STORE j
+LOAD j
+BUILTIN gcShadowPush 1
+POP
+JUMP _endif_1386
+LABEL _else_1386
+LOAD c
+PUSH "x"
+EQ
+JUMPIFNOT _and_1418
+LOAD j
+PUSH 3
+ADD
+LOAD m
+LT
+JUMP _andend_1418
+LABEL _and_1418
+PUSH 0
+LABEL _andend_1418
+BUILTIN isTruthy 1
+JUMPIFNOT _else_1415
+LOAD bytes
+PUSH 1
+ADD
+STORE bytes
+LOAD bytes
+BUILTIN gcShadowPush 1
+POP
+LOAD j
+PUSH 4
+ADD
+STORE j
+LOAD j
+BUILTIN gcShadowPush 1
+POP
+JUMP _endif_1415
+LABEL _else_1415
+LOAD bytes
+PUSH 2
+ADD
+STORE bytes
+LOAD bytes
+BUILTIN gcShadowPush 1
+POP
+LOAD j
+PUSH 2
+ADD
+STORE j
+LOAD j
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_1415
+LABEL _endif_1386
+JUMP _endif_1363
+LABEL _else_1363
+LOAD bytes
+PUSH 1
+ADD
+STORE bytes
+LOAD bytes
+BUILTIN gcShadowPush 1
+POP
+LOAD j
+PUSH 1
+ADD
+STORE j
+LOAD j
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_1363
+JUMP _wloop_1358
+LABEL _wend_1358
+LOAD bytes
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC hexStrIR 1
+PARAM s
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL tv
+LOAD s
+CALL irUndoPrimary 1
+STORE tv
+LOAD tv
+BUILTIN gcShadowPush 1
+POP
+LOCAL m
+LOAD tv
+BUILTIN len 1
+STORE m
+LOAD m
+BUILTIN gcShadowPush 1
+POP
+LOCAL sb
+BUILTIN sbNew 0
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOCAL j
+PUSH 0
+STORE j
+LOAD j
+BUILTIN gcShadowPush 1
+POP
+LABEL _wloop_1486
+LOAD j
+LOAD m
+LT
+BUILTIN isTruthy 1
+JUMPIFNOT _wend_1486
+LOCAL ch
+LOAD tv
+LOAD j
+INDEX
+STORE ch
+LOAD ch
+BUILTIN gcShadowPush 1
+POP
+LOAD ch
+PUSH "\\"
+EQ
+JUMPIFNOT _and_1501
+LOAD j
+PUSH 1
+ADD
+LOAD m
+LT
+JUMP _andend_1501
+LABEL _and_1501
+PUSH 0
+LABEL _andend_1501
+BUILTIN isTruthy 1
+JUMPIFNOT _else_1498
+LOCAL c
+LOAD tv
+LOAD j
+PUSH 1
+ADD
+INDEX
+STORE c
+LOAD c
+BUILTIN gcShadowPush 1
+POP
+LOAD c
+PUSH "n"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _else_1518
+LOAD sb
+PUSH 10
+CALL hexByte 1
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD j
+PUSH 2
+ADD
+STORE j
+LOAD j
+BUILTIN gcShadowPush 1
+POP
+JUMP _endif_1518
+LABEL _else_1518
+LOAD c
+PUSH "t"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _else_1539
+LOAD sb
+PUSH 9
+CALL hexByte 1
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD j
+PUSH 2
+ADD
+STORE j
+LOAD j
+BUILTIN gcShadowPush 1
+POP
+JUMP _endif_1539
+LABEL _else_1539
+LOAD c
+PUSH "r"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _else_1560
+LOAD sb
+PUSH 13
+CALL hexByte 1
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD j
+PUSH 2
+ADD
+STORE j
+LOAD j
+BUILTIN gcShadowPush 1
+POP
+JUMP _endif_1560
+LABEL _else_1560
+LOAD c
+PUSH "\\"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _else_1581
+LOAD sb
+PUSH 92
+CALL hexByte 1
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD j
+PUSH 2
+ADD
+STORE j
+LOAD j
+BUILTIN gcShadowPush 1
+POP
+JUMP _endif_1581
+LABEL _else_1581
+LOAD c
+PUSH "\""
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _else_1602
+LOAD sb
+PUSH 34
+CALL hexByte 1
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD j
+PUSH 2
+ADD
+STORE j
+LOAD j
+BUILTIN gcShadowPush 1
+POP
+JUMP _endif_1602
+LABEL _else_1602
+LOAD c
+PUSH "x"
+EQ
+JUMPIFNOT _and_1626
+LOAD j
+PUSH 3
+ADD
+LOAD m
+LT
+JUMP _andend_1626
+LABEL _and_1626
+PUSH 0
+LABEL _andend_1626
+BUILTIN isTruthy 1
+JUMPIFNOT _else_1623
+LOCAL h1
+LOAD tv
+LOAD j
+PUSH 2
+ADD
+INDEX
+BUILTIN charCode 1
+STORE h1
+LOAD h1
+BUILTIN gcShadowPush 1
+POP
+LOCAL h2
+LOAD tv
+LOAD j
+PUSH 3
+ADD
+INDEX
+BUILTIN charCode 1
+STORE h2
+LOAD h2
+BUILTIN gcShadowPush 1
+POP
+LOCAL v1
+PUSH 0
+STORE v1
+LOAD v1
+BUILTIN gcShadowPush 1
+POP
+LOAD h1
+PUSH 48
+GTE
+JUMPIFNOT _and_1665
+LOAD h1
+PUSH 57
+LTE
+JUMP _andend_1665
+LABEL _and_1665
+PUSH 0
+LABEL _andend_1665
+BUILTIN isTruthy 1
+JUMPIFNOT _else_1662
+LOAD h1
+PUSH 48
+SUB
+STORE v1
+LOAD v1
+BUILTIN gcShadowPush 1
+POP
+JUMP _endif_1662
+LABEL _else_1662
+LOAD h1
+PUSH 97
+GTE
+JUMPIFNOT _and_1681
+LOAD h1
+PUSH 102
+LTE
+JUMP _andend_1681
+LABEL _and_1681
+PUSH 0
+LABEL _andend_1681
+BUILTIN isTruthy 1
+JUMPIFNOT _else_1678
+LOAD h1
+PUSH 87
+SUB
+STORE v1
+LOAD v1
+BUILTIN gcShadowPush 1
+POP
+JUMP _endif_1678
+LABEL _else_1678
+LOAD h1
+PUSH 65
+GTE
+JUMPIFNOT _and_1697
+LOAD h1
+PUSH 70
+LTE
+JUMP _andend_1697
+LABEL _and_1697
+PUSH 0
+LABEL _andend_1697
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_1694
+LOAD h1
+PUSH 55
+SUB
+STORE v1
+LOAD v1
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_1694
+LABEL _endif_1678
+LABEL _endif_1662
+LOCAL v2
+PUSH 0
+STORE v2
+LOAD v2
+BUILTIN gcShadowPush 1
+POP
+LOAD h2
+PUSH 48
+GTE
+JUMPIFNOT _and_1716
+LOAD h2
+PUSH 57
+LTE
+JUMP _andend_1716
+LABEL _and_1716
+PUSH 0
+LABEL _andend_1716
+BUILTIN isTruthy 1
+JUMPIFNOT _else_1713
+LOAD h2
+PUSH 48
+SUB
+STORE v2
+LOAD v2
+BUILTIN gcShadowPush 1
+POP
+JUMP _endif_1713
+LABEL _else_1713
+LOAD h2
+PUSH 97
+GTE
+JUMPIFNOT _and_1732
+LOAD h2
+PUSH 102
+LTE
+JUMP _andend_1732
+LABEL _and_1732
+PUSH 0
+LABEL _andend_1732
+BUILTIN isTruthy 1
+JUMPIFNOT _else_1729
+LOAD h2
+PUSH 87
+SUB
+STORE v2
+LOAD v2
+BUILTIN gcShadowPush 1
+POP
+JUMP _endif_1729
+LABEL _else_1729
+LOAD h2
+PUSH 65
+GTE
+JUMPIFNOT _and_1748
+LOAD h2
+PUSH 70
+LTE
+JUMP _andend_1748
+LABEL _and_1748
+PUSH 0
+LABEL _andend_1748
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_1745
+LOAD h2
+PUSH 55
+SUB
+STORE v2
+LOAD v2
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_1745
+LABEL _endif_1729
+LABEL _endif_1713
+LOAD sb
+LOAD v1
+PUSH 16
+MUL
+LOAD v2
+ADD
+CALL hexByte 1
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD j
+PUSH 4
+ADD
+STORE j
+LOAD j
+BUILTIN gcShadowPush 1
+POP
+JUMP _endif_1623
+LABEL _else_1623
+LOAD sb
+PUSH 92
+CALL hexByte 1
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+LOAD c
+BUILTIN charCode 1
+CALL hexByte 1
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD j
+PUSH 2
+ADD
+STORE j
+LOAD j
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_1623
+LABEL _endif_1602
+LABEL _endif_1581
+LABEL _endif_1560
+LABEL _endif_1539
+LABEL _endif_1518
+JUMP _endif_1498
+LABEL _else_1498
+LOAD sb
+LOAD ch
+BUILTIN charCode 1
+CALL hexByte 1
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD j
+PUSH 1
+ADD
+STORE j
+LOAD j
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_1498
+JUMP _wloop_1486
+LABEL _wend_1486
+LOAD sb
+BUILTIN sbToString 1
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC collectStrings 1
+PARAM ir
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL lines
+LOAD ir
+STORE lines
+LOAD lines
+BUILTIN gcShadowPush 1
+POP
+LOCAL count
+LOAD lines
+BUILTIN lineCount 1
+STORE count
+LOAD count
+BUILTIN gcShadowPush 1
+POP
+LOCAL strs
+PUSH ""
+STORE strs
+LOAD strs
+BUILTIN gcShadowPush 1
+POP
+LOCAL i
+PUSH 0
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+LABEL _wloop_1863
+LOAD i
+LOAD count
+LT
+BUILTIN isTruthy 1
+JUMPIFNOT _wend_1863
+LOCAL line
+LOAD lines
+LOAD i
+BUILTIN getLine 2
+STORE line
+LOAD line
+BUILTIN gcShadowPush 1
+POP
+LOCAL op
+LOAD line
+CALL irGetOp 1
+STORE op
+LOAD op
+BUILTIN gcShadowPush 1
+POP
+LOCAL inner
+PUSH ""
+STORE inner
+LOAD inner
+BUILTIN gcShadowPush 1
+POP
+LOCAL want
+PUSH "0"
+STORE want
+LOAD want
+BUILTIN gcShadowPush 1
+POP
+LOAD op
+PUSH "PUSH"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_1892
+LOCAL val
+LOAD line
+CALL irGetRest 1
+BUILTIN trim 1
+STORE val
+LOAD val
+BUILTIN gcShadowPush 1
+POP
+LOAD val
+STORE inner
+LOAD inner
+BUILTIN gcShadowPush 1
+POP
+LOAD val
+PUSH "\""
+BUILTIN startsWith 2
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_1910
+LOAD val
+PUSH 1
+LOAD val
+BUILTIN len 1
+PUSH 1
+SUB
+BUILTIN substring 3
+STORE inner
+LOAD inner
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_1910
+PUSH "1"
+STORE want
+LOAD want
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_1892
+LOAD op
+PUSH "SETFIELD"
+EQ
+JUMPIF _or_1941
+LOAD op
+PUSH "GETFIELD"
+EQ
+JUMP _orend_1941
+LABEL _or_1941
+PUSH 1
+LABEL _orend_1941
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_1938
+LOAD line
+CALL irGetRest 1
+BUILTIN trim 1
+STORE inner
+LOAD inner
+BUILTIN gcShadowPush 1
+POP
+PUSH "1"
+STORE want
+LOAD want
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_1938
+LOAD want
+PUSH "1"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_1960
+PUSH "\n"
+LOAD strs
+ADD
+PUSH "\n"
+ADD
+PUSH "\n"
+LOAD inner
+ADD
+PUSH "\n"
+ADD
+BUILTIN contains 2
+NOT
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_1965
+LOAD strs
+BUILTIN len 1
+PUSH 0
+GT
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_1982
+LOAD strs
+PUSH "\n"
+ADD
+STORE strs
+LOAD strs
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_1982
+LOAD strs
+LOAD inner
+ADD
+STORE strs
+LOAD strs
+BUILTIN gcShadowPush 1
+POP
+LABEL _endif_1965
+LABEL _endif_1960
+LOAD i
+PUSH 1
+ADD
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+JUMP _wloop_1863
+LABEL _wend_1863
+LOAD strs
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC strOffset 2
+PARAM strs
+PARAM target
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL count
+LOAD strs
+BUILTIN lineCount 1
+STORE count
+LOAD count
+BUILTIN gcShadowPush 1
+POP
+LOCAL off
+PUSH 0
+STORE off
+LOAD off
+BUILTIN gcShadowPush 1
+POP
+LOCAL i
+PUSH 0
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+LABEL _wloop_2033
+LOAD i
+LOAD count
+LT
+BUILTIN isTruthy 1
+JUMPIFNOT _wend_2033
+LOCAL s
+LOAD strs
+LOAD i
+BUILTIN getLine 2
+STORE s
+LOAD s
+BUILTIN gcShadowPush 1
+POP
+LOAD s
+LOAD target
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_2047
+LOAD off
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_2047
+LOAD off
+LOAD s
+CALL irStrLen 1
+PUSH 1
+ADD
+ADD
+STORE off
+LOAD off
+BUILTIN gcShadowPush 1
+POP
+LOAD i
+PUSH 1
+ADD
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+JUMP _wloop_2033
+LABEL _wend_2033
+PUSH 1
+NEG
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC totalStrBytes 1
+PARAM strs
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL count
+LOAD strs
+BUILTIN lineCount 1
+STORE count
+LOAD count
+BUILTIN gcShadowPush 1
+POP
+LOCAL total
+PUSH 0
+STORE total
+LOAD total
+BUILTIN gcShadowPush 1
+POP
+LOCAL i
+PUSH 0
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+LABEL _wloop_2092
+LOAD i
+LOAD count
+LT
+BUILTIN isTruthy 1
+JUMPIFNOT _wend_2092
+LOAD total
+LOAD strs
+LOAD i
+BUILTIN getLine 2
+CALL irStrLen 1
+PUSH 1
+ADD
+ADD
+STORE total
+LOAD total
+BUILTIN gcShadowPush 1
+POP
+LOAD i
+PUSH 1
+ADD
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+JUMP _wloop_2092
+LABEL _wend_2092
+LOAD total
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC emitStringTable 1
+PARAM strs
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL count
+LOAD strs
+BUILTIN lineCount 1
+STORE count
+LOAD count
+BUILTIN gcShadowPush 1
+POP
+LOCAL sb
+BUILTIN sbNew 0
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOCAL i
+PUSH 0
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+LABEL _wloop_2140
+LOAD i
+LOAD count
+LT
+BUILTIN isTruthy 1
+JUMPIFNOT _wend_2140
+LOAD sb
+LOAD strs
+LOAD i
+BUILTIN getLine 2
+CALL hexStrIR 1
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 0
+CALL hexByte 1
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD i
+PUSH 1
+ADD
+STORE i
+LOAD i
+BUILTIN gcShadowPush 1
+POP
+JUMP _wloop_2140
+LABEL _wend_2140
+LOAD sb
+BUILTIN sbToString 1
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC userAtoiHelper 0
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL sb
+BUILTIN sbNew 0
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 76
+CALL hexByte 1
+PUSH 139
+CALL hexByte 1
+ADD
+PUSH 193
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 51
+CALL hexByte 1
+PUSH 192
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 69
+CALL hexByte 1
+PUSH 51
+CALL hexByte 1
+ADD
+PUSH 201
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 65
+CALL hexByte 1
+PUSH 128
+CALL hexByte 1
+ADD
+PUSH 56
+CALL hexByte 1
+ADD
+PUSH 0
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 116
+CALL hexByte 1
+PUSH 46
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 65
+CALL hexByte 1
+PUSH 128
+CALL hexByte 1
+ADD
+PUSH 56
+CALL hexByte 1
+ADD
+PUSH 45
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 117
+CALL hexByte 1
+PUSH 9
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 65
+CALL hexByte 1
+PUSH 185
+CALL hexByte 1
+ADD
+PUSH 1
+CALL hexDword 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 73
+CALL hexByte 1
+PUSH 255
+CALL hexByte 1
+ADD
+PUSH 192
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 65
+CALL hexByte 1
+PUSH 128
+CALL hexByte 1
+ADD
+PUSH 56
+CALL hexByte 1
+ADD
+PUSH 48
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 124
+CALL hexByte 1
+PUSH 25
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 65
+CALL hexByte 1
+PUSH 128
+CALL hexByte 1
+ADD
+PUSH 56
+CALL hexByte 1
+ADD
+PUSH 57
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 127
+CALL hexByte 1
+PUSH 19
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 65
+CALL hexByte 1
+PUSH 15
+CALL hexByte 1
+ADD
+PUSH 182
+CALL hexByte 1
+ADD
+PUSH 8
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 131
+CALL hexByte 1
+PUSH 233
+CALL hexByte 1
+ADD
+PUSH 48
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 72
+CALL hexByte 1
+PUSH 107
+CALL hexByte 1
+ADD
+PUSH 192
+CALL hexByte 1
+ADD
+PUSH 10
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 72
+CALL hexByte 1
+PUSH 3
+CALL hexByte 1
+ADD
+PUSH 193
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 73
+CALL hexByte 1
+PUSH 255
+CALL hexByte 1
+ADD
+PUSH 192
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 235
+CALL hexByte 1
+PUSH 225
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 69
+CALL hexByte 1
+PUSH 133
+CALL hexByte 1
+ADD
+PUSH 201
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 116
+CALL hexByte 1
+PUSH 3
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 72
+CALL hexByte 1
+PUSH 247
+CALL hexByte 1
+ADD
+PUSH 216
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 195
+CALL hexByte 1
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+BUILTIN sbToString 1
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC userAtoiHelperSize 0
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+PUSH 69
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC userItoaHelper 2
+PARAM itoaBaseRva
+PARAM krStrIatRva
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOCAL sb
+BUILTIN sbNew 0
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 83
+CALL hexByte 1
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 86
+CALL hexByte 1
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 72
+CALL hexByte 1
+PUSH 131
+CALL hexByte 1
+ADD
+PUSH 236
+CALL hexByte 1
+ADD
+PUSH 56
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 72
+CALL hexByte 1
+PUSH 137
+CALL hexByte 1
+ADD
+PUSH 195
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 69
+CALL hexByte 1
+PUSH 51
+CALL hexByte 1
+ADD
+PUSH 192
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 72
+CALL hexByte 1
+PUSH 133
+CALL hexByte 1
+ADD
+PUSH 219
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 121
+CALL hexByte 1
+PUSH 9
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 65
+CALL hexByte 1
+PUSH 184
+CALL hexByte 1
+ADD
+PUSH 1
+CALL hexDword 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 72
+CALL hexByte 1
+PUSH 247
+CALL hexByte 1
+ADD
+PUSH 219
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 72
+CALL hexByte 1
+PUSH 141
+CALL hexByte 1
+ADD
+PUSH 116
+CALL hexByte 1
+ADD
+PUSH 36
+CALL hexByte 1
+ADD
+PUSH 56
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 72
+CALL hexByte 1
+PUSH 255
+CALL hexByte 1
+ADD
+PUSH 206
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 198
+CALL hexByte 1
+PUSH 6
+CALL hexByte 1
+ADD
+PUSH 0
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 185
+CALL hexByte 1
+PUSH 10
+CALL hexDword 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 72
+CALL hexByte 1
+PUSH 137
+CALL hexByte 1
+ADD
+PUSH 216
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 51
+CALL hexByte 1
+PUSH 210
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 72
+CALL hexByte 1
+PUSH 247
+CALL hexByte 1
+ADD
+PUSH 241
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 72
+CALL hexByte 1
+PUSH 137
+CALL hexByte 1
+ADD
+PUSH 195
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 128
+CALL hexByte 1
+PUSH 194
+CALL hexByte 1
+ADD
+PUSH 48
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 72
+CALL hexByte 1
+PUSH 255
+CALL hexByte 1
+ADD
+PUSH 206
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 136
+CALL hexByte 1
+PUSH 22
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 72
+CALL hexByte 1
+PUSH 133
+CALL hexByte 1
+ADD
+PUSH 219
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 117
+CALL hexByte 1
+PUSH 232
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 69
+CALL hexByte 1
+PUSH 133
+CALL hexByte 1
+ADD
+PUSH 192
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 116
+CALL hexByte 1
+PUSH 6
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 72
+CALL hexByte 1
+PUSH 255
+CALL hexByte 1
+ADD
+PUSH 206
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 198
+CALL hexByte 1
+PUSH 6
+CALL hexByte 1
+ADD
+PUSH 45
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 72
+CALL hexByte 1
+PUSH 137
+CALL hexByte 1
+ADD
+PUSH 241
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOCAL krStrDisp
+LOAD krStrIatRva
+LOAD itoaBaseRva
+PUSH 80
+ADD
+PUSH 6
+ADD
+SUB
+STORE krStrDisp
+LOAD krStrDisp
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 255
+CALL hexByte 1
+PUSH 21
+CALL hexByte 1
+ADD
+LOAD krStrDisp
+CALL hexDword 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 72
+CALL hexByte 1
+PUSH 131
+CALL hexByte 1
+ADD
+PUSH 196
+CALL hexByte 1
+ADD
+PUSH 56
+CALL hexByte 1
+ADD
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 94
+CALL hexByte 1
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 91
+CALL hexByte 1
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+PUSH 195
+CALL hexByte 1
+BUILTIN sbAppend 2
+STORE sb
+LOAD sb
+BUILTIN gcShadowPush 1
+POP
+LOAD sb
+BUILTIN sbToString 1
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC userItoaHelperSize 0
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+PUSH 93
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC win32IntArgs 1
+PARAM name
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOAD name
+PUSH "Sleep"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3401
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3401
+LOAD name
+PUSH "ExitProcess"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3409
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3409
+LOAD name
+PUSH "WaitForSingleObject"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3417
+PUSH "0,1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3417
+LOAD name
+PUSH "TerminateProcess"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3425
+PUSH "0,1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3425
+LOAD name
+PUSH "OpenProcess"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3433
+PUSH "0,1,2"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3433
+LOAD name
+PUSH "CloseHandle"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3441
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3441
+LOAD name
+PUSH "GetStdHandle"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3449
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3449
+LOAD name
+PUSH "SetConsoleOutputCP"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3457
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3457
+LOAD name
+PUSH "GetConsoleMode"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3465
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3465
+LOAD name
+PUSH "SetConsoleMode"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3473
+PUSH "0,1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3473
+LOAD name
+PUSH "GetConsoleScreenBufferInfo"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3481
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3481
+LOAD name
+PUSH "CreateToolhelp32Snapshot"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3489
+PUSH "0,1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3489
+LOAD name
+PUSH "Process32First"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3497
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3497
+LOAD name
+PUSH "Process32Next"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3505
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3505
+LOAD name
+PUSH "WriteFile"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3513
+PUSH "0,2,4"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3513
+LOAD name
+PUSH "ReadFile"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3521
+PUSH "0,2,4"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3521
+LOAD name
+PUSH "GetFileSizeEx"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3529
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3529
+LOAD name
+PUSH "GetFileAttributesA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3537
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3537
+LOAD name
+PUSH "CreateDirectoryA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3545
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3545
+LOAD name
+PUSH "DeleteFileA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3553
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3553
+LOAD name
+PUSH "RemoveDirectoryA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3561
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3561
+LOAD name
+PUSH "MoveFileA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3569
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3569
+LOAD name
+PUSH "CopyFileA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3577
+PUSH "2"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3577
+LOAD name
+PUSH "GetCurrentDirectoryA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3585
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3585
+LOAD name
+PUSH "SetCurrentDirectoryA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3593
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3593
+LOAD name
+PUSH "GetTempPathA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3601
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3601
+LOAD name
+PUSH "HeapFree"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3609
+PUSH "0,1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3609
+LOAD name
+PUSH "GetProcessHeap"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3617
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3617
+LOAD name
+PUSH "FreeLibrary"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3625
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3625
+LOAD name
+PUSH "GetCurrentProcessId"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3633
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3633
+LOAD name
+PUSH "GetCurrentThreadId"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3641
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3641
+LOAD name
+PUSH "GetLastError"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3649
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3649
+LOAD name
+PUSH "SetLastError"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3657
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3657
+LOAD name
+PUSH "CreateFileA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3665
+PUSH "1,2,3,4,5,6"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3665
+LOAD name
+PUSH "VirtualAlloc"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3673
+PUSH "0,1,2,3"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3673
+LOAD name
+PUSH "VirtualFree"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3681
+PUSH "0,1,2"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3681
+LOAD name
+PUSH "HeapAlloc"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3689
+PUSH "0,1,2"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3689
+LOAD name
+PUSH "HeapReAlloc"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3697
+PUSH "0,1,3"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3697
+LOAD name
+PUSH "GetSystemMetrics"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3705
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3705
+LOAD name
+PUSH "MessageBoxA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3713
+PUSH "0,3"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3713
+LOAD name
+PUSH "ShowWindow"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3721
+PUSH "0,1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3721
+LOAD name
+PUSH "SetTimer"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3729
+PUSH "0,1,2,3"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3729
+LOAD name
+PUSH "KillTimer"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3737
+PUSH "0,1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3737
+LOAD name
+PUSH "SetForegroundWindow"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3745
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3745
+LOAD name
+PUSH "GetMessageA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3753
+PUSH "1,2,3"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3753
+LOAD name
+PUSH "DestroyWindow"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3761
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3761
+LOAD name
+PUSH "UpdateWindow"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3769
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3769
+LOAD name
+PUSH "PostQuitMessage"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3777
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3777
+LOAD name
+PUSH "SetWindowTextA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3785
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3785
+LOAD name
+PUSH "GetWindowTextA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3793
+PUSH "0,2"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3793
+LOAD name
+PUSH "SendMessageA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3801
+PUSH "0,1,2,3"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3801
+LOAD name
+PUSH "GetDlgItem"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3809
+PUSH "0,1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3809
+LOAD name
+PUSH "InvalidateRect"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3817
+PUSH "0,2"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3817
+LOAD name
+PUSH "MoveWindow"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3825
+PUSH "0,1,2,3,4,5"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3825
+LOAD name
+PUSH "RegisterClassExA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3833
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3833
+LOAD name
+PUSH "CreateWindowExA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3841
+PUSH "0,3,4,5,6,7,8,9,10,11"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3841
+LOAD name
+PUSH "DefWindowProcA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3849
+PUSH "0,1,2,3"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3849
+LOAD name
+PUSH "LoadCursorA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3857
+PUSH "0,1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3857
+LOAD name
+PUSH "LoadIconA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3865
+PUSH "0,1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3865
+LOAD name
+PUSH "GetModuleHandleA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3873
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3873
+LOAD name
+PUSH "SetEnvironmentVariableA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3881
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3881
+LOAD name
+PUSH "CreateMenu"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3889
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3889
+LOAD name
+PUSH "CreatePopupMenu"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3897
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3897
+LOAD name
+PUSH "AppendMenuA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3905
+PUSH "0,1,2"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3905
+LOAD name
+PUSH "SetMenu"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3913
+PUSH "0,1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3913
+LOAD name
+PUSH "DrawMenuBar"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3921
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3921
+LOAD name
+PUSH "DestroyMenu"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3929
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3929
+LOAD name
+PUSH "LoadImageA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3937
+PUSH "0,2,3,4,5"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3937
+LOAD name
+PUSH "SetClassLongPtrA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3945
+PUSH "0,1,2"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3945
+LOAD name
+PUSH "FillRect"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3953
+PUSH "0,2"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3953
+LOAD name
+PUSH "GetWindow"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3961
+PUSH "0,1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3961
+LOAD name
+PUSH "SetWindowPos"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3969
+PUSH "0,1,2,3,4,5,6"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3969
+LOAD name
+PUSH "GetClientRect"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3977
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3977
+LOAD name
+PUSH "GetWindowRect"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3985
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3985
+LOAD name
+PUSH "CreateFileMappingA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_3993
+PUSH "0,1,2,3,4,5"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_3993
+LOAD name
+PUSH "MapViewOfFile"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4001
+PUSH "0,1,2,3,4"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4001
+LOAD name
+PUSH "RegOpenKeyExA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4009
+PUSH "0,2,3"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4009
+LOAD name
+PUSH "RegQueryValueExA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4017
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4017
+LOAD name
+PUSH "RegEnumKeyExA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4025
+PUSH "0,1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4025
+LOAD name
+PUSH "RegCloseKey"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4033
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4033
+LOAD name
+PUSH "GetEnvironmentVariableA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4041
+PUSH "2"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4041
+LOAD name
+PUSH "FindFirstFileA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4049
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4049
+LOAD name
+PUSH "FindNextFileA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4057
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4057
+LOAD name
+PUSH "FindClose"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4065
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4065
+LOAD name
+PUSH "GetFileSizeEx"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4073
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4073
+LOAD name
+PUSH "ShellExecuteA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4081
+PUSH "0,5"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4081
+LOAD name
+PUSH "GetStockObject"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4089
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4089
+LOAD name
+PUSH "CreateSolidBrush"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4097
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4097
+LOAD name
+PUSH "SetTextColor"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4105
+PUSH "0,1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4105
+LOAD name
+PUSH "SetBkColor"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4113
+PUSH "0,1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4113
+LOAD name
+PUSH "SetBkMode"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4121
+PUSH "0,1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4121
+LOAD name
+PUSH "SelectObject"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4129
+PUSH "0,1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4129
+LOAD name
+PUSH "DeleteObject"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4137
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4137
+LOAD name
+PUSH "GetTextExtentPoint32A"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4145
+PUSH "0,2"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4145
+LOAD name
+PUSH "ImageList_Create"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4153
+PUSH "0,1,2,3,4"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4153
+LOAD name
+PUSH "ImageList_AddIcon"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4161
+PUSH "0,1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4161
+LOAD name
+PUSH "ImageList_Destroy"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4169
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4169
+LOAD name
+PUSH "CoInitialize"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4177
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4177
+LOAD name
+PUSH "CoCreateInstance"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4185
+PUSH "2"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4185
+LOAD name
+PUSH "SetWindowTheme"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4193
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4193
+LOAD name
+PUSH "GetWindowTheme"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4201
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4201
+LOAD name
+PUSH "OpenThemeData"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4209
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4209
+LOAD name
+PUSH "CloseThemeData"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4217
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4217
+LOAD name
+PUSH "DwmSetWindowAttribute"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4225
+PUSH "0,1,3"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4225
+LOAD name
+PUSH "SetProcessDpiAwarenessContext"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4233
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4233
+LOAD name
+PUSH "DwmGetWindowAttribute"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4241
+PUSH "0,1,3"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4241
+LOAD name
+PUSH "DwmExtendFrameIntoClientArea"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4249
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4249
+LOAD name
+PUSH "DwmEnableBlurBehindWindow"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4257
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4257
+LOAD name
+PUSH "CreatePipe"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4265
+PUSH "2,3"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4265
+LOAD name
+PUSH "PeekNamedPipe"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4273
+PUSH "0,2"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4273
+LOAD name
+PUSH "CreateProcessA"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4281
+PUSH "2,3,4,5,6"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4281
+LOAD name
+PUSH "InitializeProcThreadAttributeList"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4289
+PUSH "0,1,2"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4289
+LOAD name
+PUSH "UpdateProcThreadAttribute"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4297
+PUSH "0,1,2,4,5,6"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4297
+LOAD name
+PUSH "DeleteProcThreadAttributeList"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4305
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4305
+LOAD name
+PUSH "CreatePseudoConsole"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4313
+PUSH "0,1,2,3"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4313
+LOAD name
+PUSH "ResizePseudoConsole"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4321
+PUSH "0,1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4321
+LOAD name
+PUSH "ClosePseudoConsole"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4329
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4329
+LOAD name
+PUSH "GetExitCodeProcess"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4337
+PUSH "0"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4337
+PUSH ""
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+END
+
+FUNC win32IntReturns 1
+PARAM name
+LOCAL __sh_save
+BUILTIN gcShadowCount 0
+STORE __sh_save
+LOAD name
+PUSH "GetTickCount"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4354
+PUSH "1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4354
+LOAD name
+PUSH "GetTickCount64"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4362
+PUSH "1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4362
+LOAD name
+PUSH "GetCurrentProcessId"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4370
+PUSH "1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4370
+LOAD name
+PUSH "GetCurrentThreadId"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4378
+PUSH "1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4378
+LOAD name
+PUSH "GetLastError"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4386
+PUSH "1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4386
+LOAD name
+PUSH "WaitForSingleObject"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4394
+PUSH "1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4394
+LOAD name
+PUSH "GetStdHandle"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4402
+PUSH "1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4402
+LOAD name
+PUSH "GetProcessHeap"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4410
+PUSH "1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4410
+LOAD name
+PUSH "CreateToolhelp32Snapshot"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4418
+PUSH "1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4418
+LOAD name
+PUSH "CloseHandle"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4426
+PUSH "1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4426
+LOAD name
+PUSH "TerminateProcess"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4434
+PUSH "1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4434
+LOAD name
+PUSH "SetConsoleMode"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4442
+PUSH "1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4442
+LOAD name
+PUSH "GetConsoleMode"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4450
+PUSH "1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4450
+LOAD name
+PUSH "SetConsoleOutputCP"
+EQ
+BUILTIN isTruthy 1
+JUMPIFNOT _endif_4458
+PUSH "1"
+BUILTIN gcShadowCount 0
+LOAD __sh_save
+SUB
+BUILTIN gcShadowPop 1
+POP
+RETURN
+LABEL _endif_4458
+LOAD nﬁR
+
