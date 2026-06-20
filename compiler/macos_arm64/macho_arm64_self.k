@@ -853,6 +853,10 @@ func arm64_add_sp(imm12) {
     insn = insn + (imm12 * 0x400)
     emit hexDword(insn)
 }
+// mov Xd, sp   (= add Xd, sp, #0)  → 0x910003e0 | Rd   (read sp into a GP reg)
+func arm64_mov_x_sp(rd) { emit hexDword((0x9100 * 0x10000 + 0x3e0) + rd) }
+// mov sp, Xn   (= add sp, Xn, #0)  → 0x9100001f | (Rn<<5)   (restore sp from a GP reg)
+func arm64_mov_sp_x(rn) { emit hexDword((0x9100 * 0x10000 + 0x1f) + rn * 0x20) }
 
 // stur Xt, [Xn, #imm9]  (signed 9-bit unscaled offset, 64-bit)
 //   encoding: 0xf8000000 | (imm9 << 12) | (Rn << 5) | Rt
@@ -2042,6 +2046,17 @@ func parseFullIR(ir) {
                 } else if op == "JUMPIF" {
                     curOps = sbAppend(curOps, "JUMPIF " + rest + "\n")
                     nOps += 1
+                } else if op == "TRY" {
+                    // Exception handler registration. `TRY <catchLabel>` pushes a
+                    // catch record {catchAddr, sp, fp} onto a global catch stack.
+                    curOps = sbAppend(curOps, "TRY " + rest + "\n")
+                    nOps += 1
+                } else if op == "ENDTRY" {
+                    curOps = sbAppend(curOps, "ENDTRY\n")
+                    nOps += 1
+                } else if op == "THROW" {
+                    curOps = sbAppend(curOps, "THROW\n")
+                    nOps += 1
                 } else if op == "BREAK" {
                     // Resolve to a JUMP to the next LABEL _wend_* in the remaining IR
                     // (innermost enclosing while loop's end label).
@@ -2807,6 +2822,9 @@ func opInstrCount(opTok) {
     if opTok == "JUMPIFNOT"        { emit 3 }  // pop, cbnz+2 (skip B if truthy), b target
     if opTok == "JUMPIF"           { emit 3 }  // pop, cbz+2 (skip B if falsy),  b target
     if opTok == "LABEL"            { emit 0 }
+    if opTok == "TRY"              { emit 14 } // materialize catchAddr + save {addr,sp,fp} to catch[depth]; depth++
+    if opTok == "ENDTRY"           { emit 5 }  // depth--
+    if opTok == "THROW"            { emit 16 } // pop val; depth--; restore sp/fp from catch[depth]; push val; br catchAddr
     if opTok == "NEG"              { emit 10 }  // polymorphic: int neg / float box fneg+rebox
     if opTok == "NOT"              { emit 4 }   // pop, cmp, cset, push
     if opTok == "INDEX"            { emit 27 }  // pop i, pop s, alloc(21), ldrb, strb char, strb NUL, push
@@ -3672,6 +3690,69 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             instrIdx = instrIdx + 1
             s = sbAppend(s, arm64_b(target - instrIdx))
             instrIdx = instrIdx + 1
+        } else if opTok == "TRY" {
+            // Register an exception handler. Push {catchAddr, sp, fp} onto a
+            // global catch stack at globals_base + 0x4000000 (a page-aligned BSS
+            // region well clear of the heap [<32 MB] and shadow stack [+0x2000000]).
+            //   catch[0] = depth;  catch record i at +8 + i*32 = {addr,sp,fp}.
+            // The catch label is in THIS function (try/catch/endtry are always
+            // co-located; only THROW may be in a callee), so it resolves locally;
+            // materialize its absolute vaddr via adrp+add like FUNCPTR.
+            let cInstr = findLabel(labels, restTok)
+            let cOff = textOff + cInstr * 4
+            let cImm = cOff / 4096 - (textOff + instrIdx * 4) / 4096
+            s = sbAppend(s, arm64_adrp(9, cImm))                  // 0: x9 = catch page
+            s = sbAppend(s, arm64_add_imm(9, 9, cOff % 4096))     // 1: x9 = catchAddr
+            let rBase = g_TEXT_VMSIZE + 0x8000 + 0x4000000
+            let rImm = rBase / 4096 - (textOff + (instrIdx + 2) * 4) / 4096
+            s = sbAppend(s, arm64_adrp(1, rImm))                  // 2: x1 = catch region
+            s = sbAppend(s, arm64_add_imm(1, 1, 0))               // 3
+            s = sbAppend(s, arm64_ldr_imm(2, 1, 0))               // 4: x2 = depth
+            s = sbAppend(s, arm64_movz_x_imm(5, 32))              // 5
+            s = sbAppend(s, arm64_mul_xxx(3, 2, 5))               // 6: x3 = depth*32
+            s = sbAppend(s, arm64_add_xxx(4, 1, 3))               // 7: x4 = &record[depth]-8
+            s = sbAppend(s, arm64_str_imm(9, 4, 1))               // 8: rec.catchAddr = [x4+8]
+            s = sbAppend(s, arm64_mov_x_sp(10))                   // 9: x10 = sp
+            s = sbAppend(s, arm64_str_imm(10, 4, 2))              // 10: rec.sp = [x4+16]
+            s = sbAppend(s, arm64_str_imm(29, 4, 3))              // 11: rec.fp = [x4+24]
+            s = sbAppend(s, arm64_add_imm(2, 2, 1))               // 12: depth++
+            s = sbAppend(s, arm64_str_imm(2, 1, 0))               // 13
+            instrIdx = instrIdx + 14
+        } else if opTok == "ENDTRY" {
+            // Normal (no-throw) exit of a try block: pop the handler (depth--).
+            let rBase = g_TEXT_VMSIZE + 0x8000 + 0x4000000
+            let rImm = rBase / 4096 - (textOff + instrIdx * 4) / 4096
+            s = sbAppend(s, arm64_adrp(1, rImm))                  // 0
+            s = sbAppend(s, arm64_add_imm(1, 1, 0))               // 1
+            s = sbAppend(s, arm64_ldr_imm(2, 1, 0))               // 2: depth
+            s = sbAppend(s, arm64_sub_imm(2, 2, 1))               // 3: depth--
+            s = sbAppend(s, arm64_str_imm(2, 1, 0))               // 4
+            instrIdx = instrIdx + 5
+        } else if opTok == "THROW" {
+            // Unwind to the innermost handler. The thrown value is on the eval
+            // stack (TOS). Pop it (survives the sp restore in x9), pop the catch
+            // record, restore sp+fp to the TRY frame (longjmp — works across
+            // function calls since locals live in memory, not callee-saved regs),
+            // re-push the value for the catch label's `STORE e`, and br to it.
+            s = sbAppend(s, arm64_pop(9))                         // 0: x9 = thrown value
+            let rBase = g_TEXT_VMSIZE + 0x8000 + 0x4000000
+            let rImm = rBase / 4096 - (textOff + (instrIdx + 1) * 4) / 4096
+            s = sbAppend(s, arm64_adrp(1, rImm))                  // 1
+            s = sbAppend(s, arm64_add_imm(1, 1, 0))               // 2
+            s = sbAppend(s, arm64_ldr_imm(2, 1, 0))               // 3: depth
+            s = sbAppend(s, arm64_sub_imm(2, 2, 1))               // 4: depth-1
+            s = sbAppend(s, arm64_str_imm(2, 1, 0))               // 5: pop handler
+            s = sbAppend(s, arm64_movz_x_imm(5, 32))              // 6
+            s = sbAppend(s, arm64_mul_xxx(3, 2, 5))               // 7: (depth-1)*32
+            s = sbAppend(s, arm64_add_xxx(4, 1, 3))               // 8: x4 = &record-8
+            s = sbAppend(s, arm64_ldr_imm(10, 4, 1))             // 9: x10 = catchAddr
+            s = sbAppend(s, arm64_ldr_imm(11, 4, 2))             // 10: x11 = savedSP
+            s = sbAppend(s, arm64_ldr_imm(12, 4, 3))             // 11: x12 = savedFP
+            s = sbAppend(s, arm64_mov_sp_x(11))                   // 12: sp = savedSP
+            s = sbAppend(s, arm64_mov_xx(29, 12))                 // 13: fp = savedFP
+            s = sbAppend(s, arm64_push(9))                        // 14: push thrown value
+            s = sbAppend(s, arm64_br(10))                         // 15: br catchAddr
+            instrIdx = instrIdx + 16
         } else if opTok == "NEG" {
             // Polymorphic negate. The FE lowers a negative float literal (-3.14)
             // to PUSH 3.14 + NEG, so NEG must fneg a float box (pointer operand),
