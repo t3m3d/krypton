@@ -2,6 +2,52 @@
 
 **From:** agent w (Windows). **Date:** 2026-06-19. **Context:** caught up your Tier A (commit `f188379d`) and Tier B (commit `b600aaa1` etc.) on Windows. Rebuilt the FE, smoke-tested everything, diagnosed two real backend bugs, and burned a 60-minute x64_host_new rebuild attempting a fix that turned out to break x64_host_new's internal data structures. Reverted; documenting so we don't double-build.
 
+## UPDATE 2026-06-19 (deep bisect — rebuild blocker traced into x64.k SOURCE, real root)
+
+Went further on the bisect, two more rebuilds. **The bug isn't the new FE, it's accumulated untested x64.k commits.**
+
+**Key findings:**
+
+1. **OLD kcc cannot finish compiling current x64.k.** Ran `kcc_pre_tierA.exe.bak --ir compiler/windows_x86/x64.k`. kcc-bin climbed to 33 GB / ~70 min CPU then output a TRUNCATED IR — 65 KB / 5390 lines vs my NEW kcc.exe's complete 909 KB / 78822 lines. So OLD kcc is no baseline — it just dies silently mid-compile. The "rebuild has worked historically" assumption was wrong; it's been broken for ~13 days per the source-only commit annotations.
+
+2. **NEW kcc finishes the FE work correctly.** 909 KB IR end-to-end. The FE isn't where the rebuild breaks.
+
+3. **The bug is in x64.k SOURCE.** Two SOURCE-ONLY commits since the last working rebuild:
+   - `5185d50e` (Jun 6) — "stage 6 phase 2 freelist consumption (UNTESTED — needs rebuild)"
+   - `3c728376` (Jun 13) — "GC stage 6 phase 3 — auto-collect on alloc threshold (SOURCE, untested)"
+   - `20b6ce22` (Jun 13) — "fix RSP 16-align at CALL kr_gc_collect (w-confirmed)" — confirmed a stack-trace crash via rebuild, fix landed, but the fix itself was never re-verified after landing.
+
+4. **Reverting stage-6 to commit `95345ac8` (the parent of `5185d50e`) doesn't help.** Rebuilt `/tmp/x64_pre_stage6.exe` (1.4 MB) from that source. Loads cleanly (prints usage on no-args, exit 0) but still SEGV's the moment it processes any real IR. So the bug isn't only in stage-6 GC; something else in the May 31 → Jun 13 commit window is also broken.
+
+5. **Can't bisect further on this box.** The May-31-era x64.k source uses `hexDword(0xFFFFFFF5)` literals — the new FE's tightened int-literal parser rejects anything > 0x7EFFFFFF as a literal. Current x64.k routes around this with `hexByte(0xF5)+hexByte(0xFF)*3`. So OLD x64.k can't be compiled by NEW kcc.exe, and OLD kcc.exe can't finish compiling current x64.k. No version pair compiles cleanly to a working binary.
+
+**What's in the May 31 → Jun 13 commit window on x64.k** (any of these could be the runtime breaker):
+```
+20b6ce22  RSP align fix at kr_gc_collect (Jun 13)
+3c728376  GC stage 6 phase 3 — auto-collect (Jun 13)
+5185d50e  GC stage 6 phase 2 — freelist consumption (Jun 6)
+95345ac8  gui modernize (DPI, Segoe UI, dark title)
+697a24d7  wininet IAT wiring
+a149064c  bcrypt IAT wiring
+6d80ef48  iphlpapi IAT wiring
+3e84efa5  psapi IAT wiring
+49e48d28  shell32 IAT wiring
+9742776e  ws2_32 IAT wiring
+56e765ba  deleteFile via IAT (post-exit segfault fix)
+```
+
+Eleven commits, each requiring a 60-min rebuild to verify. Bisect on this box would burn ~10 hours.
+
+**Recommended next steps:**
+
+- **Best:** M rebuilds on macho — the macho cross-build path was last known to produce a working windows backend, and macho doesn't share the FE int-literal regression. M's box is also faster and has more RAM headroom for the OOM-prone rebuild.
+- **OR:** install MSYS2 + native gcc on this box and use the C-emit path that bypasses the native rebuild entirely. Already nack'd by user — C deps are being retired, not added. Out.
+- **OR:** revert the 11 commits to last known-good x64.k AND fix the int-literal parser regression in compile.k that's preventing the OLD x64.k from being compiled by NEW kcc. Then we can bisect forward. This is the right path for forensic isolation — probably 1-2 days of work.
+
+**For the release**: the FE wins from commit 47a2fe92 (10/12 Tier-A+B PASS, 64/74 full suite) are independent of this blocker. They ride the May 31 backend cleanly. Release can ship with the known gap: A1 float / A6 static locals / kr_structfields proper are deferred until x64.k native rebuild is unblocked.
+
+---
+
 ## UPDATE 2026-06-19 (rebuild blocker — deeper than the optimizer, ~3 hour bisect)
 
 Targeted the x64.k rebuild block. Findings:
