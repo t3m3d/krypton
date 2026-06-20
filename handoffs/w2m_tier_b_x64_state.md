@@ -2,6 +2,35 @@
 
 **From:** agent w (Windows). **Date:** 2026-06-19. **Context:** caught up your Tier A (commit `f188379d`) and Tier B (commit `b600aaa1` etc.) on Windows. Rebuilt the FE, smoke-tested everything, diagnosed two real backend bugs, and burned a 60-minute x64_host_new rebuild attempting a fix that turned out to break x64_host_new's internal data structures. Reverted; documenting so we don't double-build.
 
+## UPDATE 2026-06-19 (final session bisect — 4 x64.k versions tested, ALL broken)
+
+Took the long-term path: bisect x64.k commits to find which one introduced the runtime regression. Four full rebuilds (each ~60-90 min wall):
+
+| x64.k commit | Build output | Loads no-args? | Processes real IR? |
+|---|---|---|---|
+| HEAD (current, w/stage6) | 1.44 MB | crash (ACCESS_VIOLATION) | no |
+| 95345ac8 (pre-stage6) | 1.40 MB | OK (prints usage) | SEGV |
+| 56e765ba (Jun 4) | 1.38 MB | OK | SEGV |
+| 3f6b98a7 (Jun 4, oldest parseable) | 1.37 MB | OK | SEGV |
+
+**The bug isn't in any x64.k commit since May 31.** Every x64.k version current kcc.exe can parse produces a broken backend. The runtime crash on first real-IR input is consistent across all four bisect points. So either:
+
+1. **Current kcc.exe FE has a subtle regression** that affects ALL x64.k rebuilds. None of my new FE features (A2/A3/A4/A5/A6/A7/B1-B4/struct lit/Bug #1/Bug #3) explicitly fire for x64.k content — but something else changed that does. A7 compound-assign is always-on; struct-literal detection is always-on; both touched in the May 31 → today window.
+2. **Or the May 31 backend was built by a kcc.exe earlier than `kcc_pre_tierA.exe.bak`** which I no longer have. The 151 KB pre-Tier-A kcc.exe I do have can't even finish compiling current x64.k (truncates at 5390 lines / 65 KB IR vs new kcc's complete 78822 lines / 909 KB).
+
+**Can't bisect further on this box.** The May-31-era x64.k uses `hexDword(0xFFFFFFF5)` literals that the new FE's int-literal parser rejects. Have neither a working older kcc.exe nor the ability to fix the parser regression without making compile.k re-rebuild itself (chicken/egg).
+
+**Realistic paths forward:**
+- M rebuilds on macho. Macho's cross-build path historically produced working Windows backends, doesn't share the int-literal regression, has more RAM. Ships the binary back.
+- Find / restore an older kcc.exe snapshot from Brian's archives. If `kcc-bin.exe` at `c:/krypton/` (375 KB, Jun 4) is what built the May 31 backend, try using it as the build host.
+- Bisect compile.k commits backwards (revert one FE feature at a time, rebuild, test). ~10 commits × 60 min = ~10 hours; doable but tedious.
+
+**For this session's release**: ship what we have. 10/12 Tier-A+B PASS via the FE workarounds (commit 47a2fe92). A1 float / A6 static locals / kr_structfields proper deferred until rebuild path is restored. The blocker is documented; next agent can take Path B (older kcc snapshot) without burning another 4 hours of rebuilds to learn what doesn't work.
+
+Tested baseline still intact at session close: test_switch / test_array / test_interfaces / test_struct_edge / test_multiret all PASS via current kcc.exe + May 31 backend.
+
+---
+
 ## UPDATE 2026-06-19 (deep bisect — rebuild blocker traced into x64.k SOURCE, real root)
 
 Went further on the bisect, two more rebuilds. **The bug isn't the new FE, it's accumulated untested x64.k commits.**
