@@ -2577,6 +2577,11 @@ func parseFullIR(ir) {
                         // wait4(pid, 0, WNOHANG, 0) #7 — reap + report a child's exit.
                         curOps = sbAppend(curOps, "BUILTIN_WAITCHILD\n")
                         nOps += 1
+                    } else if bname == "unixConnect" {
+                        // socket(AF_UNIX,SOCK_STREAM,0)#97 + connect(98) to a
+                        // sockaddr_un path; returns fd or -errno (BSD carry flag).
+                        curOps = sbAppend(curOps, "BUILTIN_UNIXCONNECT\n")
+                        nOps += 1
                     }
                 } else if op == "POP" {
                     curOps = sbAppend(curOps, "POP\n")
@@ -2896,6 +2901,7 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_PTYSETSIZE"   { emit 40 }  // pop cols,rows,fd; alloc(21) winsize; ioctl TIOCSWINSZ; push
     if opTok == "BUILTIN_PROCALIVE"    { emit 8 }   // pop pid; kill(pid,0) #37; carry-clear->1 else 0; push
     if opTok == "BUILTIN_WAITCHILD"    { emit 7 }   // pop pid; wait4(pid,0,WNOHANG=1,0) #7; push x0 (pid reaped/0 running)
+    if opTok == "BUILTIN_UNIXCONNECT"  { emit 50 }  // socket(97)+alloc sockaddr_un+strcpy path+connect(98)+carry→ -errno; push fd or -errno
     if opTok == "POP"              { emit 1 }
     emit 0
 }
@@ -6437,6 +6443,53 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_svc(0x80))          // 5
             s = sbAppend(s, arm64_push_x0())          // 6
             instrIdx = instrIdx + 7
+        } else if opTok == "BUILTIN_UNIXCONNECT" {
+            // unixConnect(path) -> socket(AF_UNIX,SOCK_STREAM,0)#97; build a
+            // sockaddr_un {sun_len, sun_family=1, sun_path[]} on the heap, copy
+            // the path string into sun_path, connect(fd,&addr,len)#98. macOS BSD
+            // syscalls flag errors with the CARRY bit and return a POSITIVE errno
+            // in x0, so on error we negate to -errno (e.g. ENOENT → -2); on
+            // success we return the fd. 50 instr (emitAllocVar = 21).
+            // Regs: x10=fd, x13=buf, x12=path, x14=i — all avoid the x0/x1/x2/x5/
+            // x9/x11 that emitAllocVar clobbers, and the data stack is intact
+            // across the alloc (same contract as SOCKCONNECT).
+            s = sbAppend(s, arm64_movz_x_imm(0, 1))   // 0: AF_UNIX
+            s = sbAppend(s, arm64_movz_x_imm(1, 1))   // 1: SOCK_STREAM
+            s = sbAppend(s, arm64_movz_x_imm(2, 0))   // 2: protocol 0
+            s = sbAppend(s, arm64_movz_x_imm(16, 97)) // 3: SYS_socket
+            s = sbAppend(s, arm64_svc(0x80))          // 4
+            s = sbAppend(s, arm64_mov_xx(10, 0))      // 5: x10 = fd (survives alloc)
+            s = sbAppend(s, arm64_movz_x_imm(4, 110)) // 6: alloc size (sockaddr_un)
+            instrIdx = instrIdx + 7
+            s = sbAppend(s, emitAllocVar(instrIdx, textVaddr, textOff))  // 7-27: x0=buf
+            instrIdx = instrIdx + 21
+            s = sbAppend(s, arm64_mov_xx(13, 0))      // 28: x13 = buf
+            s = sbAppend(s, arm64_pop(12))            // 29: x12 = path ptr
+            s = sbAppend(s, arm64_movz_x_imm(5, 1))   // 30: AF_UNIX
+            s = sbAppend(s, arm64_strb_imm(5, 13, 1)) // 31: sun_family = [buf+1]
+            s = sbAppend(s, arm64_movz_x_imm(14, 0))  // 32: i = 0
+            // COPYLOOP @ 33: copy path bytes (incl NUL) to buf+2+i
+            s = sbAppend(s, arm64_ldrb_reg(15, 12, 14))  // 33: x15 = path[i]
+            s = sbAppend(s, arm64_add_xxx(9, 13, 14)) // 34: x9 = buf+i
+            s = sbAppend(s, arm64_strb_imm(15, 9, 2)) // 35: [buf+i+2] = byte
+            s = sbAppend(s, arm64_cbz(15, 3))         // 36: NUL written → COPYDONE@39
+            s = sbAppend(s, arm64_add_imm(14, 14, 1)) // 37: i++
+            s = sbAppend(s, arm64_b(0 - 5))           // 38: → COPYLOOP@33
+            // COPYDONE @ 39:
+            s = sbAppend(s, arm64_add_imm(2, 14, 3))  // 39: addrlen = i + 3 (2 hdr + NUL)
+            s = sbAppend(s, arm64_strb_imm(2, 13, 0)) // 40: sun_len = [buf+0]
+            s = sbAppend(s, arm64_mov_xx(0, 10))      // 41: x0 = fd
+            s = sbAppend(s, arm64_mov_xx(1, 13))      // 42: x1 = &sockaddr_un
+            s = sbAppend(s, arm64_movz_x_imm(16, 98)) // 43: SYS_connect (x2=addrlen set)
+            s = sbAppend(s, arm64_svc(0x80))          // 44
+            s = sbAppend(s, arm64_b_cond(0x3, 3))     // 45: b.cc (carry clear=ok) → SUCCESS@48
+            s = sbAppend(s, arm64_neg(0, 0))          // 46: x0 = -errno
+            s = sbAppend(s, arm64_b(2))               // 47: → UDONE@49
+            // SUCCESS @ 48:
+            s = sbAppend(s, arm64_mov_xx(0, 10))      // 48: x0 = fd
+            // UDONE @ 49:
+            s = sbAppend(s, arm64_push_x0())          // 49
+            instrIdx = instrIdx + 22
         } else if opTok == "POP" {
             s = sbAppend(s, arm64_pop_x0())
             instrIdx = instrIdx + 1
