@@ -1122,7 +1122,13 @@ func irUnary(tokens, pos, ntoks, lc, types) {
         let pair = irUnary(tokens, pos + 1, ntoks, lc, types)
         let code = pairVal(pair)
         let p = pairPos(pair)
-        emit code + "NOT\n," + p
+        // `false`/`true` are stored as the STRINGS "false"/"true", so the bare
+        // backend NOT (`cmp x0,0`) treats `!false` as NOT-of-a-heap-pointer = 0
+        // ("no"). Funnel the operand through isTruthy first (string-truthiness:
+        // "false"/"0"/"" → 0, else 1), exactly like if/while wrap their
+        // conditions, so NOT flips a clean 0/1 int. (Safe to grow code here now
+        // that top-level emit/return exits cleanly — see line_ops fix.)
+        emit code + "BUILTIN isTruthy 1\nNOT\n," + p
     }
     emit irPostfix(tokens, pos, ntoks, lc, types)
 }

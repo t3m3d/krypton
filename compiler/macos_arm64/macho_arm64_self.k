@@ -994,6 +994,15 @@ func arm64_ldrb_post(rt, rn, imm9) {
 func arm64_ldrb_zero(rt, rn) {
     emit hexDword(0x39400000 + (rn * 0x20) + rt)
 }
+// ldrh Wt, [Xn] (zero-extended u16 load, unsigned offset 0) → size=01
+func arm64_ldrh_zero(rt, rn) {
+    emit hexDword(0x79400000 + (rn * 0x20) + rt)
+}
+// ldr Wt, [Xn] (zero-extended u32 load, unsigned offset 0) → size=10.
+// 0xb9400000 split as 0xb940*0x10000 to stay under the 0x7EFFFFFF int-literal limit.
+func arm64_ldrw_zero(rt, rn) {
+    emit hexDword((0xb940 * 0x10000) + (rn * 0x20) + rt)
+}
 // sub Xd, Xn, #imm12 (64-bit, no shift) → 0xd1000000 | (imm12<<10) | (Rn<<5) | Rd
 func arm64_sub_imm(rd, rn, imm12) {
     emit hexDword((0xd100 * 0x10000 + 0x0) + (imm12 * 0x400) + (rn * 0x20) + rd)
@@ -2288,6 +2297,14 @@ func parseFullIR(ir) {
                         curOps = sbAppend(curOps, "BUILTIN_BUFGETQWORDAT\n")  nOps += 1
                     } else if bname == "bufSetQwordAt" {
                         curOps = sbAppend(curOps, "BUILTIN_BUFSETQWORDAT\n")  nOps += 1
+                    } else if bname == "bufSetByte" {
+                        curOps = sbAppend(curOps, "BUILTIN_BUFSETBYTE\n")  nOps += 1
+                    } else if bname == "bufGetByte" {
+                        curOps = sbAppend(curOps, "BUILTIN_BUFGETBYTE\n")  nOps += 1
+                    } else if bname == "bufGetWordAt" {
+                        curOps = sbAppend(curOps, "BUILTIN_BUFGETWORDAT\n")  nOps += 1
+                    } else if bname == "bufGetDwordAt" {
+                        curOps = sbAppend(curOps, "BUILTIN_BUFGETDWORDAT\n")  nOps += 1
                     } else if bname == "fformat" {
                         curOps = sbAppend(curOps, "BUILTIN_FFORMAT\n")  nOps += 1
                     } else if bname == "exit" {
@@ -2467,6 +2484,22 @@ func parseFullIR(ir) {
                         nOps += 1
                     } else if bname == "mapSet" {
                         curOps = sbAppend(curOps, "BUILTIN_MAPSET\n")
+                        nOps += 1
+                    } else if bname == "envNew" {
+                        // envNew/envSet/envGet are a key→value store — the same
+                        // shape as the flat-string map runtime (mapGet returns ""
+                        // on a miss, exactly like envGet). Alias env onto map:
+                        // envNew = an empty-string map, envSet = MAPSET (3 args),
+                        // envGet = MAPGET (2 args). (Linux uses a linked list; the
+                        // representation is platform-private, so reusing macho's
+                        // map here is fine — env values never cross the boundary.)
+                        curOps = sbAppend(curOps, "BUILTIN_ENVNEW\n")
+                        nOps += 1
+                    } else if bname == "envSet" {
+                        curOps = sbAppend(curOps, "BUILTIN_MAPSET\n")
+                        nOps += 1
+                    } else if bname == "envGet" {
+                        curOps = sbAppend(curOps, "BUILTIN_MAPGET\n")
                         nOps += 1
                     } else if bname == "sockMake" {
                         // C-free BSD sockets via direct syscalls.
@@ -2744,6 +2777,10 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_BUFNEW" { emit 5 }          // pop size, alloc, push ptr
     if opTok == "BUILTIN_BUFGETQWORDAT" { emit 5 }   // pop off, pop buf, add, ldr, push
     if opTok == "BUILTIN_BUFSETQWORDAT" { emit 6 }   // pop val/off/buf, add, str, push val
+    if opTok == "BUILTIN_BUFSETBYTE" { emit 6 }      // pop val/off/buf, add, strb, push val
+    if opTok == "BUILTIN_BUFGETBYTE" { emit 5 }      // pop off/buf, add, ldrb, push
+    if opTok == "BUILTIN_BUFGETWORDAT" { emit 5 }    // pop off/buf, add, ldrh (u16 LE), push
+    if opTok == "BUILTIN_BUFGETDWORDAT" { emit 5 }   // pop off/buf, add, ldr w (u32 LE), push
     if opTok == "BUILTIN_FLOATTOINT" { emit 4 }  // pop,bl __f_load1,fcvtzs,push
     if opTok == "LOAD_SLOT"    { emit 2 }
     if opTok == "STORE_SLOT"   { emit 2 }
@@ -2838,6 +2875,7 @@ func opInstrCount(opTok) {
     if opTok == "BUILTIN_MAPHAS"       { emit 32 }
     if opTok == "BUILTIN_MAPGET"       { emit 93 }
     if opTok == "BUILTIN_MAPSET"       { emit 150 }
+    if opTok == "BUILTIN_ENVNEW"       { emit 24 }   // envNew() → push empty-string map (alloc 1B + NUL + push)
     if opTok == "BUILTIN_SOCKMAKE"     { emit 6 }   // movz x0,x1,x2,x16=97; svc; push
     if opTok == "BUILTIN_SOCKBIND"     { emit 49 }  // pop fd,hi,lo; alloc(21) sockaddr; fill 16B; bind(104)
     if opTok == "BUILTIN_SOCKLISTEN"   { emit 5 }   // pop backlog,fd; x16=106; svc; push
@@ -3316,6 +3354,39 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_str_imm(2, 0, 0))                    // 4: [x0] = x2
             s = sbAppend(s, arm64_push(2))                             // 5: return val
             instrIdx = instrIdx + 6
+        } else if opTok == "BUILTIN_BUFSETBYTE" {
+            // bufSetByte(buf, byteoff, val): store low byte of val at buf+off. 6.
+            s = sbAppend(s, arm64_pop(2))                              // 0: x2 = val
+            s = sbAppend(s, arm64_pop(1))                              // 1: x1 = byteoff
+            s = sbAppend(s, arm64_pop_x0())                            // 2: x0 = buf
+            s = sbAppend(s, arm64_add_xxx(0, 0, 1))                    // 3: x0 = buf+off
+            s = sbAppend(s, arm64_strb_imm(2, 0, 0))                   // 4: byte [x0] = w2
+            s = sbAppend(s, arm64_push(2))                             // 5: return val
+            instrIdx = instrIdx + 6
+        } else if opTok == "BUILTIN_BUFGETBYTE" {
+            // bufGetByte(buf, byteoff) -> zero-extended byte at buf+off. 5.
+            s = sbAppend(s, arm64_pop(1))                              // 0: x1 = byteoff
+            s = sbAppend(s, arm64_pop_x0())                            // 1: x0 = buf
+            s = sbAppend(s, arm64_add_xxx(0, 0, 1))                    // 2: x0 = buf+off
+            s = sbAppend(s, arm64_ldrb_zero(0, 0))                     // 3: x0 = (u8)[x0]
+            s = sbAppend(s, arm64_push_x0())                           // 4
+            instrIdx = instrIdx + 5
+        } else if opTok == "BUILTIN_BUFGETWORDAT" {
+            // bufGetWordAt(buf, byteoff) -> zero-extended u16 (LE) at buf+off. 5.
+            s = sbAppend(s, arm64_pop(1))                              // 0: x1 = byteoff
+            s = sbAppend(s, arm64_pop_x0())                            // 1: x0 = buf
+            s = sbAppend(s, arm64_add_xxx(0, 0, 1))                    // 2: x0 = buf+off
+            s = sbAppend(s, arm64_ldrh_zero(0, 0))                     // 3: x0 = (u16)[x0]
+            s = sbAppend(s, arm64_push_x0())                           // 4
+            instrIdx = instrIdx + 5
+        } else if opTok == "BUILTIN_BUFGETDWORDAT" {
+            // bufGetDwordAt(buf, byteoff) -> zero-extended u32 (LE) at buf+off. 5.
+            s = sbAppend(s, arm64_pop(1))                              // 0: x1 = byteoff
+            s = sbAppend(s, arm64_pop_x0())                            // 1: x0 = buf
+            s = sbAppend(s, arm64_add_xxx(0, 0, 1))                    // 2: x0 = buf+off
+            s = sbAppend(s, arm64_ldrw_zero(0, 0))                     // 3: x0 = (u32)[x0]
+            s = sbAppend(s, arm64_push_x0())                           // 4
+            instrIdx = instrIdx + 5
         } else if opTok == "ADD" {
             // Polymorphic ADD — 193 instructions. Three paths:
             //   INT+INT (0-9):   both < threshold → integer add → push
@@ -3348,7 +3419,20 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_b_cond(0xa, 6))  // 4: b.ge → A_PTR@10
             s = sbAppend(s, arm64_cmp_xx(6, 14))  // 5
             s = sbAppend(s, arm64_b_cond(0xa, 76))  // 6: b.ge → CONCAT@82
-            // INT_INT @ 7: 32-bit add so result wraps at 2^32 (SHA-256 requires mod 2^32)
+            // INT_INT @ 7: 32-bit add so result wraps at 2^32. This wrap is
+            // LOAD-BEARING for the in-Krypton ad-hoc code signer's pure-K
+            // SHA-256 (sha256_processChunk above, used by emitCodeSignature):
+            // SHA-256 is defined mod 2^32, and the wrap is what keeps every
+            // intermediate < 2^32 = the int/pointer tag boundary. A 64-bit add
+            // (arm64_add_xxx) WOULD fix negative results — (0-10)+3 prints -7
+            // not 4294967289 — and SUB/MUL already use _xxx safely. But it
+            // breaks self-host: the moment a modular add exceeds 2^32 it is
+            // tagged as a POINTER on the next store/builtin, so the signer's
+            // SHA garbles, gen3 produces an invalid signature, and the binary
+            // SIGSEGVs (verified 2026-06-20). You CANNOT mask it back either —
+            // MOD/bitAnd threshold-check their args, so they choke on the same
+            // transient >2^32 value. Fixing negative ADD needs the low-bit
+            // tagging rework (handoffs/LOWBIT_TAGGING_PLAN.md), not a point fix.
             s = sbAppend(s, arm64_add_www(0, 3, 6))  // 7
             s = sbAppend(s, arm64_push_x0())  // 8
             s = sbAppend(s, arm64_b(184))  // 9: → ADD_DONE@193
@@ -5631,6 +5715,18 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_mov_xx(0, 20))  // 148: result=buf
             s = sbAppend(s, arm64_push_x0())  // 149
             instrIdx = instrIdx + 108
+        } else if opTok == "BUILTIN_ENVNEW" {
+            // envNew() → push a pointer to a freshly-alloc'd, NUL-terminated
+            // empty string = an empty flat-string map (so MAPGET/MAPSET, which
+            // strlen/scan it, work immediately). 24 instrs — mirrors MAPGET's
+            // NOT_FOUND tail.
+            s = sbAppend(s, arm64_movz_x_imm(4, 1))  // 0: alloc 1 byte
+            instrIdx = instrIdx + 1
+            s = sbAppend(s, emitAllocN(1, instrIdx, textVaddr, textOff))  // 1-21: x0=buf
+            instrIdx = instrIdx + 21
+            s = sbAppend(s, arm64_strb_imm(31, 0, 0))  // 22: buf[0]=NUL → empty string
+            s = sbAppend(s, arm64_push_x0())  // 23
+            instrIdx = instrIdx + 2
         } else if opTok == "LOAD_SLOT" {
             let slot = toInt(restTok)
             let off = 0 - (8 + slot * 8)
