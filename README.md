@@ -2,12 +2,12 @@
 
 **A self-hosting programming language that emits native machine code without a C compiler in the loop.**
 
-> **Current version: 2.3.0** — KryptScript (`.ks`) extension convention.
+> **Current macOS version: 2.4.1** — kweb GUI + packaged kweb CLI.
 > See [`CHANGELOG.md`](CHANGELOG.md) for the full history.
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-2.3.0-brightgreen)
-![macOS](https://img.shields.io/badge/macOS-arm64%202.3.0-success)
+![Version](https://img.shields.io/badge/version-2.4.1-brightgreen)
+![macOS](https://img.shields.io/badge/macOS-arm64%202.4.1-success)
 ![Linux](https://img.shields.io/badge/Linux-x86__64%202.3.0-yellow)
 ![Windows](https://img.shields.io/badge/Windows-x86__64%202.3.0-orange)
 
@@ -53,6 +53,13 @@ The web framework adds a third extension for templates:
 
 - **`.htk`** — htmk + ks template source built by `kweb`. Same Krypton syntax;
   the convention signals "this file is meant to render HTML."
+
+## What's new in 2.4.1
+
+- **macOS kweb GUI** — native Objective-K/KryptScript app for build and FTP deploy.
+- **macOS packages include kweb** — `/usr/local/bin/kweb` is linked on install.
+- **Remote deploy folder control** — empty means FTP account root; `test` uploads under `/test`.
+- **kweb build binary refreshed** — fixes stale temp-path failure in the old `web/kweb`.
 
 ## What's new in 2.3
 
@@ -117,11 +124,11 @@ run, imports, and self-host on macOS (arm64), Linux (x86-64), and Windows
   Winsock + POSIX `cfunc`) is still around for the Windows / `--gcc`
   path; new macOS code should `import "k:server_native"`.
 
-**Platform release status (2026-06-06 — 2.3.0):**
+**Platform release status (2026-07-05):**
 
 | Platform | Shipped version | Notes |
 |----------|-----------------|-------|
-| macOS arm64 | **2.3.0** | `brew install t3m3d/krypton/krypton`, the `.pkg`, or the tarball. Clang-free self-host; Krypton-native `kcc.ks` driver. |
+| macOS arm64 | **2.4.1** | `.pkg` or tarball. Includes `kweb`, `/usr/local/bin/kweb`, and `/Applications/Krypton/kweb_gui.app`. |
 | Linux x86_64 | **2.3.0** | `brew install t3m3d/krypton/krypton` (kcc + kweb), the prebuilt tarball → `./install.sh`, or build from source. No C compiler. Self-hosting. aarch64 via `kcc --aarch64` cross-compile. |
 | Windows x86_64 | **2.3.0** | Inno Setup installer: `kcc.exe`/`kcc-bin.exe` driver/backend split, native `krypton_rt.dll`, `kr.exe` REPL, kweb, WASM, .k/.ks associations. |
 | **VS Code / Antigravity ext.** | **2.3.0** | `extensions/krypton-language-2.3.0.vsix`. Adds `.ks` (KryptScript) alongside `.k`, bundles the `kls` language server for Windows + macOS, ships `KryptScript` as a language-picker alias. |
@@ -146,8 +153,8 @@ carries every platform's artifact.
   Windows-native equivalent of a `.bat` file. _(As of 2.3.0, Windows `kr.exe`
   has the same top-level auto-wrap + REPL as the POSIX `kr`.)_
 - `kweb` — web framework CLI (`kweb init <name>`, `kweb build`, `kweb serve`,
-  `kweb deploy <host> <user>`). **Windows-only as of 2.3.0**; the macOS port is
-  pending the `stdlib/fs.k` POSIX rewrite.
+  `kweb deploy <host> <user>`). macOS 2.4.1 also ships `kweb_gui.app` for build
+  and FTP deploy.
 
 Krypton is a dynamically typed language with clean syntax, ~150 built-in functions, and a compiler written in itself.
 
