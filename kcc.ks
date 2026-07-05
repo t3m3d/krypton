@@ -10,7 +10,8 @@
 //     kcc.sh kcc.ks -o kcc-native
 //     ./kcc-native hello.k -o hello
 //
-// SCOPE: macOS arm64 + Linux x86-64 native, + Linux aarch64 cross-compile (--arm64).
+// SCOPE: macOS arm64 + Linux x86-64 native, FreeBSD x86-64 native,
+// + Linux aarch64 cross-compile (--arm64).
 // Modes: --version/--ir/-o/-r/-e/--c. (Windows not yet wired.) One KryptScript
 // driver, no bash, no .bat.
 //
@@ -26,16 +27,17 @@ import "k:env"
 import "k:sh"
 import "k:arch"
 
-func VERSION() { emit "kcc version 2.4.2" }
+func VERSION() { emit "kcc version 2.4.4" }
 
 // Locate the install root: $KRYPTON_ROOT, else the dev repo, else the pkg
 // install. The dev repo is preferred over /usr/local/krypton because the pkg
 // install is often stale (missing newly-added stdlib). Returns "" if none.
 // A valid root has at least one platform frontend (macOS arm64, Linux x86,
-// or Windows x86-64).
+// FreeBSD x86, or Windows x86-64).
 func hasFrontend(root) {
     if exists(root + "/compiler/macos_arm64/kcc-arm64") == "1" { emit "1" }
     if exists(root + "/compiler/linux_x86/kcc-x64") == "1" { emit "1" }
+    if exists(root + "/compiler/freebsd_x86/kcc-x64") == "1" { emit "1" }
     // Windows: the install layout puts the compile.k-built compiler at
     // <root>/kcc.exe and the backends at <root>/bin/x64_host_new.exe.
     // The dev repo doesn't ship a kcc.exe of its own; rely on the
@@ -394,6 +396,102 @@ func compileLinux(root, src, out) {
     emit "1"
 }
 
+// Ensure the FreeBSD elf_host backend exists / is current. NO C compiler.
+// Needs a FreeBSD-built seed or an already-present host on FreeBSD.
+func ensureFreebsdHost(root) {
+    let host = root + "/compiler/freebsd_x86/elf_host"
+    let src  = root + "/compiler/freebsd_x86/elf.k"
+    let fe   = root + "/compiler/freebsd_x86/kcc-x64"
+    let seed = root + "/bootstrap/elf_host_freebsd_x86_64"
+    let need = "0"
+    if exists(host) == "0" { need = "1" }
+    else {
+        if sh("test " + q(src) + " -nt " + q(host) + " && echo 1 || echo 0") == "1" { need = "1" }
+    }
+    if need == "0" { emit "1" }
+    if exists(seed) == "1" {
+        if sh("test " + q(src) + " -nt " + q(seed) + " && echo 1 || echo 0") == "0" {
+            exec("cp " + q(seed) + " " + q(host))
+            exec("chmod +x " + q(host))
+            emit "1"
+        }
+    }
+    let boot = seed
+    if exists(boot) == "0" { boot = host }
+    if exists(boot) == "0" {
+        kp("kcc: no FreeBSD elf_host seed to self-host from")
+        emit "0"
+    }
+    kp("kcc: rebuilding FreeBSD elf_host natively (self-host, no C)...")
+    let tmpir = sh("mktemp /tmp/_kccfbsd_XXXXXX.kir")
+    exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src) + " > " + q(tmpir))
+    exec(q(boot) + " " + q(tmpir) + " " + q(host))
+    rm(tmpir)
+    exec("chmod +x " + q(host))
+    if exists(host) == "0" { kp("kcc: FreeBSD elf_host self-host failed")  emit "0" }
+    emit "1"
+}
+
+// FreeBSD optimizer host, best-effort. Seed copy if available; otherwise the
+// FreeBSD elf_host compiles optimize.k. No C compiler.
+func ensureFreebsdOptHost(root) {
+    let host = root + "/compiler/freebsd_x86/optimize_host"
+    let src  = root + "/compiler/optimize.k"
+    let fe   = root + "/compiler/freebsd_x86/kcc-x64"
+    let elf  = root + "/compiler/freebsd_x86/elf_host"
+    let seed = root + "/bootstrap/optimize_host_freebsd_x86_64"
+    let need = "1"
+    if exists(host) == "1" {
+        if sh("test " + q(src) + " -nt " + q(host) + " && echo 1 || echo 0") == "0" { need = "0" }
+    }
+    if need == "0" { emit "1" }
+    if exists(seed) == "1" {
+        if sh("test " + q(src) + " -nt " + q(seed) + " && echo 1 || echo 0") == "0" {
+            exec("cp " + q(seed) + " " + q(host))
+            exec("chmod +x " + q(host))
+            emit "1"
+        }
+    }
+    if exists(elf) == "0" { emit "0" }
+    let tmpir = sh("mktemp /tmp/_kccfbopt_XXXXXX.kir")
+    exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src) + " > " + q(tmpir))
+    exec(q(elf) + " " + q(tmpir) + " " + q(host))
+    rm(tmpir)
+    if exists(host) == "1" {
+        exec("chmod +x " + q(host))
+        emit "1"
+    }
+    emit "0"
+}
+
+// native FreeBSD x86-64 compile: src -> out. Returns "1" ok / "0" fail.
+func compileFreebsd(root, src, out) {
+    let fe = root + "/compiler/freebsd_x86/kcc-x64"
+    let host = root + "/compiler/freebsd_x86/elf_host"
+    if ensureFreebsdHost(root) == "0" { emit "0" }
+    let tmpir = sh("mktemp /tmp/_kccfb_XXXXXX.kir")
+    exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src) + " > " + q(tmpir))
+    if size(tmpir) == 0 {
+        kp("kcc: IR emission failed for " + src)
+        rm(tmpir)
+        emit "0"
+    }
+    if ensureFreebsdOptHost(root) == "1" {
+        let tmpopt = sh("mktemp /tmp/_kcfbopt_XXXXXX.kir")
+        exec(q(root + "/compiler/freebsd_x86/optimize_host") + " " + q(tmpir) + " > " + q(tmpopt) + " 2>/dev/null")
+        if size(tmpopt) == 0 { rm(tmpopt) }
+        else { exec("mv " + q(tmpopt) + " " + q(tmpir)) }
+    }
+    exec(q(host) + " " + q(tmpir) + " " + q(out))
+    rm(tmpir)
+    if exists(out) == "0" {
+        kp("kcc: FreeBSD codegen failed")
+        emit "0"
+    }
+    exec("chmod +x " + q(out))
+    emit "1"
+}
+
 just run {
     if argCount() < 1 {
         kp(VERSION())
@@ -404,7 +502,7 @@ just run {
     let first = arg(0)
     if first == "--version" || first == "-v" { kp(VERSION())  exit("0") }
     if first == "--help" || first == "-h" {
-        kp("kcc — Krypton compiler driver (2.4.2)")
+        kp("kcc — Krypton compiler driver (2.4.4)")
         kp("")
         kp("Usage: kcc <source.k|source.ks> [flags]")
         kp("  --native    (default) emit native binary at ./<basename>")
@@ -492,6 +590,47 @@ just run {
         let okc = "0"
         if toArm == "1" { okc = compileArm64(root, s, out) } else { okc = compileLinux(root, s, out) }
         if okc == "0" { exit("1") }
+        exit("0")
+    }
+
+    // ── FreeBSD native pipeline (x86-64 ELF) ───────────────────────────────
+    if os == "FreeBSD" {
+        let fe = root + "/compiler/freebsd_x86/kcc-x64"
+
+        if hasFlag("--ir") {
+            let s = linuxSrc()
+            if s == "" { kp("kcc: --ir needs a source file")  exit("1") }
+            kp(sh("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(s)))
+            exit("0")
+        }
+        if hasFlag("--c")    { kp("kcc: --c was removed (Krypton is C-free; native pipeline only).")    exit("1") }
+        if hasFlag("--gcc")  { kp("kcc: --gcc was removed (Krypton is C-free; native pipeline only).")  exit("1") }
+        if hasFlag("--llvm") { kp("kcc: --llvm was removed (Krypton is C-free; native pipeline only).") exit("1") }
+        if hasFlag("--wasm") { kp("kcc: --wasm is not wired into the Krypton-native driver yet.")        exit("1") }
+        if hasFlag("--arm64") { kp("kcc: --arm64 is Linux-only right now.") exit("1") }
+
+        if first == "-e" {
+            if argCount() < 2 { kp("kcc: -e needs code")  exit("1") }
+            let ek = sh("mktemp /tmp/_kcceval_XXXXXX.ks")
+            writeText(ek, "just run {\n" + arg(1) + "\n}\n")
+            let ebin = sh("mktemp /tmp/_kcceval_XXXXXX")
+            if compileFreebsd(root, ek, ebin) == "0" { rm(ek)  exit("1") }
+            kp(sh(q(ebin)))
+            rm(ek)  rm(ebin)
+            exit("0")
+        }
+
+        let s = linuxSrc()
+        if s == "" { kp("kcc: no source file")  exit("1") }
+        if hasFlag("-r") {
+            let tmpbin = sh("mktemp /tmp/_kcckrun_XXXXXX")
+            if compileFreebsd(root, s, tmpbin) == "0" { exit("1") }
+            kp(sh(q(tmpbin)))
+            rm(tmpbin)
+            exit("0")
+        }
+        let out = optValue("-o", baseName(s))
+        if compileFreebsd(root, s, out) == "0" { exit("1") }
         exit("0")
     }
 
@@ -587,7 +726,7 @@ just run {
     }
 
     if os != "Darwin" {
-        kp("kcc-native: unsupported host " + os + " (macOS + Linux + Windows wired)")
+        kp("kcc-native: unsupported host " + os + " (macOS + Linux + FreeBSD + Windows wired)")
         exit("1")
     }
 

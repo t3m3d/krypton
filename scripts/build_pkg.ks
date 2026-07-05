@@ -24,7 +24,7 @@ just run {
     if isExec(driver) != "yes" { die("build_pkg.ks: missing " + driver + " (the kcc.ks driver seed) — run ./build.sh first") }
     if isExec(host) != "yes"   { die("build_pkg.ks: missing " + host + " (the macho backend host seed)") }
     if isExec("web/kweb") != "yes" { die("build_pkg.ks: missing web/kweb — build it first") }
-    if isDir("dist/kweb_gui.app") != "yes" { die("build_pkg.ks: missing dist/kweb_gui.app — build it first") }
+    if isDir("dist/kweb.app") != "yes" { die("build_pkg.ks: missing dist/kweb.app — build it first") }
     let klsBin = ""
     if isExec("compiler/macos_arm64/kls") == "yes" { klsBin = "compiler/macos_arm64/kls" }
     else { if isExec("kls") == "yes" { klsBin = "kls" } }
@@ -68,7 +68,7 @@ just run {
     exec("install -m 0644 web/kweb_gui.ks \"" + r + "/web/kweb_gui.ks\"")
     if isFile("web/README.md") == "yes" { exec("install -m 0644 web/README.md \"" + r + "/web/README.md\"") }
     exec("mkdir -p \"" + stage + "/Applications/Krypton\"")
-    exec("ditto --norsrc dist/kweb_gui.app \"" + stage + "/Applications/Krypton/kweb_gui.app\"")
+    exec("ditto --norsrc dist/kweb.app \"" + stage + "/Applications/Krypton/kweb.app\"")
 
     // ── postinstall (BASH — Installer runs it as root) ────────────────────────
     let post = "#!/bin/bash\n" +
@@ -78,7 +78,7 @@ just run {
         "ln -sf \"$ROOT/bootstrap/kcc_driver_macos_aarch64\" /usr/local/bin/kcc\n" +
         "[[ -e \"$ROOT/compiler/macos_arm64/kls\" ]] && ln -sf \"$ROOT/compiler/macos_arm64/kls\" /usr/local/bin/kls\n" +
         "[[ -e \"$ROOT/web/kweb\" ]] && ln -sf \"$ROOT/web/kweb\" /usr/local/bin/kweb\n" +
-        "for b in \"$ROOT/bootstrap/kcc_driver_macos_aarch64\" \"$ROOT/compiler/macos_arm64/kcc-arm64\" \"$ROOT/compiler/macos_arm64/macho_host\" \"$ROOT/compiler/macos_arm64/kls\" \"$ROOT/web/kweb\" \"/Applications/Krypton/kweb_gui.app/Contents/MacOS/kweb_gui\"; do\n" +
+        "for b in \"$ROOT/bootstrap/kcc_driver_macos_aarch64\" \"$ROOT/compiler/macos_arm64/kcc-arm64\" \"$ROOT/compiler/macos_arm64/macho_host\" \"$ROOT/compiler/macos_arm64/kls\" \"$ROOT/web/kweb\" \"/Applications/Krypton/kweb.app/Contents/MacOS/kweb\"; do\n" +
         "    [[ -e \"$b\" ]] && codesign -s - -f \"$b\" 2>/dev/null || true\n" +
         "done\n" +
         "touch \"$ROOT/bootstrap/kcc_driver_macos_aarch64\" \"$ROOT/compiler/macos_arm64/kcc-arm64\" \"$ROOT/compiler/macos_arm64/macho_host\" 2>/dev/null || true\n" +
@@ -100,5 +100,5 @@ just run {
     kp("install:    sudo installer -pkg " + pkgFile + " -target /")
     kp("verify:     kcc --version   # -> kcc version " + version)
     kp("            kweb")
-    kp("            open /Applications/Krypton/kweb_gui.app")
+    kp("            open /Applications/Krypton/kweb.app")
 }
