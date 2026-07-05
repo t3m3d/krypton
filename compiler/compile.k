@@ -1624,8 +1624,8 @@ func irCall(tokens, pos, ntoks, lc, types) {
             let Lcend = "_apcend_" + pos
             let Ldone = "_apdone_" + pos
             // eval args once; root the heap-holding ones.
-            let o = "LOCAL " + S + "\n" + sCode + "STORE " + S + "\nLOAD " + S + "\nBUILTIN gcShadowPush 1\nPOP\n"
-            o = o + "LOCAL " + V + "\n" + vCode + "STORE " + V + "\nLOAD " + V + "\nBUILTIN gcShadowPush 1\nPOP\n"
+            let o = "LOCAL " + S + "\n" + sCode + "STORE " + S + "\n"
+            o = o + "LOCAL " + V + "\n" + vCode + "STORE " + V + "\n"
             o = o + "LOCAL " + NL + "\nLOCAL " + NB + "\nLOCAL " + NO + "\nLOCAL " + NC + "\n"
             // newlen = oldlen + 1
             o = o + "LOAD " + S + "\nPUSH 16\nBUILTIN bufGetQwordAt 2\nPUSH 1\nADD\nSTORE " + NL + "\n"
@@ -1644,7 +1644,7 @@ func irCall(tokens, pos, ntoks, lc, types) {
             o = o + "LABEL " + Lgrow + "\n"
             o = o + "LOAD " + S + "\nPUSH 24\nBUILTIN bufGetQwordAt 2\nPUSH 2\nMUL\nSTORE " + NC + "\n"
             o = o + "LOAD " + NC + "\nPUSH 0\nEQ\nJUMPIFNOT " + Lcapok + "\nPUSH 1\nSTORE " + NC + "\nLABEL " + Lcapok + "\n"
-            o = o + "LOAD " + NC + "\nPUSH 8\nMUL\nBUILTIN bufNew 1\nSTORE " + NB + "\nLOAD " + NB + "\nBUILTIN gcShadowPush 1\nPOP\n"
+            o = o + "LOAD " + NC + "\nPUSH 8\nMUL\nBUILTIN bufNew 1\nSTORE " + NB + "\n"
             o = o + "PUSH 0\nSTORE " + NO + "\n"
             // copy loop: i=0; while i<oldlen { nb[i*8] = base[byteOff + i*8] }
             o = o + "LOCAL " + II + "\nPUSH 0\nSTORE " + II + "\n"
@@ -1666,7 +1666,7 @@ func irCall(tokens, pos, ntoks, lc, types) {
             o = o + "LOAD " + R + "\nPUSH 8\nLOAD " + NO + "\nBUILTIN bufSetQwordAt 3\nPOP\n"
             o = o + "LOAD " + R + "\nPUSH 16\nLOAD " + NL + "\nBUILTIN bufSetQwordAt 3\nPOP\n"
             o = o + "LOAD " + R + "\nPUSH 24\nLOAD " + NC + "\nBUILTIN bufSetQwordAt 3\nPOP\n"
-            o = o + "LOAD " + R + "\nBUILTIN gcShadowPush 1\nPOP\nLOAD " + R + "\n"
+            o = o + "LOAD " + R + "\n"
             emit o + "," + rp
         }
     }
@@ -1768,6 +1768,7 @@ func irCall(tokens, pos, ntoks, lc, types) {
         // and stays as the fallback alias so already-built programs keep working.
         let bname = fname
         if bname == "print" { bname = "kp" }
+        if bname == "gcSetThreshold" { bname = "gcSetLimit" }
         emit code + "BUILTIN " + bname + " " + argc + "\n," + (p + 1)
     }
     emit code + "CALL " + fname + " " + argc + "\n," + (p + 1)
@@ -1805,7 +1806,7 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
             }
             if tokAt(tokens, p) == "SEMI" { p += 1 }
             let rst = ""
-            if inFunc == "1" { rst = "BUILTIN gcShadowCount 0\nLOAD __sh_save\nSUB\nBUILTIN gcShadowPop 1\nPOP\n" }
+            if inFunc == "1" { rst = "" }
             emit "LOCAL " + mr + "\nPUSH " + (nv * 8) + "\nBUILTIN bufNew 1\nSTORE " + mr + "\n" + sets + "LOAD " + mr + "\n" + rst + "RETURN\n," + p
         }
         if tokAt(tokens, p) == "SEMI" { p += 1 }
@@ -1818,7 +1819,7 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
         // exit anyway.)
         let restoreCode = ""
         if inFunc == "1" {
-            restoreCode = "BUILTIN gcShadowCount 0\nLOAD __sh_save\nSUB\nBUILTIN gcShadowPop 1\nPOP\n"
+            restoreCode = ""
             emit code + restoreCode + "RETURN\n," + p
         }
         // Top-level `return`/`emit <v>` = process exit. A plain RETURN here would
@@ -2043,7 +2044,7 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
             if nt == "STAREQ"  { op = "MUL\n"  if isFloat { op = "BUILTIN fmul 2\n" } }
             if nt == "SLASHEQ" { op = "DIV\n"  if isFloat { op = "BUILTIN fdiv 2\n" } }
             if nt == "MODEQ"   { op = "MOD\n" }
-            emit "LOAD " + name + "\n" + rcode + op + "STORE " + name + "\nLOAD " + name + "\nBUILTIN gcShadowPush 1\nPOP\n," + p
+            emit "LOAD " + name + "\n" + rcode + op + "STORE " + name + "\n," + p
         }
     }
 
@@ -2152,7 +2153,7 @@ func irStmt(tokens, pos, ntoks, lc, inFunc, types) {
         // 2.0-alpha-3 stage 6 prep: re-root the new value on the shadow
         // stack. Without this, a sweep between the reassignment and the
         // next read could collect the new heap-allocated value.
-        emit code + "STORE " + name + "\nLOAD " + name + "\nBUILTIN gcShadowPush 1\nPOP\n," + p
+        emit code + "STORE " + name + "\n," + p
     }
 
     // expression statement (function call)
@@ -2303,7 +2304,7 @@ func irLetIR(tokens, pos, ntoks, lc, inFunc, types) {
         let k = 0
         while k < nc {
             let nm = getNthParam(nms, k)
-            out = out + "LOCAL " + nm + "\nLOAD " + rt + "\nPUSH " + (k * 8) + "\nBUILTIN bufGetQwordAt 2\nBUILTIN intToPtr 1\nSTORE " + nm + "\nLOAD " + nm + "\nBUILTIN gcShadowPush 1\nPOP\n"
+            out = out + "LOCAL " + nm + "\nLOAD " + rt + "\nPUSH " + (k * 8) + "\nBUILTIN bufGetQwordAt 2\nBUILTIN intToPtr 1\nSTORE " + nm + "\n"
             k = k + 1
         }
         emit out + "," + p
@@ -2376,7 +2377,7 @@ func irLetIR(tokens, pos, ntoks, lc, inFunc, types) {
     if tokAt(tokens, p) != "ASSIGN" {
         // declaration without initializer — default to empty string.
         emit "LOCAL " + name + "\nPUSH \"\"\nSTORE " + name +
-             "\nLOAD " + name + "\nBUILTIN gcShadowPush 1\nPOP\n," + p
+             "\n," + p
     }
     p += 1   // skip ASSIGN
     // B3 slices: `let s = SRC[lo:hi]` builds a (base, byteOff, len, cap) quad in
@@ -2421,7 +2422,7 @@ func irLetIR(tokens, pos, ntoks, lc, inFunc, types) {
                 s3out = s3out + "LOAD " + name + "\nPUSH 8\n" + s3off + "BUILTIN bufSetQwordAt 3\nPOP\n"
                 s3out = s3out + "LOAD " + name + "\nPUSH 16\n" + s3hiCode + s3loCode + "SUB\nBUILTIN bufSetQwordAt 3\nPOP\n"
                 s3out = s3out + "LOAD " + name + "\nPUSH 24\n" + s3cap + "BUILTIN bufSetQwordAt 3\nPOP\n"
-                s3out = s3out + "LOAD " + name + "\nBUILTIN gcShadowPush 1\nPOP\n"
+                s3out = s3out + ""
                 emit s3out + "," + s3r
             }
         }
@@ -2436,7 +2437,7 @@ func irLetIR(tokens, pos, ntoks, lc, inFunc, types) {
     // range-check filters it out at scan time (no false retention).
     // Lifetime is function-scoped (no per-block popping); the function
     // prologue/epilogue saves/restores shadow_sp.
-    let pushCode = "LOAD " + name + "\nBUILTIN gcShadowPush 1\nPOP\n"
+    let pushCode = ""
     emit "LOCAL " + name + "\n" + code + "STORE " + name + "\n" + pushCode + "," + p
 }
 
@@ -2731,12 +2732,27 @@ func irScanStatics(tokens, ntoks, types) {
                     let vp = irExpr(tokens, ap + 1, ntoks, 0, types)
                     vcode = pairVal(vp)
                 }
-                sb = sbAppend(sb, "LOCAL " + mangled + "\n" + vcode + "STORE " + mangled + "\nLOAD " + mangled + "\nBUILTIN gcShadowPush 1\nPOP\n")
+                sb = sbAppend(sb, "LOCAL " + mangled + "\n" + vcode + "STORE " + mangled + "\n")
             }
         }
         i = i + 1
     }
     emit sbToString(sb)
+}
+
+func kccStructTypes(tokens, ntoks) {
+    if environ("KCC_NO_TYPE_SCAN") == "1" { emit "" }
+    emit irScanStructTypes(tokens, ntoks)
+}
+
+func kccFuncTypes(tokens, bodyStart, ntoks) {
+    if environ("KCC_NO_TYPE_SCAN") == "1" { emit "" }
+    emit irScanFuncTypes(tokens, bodyStart, ntoks)
+}
+
+func kccEnums(tokens, ntoks) {
+    if environ("KCC_NO_TYPE_SCAN") == "1" { emit "" }
+    emit irScanEnums(tokens, ntoks)
 }
 
 func irScanStructTypes(tokens, ntoks) {
@@ -3047,7 +3063,7 @@ func irLambdaIR(tokens, pos, ntoks, lambdaName) {
         }
     }
 
-    let funcTypes = irScanStructTypes(tokens, ntoks) + irScanFuncTypes(tokens, p, ntoks) + paramTypes + captureTypes + irScanEnums(tokens, ntoks)
+    let funcTypes = kccStructTypes(tokens, ntoks) + kccFuncTypes(tokens, p, ntoks) + paramTypes + captureTypes + kccEnums(tokens, ntoks)
     let bp = irBlockIR(tokens, p, ntoks, 0, "1", funcTypes)
     let bodyCode = pairVal(bp)
     p = pairPos(bp)
@@ -3126,7 +3142,7 @@ func irFuncIR(tokens, pos, ntoks, structTypes) {
     // route through callPtr in irCall.
     // structTypes is precomputed once by the caller (was an O(n*nfuncs)
     // whole-stream rescan per function here).
-    let funcTypes = structTypes + irScanFuncTypes(tokens, p, ntoks) + paramTypes
+    let funcTypes = structTypes + kccFuncTypes(tokens, p, ntoks) + paramTypes
     let bp = irBlockIR(tokens, p, ntoks, 0, "1", funcTypes)
     let bodyCode = applyDefers(pairVal(bp))   // B1: relocate defers to exits
     p = pairPos(bp)
@@ -3160,12 +3176,12 @@ func irFuncIR(tokens, pos, ntoks, structTypes) {
         let pln = getLine(params, pli)
         if startsWith(pln, "PARAM ") == "1" {
             let pn = substring(pln, 6, len(pln))
-            paramPushes = paramPushes + "LOAD " + pn + "\nBUILTIN gcShadowPush 1\nPOP\n"
+            paramPushes = paramPushes + ""
         }
         pli += 1
     }
-    bodyCode = "LOCAL __sh_save\nBUILTIN gcShadowCount 0\nSTORE __sh_save\n" + paramPushes + bodyCode +
-               "BUILTIN gcShadowCount 0\nLOAD __sh_save\nSUB\nBUILTIN gcShadowPop 1\nPOP\n"
+    bodyCode = "" + paramPushes + bodyCode +
+               ""
     emit "FUNC " + fname + " " + pc + "\n" + params + bodyCode + "END\n\n," + p
 }
 
@@ -3589,7 +3605,7 @@ just run {
                     if irMode == 1 {
                         let iIRi = 0
                         let iIRinJxt = 0
-                        let iStructTypes = irScanStructTypes(iToks, iNtoks)
+                        let iStructTypes = kccStructTypes(iToks, iNtoks)
                         while iIRi < iNtoks {
                             let iIRtok = tokAt(iToks, iIRi)
                             if iIRtok == "KW:jxt" {
@@ -3968,7 +3984,7 @@ just run {
             sbIRlib = sbAppend(sbIRlib, "; Krypton IR\n; Source: " + file + "\n\n")
             sbIRlib = sbAppend(sbIRlib, importedIR)
             let irlibI = 0
-            let libStructTypes = irScanStructTypes(tokens, ntoks)
+            let libStructTypes = kccStructTypes(tokens, ntoks)
             while irlibI < ntoks {
                 let irlibTok = tokAt(tokens, irlibI)
                 if irlibTok == "KW:func" || irlibTok == "KW:fn" {
@@ -3989,10 +4005,12 @@ just run {
             let irLibText = sbToString(sbIRlib)
             if len(outFile) > 0 {
                 let compilerDir = replace(headersDir, "headers", "bin")
-                let tmpDir = "C:\\krypton"
-                if environ("HOME") != "" {
-                    tmpDir = environ("TMPDIR")
-                    if tmpDir == "" { tmpDir = "/tmp" }
+                let tmpDir = environ("TEMP")
+                if tmpDir == "" { tmpDir = environ("TMP") }
+                if tmpDir == "" { tmpDir = environ("TMPDIR") }
+                if tmpDir == "" {
+                    if environ("OS") == "Windows_NT" { tmpDir = "C:\\Windows\\Temp" }
+                    else { tmpDir = "/tmp" }
                 }
                 let tmpIR  = tmpDir + "/tmp_kcc_build.ir"
                 let tmpOpt = tmpDir + "/tmp_kcc_build_opt.ir"
@@ -4026,7 +4044,7 @@ just run {
         // home without a dedicated .bss region in the ELF backend.
         let sbGlobInit = sbNew()
         let iri = 0
-        let mainStructTypes = irScanStructTypes(tokens, ntoks)
+        let mainStructTypes = kccStructTypes(tokens, ntoks)
         while iri < ntoks {
             let irtok = tokAt(tokens, iri)
             if irtok == "KW:func" || irtok == "KW:fn" {
@@ -4136,14 +4154,14 @@ just run {
 
         let irEntry = findEntry(tokens, ntoks)
         if irEntry >= 0 {
-            let mainTypes = irScanStructTypes(tokens, ntoks) + irScanFuncTypes(tokens, irEntry, ntoks) + irScanEnums(tokens, ntoks)
+            let mainTypes = kccStructTypes(tokens, ntoks) + kccFuncTypes(tokens, irEntry, ntoks) + kccEnums(tokens, ntoks)
             let ep = irBlockIR(tokens, irEntry, ntoks, 0, "0", mainTypes)
             // 2.0-alpha-3 GC stage 3: same shadow-stack save/restore wrap
             // as irFuncIR applies to __main__'s body (and prepended global
             // inits). On normal exit, all per-let pushes get popped.
             let mainBody = irScanStatics(tokens, ntoks, mainTypes) + sbToString(sbGlobInit) + pairVal(ep)
-            mainBody = "LOCAL __sh_save\nBUILTIN gcShadowCount 0\nSTORE __sh_save\n" + mainBody +
-                       "BUILTIN gcShadowCount 0\nLOAD __sh_save\nSUB\nBUILTIN gcShadowPop 1\nPOP\n"
+            mainBody = "" + mainBody +
+                       ""
             sbIR = sbAppend(sbIR, "FUNC __main__ 0\n" + mainBody + "END\n")
         }
 
@@ -4152,10 +4170,12 @@ just run {
         // -o mode: run full native pipeline internally
         if len(outFile) > 0 {
             let compilerDir = replace(headersDir, "headers", "bin")
-            let tmpDir = "C:\\krypton"
-            if environ("HOME") != "" {
-                tmpDir = environ("TMPDIR")
-                if tmpDir == "" { tmpDir = "/tmp" }
+            let tmpDir = environ("TEMP")
+            if tmpDir == "" { tmpDir = environ("TMP") }
+            if tmpDir == "" { tmpDir = environ("TMPDIR") }
+            if tmpDir == "" {
+                if environ("OS") == "Windows_NT" { tmpDir = "C:\\Windows\\Temp" }
+                else { tmpDir = "/tmp" }
             }
             let tmpIR  = tmpDir + "/tmp_kcc_build.ir"
             let tmpOpt = tmpDir + "/tmp_kcc_build_opt.ir"
