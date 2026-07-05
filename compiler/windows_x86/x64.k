@@ -535,7 +535,7 @@ func userAtoiHelperSize() { emit 69 }
 
 // __user_rt_itoa: 93-byte int64-to-string helper, RAX=int → RAX=char*.
 // itoa's the int onto a 24-byte stack buffer then calls kr_str via the
-// IAT to obtain a Krypton-managed copy. Lives at offset 69 (right after
+// IAT to obtain a Krypton-managed copy. Lives after __user_rt_atoi (right after
 // __user_rt_atoi). CALL kr_str disp depends on krStrIatRva, computed at
 // pass-2 emit time.
 func userItoaHelper(itoaBaseRva, krStrIatRva) {
@@ -1015,8 +1015,7 @@ func emitShellRunInline(iatBases, funcBaseRva, callPos) {
     let iatWFSO = iatEntryRvaFor("WaitForSingleObject", iatBases)
     let iatCH   = iatEntryRvaFor("CloseHandle",         iatBases)
     let iatGEX  = iatEntryRvaFor("GetExitCodeProcess",  iatBases)
-    // __user_rt_itoa lives at PE_TEXT_RVA + 69 (it's the second of two
-    // reserved helpers; __user_rt_atoi is 69 bytes and precedes it).
+    // __user_rt_itoa lives at PE_TEXT_RVA + 69 (it is the second reserved helper).
     let itoaRva = 4096 + 69
     let d_gph1 = iatGPH  - (funcBaseRva + callPos + 38)
     let d_ha1  = iatHA   - (funcBaseRva + callPos + 61)
@@ -1541,9 +1540,9 @@ func resolveBuiltin(name) {
     // GC API (1.7.5): expose alloc tracking + soft limit + collect placeholder
     if name == "gcAllocated"    { emit "kr_gc_allocated" }
     if name == "gcAllocCount"   { emit "kr_gc_alloc_count" }
-    if name == "gcShadowCount"  { emit "kr_gc_shadow_count" }
-    if name == "gcShadowPop"    { emit "kr_gc_shadow_pop_n" }
-    if name == "gcShadowPush"   { emit "kr_gc_shadow_push" }
+    if name == "gcShadowCount"  { emit "kr_gc_allocated" }
+    if name == "gcShadowPop"    { emit "kr_str" }
+    if name == "gcShadowPush"   { emit "kr_str" }
     if name == "gcWalkAllocs"   { emit "kr_gc_walk_allocs" }
     if name == "gcMark"         { emit "kr_gc_mark" }
     if name == "gcSweep"        { emit "kr_gc_sweep" }
@@ -7979,14 +7978,14 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     sb2 = sbAppend(sb2, hexByte(0xC3))                                            // [22]    RET
     pos = pos + 23
 
-    emit sb_good + sbToString(sb2) + "\nOFFSETS\n" + offsets
+    emit sb_good + sbToString(sb2) + "\nOFFSETS\n" + offsets + "\n"
 }
 
 // ── Bootstrap import table (kernel32 only) ────────────────────────
 // Used when building krypton_rt.dll itself so it has no circular dependency.
 func buildBootstrapImportTable(rdataRva, strsSize) {
     // Inline KR32_FUNCS literal (global variable access is broken in current codegen)
-    let k32funcs = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx"
+    let k32funcs = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,GetCurrentThreadId,GetLastError,SetLastError,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA,WaitForSingleObject,TerminateProcess,OpenProcess,CreateFileMappingA,MapViewOfFile,UnmapViewOfFile,GetModuleHandleA,SetEnvironmentVariableA,CreatePipe,PeekNamedPipe,CreateProcessA,InitializeProcThreadAttributeList,UpdateProcThreadAttribute,DeleteProcThreadAttributeList,CreatePseudoConsole,ResizePseudoConsole,ClosePseudoConsole,GetExitCodeProcess,CreateDirectoryA,DeleteFileA,RemoveDirectoryA,MoveFileA,CopyFileA,GetCurrentDirectoryA,SetCurrentDirectoryA,GetTempPathA"
     let k32count = countFuncs(k32funcs)
 
     let impBase = strsSize
