@@ -102,6 +102,12 @@ All notable changes to the Krypton language and compiler.
   `kr_print`. Use `print` in new code; `kp` stays as a permanent
   legacy alias.
 
+## [2.4.2] - 2026-07-05 — Homebrew macOS refresh
+
+- Bumped macOS package version after `2.4.1` so Homebrew sees a newer release.
+- Rebuilt macOS release artifacts from the `2.4.1` kweb GUI package state.
+- Linux Homebrew remains on `2.3.0` until the matching Linux artifact is cut.
+
 ## [2.4.1] - 2026-07-05 — macOS kweb GUI release
 
 - macOS packages now include `web/kweb`, `web/kweb_gui.ks`, and the
@@ -3158,4 +3164,3 @@ and more.
 - Self-host verified with kcc_v071.exe
 
 ---
-
