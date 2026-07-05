@@ -102,6 +102,20 @@ All notable changes to the Krypton language and compiler.
   `kr_print`. Use `print` in new code; `kp` stays as a permanent
   legacy alias.
 
+## [2.4.1] - 2026-07-05 — macOS kweb GUI release
+
+- macOS packages now include `web/kweb`, `web/kweb_gui.ks`, and the
+  native `kweb_gui.app`.
+- macOS install now links `/usr/local/bin/kweb` and installs the GUI at
+  `/Applications/Krypton/kweb_gui.app`.
+- `kweb_gui.app` supports project selection, build, FTP deploy, secure
+  password input, and optional remote folder. Empty remote folder uploads
+  to the FTP account root; `test` uploads under `/test`.
+- Rebuilt `web/kweb` from current `web/kweb.htk`; this fixes the stale
+  `TEMP/kweb_build.c` build failure seen in the old binary.
+- macOS tarball/pkg release smoke passed with a temp install, `kcc --version`,
+  `kweb` launch/help, and GUI binary presence checks.
+
 ## [2.3.0] - 2026-06-06 — Self-host fix + native StringBuilder + 3-platform parity
 
 **Headline:**
@@ -3144,5 +3158,4 @@ and more.
 - Self-host verified with kcc_v071.exe
 
 ---
-
 

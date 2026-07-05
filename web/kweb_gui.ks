@@ -30,6 +30,8 @@ func fileExists(path) {
 func defaultKwebPath(cwd) {
     let local = cwd + "/web/kweb"
     if cwd != "/" && fileExists(local) == "1" { emit local }
+    let installed = "/usr/local/krypton/web/kweb"
+    if fileExists(installed) == "1" { emit installed }
     let repo = "/Users/t3m3d/Documents/GitHub/krypton/web/kweb"
     if fileExists(repo) == "1" { emit repo }
     emit "web/kweb"
