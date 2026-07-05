@@ -3315,7 +3315,7 @@ func emitPortWarnings(tokens, ntoks, fname) {
 
 
 just run {
-    let kccVer = "2.3.0"
+    let kccVer = "2.4.2"
 
     // Parse flags: --version, --ir, -o OUTFILE, --port-1to2
     // 1.8.4: removed --headers. Install root is fixed at C:\krypton;
