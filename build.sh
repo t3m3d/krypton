@@ -46,6 +46,7 @@ CFLAGS="-O2 -lm -w"
 case "$(uname -s 2>/dev/null)" in
     Linux*)               OSNAME=linux ;;
     Darwin*)              OSNAME=macos ;;
+    FreeBSD*)             OSNAME=freebsd ;;
     MINGW*|MSYS*|CYGWIN*) OSNAME=windows ;;
     *)                    OSNAME=other ;;
 esac
@@ -69,6 +70,7 @@ case "$OSNAME/$ARCH" in
     macos/aarch64)    KCC="./compiler/macos_arm64/kcc-arm64" ;;
     linux/aarch64)    KCC="./compiler/linux_arm64/kcc-linux-arm64" ;;
     linux/x86_64)     KCC="./compiler/linux_x86/kcc-x64" ;;
+    freebsd/x86_64)   KCC="./compiler/freebsd_x86/kcc-x64" ;;
     macos/x86_64)     KCC="./compiler/linux_x86/kcc-x64" ;;  # Intel Mac fallback (legacy macho.k path)
     windows/x86_64)   KCC="./kcc.exe" ;;
     *)                KCC="./compiler/${OSNAME}_${ARCH}/kcc-${ARCH}" ;;
@@ -84,6 +86,7 @@ MODE="${1:-build}"
 native_pipeline_available() {
     case "$OSNAME/$ARCH" in
         linux/x86_64)   return 0 ;;
+        freebsd/x86_64) return 0 ;;
         windows/x86_64) return 0 ;;
         macos/aarch64)  return 0 ;;
         *)              return 1 ;;
@@ -227,7 +230,7 @@ fi
 # ── build (default) ─────────────────────────────────────────────────────────
 echo ""
 echo "════════════════════════════════════════════════════"
-echo "  Krypton Bootstrap Build  (Linux / macOS / WSL)"
+echo "  Krypton Bootstrap Build  (Linux / macOS / FreeBSD / WSL)"
 echo "════════════════════════════════════════════════════"
 echo ""
 
@@ -239,9 +242,18 @@ if [[ -f "$SEED_BIN" ]]; then
     info "prebuilt: $SEED_BIN ($(stat -c%s "$SEED_BIN" 2>/dev/null || stat -f%z "$SEED_BIN") bytes)"
     echo ""
     echo "[1/2] Installing prebuilt kcc..."
+    mkdir -p "$(dirname "$KCC")"
     cp "$SEED_BIN" "$KCC"
     chmod +x "$KCC"
     ok "$KCC ready (no gcc needed)"
+    if native_pipeline_available && [[ ! -x "$KCC_DRIVER" ]]; then
+        fail "missing native driver $KCC_DRIVER"
+    fi
+    if [[ "$OSNAME/$ARCH" == "freebsd/x86_64" \
+        && ! -x "bootstrap/elf_host_freebsd_x86_64" \
+        && ! -x "compiler/freebsd_x86/elf_host" ]]; then
+        fail "missing FreeBSD backend host bootstrap/elf_host_freebsd_x86_64"
+    fi
 
     echo ""
     echo "[2/2] Smoke test: examples/fibonacci.k..."
@@ -276,6 +288,8 @@ if [[ -f "$SEED_BIN" ]]; then
     if [[ "$OSNAME" == "linux" ]]; then
         echo "    ./kcc --native hello.k -o hello      gcc-free native ELF (x86_64)"
         echo "    ./kcc --arm64  hello.k -o hello      cross-compile to aarch64 ELF"
+    elif [[ "$OSNAME" == "freebsd" ]]; then
+        echo "    ./kcc --native hello.k -o hello      gcc-free native FreeBSD ELF (x86_64)"
     elif [[ "$OSNAME" == "macos" ]]; then
         echo "    ./kcc --native hello.k -o hello      gcc-free native Mach-O (arm64)"
     elif [[ "$OSNAME" == "windows" ]]; then
