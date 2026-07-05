@@ -7,7 +7,7 @@
 #   /usr/local/krypton/                payload (driver, compiler, backend, stdlib,
 #                                      headers, examples, LSP)
 #   /usr/local/bin/{kcc,kls,kweb}      symlinks → /usr/local/krypton/...
-#   /Applications/Krypton/kweb_gui.app native kweb deploy GUI
+#   /Applications/Krypton/kweb.app     native kweb deploy GUI
 #
 # `kcc` is the Krypton-native driver (kcc.ks compiled → kcc_driver_macos_aarch64).
 # kcc.sh was removed (0c0dc57b); the C-source seed (kcc_seed.c) was removed too —
@@ -33,7 +33,7 @@ KLS_BIN=""
 [[ -x "compiler/macos_arm64/kls" ]] && KLS_BIN="compiler/macos_arm64/kls"
 [[ -z "$KLS_BIN" && -x "kls" ]]     && KLS_BIN="kls"
 [[ -x "web/kweb" ]] || { echo "build_pkg.sh: missing web/kweb — build it first"; exit 1; }
-[[ -d "dist/kweb_gui.app" ]] || { echo "build_pkg.sh: missing dist/kweb_gui.app — build it first"; exit 1; }
+[[ -d "dist/kweb.app" ]] || { echo "build_pkg.sh: missing dist/kweb.app — build it first"; exit 1; }
 
 # ── Version ────────────────────────────────────────────────────────────────
 VERSION=$(KRYPTON_ROOT="$PWD" "./$DRIVER" --version 2>&1 | sed -E 's/^kcc version //;s/[[:space:]]+.*$//')
@@ -95,7 +95,7 @@ install -m 0644 web/kweb.htk "$ROOT/web/kweb.htk"
 install -m 0644 web/kweb_gui.ks "$ROOT/web/kweb_gui.ks"
 [[ -f web/README.md ]] && install -m 0644 web/README.md "$ROOT/web/README.md"
 mkdir -p "$STAGE/Applications/Krypton"
-ditto --norsrc dist/kweb_gui.app "$STAGE/Applications/Krypton/kweb_gui.app"
+ditto --norsrc dist/kweb.app "$STAGE/Applications/Krypton/kweb.app"
 
 # ── Post-install script ────────────────────────────────────────────────────
 # Runs as root via Installer.app: symlink kcc/kls onto PATH, ad-hoc sign the
@@ -118,7 +118,7 @@ for b in "$ROOT/bootstrap/kcc_driver_macos_aarch64" \
          "$ROOT/compiler/macos_arm64/macho_host" \
          "$ROOT/compiler/macos_arm64/kls" \
          "$ROOT/web/kweb" \
-         "/Applications/Krypton/kweb_gui.app/Contents/MacOS/kweb_gui"; do
+         "/Applications/Krypton/kweb.app/Contents/MacOS/kweb"; do
     [[ -e "$b" ]] && codesign -s - -f "$b" 2>/dev/null || true
 done
 
@@ -157,5 +157,5 @@ echo "or open in Finder:  open $PKG_FILE"
 echo ""
 echo "verify:     kcc --version   # -> kcc version $VERSION"
 echo "            kweb"
-echo "            open /Applications/Krypton/kweb_gui.app"
+echo "            open /Applications/Krypton/kweb.app"
 echo "uninstall:  sudo rm -rf /usr/local/krypton /Applications/Krypton /usr/local/bin/{kcc,kls,kweb}"
