@@ -26,7 +26,7 @@ import "k:env"
 import "k:sh"
 import "k:arch"
 
-func VERSION() { emit "kcc version 2.4.2" }
+func VERSION() { emit "kcc version 2.4.3" }
 
 // Locate the install root: $KRYPTON_ROOT, else the dev repo, else the pkg
 // install. The dev repo is preferred over /usr/local/krypton because the pkg
@@ -378,7 +378,7 @@ just run {
     let first = arg(0)
     if first == "--version" || first == "-v" { kp(VERSION())  exit("0") }
     if first == "--help" || first == "-h" {
-        kp("kcc — Krypton compiler driver (2.4.2)")
+        kp("kcc — Krypton compiler driver (2.4.3)")
         kp("")
         kp("Usage: kcc <source.k|source.ks> [flags]")
         kp("  --native    (default) emit native binary at ./<basename>")

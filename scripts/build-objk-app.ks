@@ -8,6 +8,7 @@
 func isExec(p) { emit trim(exec("test -x \"" + p + "\" && echo yes || echo no")) }
 func isFile(p) { emit trim(exec("test -f \"" + p + "\" && echo yes || echo no")) }
 func newer(a, b) { emit trim(exec("test \"" + a + "\" -nt \"" + b + "\" && echo yes || echo no")) }
+func dirname(p) { emit trim(exec("dirname \"" + p + "\"")) }
 
 just run {
     // Repo root = parent of scripts/. The driver runs us from CWD; assume repo root.
@@ -57,8 +58,9 @@ just run {
         "</dict></plist>\n"
     writeFile(app + "/Contents/Info.plist", plist)
 
-    // bundle icon if present (examples/objk/<name>.icns)
-    let icns = root + "/examples/objk/" + name + ".icns"
+    // bundle icon if present next to the source, else examples/objk/<name>.icns
+    let icns = root + "/" + dirname(src) + "/" + name + ".icns"
+    if isFile(icns) != "yes" { icns = root + "/examples/objk/" + name + ".icns" }
     if isFile(icns) == "yes" {
         exec("mkdir -p \"" + app + "/Contents/Resources\"")
         exec("cp \"" + icns + "\" \"" + app + "/Contents/Resources/" + name + ".icns\"")
