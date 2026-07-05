@@ -57,3 +57,10 @@ compiler/linux_arm64/elf_host
 qemu_*.core
 *.core
 dist/
+
+# Logs and local run output
+*.log
+*.out
+*.err
+*.trace
+*.tmp
