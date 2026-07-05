@@ -50,6 +50,7 @@ func cocoaWindow(app, title, w, h) {
 }
 
 func cocoaShow(win, app) { msg_1(win, "makeKeyAndOrderFront:", app)  emit "1" }
+func cocoaTransparentTitlebar(win) { msg_1(win, "setTitlebarAppearsTransparent:", 1)  emit "1" }
 
 // ── Widgets (attach to the window's content view) ───────────────────────
 
@@ -72,11 +73,35 @@ func cocoaTextField(win, x, y, w, h) {
     emit tf
 }
 
+func cocoaSecureTextField(win, x, y, w, h) {
+    let raw = msg(cls("NSSecureTextField"), "alloc")
+    let tf = msg_frame(raw, "initWithFrame:", x, y, w, h)
+    msg_1(tf, "setEditable:", 1)
+    msg_1(tf, "setSelectable:", 1)
+    msg_1(tf, "setBezeled:", 1)
+    msg_1(tf, "setDrawsBackground:", 1)
+    _addToContentView(win, tf)
+    emit tf
+}
+
 func cocoaLabel(win, text, x, y, w, h) {
     let raw = msg(cls("NSTextField"), "alloc")
     let lbl = msg_frame(raw, "initWithFrame:", x, y, w, h)
     msg_1(lbl, "setStringValue:", nsString(text))
     msg_1(lbl, "setEditable:", 0)
+    _addToContentView(win, lbl)
+    emit lbl
+}
+
+func cocoaPlainLabel(win, text, x, y, w, h) {
+    let raw = msg(cls("NSTextField"), "alloc")
+    let lbl = msg_frame(raw, "initWithFrame:", x, y, w, h)
+    msg_1(lbl, "setStringValue:", nsString(text))
+    msg_1(lbl, "setEditable:", 0)
+    msg_1(lbl, "setSelectable:", 0)
+    msg_1(lbl, "setBezeled:", 0)
+    msg_1(lbl, "setBordered:", 0)
+    msg_1(lbl, "setDrawsBackground:", 0)
     _addToContentView(win, lbl)
     emit lbl
 }
@@ -243,10 +268,28 @@ func cocoaTSColorRange(ts, color, loc, len) {
 
 // ── Colors (named — Krypton has no float literals for colorWithRed:…) ───
 func cocoaColorNamed(name)        { emit msg(cls("NSColor"), name) }
+func cocoaSystemWindowBg()        { emit cocoaColorNamed("windowBackgroundColor") }
+func cocoaSystemText()            { emit cocoaColorNamed("textColor") }
+func cocoaSystemSecondaryText()   { emit cocoaColorNamed("secondaryLabelColor") }
+func cocoaSystemTextBg()          { emit cocoaColorNamed("textBackgroundColor") }
 // True NSColor from 0-255 RGB (exact 256-colour/truecolor; named colours are the basic 16).
 func cocoaRGB(r, g, b) { emit msg_rgb(cls("NSColor"), "colorWithRed:green:blue:alpha:", r, g, b) }
 func cocoaSetBg(view, color)      { msg_1(view, "setBackgroundColor:", color)  emit "1" }
 func cocoaSetTextColor(tv, color) { msg_1(tv, "setTextColor:", color)          emit "1" }
+func cocoaSetWindowBg(win, color) { msg_1(win, "setBackgroundColor:", color)   emit "1" }
+
+// ── Open panels ───────────────────────────────────────────────────────
+func cocoaChooseFolder(title) {
+    let panel = msg(cls("NSOpenPanel"), "openPanel")
+    msg_1(panel, "setTitle:", nsString(title))
+    msg_1(panel, "setCanChooseFiles:", 0)
+    msg_1(panel, "setCanChooseDirectories:", 1)
+    msg_1(panel, "setAllowsMultipleSelection:", 0)
+    if msg(panel, "runModal") != 1 { emit "" }
+    let url = msg(panel, "URL")
+    if url == 0 { emit "" }
+    emit msg(msg(url, "path"), "UTF8String")
+}
 
 // ── Fonts ──────────────────────────────────────────────────────────────
 // [NSFont userFixedPitchFontOfSize:n] — monospaced (size in pt, int is fine).
@@ -281,6 +324,13 @@ func cocoaTextAttrs(font, color) {
     msg_2(d, "setObject:forKey:", font, nsString("NSFont"))
     msg_2(d, "setObject:forKey:", color, nsString("NSColor"))
     emit d
+}
+func cocoaSetButtonTextColor(btn, color) {
+    let title = msg(btn, "title")
+    let attrs = cocoaTextAttrs(msg(btn, "font"), color)
+    let astr = msg_2(msg(cls("NSAttributedString"), "alloc"), "initWithString:attributes:", title, attrs)
+    msg_1(btn, "setAttributedTitle:", astr)
+    emit "1"
 }
 // Draw a string into a rect with the given attributes (use inside drawRect:).
 func cocoaDrawText(str, x, y, w, h, attrs) {
