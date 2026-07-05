@@ -4,6 +4,12 @@ All notable changes to the Krypton language and compiler.
 
 ## [Unreleased]
 
+- **FreeBSD x86_64 native scaffold**. Added `compiler/freebsd_x86/elf.k`,
+  FreeBSD `kcc.ks` dispatch, and `build.sh` detection for future
+  `bootstrap/kcc_seed_freebsd_x86_64`, `kcc_driver_freebsd_x86_64`,
+  `elf_host_freebsd_x86_64`, and `optimize_host_freebsd_x86_64` seeds.
+  Backend uses `ELFOSABI_FREEBSD`, FreeBSD syscall numbers, and `shm_open2`
+  for `memfdCreate`; no C fallback added.
 - **GUI frontend modernization** (`stdlib/gui.k`). New helpers, all
   opt-in so existing programs are byte-identical:
     - `guiEnableModernChrome()` -- per-monitor v2 DPI via
@@ -101,6 +107,12 @@ All notable changes to the Krypton language and compiler.
   fronts. Existing `kp` calls continue to work — both lower to
   `kr_print`. Use `print` in new code; `kp` stays as a permanent
   legacy alias.
+
+## [2.4.4] - 2026-07-05 — kweb app naming fix
+
+- Renamed the macOS GUI app bundle to `kweb.app` instead of `kweb_gui.app`.
+- Package/tarball install paths now use `/Applications/Krypton/kweb.app`.
+- Kept the source file as `web/kweb_gui.ks`.
 
 ## [2.4.3] - 2026-07-05 — kweb GUI icon
 
