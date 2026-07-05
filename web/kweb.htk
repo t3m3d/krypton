@@ -110,8 +110,8 @@ func scaffoldSite(projectName, which) {
 
 func doInit(projectName) {
     // Create project directory structure
-    let cmd = "mkdir -p " + projectName + "/dist"
-    shellRun(cmd)
+    fsMkdir(projectName)
+    fsMkdir(projectName + "/dist")
 
     writeFile(projectName + "/site.htk", scaffoldSite(projectName, "site"))
     writeFile(projectName + "/export.htk", scaffoldSite(projectName, "export"))
@@ -142,16 +142,62 @@ func tmpDir() {
     emit d
 }
 
+func kwebRoot() {
+    let kr = environ("KRYPTON_ROOT")
+    if kr != "" { if fsFileExists(kr + "/kcc-bin.exe") == "1" { emit kr } }
+    if fsFileExists("C:/krypton/kcc-bin.exe") == "1" { emit "C:/krypton" }
+    let cwd = exec("cd")
+    if fsFileExists(cwd + "/kcc-bin.exe") == "1" { emit cwd }
+    emit ""
+}
+
+func rootTool(root, relA, relB) {
+    let a = root + relA
+    if fsFileExists(a) == "1" { emit a }
+    emit root + relB
+}
+func kccCommand() {
+    let kr = environ("KRYPTON_ROOT")
+    if kr != "" {
+        let rooted = kr + "/kcc.exe"
+        if fsFileExists(rooted) == "1" { emit "set " + DQ() + "KRYPTON_ROOT=" + kr + DQ() + " && " + rooted }
+    }
+    let cwd = exec("cd")
+    let local = cwd + "/kcc.exe"
+    if fsFileExists(local) == "1" { emit "set " + DQ() + "KRYPTON_ROOT=" + cwd + DQ() + " && " + local }
+    if fsFileExists("C:/krypton/kcc.exe") == "1" { emit "C:/krypton/kcc.exe" }
+    emit "kcc"
+}
 func doBuild() {
     printErr("kweb: building...")
     // Native compile — kcc emits a binary directly (no C, no gcc). export.htk
     // is the static-site generator; running it writes dist/.
     let bin = tmpDir() + "/kweb_build"
-    let cmd = "kcc export.htk -o " + bin + " 2>&1"
-    let rc = shellRun(cmd)
-    if rc != "0" {
-        printErr("kweb: compile failed")
-        emit 1
+    if environ("OS") == "Windows_NT" { bin = bin + ".exe" }
+    let root = kwebRoot()
+    if root != "" {
+        let tmpIR = tmpDir() + "/kweb_build.ir"
+        let tmpOpt = tmpDir() + "/kweb_build_opt.ir"
+        let fe = root + "/kcc-bin.exe"
+        let opt = rootTool(root, "/bin/optimize_host.exe", "/compiler/windows_x86/optimize_host.exe")
+        let x64 = root + "/bootstrap/x64_host_windows_x86_64.exe"
+        let rc1 = shellRun(fe + " export.htk --ir > " + tmpIR)
+        if rc1 != "0" { printErr("kweb: IR emission failed")  exit("1") }
+        let rc2 = shellRun(opt + " " + tmpIR + " > " + tmpOpt)
+        if rc2 != "0" { printErr("kweb: optimize failed")  exit("1") }
+        let rc3 = shellRun(x64 + " " + tmpOpt + " " + bin)
+        if rc3 != "0" { printErr("kweb: codegen failed")  exit("1") }
+    } else {
+        let cmd = kccCommand() + " export.htk -o " + bin + " 2>&1"
+        let rc = shellRun(cmd)
+        if rc != "0" {
+            printErr("kweb: compile failed")
+            exit("1")
+        }
+    }
+    if fsFileExists(bin) != "1" {
+        printErr("kweb: compile did not produce " + bin)
+        exit("1")
     }
     let out = exec(bin)
     print(out)
@@ -208,7 +254,7 @@ func _walkDir(base, rel) {
 }
 
 func doDeploy(sftpHost, sftpUser) {
-    printErr("kweb: deploying dist/ to " + sftpUser + "@" + sftpHost + ":/public_html/")
+    printErr("kweb: deploying dist/ to " + sftpUser + "@" + sftpHost + ":/")
     printErr("kweb: enter password when prompted")
 
     // Walk dist/ recursively so subfolders (e.g. learn/) are included.
@@ -221,7 +267,7 @@ func doDeploy(sftpHost, sftpUser) {
         let rel = getLine(files, i)
         if len(rel) > 0 {
             let local = "dist/" + rel
-            let remote = "sftp://" + sftpHost + "/public_html/" + rel
+            let remote = "sftp://" + sftpHost + "/" + rel
             let cmd = "curl --ftp-create-dirs -T " + local + " " + remote +
                 " --user " + sftpUser + " --insecure 2>&1"
             printErr("  uploading " + rel + "...")

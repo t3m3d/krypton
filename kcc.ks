@@ -120,7 +120,7 @@ func findRoot() {
     // Windows branch first — POSIX `env`/`home` from k:env/k:fsx shell
     // out to `printenv`/`$HOME` which don't work under cmd.exe.
     let osh = exec("uname -s")
-    if contains(osh, "MINGW") == "1" || contains(osh, "MSYS") == "1" || contains(osh, "CYGWIN") == "1" {
+    if environ("OS") == "Windows_NT" || contains(osh, "MINGW") == "1" || contains(osh, "MSYS") == "1" || contains(osh, "CYGWIN") == "1" {
         let kr = _winEnv("KRYPTON_ROOT")
         if kr != "" {
             if _winExists(kr + "/kcc-bin.exe") == "1" { emit kr }
@@ -339,6 +339,32 @@ func compileArm64(root, src, out) {
     emit "1"
 }
 
+
+func winTool(root, name) {
+    let p = root + "/bin/" + name
+    if _winExists(p) == "1" { emit p }
+    p = root + "/compiler/windows_x86/" + name
+    if _winExists(p) == "1" { emit p }
+    emit name
+}
+
+func compileWindows(root, src, out) {
+    let kccExe = root + "/kcc-bin.exe"
+    let optExe = winTool(root, "optimize_host.exe")
+    let x64Exe = winTool(root, "x64_host_new.exe")
+    let winTemp = _winEnv("TEMP")
+    if winTemp == "" { winTemp = "C:/Windows/Temp" }
+    winTemp = replace(winTemp, "\\", "/")
+    let tmpIR = winTemp + "/tmp_kcc_build.ir"
+    let tmpOpt = winTemp + "/tmp_kcc_build_opt.ir"
+    exec(kccExe + " " + src + " --ir > " + tmpIR)
+    if _winExists(tmpIR) == "0" { kp("kcc: IR emission failed for " + src)  emit "0" }
+    exec(optExe + " " + tmpIR + " > " + tmpOpt)
+    if _winExists(tmpOpt) == "0" { kp("kcc: optimize failed")  emit "0" }
+    exec(x64Exe + " " + tmpOpt + " " + out)
+    if _winExists(out) == "0" { kp("kcc: native codegen failed")  emit "0" }
+    emit "1"
+}
 // native Linux x86-64 compile: src -> out. Returns "1" ok / "0" fail.
 func compileLinux(root, src, out) {
     let fe = root + "/compiler/linux_x86/kcc-x64"
@@ -481,7 +507,7 @@ just run {
     // supported on this path yet (the standard install at C:\krypton and
     // the dev repo under %USERPROFILE%\Documents have none). Wrap-in-
     // cmd-/c when that changes.
-    if startsWith(os, "MINGW") == "1" || startsWith(os, "MSYS") == "1" || startsWith(os, "CYGWIN") == "1" {
+    if environ("OS") == "Windows_NT" || startsWith(os, "MINGW") == "1" || startsWith(os, "MSYS") == "1" || startsWith(os, "CYGWIN") == "1" {
         if hasFlag("--c")    { kp("kcc: --c was removed (Krypton is C-free; native pipeline only).")    exit("1") }
         if hasFlag("--gcc")  { kp("kcc: --gcc was removed (Krypton is C-free; native pipeline only).")  exit("1") }
         if hasFlag("--llvm") { kp("kcc: --llvm was removed (Krypton is C-free; native pipeline only).") exit("1") }
@@ -501,7 +527,7 @@ just run {
         if hasFlag("--ir") {
             let s = linuxSrc()
             if s == "" { kp("kcc: --ir needs a source file")  exit("1") }
-            kp(_chompWS(exec(kccExe + " --ir " + s)))
+            kp(_chompWS(exec(kccExe + " " + s + " --ir")))
             exit("0")
         }
         // Windows temp-file helpers. POSIX mktemp doesn't ship with cmd.exe,
@@ -556,8 +582,7 @@ just run {
         let src = linuxSrc()
         if src == "" { kp("kcc: no source file")  exit("1") }
         let out = optValue("-o", baseName(src) + ".exe")
-        exec(kccExe + " -o " + out + " " + src)
-        if _winExists(out) == "0" { kp("kcc: native codegen failed")  exit("1") }
+        if compileWindows(root, src, out) == "0" { exit("1") }
         exit("0")
     }
 
