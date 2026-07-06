@@ -2389,7 +2389,7 @@ func irLetIR(tokens, pos, ntoks, lc, inFunc, types) {
     // (array) lo*8 OR (reslice) SRC.byteOff + lo*8; len = hi-lo; cap = (array)
     // len OR (reslice) SRC.cap - lo. The let var holds the quad ptr and is
     // tracked __slice by the pre-pass. Pure FE over the A5 buf builtins (8-byte
-    // slots, int/pointer). append: TODO — pairs with the GC freelist (handoff B3).
+    // slots, int/pointer). append: TODO — pairs with the GC freelist work.
     let s3src = tokAt(tokens, p)
     if len(s3src) >= 3 && substring(s3src, 0, 3) == "ID:" && tokAt(tokens, p + 1) == "LBRACK" {
         let s3name = substring(s3src, 3, len(s3src))
@@ -3750,7 +3750,7 @@ just run {
             // Forward decl always uses char*. decl MUST be initialized
             // unconditionally — the old `if pc==0` left it NULL for funcs WITH
             // params, and sbAppend(sb, NULL) below strlen-crashes the FE (the
-            // param-func SIGSEGV). (found by agent M; this builds the discarded
+            // param-func SIGSEGV). (this builds the discarded
             // C-output sb, but the concat runs before sb is dropped in --ir mode.)
             let decl = "char* " + fname + "("
             sb = sbAppend(sb, decl)

@@ -6,7 +6,7 @@ opens an `NSWindow`, places `NSButton` / `NSTextField` widgets, handles
 clicks, and runs the AppKit event loop — all from pure Krypton, no
 Objective-C source files in the project.
 
-**Audience:** agent m, who owns `compiler/macos_arm64/macho_arm64_self.k`
+**Audience:** maintainers of `compiler/macos_arm64/macho_arm64_self.k`
 and the macOS bootstrap path.
 
 This doc is the architectural sketch behind the scaffold landed
@@ -46,7 +46,7 @@ The header layer is the only place a "C symbol" appears.
 ## State model — caller threads, no module globals
 
 `stdlib/objc.k` and `stdlib/cocoa.k` are **fully stateless**. No
-`let` outside function bodies. Same constraint agent m hit while
+`let` outside function bodies. Same constraint encountered while
 shipping `stdlib/server_native.k`:
 
 > *Imported Krypton modules export functions only; their top-level
@@ -99,7 +99,7 @@ The trampoline (`KrCallbackTarget.krDispatch:`) doesn't need to know
 anything about the user's state — it just hands the sender to the
 Krypton handler and lets the handler walk the associated env.
 
-## What's missing (agent m's work)
+## What's Missing
 
 1. **`objc_msgSend` arm64 calling convention.** Cocoa's dispatch ABI:
    - `self` in `x0`
@@ -189,7 +189,7 @@ Not in scope today. Land the primitives first; abstractions later.
 
 - **Unit:** `examples/cocoa_hello.ks` is the smoke test. If it opens a
   window with a working button on a Mac, the chain works.
-- **Layered:** before the smoke test, agent m's macho backend should
+- **Layered:** before the smoke test, the macho backend should
   pass a non-GUI Obj-C call — e.g. `kp(msg(cls(NSString_cls),
   sel_stringFromUTF8: "hi"))`. No window, no event loop, just confirms
   `objc_msgSend` calling convention is right.
@@ -197,7 +197,7 @@ Not in scope today. Land the primitives first; abstractions later.
   in `tests/wasm/RUN.sh` (diff golden output to `kcc -r`) works
   identically for a Cocoa CLI smoke test.
 
-## Open questions for agent m
+## Open Questions
 
 - Should the macho backend emit a built-in `kr_objc_init()` that
   resolves the `_objc_msgSend` import at runtime (via `dlsym`), or
@@ -213,9 +213,9 @@ When you've got opinions, land them in this doc; PRs welcome.
 
 ---
 
-## Agent M implementation plan + decisions (2026-06-09)
+## macOS Backend Implementation Plan + Decisions (2026-06-09)
 
-Picking this up. Reconnaissance done. **All work is in `compiler/macos_arm64/macho_arm64_self.k`** (the Krypton-only macho codegen → built into `macho_host` by `kcc` via the `kcc-arm64` frontend + clang, one-time/stale). The krypton-side scaffold (objc.krh/cocoa.krh/objc.k/cocoa.k/cocoa_hello.ks) is complete and unchanged.
+**All work is in `compiler/macos_arm64/macho_arm64_self.k`** (the Krypton-only macho codegen → built into `macho_host` by `kcc` via the `kcc-arm64` frontend + clang, one-time/stale). The krypton-side scaffold (objc.krh/cocoa.krh/objc.k/cocoa.k/cocoa_hello.ks) is complete and unchanged.
 
 **Core lever:** the backend already contains a *working-but-removed* single-import dyld path (`_puts` from libSystem): `emitStubCode` (adrp x16,got@page / ldr / br), `emitGotSlot` (dyld_chained_ptr_64_bind), `emitChainedFixups` (header + starts_in_image + imports + symbols), symtab/strtab, and in-Krypton SHA-256 ad-hoc signing. It's currently dialed to **zero imports** (C-free static). objk = generalize this to **N imports across M dylibs** + wire the objc builtins. NOTE: this re-introduces dynamic linking — a deliberate, macOS-GUI-only exception to the syscall-only C-free model.
 

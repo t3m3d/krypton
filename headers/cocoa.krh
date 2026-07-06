@@ -16,7 +16,7 @@
 //      this list at app startup with one walk, so user code never pays
 //      the sel_registerName() cost on the hot path.
 //
-// SCAFFOLD — agent m's macho_arm64_self.k codegen + a real test app will
+// SCAFFOLD — the macOS backend's macho_arm64_self.k codegen + a real test app will
 // grow this list as needed. Start with the minimum surface for "window
 // with a button" and expand from there.
 

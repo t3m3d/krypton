@@ -594,7 +594,7 @@ These modules wrap Windows DLLs that are IAT-registered in
 `compiler/windows_x86/x64.k` but whose **runtime resolution waits on a
 fresh `x64_host_windows_x86_64.exe`** -- the source-level wiring shipped
 2026-06-13 but the prebuilt host binary in the tree still predates them.
-See `handoffs/handoff_w_ws2_32_iat.md` for the regen plan. Until that
+See `docs/backend_history.md#Windows ws2_32 IAT notes` for the regen plan. Until that
 regen lands, programs that import these modules will compile but the
 new IAT slots stay zero at load time and the calls segfault on first
 invocation. Listed here for record so the surface is documented before

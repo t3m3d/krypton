@@ -17,7 +17,7 @@
 // the wrappers live in stdlib/winsock.k; once stdlib/server_native.k
 // is updated to dispatch sockMake/... to winsock.k's sockMakeWin/... on
 // Windows (and the x64_host binary is regenerated -- see
-// handoffs/handoff_w_ws2_32_iat.md), this example runs unchanged there
+// docs/backend_history.md#Windows ws2_32 IAT notes), this example runs unchanged there
 // too.
 
 import "k:server_native"

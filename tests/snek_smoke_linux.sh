@@ -14,7 +14,7 @@
 #   tests/snek_smoke_linux.sh hello    # just hello.kp
 #
 # NOTE: some examples are known-broken on the Linux native pipeline
-# (see handoffs/handoff_w2l_linux_runtime_gaps.md). This script REPORTS
+# (see docs/backend_history.md#Linux runtime gap notes). This script REPORTS
 # results -- a non-zero exit means at least one example didn't run
 # cleanly. Differences between Windows and Linux output for the same
 # program point at gaps in linux_x86/elf.k.
