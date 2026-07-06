@@ -19,7 +19,9 @@ Compact facts preserved before deleting `handoffs/handoff_*.md`.
   - empty remote folder means FTP account root
   - `test` means upload under `/test`
   - do not force `public_html`
-- `web/kweb.htk` CLI deploy still has old `/public_html` behavior. Avoid copying that into GUI work.
+- Historical bug: `web/kweb.htk` CLI deploy once forced `/public_html`.
+  Keep current GUI/CLI behavior root-default: empty remote folder uploads to
+  FTP account root, and `test` uploads under `/test`.
 
 ## Windows
 
@@ -31,6 +33,34 @@ Compact facts preserved before deleting `handoffs/handoff_*.md`.
   - GC phase-3 runtime verification
   - possible old FE/BE generation skew
 - Avoid cross-FE artifacts unless FE/BE versions match.
+- x64 host rebuild history:
+  - Windows `x64_host` regeneration has been fragile and memory-heavy.
+  - Broken rebuilds can produce valid-looking PE files that crash on startup or
+    when processing real IR.
+  - Current release work should prefer known-good backend binaries unless a new
+    backend is rebuilt and smoke-tested end to end.
+  - Cross-building Windows backend artifacts from macOS/Linux only works when
+    frontend and backend `compile.k` generations match.
+- Runtime/bootstrap gotcha:
+  - `runtime/krypton_rt.k` is not always the executable body of
+    `krypton_rt.dll`.
+  - When output is `krypton_rt.dll`, bootstrap mode can emit helper bodies from
+    `compiler/windows_x86/x64.k`; source-level changes in `runtime/krypton_rt.k`
+    may only affect exported names/declarations.
+  - Treat temp/copied DLLs as untrusted unless rebuilt from source or
+    byte-identical to tracked `runtime/krypton_rt.dll`.
+- GC stage notes:
+  - Windows/macOS had staged GC work around freelist consumption and phase-3
+    auto-collect, but older handoffs marked parts as source-landed before full
+    Windows runtime validation.
+  - Validate each GC stage with small runtime smokes before release; do not stack
+    new GC work on unverified stage work.
+- GUI warning:
+  - `guiEnableModernChrome`, `guiApplyExplorerTheme`, and broader theme/color
+    helpers were documented as modernization work but were not fully proven.
+  - Current Windows testing showed those paths can crash after the window shows.
+    Plain Win32 controls are the stable baseline until custom paint/theme
+    support is rebuilt and verified.
 
 ## Linux
 
