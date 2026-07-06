@@ -1,6 +1,6 @@
 # BUG: try/catch/throw unimplemented in native backends (macOS SIGILL/SIGSEGV)
 
-**Found:** 2026-06-20 (Agent M, macOS arm64). **Test:** `tests/test_try_catch.k`
+**Found:** 2026-06-20 (macOS backend, macOS arm64). **Test:** `tests/test_try_catch.k`
 fails — `FAIL basic throw` then crash (signal 4 SIGILL in the suite, 139 SIGSEGV
 standalone).
 

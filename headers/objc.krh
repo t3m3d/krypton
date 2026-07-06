@@ -10,7 +10,7 @@
 // Wrappers in stdlib/objc.k make this ergonomic — most user code never
 // touches these names directly.
 //
-// SCAFFOLD — agent m owns the actual macho_arm64_self.k codegen
+// SCAFFOLD — the macOS backend owns the actual macho_arm64_self.k codegen
 // (objc_msgSend calling convention on arm64 puts self in x0 and SEL in x1
 // with extra args in x2..x7, matching the standard ABI). See
 // docs/cocoa_design.md for the dispatch plan.

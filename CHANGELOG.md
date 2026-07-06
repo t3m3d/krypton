@@ -98,7 +98,7 @@ All notable changes to the Krypton language and compiler.
   comctl32 / dwmapi tables — 14 funcs, descriptor index 11, prefix
   `ws:`. **Open:** `x64_host_windows_x86_64.exe` needs a regen pass
   from the new x64.k before user binaries actually populate the new
-  IAT slots at runtime — see `handoffs/handoff_w_ws2_32_iat.md` for the
+  IAT slots at runtime — see `docs/backend_history.md#Windows ws2_32 IAT notes` for the
   smoke test program. First consumer once it lands:
   [t3m3d/WinThrow](https://github.com/t3m3d/WinThrow), the
   iPhone-Share-Sheet → Windows file drop receiver.
@@ -209,17 +209,17 @@ All notable changes to the Krypton language and compiler.
 
 **Process / repo hygiene:**
 
-- `handoffs/` pruned from 20 docs to 5 live agent threads
+- `docs/backend_history.md#` pruned from 20 docs to 5 live agent threads
   (`2c1f4bd1`, `a2d62703`). Resolved self-host crash, kr.exe parity,
   wasm drop, param crash, Linux exec, sockets cross-backend, and
-  agent-L crash handoffs all removed. Three design archives moved to
+  Linux crash notes all removed. Three design archives moved to
   `docs/`: `docs/SELFHOST_MACOS.md`, `docs/design/GC_SELFHOST_PLAN.md`,
-  `docs/design/LOWBIT_TAGGING_PLAN.md`. `handoffs/` is now strictly
+  `docs/design/LOWBIT_TAGGING_PLAN.md`. `docs/backend_history.md#` is now strictly
   live agent-to-agent threads.
 
 ---
 
-**Linux GUI flagship — `stdlib/x11.k` Phase A1+A2 (agent w):**
+**Linux GUI flagship — `stdlib/x11.k` Phase A1+A2 (Windows backend):**
 
 - Pure-Krypton X11 wire-protocol client. No libX11, no libxcb, no
   dynamic linking. Built on the existing `sockMake` / `sockConnect` /
@@ -229,7 +229,7 @@ All notable changes to the Krypton language and compiler.
 - Phase A1: `x11Connect(host, display)` + `x11Handshake(fd)` returns
   the accept byte. Verified against Xvfb on Arch/WSL2 — TCP loopback
   to `127.0.0.1:6001`, byte 1 (accept) returned cleanly.
-- Phase A2: full server-info parse on top of agent l's new buf
+- Phase A2: full server-info parse on top of the Linux backend's new buf
   machinery — `x11Vendor`, `x11ResourceIdBase`, `x11ResourceIdMask`,
   `x11ProtoMajor/Minor`, `x11ReleaseNumber`, `x11MaxRequestLen`,
   `x11NumScreens` / `NumFormats` / `ImageByteOrder`, keycode range.
@@ -237,10 +237,10 @@ All notable changes to the Krypton language and compiler.
   rid mask 0x1FFFFF / max-request-len 65535 / 1 screen / 6 formats /
   LSB byte order / keycodes 8..255 against Xvfb.
 - Phase B (CreateWindow + MapWindow + event loop) and Phase C
-  (CreateGC + PolyFillRectangle + ImageText8) reassigned to agent l —
+  (CreateGC + PolyFillRectangle + ImageText8) reassigned to the Linux backend —
   they own the deeper Linux syscall surface (AF_UNIX, forkpty, etc).
 
-**Three more stdlib modules — color / mime / cookie (agent w):**
+**Three more stdlib modules — color / mime / cookie (Windows backend):**
 
 Filling JS/Python-equivalent gaps that the existing 74 modules
 didn't cover. All pure Krypton, no syscalls, no C; verified via
@@ -266,7 +266,7 @@ returns 0 on Linux, and `rdtsc` / `timestamp` exceed the smart-int
 pointer ceiling at 0x7F000000 and get re-tagged. Coming back once a
 small-int entropy primitive lands.)
 
-**Host architecture detection — `stdlib/arch.k` + kcc.ks integration (agent w):**
+**Host architecture detection — `stdlib/arch.k` + kcc.ks integration (Windows backend):**
 
 - New stdlib module returns the host CPU as a normalized string
   (`"x86_64"` / `"arm64"` / `"x86"` / `"armv7"` / `"unknown"`) plus
@@ -283,11 +283,11 @@ small-int entropy primitive lands.)
     - `host arm64,  no flag    → arm64 backend` (NEW)
     - `--arm64                  → arm64 regardless of host` (existing)
     - `--x64                    → x86_64 regardless of host` (new opt-out)
-  Sets up Linux aarch64 hosts to "just work" once agent l's M4
+  Sets up Linux aarch64 hosts to "just work" once the Linux backend's M4
   string-concat lands. Same pattern extends to Windows-on-ARM the day
   a Windows arm64 backend exists.
 
-**Linux test surface + CI (agent w):**
+**Linux test surface + CI (Windows backend):**
 
 - `tests/run_linux.sh` — real test runner. Iterates `tests/*.k`,
   compiles each via `kcc.sh`, classifies PASS / FAIL (timeout, signal-
@@ -300,7 +300,7 @@ small-int entropy primitive lands.)
   `compiler/linux_x86/**`, `stdlib/**`, `tests/**`, `build.sh`,
   `kcc.sh`, or `bootstrap/**`.
 
-**Sibling-repo Linux ports + Arch packaging (agent w):**
+**Sibling-repo Linux ports + Arch packaging (Windows backend):**
 
 - `kryofetch` repo: `run_linux.k` + `build_linux.sh` (Krypton-native
   compile via `KRYPTON_ROOT/kcc.sh`, no gcc at user-invocation time)
@@ -328,7 +328,7 @@ small-int entropy primitive lands.)
 - Programs page (`web/site/export.htk`) updated: new cards for
   `yubiKrypt` and `kryoterm`; reframed `kryofetch` as cross-platform
   (Windows + Linux x86_64) with honest aarch64 footnote (pending
-  agent l's M4 string-concat).
+  the Linux backend's M4 string-concat).
 - System-following light/dark theme — `@media
   (prefers-color-scheme: dark)` overrides flip the CSS custom
   properties on `:root` (no toggle, no localStorage). Hero dimmed via
@@ -353,7 +353,7 @@ small-int entropy primitive lands.)
   Sub-pages (`docs/`, `learn/`, `blog/`, `playground.html`) had been
   missing the `@media` block entirely — patched.
 
-**Zero-C HTTP server on macOS — `k:server_native` (agent m):**
+**Zero-C HTTP server on macOS — `k:server_native` (macOS backend):**
 
 - New BSD-socket builtins emitted as direct `svc` syscalls by
   `compiler/macos_arm64/macho_arm64_self.k`: `sockMake`, `sockBind`,
@@ -404,10 +404,10 @@ backend codegen, stdlib, and example app are all Krypton.
 - `docs/cocoa_design.md` — architecture: arm64 ABI for objc_msgSend,
   NSRect register packing, target/action callback bridge via runtime
   `objc_allocateClassPair` + a small Krypton trampoline, autorelease
-  pool ↔ Krypton GC interaction. Hands off the codegen work to agent m
+  pool ↔ Krypton GC interaction. Hands off the codegen work to the macOS backend
   with the open questions called out at the bottom.
 
-**State:** scaffold only. On macOS arm64 this links + runs once agent m's
+**State:** scaffold only. On macOS arm64 this links + runs once the macOS backend's
 `macho_arm64_self.k` work lands the objc_msgSend calling convention +
 NSRect ABI + the callback trampoline. On Windows/Linux the imports
 parse but symbols don't resolve at link time (expected — Cocoa is

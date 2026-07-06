@@ -6945,7 +6945,7 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     // threshold(+88) is set and alloc_count(+40) >= it and not already collecting
     // (guard +96), fire kr_gc_collect. Roots live on the SHADOW STACK (Windows),
     // so NO register safepoint is needed (unlike the macOS conservative-scan port).
-    // ⚠ agent w: VERIFY RSP 16-alignment at the CALL — entry reaches __rt_alloc_v2
+    // VERIFY RSP 16-alignment at the CALL — entry reaches __rt_alloc_v2
     //   via JMP (tail-call) so RSP parity needs a Windows run-test; the single
     //   PUSH RAX may need to be a 16-byte-preserving pair.
     let v2t_thr    = (gcGlobalsRva + 88) - (textRva + pos + 389)

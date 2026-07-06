@@ -2,7 +2,7 @@
 
 **Audience:** the Python frontend author (Brian's Copilot scaffolding
 + whoever maintains it after).
-**Sibling docs:** `handoff_w2all_pyfrontend.md`, `handoff_w2all_overall.md`.
+**Sibling docs:** `Python frontend planning notes`, `roadmap notes`.
 **Status:** living doc; fill in as constructs land. Mark as
 **(shipped)** / **(planned)** / **(blocked: <roadmap-item>)** as they
 move through.
@@ -660,12 +660,12 @@ B5 lands.
 - Closure machinery: `project_v20_alpha3_closure_unification.md`.
 - Typed pointers: `project_v183_phase_c.md` and follow-ons.
 - Roadmap items referenced as "blocked on Aₙ / Bₙ":
-  `handoff_w2all_overall.md`.
+  `roadmap notes`.
 
 ## Open questions for the FE author
 
 1. **File extension.** `.pyk` is w's vote in
-   `handoff_w2all_pyfrontend.md`. Brian / Copilot decision.
+   `Python frontend planning notes`. Brian / Copilot decision.
 2. **Type inference depth.** Do we infer enough to disambiguate
    `obj.method()` between string / list / dict surfaces, or
    require explicit calls? Today: string default + warn on

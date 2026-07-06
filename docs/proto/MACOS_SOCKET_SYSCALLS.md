@@ -123,7 +123,7 @@ Adding ONE socket builtin touches THREE places:
 
 This is a self-hosting-compiler bootstrap change (compile.k + kcc-arm64
 rebuild), not a single-file edit — and compile.k + macho_arm64_self.k are
-both actively edited by Agent W (WASM work). Do it as ONE focused session
+both actively edited by Windows backend (WASM work). Do it as ONE focused session
 with the backend quiet, rebuilding + testing kcc-arm64 carefully, OR have
 whoever owns the compiler bootstrap do it. Don't land it piecemeal: the
 frontend and backend halves are useless apart and a half-done state

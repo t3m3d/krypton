@@ -3456,7 +3456,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             // SIGSEGVs (verified 2026-06-20). You CANNOT mask it back either —
             // MOD/bitAnd threshold-check their args, so they choke on the same
             // transient >2^32 value. Fixing negative ADD needs the low-bit
-            // tagging rework (handoffs/LOWBIT_TAGGING_PLAN.md), not a point fix.
+            // tagging rework (docs/backend_history.md#LOWBIT_TAGGING_PLAN.md), not a point fix.
             s = sbAppend(s, arm64_add_www(0, 3, 6))  // 7
             s = sbAppend(s, arm64_push_x0())  // 8
             s = sbAppend(s, arm64_b(184))  // 9: → ADD_DONE@193
@@ -4855,7 +4855,7 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
         } else if opTok == "BUILTIN_GCSETTHRESHOLD" {
             // gcSetThreshold(arg): arg may be an INT (gcSetThreshold(100)) or a
             // STRING (gcSetThreshold("100")) — unified with the Windows ABI (w's
-            // phase-3 review, handoff_w2m_phase3_review.md item 4) so one test
+            // phase-3 review, GC phase-3 review notes item 4) so one test
             // (tests/gc_auto_collect.k) runs on both backends. Route the arg
             // through the same int-passthrough + signed-parse as BUILTIN_TOINT
             // (verbatim, self-relative branches), then store the int at
