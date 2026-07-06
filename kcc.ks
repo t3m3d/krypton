@@ -689,8 +689,7 @@ just run {
             let ek = winTemp + "/_kcceval_" + safe + ".ks"
             let ebin = winTemp + "/_kcceval_" + safe + ".exe"
             writeText(ek, "just run {\n" + _winUnquote(_winJoinFrom(1)) + "\n}\n")
-            exec(kccExe + " -o " + ebin + " " + ek)
-            if _winExists(ebin) == "0" {
+            if compileWindows(root, ek, ebin) == "0" {
                 exec("del /q " + replace(ek, "/", "\\"))
                 exit("1")
             }
@@ -706,8 +705,7 @@ just run {
             let tick = _chompWS(exec("echo %TIME%"))
             let safe = replace(replace(replace(tick, ":", ""), ".", ""), " ", "")
             let tmpbin = winTemp + "/_kcckrun_" + safe + ".exe"
-            exec(kccExe + " -o " + tmpbin + " " + src)
-            if _winExists(tmpbin) == "0" { exit("1") }
+            if compileWindows(root, src, tmpbin) == "0" { exit("1") }
             let passed = restFrom(2)
             kp(_chompWS(exec(tmpbin + " " + passed)))
             exec("del /q " + replace(tmpbin, "/", "\\"))
