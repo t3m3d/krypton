@@ -64,3 +64,6 @@ dist/
 *.err
 *.trace
 *.tmp
+
+# Codex/local probe output
+_codex_probe*/
