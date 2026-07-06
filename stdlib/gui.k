@@ -112,10 +112,13 @@ func _krkWndProc(hwnd, msg, wParam, lParam) {
         emit GetStockObject("5")
     }
     if msgInt == 307 {
-        // WM_CTLCOLOREDIT
-        let textHex = guiStateGet("ui.text.color")
+        // WM_CTLCOLOREDIT: edit controls need their own palette. Reusing
+        // the window brush makes text inputs/logs inherit dark app chrome.
+        let textHex = guiStateGet("ui.edit.text.color")
         if textHex != "" { SetTextColor(wParam, _guiColorRefFromHex(textHex) + "") }
-        let brush = guiStateGet("ui.window.brush")
+        let bgHex = guiStateGet("ui.edit.bg")
+        if bgHex != "" { SetBkColor(wParam, _guiColorRefFromHex(bgHex) + "") }
+        let brush = guiStateGet("ui.edit.brush")
         if brush != "" { emit brush }
     }
     if msgInt == 310 {

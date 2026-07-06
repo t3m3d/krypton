@@ -164,38 +164,45 @@ func onDeploy() {
 }
 
 just run {
-    guiEnableModernChrome()
-    let win = guiWindow("kweb deploy", 860, 560)
-    guiEnableDarkTitle(win)
+    // guiEnableModernChrome disabled: current Win32 font/DPI path crashes this backend.
+    let win = guiWindow("Krypton Web Deploy", 920, 600)
 
-    guiLabel(win, "Project", 20, 20, 80, 24)
-    let project = guiTextInput(win, 110, 18, 510, 28)
+    guiLabel(win, "Krypton Web Deploy", 28, 22, 300, 24)
+    let status = guiLabel(win, "Ready", 705, 24, 180, 24)
+
+    guiLabel(win, "Project", 28, 72, 86, 24)
+    let project = guiTextInput(win, 124, 68, 585, 30)
     guiSetText(project, cleanLine(exec("cd")))
-    let choose = guiButton(win, "Choose", 635, 18, 95, 30)
+    let choose = guiButton(win, "Choose", 730, 68, 150, 32)
 
-    guiLabel(win, "kweb", 20, 58, 80, 24)
-    let kweb = guiTextInput(win, 110, 56, 620, 28)
+    guiLabel(win, "kweb", 28, 114, 86, 24)
+    let kweb = guiTextInput(win, 124, 110, 756, 30)
     guiSetText(kweb, defaultKwebPath())
 
-    guiLabel(win, "Host", 20, 96, 80, 24)
-    let host = guiTextInput(win, 110, 94, 270, 28)
-    guiLabel(win, "User", 400, 96, 50, 24)
-    let user = guiTextInput(win, 455, 94, 275, 28)
+    guiLabel(win, "Host", 28, 166, 86, 24)
+    let host = guiTextInput(win, 124, 162, 285, 30)
+    guiLabel(win, "User", 440, 166, 58, 24)
+    let user = guiTextInput(win, 505, 162, 375, 30)
 
-    guiLabel(win, "Pass", 20, 134, 80, 24)
-    let pass = guiTextInput(win, 110, 132, 270, 28)
+    guiLabel(win, "Pass", 28, 208, 86, 24)
+    let pass = guiTextInput(win, 124, 204, 285, 30)
     SendMessageA(_guiResolveHwnd(pass), "204", "42", "0")
-    guiLabel(win, "Remote dir", 400, 134, 80, 24)
-    let remote = guiTextInput(win, 490, 132, 240, 28)
+    guiLabel(win, "Remote dir", 440, 208, 84, 24)
+    let remote = guiTextInput(win, 535, 204, 345, 30)
 
-    let build = guiButton(win, "Build", 750, 18, 80, 30)
-    let deploy = guiButton(win, "Deploy", 750, 56, 80, 30)
-    let openDist = guiButton(win, "Open dist", 750, 94, 80, 30)
-    let clear = guiButton(win, "Clear", 750, 132, 80, 30)
+    let build = guiButton(win, "Build", 28, 260, 132, 34)
+    let deploy = guiButton(win, "Deploy", 174, 260, 132, 34)
+    let openDist = guiButton(win, "Open dist", 320, 260, 132, 34)
+    let clear = guiButton(win, "Clear", 466, 260, 132, 34)
 
-    let status = guiLabel(win, "Ready", 20, 176, 810, 24)
-    let log = guiTextArea(win, 20, 210, 810, 300)
-    guiSetText(log, "kweb Windows GUI ready.\r\n")
+    guiLabel(win, "Activity", 28, 318, 120, 24)
+    let log = guiTextArea(win, 28, 344, 852, 210)
+    guiSetText(log, "Krypton Web Deploy ready.\r\n")
+
+
+    // Avoid guiApplyExplorerTheme here for now. The current uxtheme path can
+    // crash this backend after the window is shown; plain Win32 controls are
+    // stable and preserve copy/paste/edit behavior.
 
     guiStateSet("kw.project", project)
     guiStateSet("kw.kweb", kweb)
