@@ -180,7 +180,7 @@ func doBuild() {
         let tmpOpt = tmpDir() + "/kweb_build_opt.ir"
         let fe = root + "/kcc-bin.exe"
         let opt = rootTool(root, "/bin/optimize_host.exe", "/compiler/windows_x86/optimize_host.exe")
-        let x64 = root + "/bootstrap/x64_host_windows_x86_64.exe"
+        let x64 = rootTool(root, "/bootstrap/x64_host_windows_x86_64.exe", "/compiler/windows_x86/x64_host.exe")
         let rc1 = shellRun(fe + " export.htk --ir > " + tmpIR)
         if rc1 != "0" { printErr("kweb: IR emission failed")  exit("1") }
         let rc2 = shellRun(opt + " " + tmpIR + " > " + tmpOpt)
