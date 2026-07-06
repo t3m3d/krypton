@@ -20,7 +20,7 @@ backup/
 *.o
 *.c
 !bootstrap/kcc_seed.c
-
+*.kir
 archive/
 test*.exe
 *.bak
