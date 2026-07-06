@@ -2,7 +2,7 @@
 // s[i] reads/writes the underlying array (aliasing); s.len/s.cap read the
 // triple; reslice s[a:b] sub-views without copying. FE-lowered over the A5 buf
 // builtins (8-byte slots, int/pointer). No backend change. append: not yet
-// (pairs with the GC freelist — handoff B3).
+// (pairs with the GC freelist work).
 just run {
     let arr = array(8)
     let i = 0

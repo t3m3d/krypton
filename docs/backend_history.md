@@ -1,6 +1,6 @@
-# Handoff Archive Summary
+# Backend History Summary
 
-Compact facts preserved before deleting `handoffs/handoff_*.md`.
+Compact backend and release facts preserved from old coordination notes.
 
 ## Release State
 
@@ -51,7 +51,7 @@ Compact facts preserved before deleting `handoffs/handoff_*.md`.
     byte-identical to tracked `runtime/krypton_rt.dll`.
 - GC stage notes:
   - Windows/macOS had staged GC work around freelist consumption and phase-3
-    auto-collect, but older handoffs marked parts as source-landed before full
+    auto-collect, but older notes marked parts as source-landed before full
     Windows runtime validation.
   - Validate each GC stage with small runtime smokes before release; do not stack
     new GC work on unverified stage work.

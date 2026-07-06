@@ -12,7 +12,7 @@
 //       msg(app, sel_run)
 //   }
 //
-// FULLY STATELESS — no module-level `let`. Same constraint agent m
+// FULLY STATELESS — no module-level `let`. Same constraint the macOS backend
 // hit shipping `stdlib/server_native.k`: imported Krypton modules
 // export functions only; top-level `let` state does NOT persist across
 // the import boundary. So everything here takes its inputs from the

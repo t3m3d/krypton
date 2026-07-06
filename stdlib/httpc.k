@@ -19,7 +19,7 @@
 //       httpGetUrlStatus("https://...")            -> 200
 //
 //     The Windows path needs the x64_host_windows_x86_64.exe regen
-//     (see handoffs/handoff_w_ws2_32_iat.md) before the IAT slots
+//     (see docs/backend_history.md#Windows ws2_32 IAT notes) before the IAT slots
 //     populate at load time -- calling httpGetUrl on a binary built
 //     with the current host produces a zero-IAT segfault.
 

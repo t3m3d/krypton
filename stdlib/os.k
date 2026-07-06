@@ -183,5 +183,5 @@ func ossystemk(cmd) {
 // Several functions above shell out with `exec(<concatenated string>)`.
 // Caller-supplied paths are NOT sanitized; programs that accept
 // untrusted input must escape before passing to these functions.  See
-// `handoff_w2all_overall.md` Tier-A item #5 (winRun) for the planned
+// the Tier-A roadmap item for the planned `winRun`
 // CreateProcess-based replacement that kills the shell-quoting tax.

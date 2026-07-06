@@ -121,14 +121,14 @@ run, imports, and self-host on macOS (arm64), Linux (x86-64), and Windows
 - **kweb** — single-binary web framework CLI. Bundled in the Windows
   installer; build from source on macOS / Linux. `krypton-lang.org` itself
   is rendered by kweb.
-- **macOS Cocoa scaffold** *(in progress, agent m)* — `headers/objc.krh`,
+- **macOS Cocoa scaffold** *(in progress, macOS backend)* — `headers/objc.krh`,
   `headers/cocoa.krh`, `stdlib/objc.k`, `stdlib/cocoa.k` land the
   foundation for native macOS apps written in pure Krypton. Same
   surface shape as `stdlib/gui.k` on Windows — `cocoaWindow`,
   `cocoaButton`, `cocoaOnClick` — so a single `.ks` source can target
-  both. Sees `docs/cocoa_design.md` for the binding strategy + the
-  `objc_msgSend` arm64 ABI handoff to the macho backend.
-- **Zero-C HTTP server on macOS** *(agent m)* — `stdlib/server_native.k`
+  both. See `docs/cocoa_design.md` for the binding strategy + the
+  `objc_msgSend` arm64 ABI work in the macho backend.
+- **Zero-C HTTP server on macOS** *(macOS backend)* — `stdlib/server_native.k`
   is a complete HTTP server in pure Krypton on top of new BSD-socket
   builtins (`sockMake/Bind/Listen/Accept/Recv/RecvStr/Send/Close`) that
   the macho backend emits as direct `svc` syscalls. No libc, no clang,

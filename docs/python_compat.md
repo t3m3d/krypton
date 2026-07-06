@@ -10,8 +10,8 @@ the language's properties (native compilation, no GIL, predictable
 GC).
 
 Sibling docs: `python_to_kir.md` (what we DO support, with IR
-lowerings), `handoff_w2all_pyfrontend.md` (prep work coordination),
-`handoff_w2all_overall.md` (the broader roadmap).
+lowerings), `Python frontend planning notes` (prep work coordination),
+`roadmap notes` (the broader roadmap).
 
 ## At a glance
 
