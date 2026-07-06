@@ -10,7 +10,7 @@
 // `mmapFile / mmapPtr / mmapOk / mmapClose` env-based API documented
 // in `docs/spec/functions.md` (2.0 additions).
 //
-// POSIX `mmap`/`munmap` (the syscall family agent m / agent l would
+// POSIX `mmap`/`munmap` (the syscall family the macOS backend / the Linux backend would
 // wire up) lives in `head:sys_mman`.
 
 jxt {

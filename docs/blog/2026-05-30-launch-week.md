@@ -150,7 +150,7 @@ Two non-obvious constraints showed up while building these:
    `feedback_krypton_dev_gotchas`.
 2. **Funcptr calls need `callPtr`.** The Mac kcc 2.0.0 doesn't support
    `f(x)` for funcptr-typed parameters; you have to use
-   `callPtr(f, x)`. Documented in the handoff but easy to forget.
+   `callPtr(f, x)`. Documented in the callback notes but easy to forget.
 
 Both worked out. The site's `pageLearnIndex()` now builds its 31 lesson
 cards via `htEach(lessonFiles(), funcptr(_lessonCard))` instead of a

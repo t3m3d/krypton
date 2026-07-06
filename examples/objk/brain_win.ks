@@ -14,9 +14,9 @@
 //   cp brain.exe.manifest next to it for UTF-8 codepage + Common Controls v6
 //
 // Cross-platform pairing -- DO NOT touch the other side from this file:
-//   examples/objk/brain.ks      -- macOS / Cocoa  (k:cocoa)   <- agent m
-//   examples/objk/brain_win.ks  -- Windows / Win32 (k:gui)    <- this (agent w)
-//   examples/objk/brain_lin.ks  -- Linux / X11    (k:x11)     <- agent l
+//   examples/objk/brain.ks      -- macOS / Cocoa  (k:cocoa)   <- the macOS backend
+//   examples/objk/brain_win.ks  -- Windows / Win32 (k:gui)    <- this (Windows backend)
+//   examples/objk/brain_lin.ks  -- Linux / X11    (k:x11)     <- the Linux backend
 //
 // Styling target: VSCode-ish dark theme.
 //   window bg     #1e1e1e

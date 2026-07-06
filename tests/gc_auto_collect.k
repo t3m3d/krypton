@@ -2,7 +2,7 @@
 // gcSetThreshold(N) (N int or numeric string; 0 disables) makes __rt_alloc
 // self-collect once allocs-since-collect >= N. The threshold arg is parsed via
 // int-passthrough + atoi so "100" and 100 both work — unified with the Windows
-// ABI so this one test runs on both backends (handoff_w2m_phase3_review.md item 4).
+// ABI so this one test runs on both backends (GC phase-3 review notes item 4).
 // The collect runs behind a register safepoint, so
 // live roots the caller keeps in registers across an alloc (e.g. `s` here)
 // survive. Without auto-collect the 600 dead temps accumulate (live ~600);

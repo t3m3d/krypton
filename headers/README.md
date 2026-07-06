@@ -70,7 +70,7 @@ jxt {
 | `process.krh` | Windows | kernel32 + shell32 |
 | `fileio.krh` | Windows | kernel32.dll |
 | `mmap.krh` | Windows | kernel32.dll |
-| `winsock.krh` | Windows | ws2_32.dll *(IAT registered in x64.k 2026-06-13; x64_host_windows_x86_64.exe needs regen for runtime — see handoffs/handoff_w_ws2_32_iat.md)* |
+| `winsock.krh` | Windows | ws2_32.dll *(IAT registered in x64.k 2026-06-13; x64_host_windows_x86_64.exe needs regen for runtime — see docs/backend_history.md)* |
 | `shell32.krh` | Windows | shell32.dll *(IAT registered in x64.k 2026-06-13; x64_host_windows_x86_64.exe needs regen for runtime — pair with stdlib/shell.k)* |
 | `psapi.krh` | Windows | psapi.dll *(IAT registered in x64.k 2026-06-13; x64_host_windows_x86_64.exe needs regen for runtime — pair with stdlib/proc_ex.k)* |
 | `iphlpapi.krh` | Windows | iphlpapi.dll *(IAT registered in x64.k 2026-06-13; x64_host_windows_x86_64.exe needs regen for runtime — pair with stdlib/iphlp.k)* |
@@ -84,7 +84,7 @@ jxt {
 | Header | Platform | Status |
 |---|---|---|
 | `conio.krh` | Windows | `_kbhit`/`_getch` live in msvcrt.dll. Not yet IAT-wired. Use kernel32 console APIs instead. |
-| POSIX headers (`sys_socket.krh`, `sys_stat.krh`, `fcntl.krh`, …) | Linux / macOS | Most still reference libc symbols. Agent m proved the path with direct-syscall builtins (`sockMake / Bind / Listen / …` in `compiler/macos_arm64/macho_arm64_self.k`). The same approach folds these headers into the native pipeline. |
+| POSIX headers (`sys_socket.krh`, `sys_stat.krh`, `fcntl.krh`, …) | Linux / macOS | Most still reference libc symbols. The macOS backend proved the path with direct-syscall builtins (`sockMake / Bind / Listen / …` in `compiler/macos_arm64/macho_arm64_self.k`). The same approach folds these headers into the native pipeline. |
 
 ### C-stdlib utilities (consider deprecating)
 
@@ -104,10 +104,10 @@ jxt {
      See the `gui.k` phase-A imports (2026-05-11 commit) for the
      pattern.
    - **macOS dylib** → wire the symbol resolution into
-     `compiler/macos_arm64/macho_arm64_self.k`. Agent m's
+     `compiler/macos_arm64/macho_arm64_self.k`. The macOS backend's
      sock-builtin commits are the canonical reference.
    - **Linux syscall / shared library** → emit through
-     `compiler/linux_x86/elf.k`. Agent l owns this surface.
+     `compiler/linux_x86/elf.k`. The Linux backend owns this surface.
 3. **Write the `.krh` file** using the shape above. No `c "..."`
    directives. Add `// DLL:` / `// dylib:` / `// lib:` header.
 4. **Smoke-test with `kcc.sh -o`** on the target platform.
@@ -131,18 +131,18 @@ escape hatch during porting), the include lines can be reintroduced
 locally without committing them. But the long-term direction is no
 C in the loop.
 
-## Three-agent ownership
+## Platform Ownership
 
-- **agent w (Windows):** owns all `.krh` files in this directory that
+- **Windows backend:** owns all `.krh` files in this directory that
   target Windows DLLs. As of 2026-06-02 every Windows header in the
   table above except `conio.krh` is pure-native.
-- **agent m (macOS):** owns `objc.krh`, `cocoa.krh`, and the in-flight
+- **macOS backend:** owns `objc.krh`, `cocoa.krh`, and the in-flight
   macOS stdlib + header additions. Direct-syscall builtins
   (`sockMake / Bind / Listen / Accept / Recv / RecvStr / Send / Close`)
   shipped 2026-06-01 — see `compiler/macos_arm64/macho_arm64_self.k`.
-- **agent l (Debian Linux):** owns the POSIX headers and the upcoming
-  Linux-side direct-syscall builtin work that parallels agent m's
-  macOS path. See `docs/claude/HANDOFF_LINUX_AGENT_L_2026_06_02.md`
+- **Linux backend:** owns the POSIX headers and the upcoming
+  Linux-side direct-syscall builtin work that parallels the macOS backend's
+  macOS path. See `docs/backend_history.md`
   for the topology + which `kcc` to use.
 
 Cross-platform headers (rare — most `.krh` files are platform-tagged)

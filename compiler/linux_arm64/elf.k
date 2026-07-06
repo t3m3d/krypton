@@ -397,7 +397,7 @@ func emitLinecount() {
     c = c + e_ret()                                              // [72] .ret
     emit c
 }
-// ── C-like raw allocator (mark/sweep-ready 16-byte header per the W handoff) ──
+// ── C-like raw allocator (mark/sweep-ready 16-byte header shared with the GC design) ──
 // gcGlobals live at GB = load_base + opOff (64 reserved bytes at the start of the
 // 64 MiB raw BSS region above the op-stack). Layout (qword slots):
 //   [GB+0]=raw_next (bump cursor, 0=uninit), [GB+8]=freelist head,
