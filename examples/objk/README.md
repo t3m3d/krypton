@@ -14,6 +14,7 @@ Build + run (dev tree):
 - **highlight.ks** — colored ranges on an NSTextView via NSTextStorage.
 - **term_grid.ks** — custom NSView drawRect: a terminal grid (colored cells + glyphs).
 - **table.ks** — NSTableView driven by a pure-Krypton multi-method data source.
+- **controls.ks** — `k:objk` facade: checkbox, combo box, slider, progress, defaults, clipboard, URL open.
 
 Note: every callback/delegate method is a plain Krypton func used as an Obj-C method
 IMP — objc passes (self, _cmd, …) in x0/x1/… = Krypton's register convention.
