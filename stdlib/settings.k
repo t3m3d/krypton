@@ -43,7 +43,7 @@ func _settings_exists(path) {
 
 func _settings_mkdir(path) {
     if _settings_exists(path) == "1" { emit "1" }
-    emit CreateDirectoryA(path, toHandle("0"))
+    emit CreateDirectoryA(path, "0")
 }
 
 func settingsDir(appName) {

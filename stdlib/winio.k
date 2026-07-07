@@ -12,6 +12,8 @@
 //   winioReadByte(h)              — read one byte (returns -1 on EOF)
 //   winioReadBytes(h, n)          — read exactly n bytes; returns "" on EOF
 //   winioWriteLine(h, str)        — write str + "\n"
+//   winioGet()                    — read one key, no echo when console mode allows
+//   winioGetEcho()                — read one key, echo when console mode allows
 //
 // Designed for LSP-style framed protocols:
 //   let h = winioStdin()
@@ -30,12 +32,45 @@
 import "head:windows"
 import "head:process"
 
-// STD_INPUT_HANDLE  = (DWORD)-10 = 0xFFFFFFF6 = 4294967286
-// STD_OUTPUT_HANDLE = (DWORD)-11 = 0xFFFFFFF5 = 4294967285
-// STD_ERROR_HANDLE  = (DWORD)-12 = 0xFFFFFFF4 = 4294967284
-func winioStdin()  { emit GetStdHandle(4294967286) }
-func winioStdout() { emit GetStdHandle(4294967285) }
-func winioStderr() { emit GetStdHandle(4294967284) }
+// STD_INPUT_HANDLE  = -10
+// STD_OUTPUT_HANDLE = -11
+// STD_ERROR_HANDLE  = -12
+func winioStdin()  { emit GetStdHandle("-10") }
+func winioStdout() { emit GetStdHandle("-11") }
+func winioStderr() { emit GetStdHandle("-12") }
+
+
+func _winioClearBit(mode, bit) {
+    if mode / bit % 2 == 1 { emit mode - bit }
+    emit mode
+}
+
+func _winioSetBit(mode, bit) {
+    if mode / bit % 2 == 0 { emit mode + bit }
+    emit mode
+}
+
+func _winioReadKey(echo) {
+    let h = winioStdin()
+    let mode = bufNew(8)
+    let changed = 0
+    let oldMode = 0
+    if GetConsoleMode(h, mode) != "0" {
+        oldMode = toInt(bufGetDword(mode))
+        let newMode = _winioClearBit(oldMode, 2)
+        if echo == "0" { newMode = _winioClearBit(newMode, 4) }
+        else { newMode = _winioSetBit(newMode, 4) }
+        SetConsoleMode(h, newMode)
+        changed = 1
+    }
+    let b = winioReadByte(h)
+    if changed == 1 { SetConsoleMode(h, oldMode) }
+    if b == "-1" { emit "" }
+    emit fromCharCode(toInt(b))
+}
+
+func winioGet() { emit _winioReadKey("0") }
+func winioGetEcho() { emit _winioReadKey("1") }
 
 func winioWrite(h, s) {
     let n = len(s)
