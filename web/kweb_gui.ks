@@ -3,10 +3,7 @@
 //
 // Pure Krypton/Objective-K: no C, no Obj-C source, no Swift.
 
-import "k:cocoa"
-import "k:objc"
-import "head:cocoa"
-import "head:objc"
+import "k:choc_macos"
 
 func dq() { emit fromCharCode(34) }
 func bs() { emit fromCharCode(92) }
@@ -59,26 +56,26 @@ func isDarkMode() {
 }
 
 func kwebTextColor() {
-    if isDarkMode() == 1 { emit cocoaRGB(184, 178, 198) }
-    emit cocoaRGB(0, 0, 0)
+    if isDarkMode() == 1 { emit chocRGB(184, 178, 198) }
+    emit chocRGB(0, 0, 0)
 }
 
 func kwebLogTextColor() { emit kwebTextColor() }
 
 func kwebLogBgColor() {
     if isDarkMode() == 1 { emit kwebWindowBgColor() }
-    emit cocoaSystemTextBg()
+    emit chocSystemTextBg()
 }
 
 func kwebWindowBgColor() {
-    if isDarkMode() == 1 { emit cocoaRGB(39, 24, 72) }
-    emit cocoaSystemWindowBg()
+    if isDarkMode() == 1 { emit chocRGB(39, 24, 72) }
+    emit chocSystemWindowBg()
 }
 
 func recolorLog(tv) {
-    cocoaSetBg(tv, kwebLogBgColor())
-    cocoaSetTextColor(tv, kwebLogTextColor())
-    cocoaTVColorRange(tv, kwebLogTextColor(), 0, cocoaTVLength(tv))
+    chocSetBg(tv, kwebLogBgColor())
+    chocSetTextColor(tv, kwebLogTextColor())
+    chocTVColorRange(tv, kwebLogTextColor(), 0, chocTVLength(tv))
     emit "1"
 }
 
@@ -87,44 +84,44 @@ func kwebLabelColor() {
 }
 
 func tintField(field) {
-    cocoaSetTextColor(field, kwebTextColor())
+    chocSetTextColor(field, kwebTextColor())
     emit field
 }
 
 func tintButton(button) {
-    cocoaSetButtonTextColor(button, kwebTextColor())
+    chocSetButtonTextColor(button, kwebTextColor())
     emit button
 }
 
 func appendLog(tv, text) {
     let msg = text
     if len(msg) == 0 { emit "1" }
-    cocoaTVAppend(tv, msg)
-    if msg[len(msg) - 1] != "\n" { cocoaTVAppend(tv, "\n") }
+    chocTVAppend(tv, msg)
+    if msg[len(msg) - 1] != "\n" { chocTVAppend(tv, "\n") }
     recolorLog(tv)
     emit "1"
 }
 
 func stateField(state, key) {
-    emit cleanLine(cocoaGetText(cocoaGetAssocKey(appH(), key)))
+    emit cleanLine(chocGetText(chocGetAssocKey(appH(), key)))
 }
 
 func setStatus(state, text) {
-    cocoaSetText(cocoaGetAssocKey(appH(), "status"), text)
+    chocSetText(chocGetAssocKey(appH(), "status"), text)
     emit "1"
 }
 
 func runInProject(state, name, args) {
     let project = stateField(state, "project")
     let kweb = stateField(state, "kweb")
-    let log = cocoaGetAssocKey(appH(), "log")
+    let log = chocGetAssocKey(appH(), "log")
 
     if project == "" {
-        cocoaAlert("kweb", "Choose a project folder first.")
+        chocAlert("kweb", "Choose a project folder first.")
         emit "1"
     }
     if kweb == "" {
-        cocoaAlert("kweb", "Choose the kweb binary first.")
+        chocAlert("kweb", "Choose the kweb binary first.")
         emit "1"
     }
 
@@ -150,13 +147,13 @@ func onDeploy(self, cmd, sender) {
     let pass = stateField(state, "password")
     let remoteFolder = normalizeRemoteFolder(stateField(state, "remoteFolder"))
     let project = stateField(state, "project")
-    let log = cocoaGetAssocKey(appH(), "log")
+    let log = chocGetAssocKey(appH(), "log")
     if host == "" || user == "" || pass == "" {
-        cocoaAlert("kweb deploy", "Enter FTP host, username, and password.")
+        chocAlert("kweb deploy", "Enter FTP host, username, and password.")
         emit "1"
     }
     if project == "" {
-        cocoaAlert("kweb deploy", "Choose a project folder first.")
+        chocAlert("kweb deploy", "Choose a project folder first.")
         emit "1"
     }
 
@@ -196,8 +193,8 @@ func onDeploy(self, cmd, sender) {
 
 func onClear(self, cmd, sender) {
     let state = appH()
-    let log = cocoaGetAssocKey(appH(), "log")
-    cocoaTVSetString(log, "")
+    let log = chocGetAssocKey(appH(), "log")
+    chocTVSetString(log, "")
     recolorLog(log)
     setStatus(state, "Ready")
 }
@@ -205,9 +202,9 @@ func onClear(self, cmd, sender) {
 func onOpenDist(self, cmd, sender) {
     let state = appH()
     let project = stateField(state, "project")
-    let log = cocoaGetAssocKey(appH(), "log")
+    let log = chocGetAssocKey(appH(), "log")
     if project == "" {
-        cocoaAlert("kweb", "Choose a project folder first.")
+        chocAlert("kweb", "Choose a project folder first.")
         emit "1"
     }
     let cmd2 = "open " + shellQuote(project + "/dist") + " 2>&1"
@@ -216,96 +213,96 @@ func onOpenDist(self, cmd, sender) {
 }
 
 func onChooseProject(self, cmd, sender) {
-    let picked = cocoaChooseFolder("Choose kweb project folder")
+    let picked = chocChooseFolder("Choose kweb project folder")
     if picked == "" { emit "1" }
-    cocoaSetText(cocoaGetAssocKey(appH(), "project"), picked)
-    appendLog(cocoaGetAssocKey(appH(), "log"), "Project set: " + picked)
+    chocSetText(chocGetAssocKey(appH(), "project"), picked)
+    appendLog(chocGetAssocKey(appH(), "log"), "Project set: " + picked)
     setStatus(appH(), "Project selected")
 }
 
 func putLabel(win, text, x, y, w) {
-    let label = cocoaPlainLabel(win, text, x, y, w, 22)
-    cocoaSetTextColor(label, kwebLabelColor())
+    let label = chocPlainLabel(win, text, x, y, w, 22)
+    chocSetTextColor(label, kwebLabelColor())
     emit label
 }
 
 func wire(btn, key, handler) {
-    cocoaOnClickKeyed(btn, key, handler)
+    chocOnClickKeyed(btn, key, handler)
     emit "1"
 }
 
 func setupMenus(app) {
-    let bar = cocoaMenuBar(app)
-    let edit = cocoaMenuAdd(bar, "Edit")
-    cocoaMenuItemSel(edit, "Cut", "x", "cut:")
-    cocoaMenuItemSel(edit, "Copy", "c", "copy:")
-    cocoaMenuItemSel(edit, "Paste", "v", "paste:")
-    cocoaMenuSeparator(edit)
-    cocoaMenuItemSel(edit, "Select All", "a", "selectAll:")
+    let bar = chocMenuBar(app)
+    let edit = chocMenuAdd(bar, "Edit")
+    chocMenuItemSel(edit, "Cut", "x", "cut:")
+    chocMenuItemSel(edit, "Copy", "c", "copy:")
+    chocMenuItemSel(edit, "Paste", "v", "paste:")
+    chocMenuSeparator(edit)
+    chocMenuItemSel(edit, "Select All", "a", "selectAll:")
     emit "1"
 }
 
 just run {
     let cwd = cleanLine(exec("pwd"))
-    let app = cocoaInit()
+    let app = chocInit()
     setupMenus(app)
-    let win = cocoaWindow(app, "kweb deploy", 820, 560)
-    cocoaSetWindowBg(win, kwebWindowBgColor())
-    cocoaTransparentTitlebar(win)
+    let win = chocWindow(app, "kweb deploy", 820, 560)
+    chocSetWindowBg(win, kwebWindowBgColor())
+    chocTransparentTitlebar(win)
 
     putLabel(win, "Project", 24, 508, 76)
-    let project = cocoaTextField(win, 104, 506, 438, 26)
+    let project = chocTextField(win, 104, 506, 438, 26)
     tintField(project)
-    cocoaSetText(project, cwd)
-    let chooseBtn = cocoaButton(win, "Choose", 554, 506, 108, 28)
+    chocSetText(project, cwd)
+    let chooseBtn = chocButton(win, "Choose", 554, 506, 108, 28)
     tintButton(chooseBtn)
 
     putLabel(win, "kweb", 24, 472, 76)
-    let kweb = cocoaTextField(win, 104, 470, 558, 26)
+    let kweb = chocTextField(win, 104, 470, 558, 26)
     tintField(kweb)
-    cocoaSetText(kweb, defaultKwebPath(cwd))
+    chocSetText(kweb, defaultKwebPath(cwd))
 
     putLabel(win, "Host", 24, 436, 76)
-    let host = cocoaTextField(win, 104, 434, 302, 26)
+    let host = chocTextField(win, 104, 434, 302, 26)
     tintField(host)
 
     putLabel(win, "User", 420, 436, 50)
-    let user = cocoaTextField(win, 474, 434, 188, 26)
+    let user = chocTextField(win, 474, 434, 188, 26)
     tintField(user)
 
     putLabel(win, "Pass", 24, 400, 76)
-    let password = cocoaSecureTextField(win, 104, 398, 558, 26)
+    let password = chocSecureTextField(win, 104, 398, 558, 26)
     tintField(password)
 
     putLabel(win, "Remote dir", 24, 364, 76)
     putLabel(win, "(root default)", 104, 364, 116)
-    let remoteFolder = cocoaTextField(win, 224, 362, 438, 26)
+    let remoteFolder = chocTextField(win, 224, 362, 438, 26)
     tintField(remoteFolder)
 
-    let buildBtn = cocoaButton(win, "Build", 686, 506, 108, 28)
+    let buildBtn = chocButton(win, "Build", 686, 506, 108, 28)
     tintButton(buildBtn)
-    let deployBtn = cocoaButton(win, "Deploy", 686, 470, 108, 28)
+    let deployBtn = chocButton(win, "Deploy", 686, 470, 108, 28)
     tintButton(deployBtn)
-    let distBtn = cocoaButton(win, "Open dist", 686, 434, 108, 28)
+    let distBtn = chocButton(win, "Open dist", 686, 434, 108, 28)
     tintButton(distBtn)
-    let clearBtn = cocoaButton(win, "Clear", 686, 398, 108, 28)
+    let clearBtn = chocButton(win, "Clear", 686, 398, 108, 28)
     tintButton(clearBtn)
 
     let status = putLabel(win, "Ready", 24, 326, 770)
-    let log = cocoaScrollText(win, 24, 24, 770, 290)
-    cocoaSetFont(log, cocoaMonoFont(12))
-    cocoaTVNoWrap(log)
-    cocoaTVSetString(log, "kweb GUI ready.\n")
+    let log = chocScrollText(win, 24, 24, 770, 290)
+    chocSetFont(log, chocMonoFont(12))
+    chocTVNoWrap(log)
+    chocTVSetString(log, "kweb GUI ready.\n")
     recolorLog(log)
 
-    cocoaSetAssocKey(app, "project", project)
-    cocoaSetAssocKey(app, "kweb", kweb)
-    cocoaSetAssocKey(app, "host", host)
-    cocoaSetAssocKey(app, "user", user)
-    cocoaSetAssocKey(app, "password", password)
-    cocoaSetAssocKey(app, "remoteFolder", remoteFolder)
-    cocoaSetAssocKey(app, "status", status)
-    cocoaSetAssocKey(app, "log", log)
+    chocSetAssocKey(app, "project", project)
+    chocSetAssocKey(app, "kweb", kweb)
+    chocSetAssocKey(app, "host", host)
+    chocSetAssocKey(app, "user", user)
+    chocSetAssocKey(app, "password", password)
+    chocSetAssocKey(app, "remoteFolder", remoteFolder)
+    chocSetAssocKey(app, "status", status)
+    chocSetAssocKey(app, "log", log)
 
     wire(chooseBtn, "chooseProject", funcptr(onChooseProject))
     wire(buildBtn, "build", funcptr(onBuild))
@@ -313,6 +310,6 @@ just run {
     wire(distBtn, "dist", funcptr(onOpenDist))
     wire(clearBtn, "clear", funcptr(onClear))
 
-    cocoaShow(win, app)
-    cocoaRun(app)
+    chocShow(win, app)
+    chocRun(app)
 }

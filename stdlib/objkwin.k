@@ -15,7 +15,7 @@ func okRun(app)                 { emit chocRun(app) }
 func okQuit(app)                { emit chocQuit(app) }
 func okFinish(app)              { emit chocFinishLaunching(app) }
 func okPump(app)                { emit chocPumpEvents(app) }
-func okWindow(app, title, w, h) { emit chocWindow(app, title, w, h) }
+func okWindow(app, title, w, h) { let win = chocWindow(app, title, w, h)  emit win + "" }
 func okShow(win, app)           { emit chocShow(win, app) }
 func okTitle(obj, title)        { emit chocSetTitle(obj, title) }
 func okMinSize(win, w, h)       { emit "1" }

@@ -108,11 +108,14 @@ All notable changes to the Krypton language and compiler.
   `kr_print`. Use `print` in new code; `kp` stays as a permanent
   legacy alias.
 
-## [2.4.4] - 2026-07-05 — kweb app naming fix
+## [2.4.4] - 2026-07-05 — kweb app naming + Choc
 
 - Renamed the macOS GUI app bundle to `kweb.app` instead of `kweb_gui.app`.
 - Package/tarball install paths now use `/Applications/Krypton/kweb.app`.
 - Kept the source file as `web/kweb_gui.ks`.
+- Added `stdlib/choc_macos.k` and routed macOS Objective-K through Choc.
+- Added `stdlib/okui.k`, a human-facing Objective-K helper layer.
+- Accepted `-> do` as no-return syntax and rejected `-> void`.
 
 ## [2.4.3] - 2026-07-05 — kweb GUI icon
 
