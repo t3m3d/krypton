@@ -2,12 +2,12 @@
 
 **A self-hosting programming language that emits native machine code without a C compiler in the loop.**
 
-> **Current macOS version: 2.4.4** — kweb app naming, Choc, and `do` no-return syntax.
+> **Current macOS version: 2.4.5** — refreshed kweb CLI/GUI deploy release.
 > See [`CHANGELOG.md`](CHANGELOG.md) for the full history.
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-2.4.4-brightgreen)
-![macOS](https://img.shields.io/badge/macOS-arm64%202.4.4-success)
+![Version](https://img.shields.io/badge/version-2.4.5-brightgreen)
+![macOS](https://img.shields.io/badge/macOS-arm64%202.4.5-success)
 ![Linux](https://img.shields.io/badge/Linux-x86__64%202.4.4-yellow)
 ![Windows](https://img.shields.io/badge/Windows-x86__64%202.3.0-orange)
 
@@ -53,6 +53,10 @@ The web framework adds a third extension for templates:
 
 - **`.htk`** — htmk + ks template source built by `kweb`. Same Krypton syntax;
   the convention signals "this file is meant to render HTML."
+
+## What's new in 2.4.5
+
+- **kweb deploy refresh** — rebuilt macOS release with the FTP root/default-folder fix and current `kweb.app`.
 
 ## What's new in 2.4.4
 
@@ -140,12 +144,13 @@ run, imports, and self-host on macOS (arm64), Linux (x86-64), and Windows
 
 | Platform | Shipped version | Notes |
 |----------|-----------------|-------|
-| macOS arm64 | **2.4.4** | `.pkg`, tarball, or Homebrew. Includes `kweb`, `/usr/local/bin/kweb`, and `/Applications/Krypton/kweb.app`. |
+| macOS arm64 | **2.4.5** | `.pkg`, tarball, or Homebrew. Includes `kweb`, `/usr/local/bin/kweb`, and `/Applications/Krypton/kweb.app`. |
 | Linux x86_64 | **2.4.4** | Prebuilt tarball -> `./install.sh`, or build from source. No C compiler. Self-hosting. Includes rebuilt `kcc` seed, driver, kweb, and aarch64 via `kcc --aarch64` cross-compile. |
 | Windows x86_64 | **2.3.0** | Inno Setup installer: `kcc.exe`/`kcc-bin.exe` driver/backend split, native `krypton_rt.dll`, `kr.exe` REPL, kweb, WASM, .k/.ks associations. |
 | **VS Code / Antigravity ext.** | **2.3.0** | `extensions/krypton-language-2.3.0.vsix`. Adds `.ks` (KryptScript) alongside `.k`, bundles the `kls` language server for Windows + macOS, ships `KryptScript` as a language-picker alias. |
 
-macOS and Linux are on [`2.4.4`](https://github.com/t3m3d/krypton/releases/tag/2.4.4).
+macOS is on [`2.4.5`](https://github.com/t3m3d/krypton/releases/tag/2.4.5).
+Linux is on [`2.4.4`](https://github.com/t3m3d/krypton/releases/tag/2.4.4).
 Windows and the editor extension stay on [`2.3.0`](https://github.com/t3m3d/krypton/releases/tag/2.3.0)
 until their matching artifacts are cut.
 
@@ -165,7 +170,7 @@ until their matching artifacts are cut.
   Windows-native equivalent of a `.bat` file. _(As of 2.3.0, Windows `kr.exe`
   has the same top-level auto-wrap + REPL as the POSIX `kr`.)_
 - `kweb` — web framework CLI (`kweb init <name>`, `kweb build`, `kweb serve`,
-  `kweb deploy <host> <user>`). macOS 2.4.4 also ships `kweb.app` for build
+  `kweb deploy <host> <user>`). macOS 2.4.5 also ships `kweb.app` for build
   and FTP deploy.
 
 Krypton is a dynamically typed language with clean syntax, ~150 built-in functions, and a compiler written in itself.
