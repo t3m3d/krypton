@@ -878,8 +878,8 @@ func win32IntReturns(name) {
     // ole32 — COM init/destroy return HRESULT (signed LONG).
     if name == "CoInitialize"               { emit "1" }
     if name == "CoCreateInstance"           { emit "1" }
-    //   CoUninitialize returns void — excluded.
-    //   CoTaskMemFree returns void — excluded.
+    //   CoUninitialize returns no value — excluded.
+    //   CoTaskMemFree returns no value — excluded.
     // uxtheme
     if name == "SetWindowTheme"             { emit "1" }   // HRESULT
     if name == "IsThemeActive"              { emit "1" }   // BOOL
@@ -901,7 +901,7 @@ func win32IntReturns(name) {
     if name == "CreatePseudoConsole"        { emit "1" }   // HRESULT
     if name == "ResizePseudoConsole"        { emit "1" }   // HRESULT
     if name == "GetExitCodeProcess"         { emit "1" }   // BOOL
-    // void-return (no itoa needed): DeleteProcThreadAttributeList, ClosePseudoConsole
+    // no-value return (no itoa needed): DeleteProcThreadAttributeList, ClosePseudoConsole
     // Excluded (returns ptr or special):
     //   MapViewOfFile         — returns LPVOID (raw mmap pointer; treat as char*)
     //   HeapAlloc / VirtualAlloc — returns LPVOID (opaque pointer; treat as char*)
