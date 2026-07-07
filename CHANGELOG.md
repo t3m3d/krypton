@@ -4,6 +4,10 @@ All notable changes to the Krypton language and compiler.
 
 ## [Unreleased]
 
+- **Linux x86_64 moved to 2.4.4 parity.** Added a QEMU cloud-image parity
+  harness, rebuilt the Linux `kcc` driver and frontend seed to 2.4.4, verified
+  native build/fibonacci/kweb/tarball inside the VM, and cut
+  `krypton-2.4.4-linux-x86_64.tar.gz`.
 - **kweb CLI deploy fixed and rebuilt.** `web/kweb.htk` no longer imports the
   Windows-only filesystem/header path on macOS, so it compiles with native
   `kcc` again. CLI deploy now uses FTP, defaults to the FTP login root, supports
