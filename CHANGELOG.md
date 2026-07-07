@@ -4,6 +4,14 @@ All notable changes to the Krypton language and compiler.
 
 ## [Unreleased]
 
+## [2.4.5] - 2026-07-07 — kweb deploy refresh
+
+- Rebuilt macOS release assets with the current `kweb` CLI and `kweb.app`.
+- kweb deploy defaults to FTP account root, supports an optional remote folder,
+  and does not add `public_html/`.
+- kweb build now calls the platform `kcc` driver instead of the raw frontend
+  and deletes stale temp output before compiling.
+
 - **Linux x86_64 moved to 2.4.4 parity.** Added a QEMU cloud-image parity
   harness, rebuilt the Linux `kcc` driver and frontend seed to 2.4.4, verified
   native build/fibonacci/kweb/tarball inside the VM, and cut

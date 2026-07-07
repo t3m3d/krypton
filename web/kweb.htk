@@ -215,10 +215,20 @@ func kccCommand() {
         emit "kcc"
     }
     if kr != "" {
-        let mac = kr + "/compiler/macos_arm64/kcc-arm64"
-        let linux = kr + "/compiler/linux_x86/kcc-x64"
-        if fsFileExists(mac) == "1" { emit "KRYPTON_ROOT=" + shellQuote(kr) + " " + shellQuote(mac) }
-        if fsFileExists(linux) == "1" { emit "KRYPTON_ROOT=" + shellQuote(kr) + " " + shellQuote(linux) }
+        let os = chomp(exec("uname -s"))
+        let arch = chomp(exec("uname -m"))
+        let driver = ""
+        if os == "Darwin" { driver = kr + "/bootstrap/kcc_driver_macos_aarch64" }
+        if os == "Linux" {
+            if arch == "x86_64" || arch == "amd64" { driver = kr + "/bootstrap/kcc_driver_linux_x86_64" }
+            if arch == "aarch64" || arch == "arm64" { driver = kr + "/bootstrap/kcc_driver_linux_aarch64" }
+        }
+        if os == "FreeBSD" {
+            if arch == "x86_64" || arch == "amd64" { driver = kr + "/bootstrap/kcc_driver_freebsd_x86_64" }
+        }
+        if driver != "" {
+            if fsFileExists(driver) == "1" { emit "KRYPTON_ROOT=" + shellQuote(kr) + " " + shellQuote(driver) }
+        }
     }
     emit "kcc"
 }
@@ -228,6 +238,10 @@ func doBuild() {
     // is the static-site generator; running it writes dist/.
     let bin = tmpDir() + "/kweb_build"
     if environ("OS") == "Windows_NT" { bin = bin + ".exe" }
+    if fsFileExists(bin) == "1" {
+        if isWindows() == "1" { exec("cmd /C del /q " + shellQuote(bin)) }
+        else { exec("rm -f " + shellQuote(bin)) }
+    }
     let root = kwebRoot()
     if root != "" {
         let tmpIR = tmpDir() + "/kweb_build.ir"
@@ -242,7 +256,7 @@ func doBuild() {
         let rc3 = shellRun(x64 + " " + tmpOpt + " " + bin)
         if rc3 != "0" { printErr("kweb: codegen failed")  exit("1") }
     } else {
-        let cmd = kccCommand() + " export.htk -o " + bin + " 2>&1"
+        let cmd = kccCommand() + " export.htk -o " + shellQuote(bin) + " 2>&1"
         let rc = shellRun(cmd)
         if rc != "0" {
             printErr("kweb: compile failed")
