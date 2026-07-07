@@ -16,9 +16,9 @@ Build + run (dev tree):
 - **table.ks** — NSTableView driven by a pure-Krypton multi-method data source.
 - **controls.ks** — `k:objk` facade: checkbox, combo box, slider, progress, defaults, clipboard, URL open.
 - **windows_controls.ks** — `stdlib/objkwin.k` facade: Windows-native controls, events, shell open, text fields, theme color.
-- **choc_window.ks** — `stdlib/choc.k` native Windows kit smoke app.
+- **choc_window.ks** — `stdlib/choc.k` native UI kit smoke app, currently Windows-backed.
 
 Note: every callback/delegate method is a plain Krypton func used as an Obj-C method
 IMP — objc passes (self, _cmd, …) in x0/x1/… = Krypton's register convention.
 
-Windows uses the same Objective-K naming style without Cocoa/libobjc. `stdlib/choc.k` is the native Windows kit layer; `stdlib/objkwin.k` remains on the stable direct path until nested facade calls are hardened. Click dispatch now passes Obj-K-shaped args: `(self, cmd, sender)`, and old no-arg handlers still work.
+Windows uses the same Objective-K naming style without Cocoa/libobjc. `stdlib/choc.k` is the native UI kit layer, currently Windows-backed in this tree; `stdlib/objkwin.k` remains on the stable direct path until nested facade calls returning native window handles are hardened. Click dispatch now passes Obj-K-shaped args: `(self, cmd, sender)`, and old no-arg handlers still work.
