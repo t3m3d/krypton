@@ -203,6 +203,29 @@ func baseName(src) {
     emit src
 }
 
+// Stream frontend IR while preserving failure. sh()/exec() expose stdout, not
+// reliable child exit status, so use temp files and verify the IR header.
+func streamFrontendIR(root, fe, src) {
+    let tmpir = tmpPath("_kccir", ".kir")
+    let tmperr = tmpPath("_kccirerr", ".txt")
+    exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src) + " > " + q(tmpir) + " 2> " + q(tmperr))
+    let ir = readText(tmpir)
+    let err = readText(tmperr)
+    rm(tmpir)
+    rm(tmperr)
+    if err != "" {
+        kp(_chompWS(err))
+        emit "0"
+    }
+    if startsWith(ir, "; Krypton IR") {
+        kp(ir)
+        emit "1"
+    }
+    if ir != "" { kp(_chompWS(ir)) }
+    else { kp("kcc: IR emission failed for " + src) }
+    emit "0"
+}
+
 // native macOS arm64 compile: src -> out. Returns "1" ok / "0" fail.
 func compileMacos(root, src, out) {
     let fe = root + "/compiler/macos_arm64/kcc-arm64"
@@ -579,7 +602,7 @@ just run {
         if hasFlag("--ir") {
             let s = linuxSrc()
             if s == "" { kp("kcc: --ir needs a source file")  exit("1") }
-            kp(sh("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(s)))
+            if streamFrontendIR(root, fe, s) == "0" { exit("1") }
             exit("0")
         }
         // --c / --gcc / --llvm: REMOVED 2026-06-04. Krypton is C-free;
@@ -631,7 +654,7 @@ just run {
         if hasFlag("--ir") {
             let s = linuxSrc()
             if s == "" { kp("kcc: --ir needs a source file")  exit("1") }
-            kp(sh("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(s)))
+            if streamFrontendIR(root, fe, s) == "0" { exit("1") }
             exit("0")
         }
         if hasFlag("--c")    { kp("kcc: --c was removed (Krypton is C-free; native pipeline only).")    exit("1") }
@@ -764,7 +787,7 @@ just run {
         if argCount() < 2 { kp("kcc: --ir needs a source file")  exit("1") }
         let src = arg(1)
         let fe = root + "/compiler/macos_arm64/kcc-arm64"
-        kp(sh("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src)))
+        if streamFrontendIR(root, fe, src) == "0" { exit("1") }
         exit("0")
     }
 

@@ -1040,7 +1040,7 @@ func opBytes(ir, i) {
     if op == "PARAM"  { emit "0" }
     if op == "LOCAL"  { emit "0" }
     if op == "RETURN" { emit "20" }                                    // epilogue
-    if op == "END"    { emit "32" }                                    // push default ret 0 (void fns), then epilogue
+    if op == "END"    { emit "32" }                                    // push default ret 0 (do/no-value fns), then epilogue
     if op == "CALL" {                                                  // bl, or inlined bitwise builtin
         let cn = headName(ln)
         if cn == "bitAnd" { emit "28" }

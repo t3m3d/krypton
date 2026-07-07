@@ -616,7 +616,7 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
             // LSB 0 -> int (console_log_int). Push dummy 0 after (IR's
             // "every BUILTIN returns 1 value"); trailing POP drops it.
             bb = bb + iLT(kpTmpIdx) + iC(1) + b(113)        // tee; &1
-            bb = bb + b(4) + b(64)                          // if (void)
+            bb = bb + b(4) + b(64)                          // if (no result)
             bb = bb + iLG(kpTmpIdx) + iC(1) + b(118) + iLS(kpTmpIdx)  // base=v>>1u (set, not tee)
             bb = bb + iLG(kpTmpIdx) + iC(4) + b(106)        // bytes ptr = base+4
             bb = bb + iLG(kpTmpIdx) + b(40) + b(2) + b(0)   // len = i32.load base
@@ -631,12 +631,12 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
             // Treated as a no-op that returns 0. IR pushes its result.
             bb = bb + b(65) + b(0)              // i32.const 0
         } else if lineStarts(line, "BUILTIN gcShadowPush ") {
-            // Takes 1 arg, returns void. Drop the arg, push 0 to match
+            // Takes 1 arg, returns no value. Drop the arg, push 0 to match
             // IR's "every BUILTIN returns 1 value" convention.
             bb = bb + b(26)                     // drop
             bb = bb + b(65) + b(0)              // i32.const 0
         } else if lineStarts(line, "BUILTIN gcShadowPop ") {
-            // Takes 1 arg, returns void. Drop, push 0 (same reason).
+            // Takes 1 arg, returns no value. Drop, push 0 (same reason).
             bb = bb + b(26)                     // drop
             bb = bb + b(65) + b(0)              // i32.const 0
         } else if line == "INDEX" {
@@ -757,7 +757,7 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
                 bb = bb + b(13) + leb(cfDepth(labelStack, lbl))  // br_if <block>
             } else if lineStarts(lbl, "_else") {
                 // if-else: open `if`; else label recorded, close set later by JUMP.
-                bb = bb + b(4) + b(64)                     // if (void)
+                bb = bb + b(4) + b(64)                     // if (no result)
                 labelStack = cfPush(labelStack, "if" + tab() + "-" + tab() + lbl)
             } else if lineStarts(lbl, "_and") {
                 // short-circuit AND diamond: value-producing if-else (result i32).
@@ -765,7 +765,7 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
                 labelStack = cfPush(labelStack, "if" + tab() + "-" + tab() + lbl)
             } else {
                 // plain if: skip target is the endif (close) label.
-                bb = bb + b(4) + b(64)                     // if (void)
+                bb = bb + b(4) + b(64)                     // if (no result)
                 labelStack = cfPush(labelStack, "if" + tab() + lbl + tab() + "-")
             }
         } else if lineStarts(line, "JUMPIF ") {
@@ -790,8 +790,8 @@ func emitFuncBody(body, table, localsList, paramCount, funcNames, dummyRet) {
             if lineStarts(lbl, "_wloop") {
                 // Loop start: outer block (exit target) + inner loop (continue).
                 let wend = "_wend_" + substring(lbl, 7, len(lbl))
-                bb = bb + b(2) + b(64)                     // block (void)
-                bb = bb + b(3) + b(64)                     // loop (void)
+                bb = bb + b(2) + b(64)                     // block (no result)
+                bb = bb + b(3) + b(64)                     // loop (no result)
                 labelStack = cfPush(labelStack, "blk" + tab() + wend + tab() + "-")
                 labelStack = cfPush(labelStack, "lp" + tab() + lbl + tab() + "-")
             } else if lineStarts(lbl, "_wend") {
@@ -840,7 +840,7 @@ func iCALL(i) { emit b(16) + leb(i) }      // call
 //   load i32 = 28/02/00, load8_u = 2d/00/00, store i32 = 36/02/00,
 //   store8 = 3a/00/00, add 6a sub 6b mul 6c div_u 6e rem_u 70,
 //   and 71 or 72 shl 74 shr_s 75 shr_u 76, eqz 45 lt_s 48 ge_u 4f,
-//   if 04 (40 void / 7f i32) else 05 end 0b block 02/40 loop 03/40
+//   if 04 (40 no-result / 7f i32) else 05 end 0b block 02/40 loop 03/40
 //   br 0c brif 0d. global.get 23/00 global.set 24/00.
 
 // $int2str(n:i32) -> i32 base ptr to [len:u32][ascii]. param 0 = n.
@@ -1230,15 +1230,15 @@ func emitConcat() {
 func wasmTypes() {
     let payload =
         b(9) +
-        b(96) + b(2) + b(127) + b(127) + b(0) +            // 0 (i32,i32)->void
-        b(96) + b(0) + b(0) +                              // 1 ()->void
-        b(96) + b(1) + b(127) + b(0) +                     // 2 (i32)->void
+        b(96) + b(2) + b(127) + b(127) + b(0) +            // 0 (i32,i32)->do
+        b(96) + b(0) + b(0) +                              // 1 ()->do
+        b(96) + b(1) + b(127) + b(0) +                     // 2 (i32)->do
         b(96) + b(1) + b(127) + b(1) + b(127) +            // 3 (i32)->i32
         b(96) + b(2) + b(127) + b(127) + b(1) + b(127) +   // 4 (i32,i32)->i32
         b(96) + b(3) + b(127) + b(127) + b(127) + b(1) + b(127) +  // 5 (i32,i32,i32)->i32
         b(96) + b(0) + b(1) + b(127) +                     // 6 ()->i32
-        b(96) + b(3) + b(127) + b(127) + b(127) + b(0) +   // 7 (i32,i32,i32)->void  -- canvas_circle
-        b(96) + b(4) + b(127) + b(127) + b(127) + b(127) + b(0)  // 8 (i32,i32,i32,i32)->void -- canvas_line
+        b(96) + b(3) + b(127) + b(127) + b(127) + b(0) +   // 7 (i32,i32,i32)->do  -- canvas_circle
+        b(96) + b(4) + b(127) + b(127) + b(127) + b(127) + b(0)  // 8 (i32,i32,i32,i32)->do -- canvas_line
     emit wasmSection(1, payload)
 }
 
@@ -1266,7 +1266,7 @@ func wasmImports() {
 }
 
 // Map (paramCount, returnsVal) -> a type index from wasmTypes().
-// types: 0 (i32,i32)->void, 1 ()->void, 2 (i32)->void, 3 (i32)->i32,
+// types: 0 (i32,i32)->do, 1 ()->do, 2 (i32)->do, 3 (i32)->i32,
 //        4 (i32,i32)->i32, 5 (i32,i32,i32)->i32.
 func userFuncType(p, r) {
     if r == 0 {
@@ -1399,7 +1399,7 @@ func buildModule(ir) {
             let combined = nameListJoin(params, collectLocals(body))
             let isMain = 0
             if funcLineName(line) == "__main__" { isMain = 1 }
-            // All non-main funcs return i32 (void ones leave a dummy) so every
+            // All non-main funcs return i32 (do/no-value ones leave a dummy) so every
             // CALL leaves exactly one value for the IR's trailing POP.
             let rVal = 0
             if isMain == 0 { rVal = 1 }

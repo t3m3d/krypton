@@ -2,7 +2,7 @@
 
 **A self-hosting programming language that emits native machine code without a C compiler in the loop.**
 
-> **Current macOS version: 2.4.4** — kweb app naming fix.
+> **Current macOS version: 2.4.4** — kweb app naming, Choc, and `do` no-return syntax.
 > See [`CHANGELOG.md`](CHANGELOG.md) for the full history.
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
@@ -57,6 +57,8 @@ The web framework adds a third extension for templates:
 ## What's new in 2.4.4
 
 - **macOS GUI app name fixed** — the app is now `kweb.app`, not `kweb_gui.app`.
+- **Choc replaces Cocoa as the public Objective-K UI layer** — macOS kweb now builds through `k:choc_macos`; Cocoa stays as compatibility/backend code.
+- **`do` no-return syntax** — `-> do` is accepted and `-> void` now errors.
 
 ## What's new in 2.4.3
 
@@ -121,13 +123,10 @@ run, imports, and self-host on macOS (arm64), Linux (x86-64), and Windows
 - **kweb** — single-binary web framework CLI. Bundled in the Windows
   installer; build from source on macOS / Linux. `krypton-lang.org` itself
   is rendered by kweb.
-- **macOS Cocoa scaffold** *(in progress, macOS backend)* — `headers/objc.krh`,
-  `headers/cocoa.krh`, `stdlib/objc.k`, `stdlib/cocoa.k` land the
-  foundation for native macOS apps written in pure Krypton. Same
-  surface shape as `stdlib/gui.k` on Windows — `cocoaWindow`,
-  `cocoaButton`, `cocoaOnClick` — so a single `.ks` source can target
-  both. See `docs/cocoa_design.md` for the binding strategy + the
-  `objc_msgSend` arm64 ABI work in the macho backend.
+- **Choc / Objective-K native UI** *(in progress)* — `stdlib/objk.k`,
+  `stdlib/choc_macos.k`, and the Windows Choc layer form the native UI
+  facade for pure Krypton apps. Cocoa remains available as compatibility
+  code behind the macOS backend.
 - **Zero-C HTTP server on macOS** *(macOS backend)* — `stdlib/server_native.k`
   is a complete HTTP server in pure Krypton on top of new BSD-socket
   builtins (`sockMake/Bind/Listen/Accept/Recv/RecvStr/Send/Close`) that
