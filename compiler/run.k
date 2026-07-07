@@ -182,6 +182,7 @@ func isKW(word) {
     else if word == "else" { emit 1 }
     else if word == "while" { emit 1 }
     else if word == "break" { emit 1 }
+    else if word == "do" { emit 1 }
     else if word == "module" { emit 1 }
     else if word == "quantum" { emit 1 }
     else if word == "qpute" { emit 1 }
@@ -436,6 +437,21 @@ func envSet(env, name, val) {
 // Format: "name\tparamCount\tp1,p2,...\tstartTokIdx\n..."
 // startTokIdx points to the LBRACE of the function body
 
+func execSkipReturnType(tokens, pos) {
+    if tokAt(tokens, pos) != "ARROW" { emit pos }
+    let p = pos + 1
+    let nt = lineCount(tokens)
+    while p < nt && tokAt(tokens, p) != "LBRACE" {
+        let tk = tokAt(tokens, p)
+        if tk == "ID:void" {
+            print("ERROR: use `do` for no-return functions; `void` is not Krypton.")
+            exit(1)
+        }
+        p = p + 1
+    }
+    emit p
+}
+
 func scanFunctions(tokens, ntoks) {
     let table = ""
     let i = 0
@@ -460,11 +476,9 @@ func scanFunctions(tokens, ntoks) {
                 }
                 pi = pi + 1
             }
-            // pi is at RPAREN, next should be LBRACE (possibly after arrow+type)
+            // pi is at RPAREN. Plain-scan optional `-> TYPE`, then body.
             pi = pi + 1
-            while tokAt(tokens, pi) != "LBRACE" {
-                pi = pi + 1
-            }
+            pi = execSkipReturnType(tokens, pi)
             table = table + fname + "~" + pc + "~" + params + "~" + pi + "\n"
             // skip past the function body
             i = pi

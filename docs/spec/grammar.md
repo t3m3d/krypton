@@ -248,7 +248,8 @@ backend; using any as an identifier is a tokenization error today.
   Krypton uses `emit` for value-producing functions. `do` is the action-only
   / no-result return contract: `func log(x) -> do { print(x) }`. A function
   that only does work can fall through without emitting a value; the parser
-  accepts `return` as a synonym for `emit` for compatibility.
+  accepts `return` as a synonym for `emit` for compatibility. `-> void`
+  now errors; use `-> do`.
 - **Backtick strings** support `{expr}` interpolation; in 1.4.0+ the
   embedded expression can be any expression (not just a bare identifier).
 

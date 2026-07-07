@@ -690,8 +690,10 @@ func scanFunctions(tokens, ntoks) {
                     j += 1
                 }
             }
-            // j is at RPAREN, j+1 is LBRACE
-            let bodyStart = j + 1
+            // j is at RPAREN. Plain-scan optional `-> TYPE`, then body.
+            j = j + 1
+            j = irSkipReturnType(tokens, j)
+            let bodyStart = j
             table = sbAppend(table, fname + "~" + pc + "~" + params + "~" + bodyStart + "\n")
         }
         i += 1
@@ -1370,7 +1372,7 @@ func irPrimary(tokens, pos, ntoks, lc, types) {
             lp = lp + 1
         }
         lp += 1   // past RPAREN
-        if tokAt(tokens, lp) == "ARROW" { lp = lp + 2 }
+        lp = irSkipReturnType(tokens, lp)
         let lpEnd = skipBlock(tokens, lp)
 
         // 2.0-alpha-3 unification: ALL lambdas wrapped as closures
@@ -2180,6 +2182,21 @@ func irTypeStr(tokens, start, end) {
         p += 1
     }
     emit sbToString(sb)
+}
+
+func irSkipReturnType(tokens, pos) {
+    if tokAt(tokens, pos) != "ARROW" { emit pos }
+    let p = pos + 1
+    let nt = lineCount(tokens)
+    while p < nt && tokAt(tokens, p) != "LBRACE" {
+        let tk = tokAt(tokens, p)
+        if tk == "ID:void" {
+            printErr("kcc: use `do` for no-return functions; `void` is not Krypton.")
+            exit(1)
+        }
+        p += 1
+    }
+    emit p
 }
 
 // Look up a name's type in the per-function types table.
@@ -3043,7 +3060,7 @@ func irLambdaIR(tokens, pos, ntoks, lambdaName) {
         } else { p += 1 }
     }
     p += 1   // past RPAREN
-    if tokAt(tokens, p) == "ARROW" { p = p + 2 }
+    p = irSkipReturnType(tokens, p)
 
     // 2.0-alpha-3 unification: ALL lambdas get __env first PARAM so
     // closure dispatch is uniform. Capture-free lambdas just ignore
@@ -3132,8 +3149,7 @@ func irFuncIR(tokens, pos, ntoks, structTypes) {
         } else { p += 1 }
     }
     p += 1
-    // skip -> return type
-    if tokAt(tokens, p) == "ARROW" { p = p + 2 }
+    p = irSkipReturnType(tokens, p)
     // Phase C: pre-scan body for `let X: TYPE` so irPrimary can tag
     // LOADs with type hints and irPostfix can specialize INDEX into
     // typed-pointer reads. Also scan struct definitions across the
@@ -3619,7 +3635,7 @@ just run {
 	                                                    if len(ftable) > 0 { ftable = ftable + "\n" + depFInfo }
 	                                                    else { ftable = depFInfo }
 	                                                    depFPos += 1
-	                                                    if tokAt(depToks, depFPos) == "ARROW" { depFPos += 2 }
+	                                                    depFPos = irSkipReturnType(depToks, depFPos)
 	                                                    depJxtPos = depFPos
 	                                                } else {
 	                                                    depJxtPos += 2
@@ -3705,9 +3721,7 @@ just run {
                                     if len(ftable) > 0 { ftable = ftable + "\n" + ijfInfo }
                                     else { ftable = ijfInfo }
                                     ijfPos += 1
-                                    if tokAt(iToks, ijfPos) == "ARROW" {
-                                        ijfPos += 2
-                                    }
+                                    ijfPos = irSkipReturnType(iToks, ijfPos)
                                     ijxtPos = ijfPos
                                 } else {
                                     ijxtPos += 2
@@ -3821,9 +3835,7 @@ just run {
                     if len(ftable) > 0 { ftable = ftable + "\n" + jfInfo }
                     else { ftable = jfInfo }
                     jfPos += 1
-                    if tokAt(tokens, jfPos) == "ARROW" {
-                        jfPos += 2
-                    }
+                    jfPos = irSkipReturnType(tokens, jfPos)
                     jxtPos = jfPos
                 } else {
                     jxtPos += 2
@@ -3862,7 +3874,7 @@ just run {
                 let lskip = i + 2
                 while lskip < ntoks && tokAt(tokens, lskip) != "RPAREN" { lskip += 1 }
                 lskip += 1  // past RPAREN
-                if tokAt(tokens, lskip) == "ARROW" { lskip += 2 }
+                lskip = irSkipReturnType(tokens, lskip)
                 i = skipBlock(tokens, lskip) - 1
             }
             let fname = tokVal(nameTok)
@@ -3879,11 +3891,11 @@ just run {
             }
         } else if tok == "KW:callback" {
             // callback func — skip the func keyword, name, params, body
-            // void forward decl emitted by body pass; no char* decl needed here
+            // do/no-value forward decl emitted by body pass; no char* decl needed here
             let cbSkip = i + 3
             while cbSkip < ntoks && tokAt(tokens, cbSkip) != "RPAREN" { cbSkip += 1 }
             cbSkip += 1
-            if tokAt(tokens, cbSkip) == "ARROW" { cbSkip += 2 }
+            cbSkip = irSkipReturnType(tokens, cbSkip)
             i = skipBlock(tokens, cbSkip) - 1
         } else if tokType(tok) == "CBLOCK" {
             // cfunc { } — skip in forward-decl pass, emitted in body pass
@@ -3985,13 +3997,13 @@ just run {
             if tokAt(tokens, i + 1) != "LPAREN" { sk = i + 3 }   // skip name + LPAREN for named funcs
             while sk < ntoks && tokAt(tokens, sk) != "RPAREN" { sk += 1 }
             sk += 1
-            if tokAt(tokens, sk) == "ARROW" { sk += 2 }
+            sk = irSkipReturnType(tokens, sk)
             i = skipBlock(tokens, sk)
         } else if tok == "KW:callback" {
             let cbSk = i + 3
             while cbSk < ntoks && tokAt(tokens, cbSk) != "RPAREN" { cbSk += 1 }
             cbSk += 1
-            if tokAt(tokens, cbSk) == "ARROW" { cbSk += 2 }
+            cbSk = irSkipReturnType(tokens, cbSk)
             i = skipBlock(tokens, cbSk)
         } else if tokType(tok) == "CBLOCK" {
             // cfunc { } — decode SOH placeholders back to newlines and emit verbatim
