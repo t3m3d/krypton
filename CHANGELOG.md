@@ -4,6 +4,10 @@ All notable changes to the Krypton language and compiler.
 
 ## [Unreleased]
 
+- **kweb CLI deploy fixed and rebuilt.** `web/kweb.htk` no longer imports the
+  Windows-only filesystem/header path on macOS, so it compiles with native
+  `kcc` again. CLI deploy now uses FTP, defaults to the FTP login root, supports
+  optional remote folders, and avoids adding `public_html/`.
 - **FreeBSD x86_64 native scaffold**. Added `compiler/freebsd_x86/elf.k`,
   FreeBSD `kcc.ks` dispatch, and `build.sh` detection for future
   `bootstrap/kcc_seed_freebsd_x86_64`, `kcc_driver_freebsd_x86_64`,
