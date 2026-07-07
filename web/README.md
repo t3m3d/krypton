@@ -235,13 +235,13 @@ the website root.
 Build app bundle:
 
 ```bash
-bootstrap/kcc_driver_macos_aarch64 -r scripts/build-objk-app.ks web/kweb_gui.ks kweb_gui
+bootstrap/kcc_driver_macos_aarch64 -r scripts/build-objk-app.ks web/kweb_gui.ks kweb
 ```
 
 Output:
 
 ```text
-dist/kweb_gui.app
+dist/kweb.app
 ```
 
 ## Mental Model
