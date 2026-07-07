@@ -29,6 +29,7 @@ test*.exe
 !runtime/ckrypton_gui.dll
 !runtime/ckrypton_proc.dll
 !runtime/ckrypton_fs.dll
+/krypton_rt.dll
 *.obj
 *.lib
 installer/
