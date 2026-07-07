@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 ![Version](https://img.shields.io/badge/version-2.4.4-brightgreen)
 ![macOS](https://img.shields.io/badge/macOS-arm64%202.4.4-success)
-![Linux](https://img.shields.io/badge/Linux-x86__64%202.3.0-yellow)
+![Linux](https://img.shields.io/badge/Linux-x86__64%202.4.4-yellow)
 ![Windows](https://img.shields.io/badge/Windows-x86__64%202.3.0-orange)
 
 ## File extensions
@@ -141,13 +141,13 @@ run, imports, and self-host on macOS (arm64), Linux (x86-64), and Windows
 | Platform | Shipped version | Notes |
 |----------|-----------------|-------|
 | macOS arm64 | **2.4.4** | `.pkg`, tarball, or Homebrew. Includes `kweb`, `/usr/local/bin/kweb`, and `/Applications/Krypton/kweb.app`. |
-| Linux x86_64 | **2.3.0** | `brew install t3m3d/krypton/krypton` (kcc + kweb), the prebuilt tarball → `./install.sh`, or build from source. No C compiler. Self-hosting. aarch64 via `kcc --aarch64` cross-compile. |
+| Linux x86_64 | **2.4.4** | Prebuilt tarball -> `./install.sh`, or build from source. No C compiler. Self-hosting. Includes rebuilt `kcc` seed, driver, kweb, and aarch64 via `kcc --aarch64` cross-compile. |
 | Windows x86_64 | **2.3.0** | Inno Setup installer: `kcc.exe`/`kcc-bin.exe` driver/backend split, native `krypton_rt.dll`, `kr.exe` REPL, kweb, WASM, .k/.ks associations. |
 | **VS Code / Antigravity ext.** | **2.3.0** | `extensions/krypton-language-2.3.0.vsix`. Adds `.ks` (KryptScript) alongside `.k`, bundles the `kls` language server for Windows + macOS, ships `KryptScript` as a language-picker alias. |
 
-All three native toolchains are **clang/gcc-free** for build, run, imports, and
-self-host. One GitHub release ([`2.3.0`](https://github.com/t3m3d/krypton/releases/tag/2.3.0))
-carries every platform's artifact.
+macOS and Linux are on [`2.4.4`](https://github.com/t3m3d/krypton/releases/tag/2.4.4).
+Windows and the editor extension stay on [`2.3.0`](https://github.com/t3m3d/krypton/releases/tag/2.3.0)
+until their matching artifacts are cut.
 
 **Bundled CLIs (one package, four commands):**
 
