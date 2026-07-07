@@ -15,6 +15,7 @@ Status: scaffolded, parses on macOS, needs first FreeBSD seed pass.
 From repo root:
 
 ```sh
+./scripts/bootstrap_freebsd_from_linuxulator.sh
 ./build.sh
 ./kcc -e 'kp("freebsd ok")'
 ./kcc examples/hello.k -o /tmp/hello.krypton
