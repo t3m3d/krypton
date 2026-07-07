@@ -59,11 +59,20 @@ Returns the number of command-line arguments.
 ### exit(code) — (native)
 Exits the program with the given exit code. Does not return.
 
-### readLine(prompt) — (C path)
+### readLine(prompt) — (native)
 Prints `prompt` then reads a line from stdin (no trailing newline).
 
-### input() — (C path)
-Reads a line from stdin with no prompt.
+### scan(prompt) — (stdlib)
+Human-facing input helper. Prints `prompt` when non-empty, then reads one line from stdin.
+
+### get() — (stdlib contract)
+Human-facing single-key input. Native backends should read one key with no Enter and no echo. The current stdlib fallback reads a line and returns its first character.
+
+### getEcho() — (stdlib contract)
+Single-key input with echo. Native backends should echo the key as it is read. The current stdlib fallback shares `get()`.
+
+### input() — (stdlib)
+Reads a line from stdin with no prompt. Python-facing code lowers to the same scan path.
 
 ### deleteFile(path) — (C path)
 Removes a file. Returns `"1"` on success.

@@ -42,9 +42,11 @@ param       ::= IDENT (":" type)?
      "[" type "]"      - homogenous list
      "[" "*" type "]"  - list of typed pointers
      "fp" / "closure"  - function-pointer / closure receivers (2.0 alpha-1+)
+     "do"              - action-only / no-result return contract
 *)
 type        ::= "*" type
               | "[" type "]"
+              | "do"
               | IDENT
 
 global_let  ::= ("let" | "const") IDENT "=" expr ";"?
@@ -243,8 +245,10 @@ backend; using any as an identifier is a tokenization error today.
   into the classic brace form, with the include type inferred from the
   file extension (`.k` → Krypton module, `.h`/`.krh` → C header).
 - **`emit` vs `return`.** The two keywords are interchangeable. Idiomatic
-  Krypton uses `emit` for value-producing functions and `return` for void
-  returns; the parser doesn't distinguish.
+  Krypton uses `emit` for value-producing functions. `do` is the action-only
+  / no-result return contract: `func log(x) -> do { print(x) }`. A function
+  that only does work can fall through without emitting a value; the parser
+  accepts `return` as a synonym for `emit` for compatibility.
 - **Backtick strings** support `{expr}` interpolation; in 1.4.0+ the
   embedded expression can be any expression (not just a bare identifier).
 

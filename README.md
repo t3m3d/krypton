@@ -397,9 +397,13 @@ let name: string = "Krypton"
 func add(a: int, b: int) -> int {
     emit toInt(a) + toInt(b) + ""
 }
+
+func log(message: string) -> do {
+    print(message)
+}
 ```
 
-Annotations are parsed and discarded — they document intent for humans and future tooling.
+`do` is Krypton's action-only / no-result return contract. Use `emit` when a function produces a value; use `-> do` when the function only performs work. Annotations document intent for humans and tooling; selected annotations already guide typed pointers, closures, and backend contracts.
 
 ### Functions
 
@@ -413,7 +417,8 @@ just run {
 }
 ```
 
-`emit` (or `return`) returns a value. `just run` is the program entry point.
+`emit` (or `return`) sends a value out of a function. Action-only functions can use `-> do` and fall through. `just run` is the program entry point.
+scan(prompt) is the standard line-input word. get() and getEcho() are the standard single-key contracts; native backends should lower them to no-Enter key reads.
 
 ### Imports — jxt block
 
