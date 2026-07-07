@@ -330,16 +330,6 @@ func guiTextInput(parent, x, y, w, h) {
     if ctl == "0" { emit "0" }
     emit id
 }
-// "EDIT" class, single-line password input. Adds ES_PASSWORD to guiTextInput.
-func guiPasswordInput(parent, x, y, w, h) {
-    let pHwnd = _guiHexToInt(parent)
-    let hInst = GetModuleHandleA("0")
-    let id = _guiNextId()
-    let ctl = CreateWindowExA("512", "EDIT", "", "1342242976", x + "", y + "", w + "", h + "", pHwnd + "", id, hInst, "0")
-    if ctl == "0" { emit "0" }
-    emit id
-}
-
 // "EDIT" multi-line. WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|ES_MULTILINE|ES_AUTOVSCROLL|ES_WANTRETURN = 1344606276.
 func guiTextArea(parent, x, y, w, h) {
     let pHwnd = _guiHexToInt(parent)

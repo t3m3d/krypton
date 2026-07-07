@@ -1,10 +1,10 @@
 #!/usr/bin/env kr
 // examples/objk/windows_controls.ks -- Objective-K facade on Windows.
 
-import "k:objk_win"
+import "stdlib/objkwin.k"
 
 let g_name = ""
-let g_pass = ""
+let g_value = ""
 let g_secure = ""
 let g_mode = ""
 let g_bar = ""
@@ -47,7 +47,7 @@ func onOpenSite() {
 
 func onClear() {
     okSetText(g_name, "")
-    okSetText(g_pass, "")
+    okSetText(g_value, "")
     okSetTextView(g_notes, "")
     g_level = 0
     okSetProgress(g_bar, g_level)
@@ -69,8 +69,8 @@ just run {
     g_name = okField(win, 128, 68, 340, 28)
     okSetText(g_name, "krypton")
 
-    okLabel(win, "Secret", 28, 112, 100, 22)
-    g_pass = okPassword(win, 128, 108, 340, 28)
+    okLabel(win, "Value", 28, 112, 100, 22)
+    g_value = okField(win, 128, 108, 340, 28)
 
     okLabel(win, "Mode", 28, 154, 100, 22)
     g_mode = okCombo(win, 128, 150, 180, 160)
