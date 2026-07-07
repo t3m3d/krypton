@@ -15,7 +15,7 @@ Build + run (dev tree):
 - **term_grid.ks** — custom NSView drawRect: a terminal grid (colored cells + glyphs).
 - **table.ks** — NSTableView driven by a pure-Krypton multi-method data source.
 - **controls.ks** — `k:objk` facade: checkbox, combo box, slider, progress, defaults, clipboard, URL open.
-- **windows_controls.ks** — `k:objk_win` facade over `stdlib/gui.k`: Windows-native controls, events, shell open, password field, theme color.
+- **windows_controls.ks** — `stdlib/objkwin.k` facade over `stdlib/gui.k`: Windows-native controls, events, shell open, text fields, theme color.
 
 Note: every callback/delegate method is a plain Krypton func used as an Obj-C method
 IMP — objc passes (self, _cmd, …) in x0/x1/… = Krypton's register convention.

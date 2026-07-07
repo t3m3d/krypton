@@ -1,32 +1,33 @@
-// stdlib/objk_win.k -- Objective-K facade for native Windows apps.
+// stdlib/objkwin.k -- Objective-K facade for native Windows apps.
 //
 // This is the Windows sibling of stdlib/objk.k.  It keeps app code on the
 // ok* surface while routing through the proven pure-Krypton Win32 gui module.
 
-module objk_win
+module objkwin
 
 import "k:gui"
 import "k:shell"
 
 // App/window
-func okApp()                    { guiInit()  guiEnableModernChrome()  emit "1" }
+func okApp()                    { emit "1" }
 func okSharedApp()              { emit okApp() }
 func okRun(app)                 { emit guiRun() }
-func okQuit(app)                { guiQuit()  emit "1" }
+func okQuit(app)                { emit guiQuit() }
 func okFinish(app)              { emit "1" }
 func okPump(app)                { emit "0" }
 func okWindow(app, title, w, h) { emit guiWindow(title, w, h) }
 func okShow(win, app)           { emit guiShow(win) }
 func okTitle(obj, title)        { emit guiSetText(obj, title) }
 func okMinSize(win, w, h)       { emit "1" }
-func okTransparentTitlebar(win) { guiEnableDarkTitle(win)  emit "1" }
+func okTransparentTitlebar(win) { emit guiEnableDarkTitle(win) }
 func okMakeFirstResponder(win, view) { emit "1" }
 
 // Controls
 func okButton(win, label, x, y, w, h)     { emit guiButton(win, label, x, y, w, h) }
 func okCheckbox(win, label, x, y, w, h)   { emit guiCheckbox(win, label, x, y, w, h) }
 func okField(win, x, y, w, h)             { emit guiTextInput(win, x, y, w, h) }
-func okPassword(win, x, y, w, h)          { emit guiPasswordInput(win, x, y, w, h) }
+// Temporary visible fallback: native password masking currently crashes this Windows backend.
+func okPassword(win, x, y, w, h)          { emit guiTextInput(win, x, y, w, h) }
 func okLabel(win, text, x, y, w, h)       { emit guiLabel(win, text, x, y, w, h) }
 func okBoxLabel(win, text, x, y, w, h)    { emit guiLabel(win, text, x, y, w, h) }
 func okTextView(win, x, y, w, h)          { emit guiTextArea(win, x, y, w, h) }
