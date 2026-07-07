@@ -131,7 +131,23 @@ Serves `dist/` locally for preview.
 kweb deploy example.com username
 ```
 
-Uploads `dist/` recursively through the existing deploy flow.
+Uploads `dist/` recursively by FTP. The default remote target is the FTP login
+root. For hosts like Hostinger where the FTP account already starts inside
+`public_html`, do not add `public_html/`.
+
+To deploy into a folder under the login root:
+
+```bash
+kweb deploy example.com username test
+```
+
+That uploads `dist/index.html` to `test/index.html`.
+
+For non-interactive deploys, a fourth argument can pass the FTP password:
+
+```bash
+kweb deploy example.com username test your-password
+```
 
 The macOS GUI uses FTP directly and has fields for host, user, password, and an
 optional remote folder.
