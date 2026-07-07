@@ -1,4 +1,4 @@
-# objk demos — pure-Krypton macOS GUI
+# objk demos — pure-Krypton native GUI
 
 Native Cocoa apps written in pure Krypton, no Obj-C source, on the objk FFI
 (`compiler/macos_arm64/macho_arm64_self.k` + `stdlib/cocoa.k` + `stdlib/objc.k`).
@@ -15,7 +15,10 @@ Build + run (dev tree):
 - **term_grid.ks** — custom NSView drawRect: a terminal grid (colored cells + glyphs).
 - **table.ks** — NSTableView driven by a pure-Krypton multi-method data source.
 - **controls.ks** — `k:objk` facade: checkbox, combo box, slider, progress, defaults, clipboard, URL open.
-- **layout.ks** — `k:objk` rect/layout helpers for backend-swappable app code.
+- **windows_controls.ks** — `stdlib/objkwin.k` facade: Windows-native controls, events, shell open, text fields, theme color.
+- **choc_window.ks** — `stdlib/choc.k` native Windows kit smoke app.
 
 Note: every callback/delegate method is a plain Krypton func used as an Obj-C method
 IMP — objc passes (self, _cmd, …) in x0/x1/… = Krypton's register convention.
+
+Windows uses the same Objective-K naming style without Cocoa/libobjc. `stdlib/choc.k` is the native Windows kit layer; `stdlib/objkwin.k` remains on the stable direct path until nested facade calls are hardened. Click dispatch now passes Obj-K-shaped args: `(self, cmd, sender)`, and old no-arg handlers still work.
