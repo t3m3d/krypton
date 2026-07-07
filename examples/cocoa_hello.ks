@@ -25,11 +25,7 @@
 // backend. The window opens and the button click updates the label.
 // Non-GUI regression guard for the objc ABI: tests/test_objc_smoke.k.
 
-// Krypton imports are NOT transitive — pull in every layer explicitly.
 import "k:cocoa"
-import "k:objc"
-import "head:cocoa"
-import "head:objc"
 
 // Click handler. Receives the sender (the NSButton instance). We use
 // envGet on a shared GC env that the main flow attaches to the button
