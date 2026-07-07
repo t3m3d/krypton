@@ -1,7 +1,7 @@
-// stdlib/choc.k -- native Windows GUI kit for Krypton.
+// stdlib/choc.k -- Choc native UI kit for Krypton (Windows backend slice).
 //
-// Choc is the Windows sibling to macOS cocoa.k: it keeps platform-specific
-// native GUI/system calls behind a compact Krypton API.
+// Choc is the shared native UI kit concept. This file is the current Windows
+// backend slice: it keeps Win32 GUI/system calls behind a compact Krypton API.
 
 module choc
 
