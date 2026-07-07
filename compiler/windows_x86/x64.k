@@ -3867,8 +3867,8 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     // newlines). Cache stdout handle on the stack between the two writes.
     let pr_sl    = 0 - (pos + 9 + 5)                                                  // CALL strlen (offset 9, ret 14)
     let pr_gsh_d = iatK32Rva + 1 * 8 - (textRva + pos + 22 + 6)                       // CALL [GetStdHandle] (offset 22, ret 28)
-    let pr_wf1_d = iatK32Rva + 30 * 8 - (textRva + pos + 56 + 6)                      // CALL [WriteFile]#1 (offset 56, ret 62)
-    let pr_wf2_d = iatK32Rva + 30 * 8 - (textRva + pos + 88 + 6)                      // CALL [WriteFile]#2 (offset 88, ret 94)
+    let pr_wf1_d = iatK32Rva + 34 * 8 - (textRva + pos + 56 + 6)                      // CALL [WriteFile]#1 (offset 56, ret 62)
+    let pr_wf2_d = iatK32Rva + 34 * 8 - (textRva + pos + 88 + 6)                      // CALL [WriteFile]#2 (offset 88, ret 94)
     let pr_al    = 18 - (pos + 99 + 5)                                                // CALL kr_alloc (offset 99, ret 104)
     sb = sbAppend(sb, hexByte(0x53))                                                  // [0]      PUSH RBX
     sb = sbAppend(sb, hexByte(0x56))                                                  // [1]      PUSH RSI
@@ -3907,8 +3907,8 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     // 114 bytes — same shape as kr_print but GetStdHandle(-12) for stderr.
     let pe_sl    = 0 - (pos + 9 + 5)
     let pe_gsh_d = iatK32Rva + 1 * 8 - (textRva + pos + 22 + 6)
-    let pe_wf1_d = iatK32Rva + 30 * 8 - (textRva + pos + 56 + 6)
-    let pe_wf2_d = iatK32Rva + 30 * 8 - (textRva + pos + 88 + 6)
+    let pe_wf1_d = iatK32Rva + 34 * 8 - (textRva + pos + 56 + 6)
+    let pe_wf2_d = iatK32Rva + 34 * 8 - (textRva + pos + 88 + 6)
     let pe_al    = 18 - (pos + 99 + 5)
     sb = sbAppend(sb, hexByte(0x53))
     sb = sbAppend(sb, hexByte(0x56))
@@ -4504,11 +4504,11 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     //   [RSP+0x20..0x37] stack args 5,6,7 (used per-call)
     //   [RSP+0x38] scratch (file size out, then bytesRead out)
     offsets = offsets + "kr_readfile:" + pos + "\n"
-    let rf_cf = iatK32Rva + 32*8 - (textRva + pos + 55 + 6)
-    let rf_fs = iatK32Rva + 34*8 - (textRva + pos + 78 + 6)
+    let rf_cf = iatK32Rva + 36*8 - (textRva + pos + 55 + 6)
+    let rf_fs = iatK32Rva + 38*8 - (textRva + pos + 78 + 6)
     let rf_al = 18 - (pos + 93 + 5)
-    let rf_rd = iatK32Rva + 31*8 - (textRva + pos + 124 + 6)
-    let rf_ch = iatK32Rva + 10*8 - (textRva + pos + 138 + 6)
+    let rf_rd = iatK32Rva + 35*8 - (textRva + pos + 124 + 6)
+    let rf_ch = iatK32Rva + 13*8 - (textRva + pos + 138 + 6)
     let rf_ea = 18 - (pos + 166 + 5)
     sb2 = sbAppend(sb2, hexByte(0x53))                                                          // [0]   PUSH RBX
     sb2 = sbAppend(sb2, hexByte(0x56))                                                          // [1]   PUSH RSI
@@ -4561,10 +4561,10 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     // ── kr_writefile(RCX=path, RDX=data) → "" ────────────────────
     // 146 bytes. Properly sets up Win64 ABI args.
     offsets = offsets + "kr_writefile:" + pos + "\n"
-    let wf_cf = iatK32Rva + 32*8 - (textRva + pos + 55 + 6)
+    let wf_cf = iatK32Rva + 36*8 - (textRva + pos + 55 + 6)
     let wf_sl = 0 - (pos + 73 + 5)
-    let wf_wf = iatK32Rva + 30*8 - (textRva + pos + 104 + 6)
-    let wf_ch = iatK32Rva + 10*8 - (textRva + pos + 113 + 6)
+    let wf_wf = iatK32Rva + 34*8 - (textRva + pos + 104 + 6)
+    let wf_ch = iatK32Rva + 13*8 - (textRva + pos + 113 + 6)
     let wf_ea2 = 18 - (pos + 124 + 5)
     sb2 = sbAppend(sb2, hexByte(0x53)+hexByte(0x56)+hexByte(0x57))                              // [0]   PUSH RBX, RSI, RDI
     sb2 = sbAppend(sb2, hexByte(0x41)+hexByte(0x54)+hexByte(0x41)+hexByte(0x55)+hexByte(0x41)+hexByte(0x56)) // [3] PUSH R12, R13, R14
@@ -4627,7 +4627,7 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     // kr_argcount: count space-separated tokens in GetCommandLineA().
     // Strategy: count whitespace chars + 1 (approx for clean cmdlines, matches typical kcc invocations).
     offsets = offsets + "kr_argcount:" + pos + "\n"
-    let ac_gc = iatK32Rva + 33*8 - (textRva + pos + 4 + 6)
+    let ac_gc = iatK32Rva + 37*8 - (textRva + pos + 4 + 6)
     let ac_it = 266 - (pos + 36 + 5)
     // Count whitespace chars in cmdline + 1 ≈ token count (sufficient for clean cmdlines).
     // Layout (46 bytes used, 11 NOPs pad to 57):
@@ -4790,7 +4790,7 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     //   JE .empty at +34: target 138, after JE at 36, disp = 138-36 = 102 = 0x66
     //   JE .empty at +62: target 138, after at 64, disp = 138-64 = 74 = 0x4A
     offsets = offsets + "kr_arg:" + pos + "\n"
-    let ag_gc = iatK32Rva + 33*8 - (textRva + pos + 10 + 6)
+    let ag_gc = iatK32Rva + 37*8 - (textRva + pos + 10 + 6)
     let ag_ai = 197 - (pos + 22 + 5)
     let ag_al1 = 18 - (pos + 94 + 5)   // alloc for arg copy
     let ag_ea = 18 - (pos + 143 + 5)   // alloc for empty
@@ -5169,7 +5169,7 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     offsets = offsets + "kr_environ:" + pos + "\n"
     // kr_environ(RCX=name) → RAX=string
     // Was a stub returning ""; now actually calls GetEnvironmentVariableA
-    // (kernel32 IAT slot 25). 53 bytes.
+    // (kernel32 IAT slot 29). 53 bytes.
     //
     //   [0]    53                      PUSH RBX
     //   [1]    56                      PUSH RSI
@@ -5182,14 +5182,14 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     //   [25-27] 48 89 D9                MOV RCX, RBX            (name)
     //   [28-30] 48 89 F2                MOV RDX, RSI            (buf)
     //   [31-36] 41 B8 00 04 00 00      MOV R8D, 1024            (size)
-    //   [37-42] FF 15 dd                CALL [GetEnvironmentVariableA]  (k32 slot 25)
+    //   [37-42] FF 15 dd                CALL [GetEnvironmentVariableA]  (k32 slot 29)
     //   [43-45] 48 89 F0                MOV RAX, RSI            (return buf)
     //   [46-49] 48 83 C4 28             ADD RSP, 0x28
     //   [50]    5E                      POP RSI
     //   [51]    5B                      POP RBX
     //   [52]    C3                      RET
     let env_al   = 18 - (pos + 14 + 5)                                   // CALL __rt_alloc (offset 14, ret 19)
-    let env_geva = iatK32Rva + 25 * 8 - (textRva + pos + 37 + 6)         // CALL [GetEnvironmentVariableA] slot 25 (offset 37, ret 43)
+    let env_geva = iatK32Rva + 29 * 8 - (textRva + pos + 37 + 6)         // CALL [GetEnvironmentVariableA] slot 29 (offset 37, ret 43)
     sb2 = sbAppend(sb2, hexByte(0x53))
     sb2 = sbAppend(sb2, hexByte(0x56))
     sb2 = sbAppend(sb2, hexByte(0x48)+hexByte(0x83)+hexByte(0xEC)+hexByte(0x28))
@@ -6812,19 +6812,19 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     let v2_slab_off_load     = (gcGlobalsRva + 32) - (textRva + pos + 164)
     let v2_slab_off_update   = (gcGlobalsRva + 32) - (textRva + pos + 187)
     // .first_slab at 188
-    let v2_gph1_disp         = iatK32Rva + 29 * 8  - (textRva + pos + 198)
-    let v2_ha1_disp          = iatK32Rva + 26 * 8  - (textRva + pos + 215)
+    let v2_gph1_disp         = iatK32Rva + 33 * 8  - (textRva + pos + 198)
+    let v2_ha1_disp          = iatK32Rva + 30 * 8  - (textRva + pos + 215)
     let v2_slab_first_store  = (gcGlobalsRva + 16) - (textRva + pos + 227)
     let v2_slab_curr_store_a = (gcGlobalsRva + 24) - (textRva + pos + 234)
     let v2_slab_off_init_a   = (gcGlobalsRva + 32) - (textRva + pos + 252)
     // .new_slab at 254
-    let v2_gph2_disp         = iatK32Rva + 29 * 8  - (textRva + pos + 267)
-    let v2_ha2_disp          = iatK32Rva + 26 * 8  - (textRva + pos + 284)
+    let v2_gph2_disp         = iatK32Rva + 33 * 8  - (textRva + pos + 267)
+    let v2_ha2_disp          = iatK32Rva + 30 * 8  - (textRva + pos + 284)
     let v2_slab_curr_store_b = (gcGlobalsRva + 24) - (textRva + pos + 306)
     let v2_slab_off_init_b   = (gcGlobalsRva + 32) - (textRva + pos + 317)
     // .huge_alloc at 323 (was 254, +69 from stage 6 insertion)
-    let v2_gph3_disp         = iatK32Rva + 29 * 8  - (textRva + pos + 329)
-    let v2_ha3_disp          = iatK32Rva + 26 * 8  - (textRva + pos + 343)
+    let v2_gph3_disp         = iatK32Rva + 33 * 8  - (textRva + pos + 329)
+    let v2_ha3_disp          = iatK32Rva + 30 * 8  - (textRva + pos + 343)
     // INC alloc_count moved from offset 270 → 274 (stage 1.5) → 343 (stage 6).
     let v2_count_inc         = (gcGlobalsRva + 40) - (textRva + pos + 343 + 7)
     // Stage 1.5 header write block now at offsets 350+ (was 281).
@@ -7051,8 +7051,8 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     // = 0. Returns "0" via tail-jump to kr_gc_collect.
     offsets = offsets + "kr_arena_reset:" + pos + "\n"
     let kar_first_load   = (gcGlobalsRva + 16) - (textRva + pos + 14)
-    let kar_gph_disp     = iatK32Rva + 29 * 8  - (textRva + pos + 36)
-    let kar_hf_disp      = iatK32Rva + 27 * 8  - (textRva + pos + 50)  // HeapFree at IAT idx 27
+    let kar_gph_disp     = iatK32Rva + 33 * 8  - (textRva + pos + 36)
+    let kar_hf_disp      = iatK32Rva + 31 * 8  - (textRva + pos + 50)  // HeapFree at IAT idx 31
     let kar_curr_store   = (gcGlobalsRva + 24) - (textRva + pos + 67)
     let kar_off_store    = (gcGlobalsRva + 32) - (textRva + pos + 78)
     let kar_total_store  = (gcGlobalsRva + 0)  - (textRva + pos + 85)
@@ -7153,8 +7153,8 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     // shows the lifetime cumulative.
     offsets = offsets + "kr_gc_restore:" + pos + "\n"
     let kgr_atoi      = 197 - (pos + 14)            // internal CALL → no textRva
-    let kgr_gph       = iatK32Rva + 29 * 8 - (textRva + pos + 38)
-    let kgr_hf        = iatK32Rva + 27 * 8 - (textRva + pos + 52)
+    let kgr_gph       = iatK32Rva + 33 * 8 - (textRva + pos + 38)
+    let kgr_hf        = iatK32Rva + 31 * 8 - (textRva + pos + 52)
     let kgr_curr_st   = (gcGlobalsRva + 24) - (textRva + pos + 69)
     let kgr_off_st    = (gcGlobalsRva + 32) - (textRva + pos + 76)
     // kr_gc_collect was emitted before kr_arena_reset (97 bytes) and kr_gc_checkpoint (62 bytes in 1.7.8 — was 52, grew by warmup-alloc fix)
@@ -7453,8 +7453,8 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     // is 7 bytes, NOT 8 — easy to mis-count and shift everything below.
     offsets = offsets + "kr_gc_shadow_push:" + pos + "\n"
     let sp_cmp_base    = (gcGlobalsRva + 48) - (textRva + pos + 8  + 8)
-    let sp_gph         = iatK32Rva + 29 * 8 - (textRva + pos + 18 + 6)
-    let sp_ha          = iatK32Rva + 26 * 8 - (textRva + pos + 35 + 6)
+    let sp_gph         = iatK32Rva + 33 * 8 - (textRva + pos + 18 + 6)
+    let sp_ha          = iatK32Rva + 30 * 8 - (textRva + pos + 35 + 6)
     let sp_base_store  = (gcGlobalsRva + 48) - (textRva + pos + 41 + 7)
     let sp_base_load   = (gcGlobalsRva + 48) - (textRva + pos + 48 + 7)
     let sp_sp_load     = (gcGlobalsRva + 56) - (textRva + pos + 55 + 7)
@@ -7872,9 +7872,9 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
     // parse "xHHxHH..." hex string, WriteFile one byte at a time,
     // CloseHandle. 255 bytes. Mirrors kcc_seed.c kr_writebytes.
     offsets = offsets + "kr_writebytes_real:" + pos + "\n"
-    let wbi_cf = iatK32Rva + 32*8 - (textRva + pos +  55 + 6)
-    let wbi_wf = iatK32Rva + 30*8 - (textRva + pos + 183 + 6)
-    let wbi_ch = iatK32Rva + 10*8 - (textRva + pos + 203 + 6)
+    let wbi_cf = iatK32Rva + 36*8 - (textRva + pos +  55 + 6)
+    let wbi_wf = iatK32Rva + 34*8 - (textRva + pos + 183 + 6)
+    let wbi_ch = iatK32Rva + 13*8 - (textRva + pos + 203 + 6)
     let wbi_a1 = 18 - (pos + 214 + 5)
     let wbi_a2 = 18 - (pos + 233 + 5)
     // [0-12] Prologue
@@ -8947,14 +8947,14 @@ just run {
         printErr("bs debug: bsImpSz=" + bsImpSz + " exportNames.lines=" + lineCount(bsExportNames) + " offsets.lines=" + lineCount(bsOffsets))
         printErr("bs debug: bsRdataRvaB=" + bsRdataRvaB + " bsIatK32B=" + bsIatK32B)
         printErr("bs debug: first exportName=" + getLine(bsExportNames, 0) + " first offset=" + getLine(bsOffsets, 0))
-        // Export table lives after globals(88) + imports(bsImpSz). Pass exportBase = 88 + bsImpSz.
-        let bsExpHex = buildExportTable(bsExportNames, bsOffsets, PE_TEXT_RVA2, bsRdataRvaB, 88 + bsImpSz, "krypton_rt.dll")
-        let bsExpRva = bsRdataRvaB + 88 + bsImpSz
+        // Export table lives after globals(104) + imports(bsImpSz). Pass exportBase = 104 + bsImpSz.
+        let bsExpHex = buildExportTable(bsExportNames, bsOffsets, PE_TEXT_RVA2, bsRdataRvaB, 104 + bsImpSz, "krypton_rt.dll")
+        let bsExpRva = bsRdataRvaB + 104 + bsImpSz
         let bsExpSz = len(bsExpHex) / 3
         printErr("bs debug: bsExpSz=" + bsExpSz + " bsExpRva=" + bsExpRva)
 
-        // .rdata = globals(88) + imports + exports
-        let bsRdataSz = 88 + bsImpSz + bsExpSz
+        // .rdata = globals(104) + imports + exports
+        let bsRdataSz = 104 + bsImpSz + bsExpSz
         let bsRdataFileSz = alignUp(bsRdataSz, PE_FILE_ALIGN)
         let bsRdataFileOffB = PE_TEXT_FILE_OFF + bsTextFileSz
         let bsImgSz = bsRdataRvaB + alignUp(bsRdataSz, PE_SECT_ALIGN)
