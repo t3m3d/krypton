@@ -246,6 +246,18 @@ if [[ -f "$SEED_BIN" ]]; then
     cp "$SEED_BIN" "$KCC"
     chmod +x "$KCC"
     ok "$KCC ready (no gcc needed)"
+    if [[ "$OSNAME/$ARCH" == "linux/x86_64" ]]; then
+        if [[ -x "bootstrap/elf_host_linux_x86_64" ]]; then
+            cp "bootstrap/elf_host_linux_x86_64" "compiler/linux_x86/elf_host"
+            chmod +x "compiler/linux_x86/elf_host"
+            ok "compiler/linux_x86/elf_host ready"
+        fi
+        if [[ -x "bootstrap/optimize_host_linux_x86_64" ]]; then
+            cp "bootstrap/optimize_host_linux_x86_64" "compiler/linux_x86/optimize_host"
+            chmod +x "compiler/linux_x86/optimize_host"
+            ok "compiler/linux_x86/optimize_host ready"
+        fi
+    fi
     if native_pipeline_available && [[ ! -x "$KCC_DRIVER" ]]; then
         fail "missing native driver $KCC_DRIVER"
     fi

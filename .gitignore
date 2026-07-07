@@ -70,3 +70,6 @@ dist/
 _codex_probe*/
 _codex_choc_wrap.k
 _codex_choc_wrap_window_only.ks
+
+# Local QEMU parity VMs/images
+.qemu/
