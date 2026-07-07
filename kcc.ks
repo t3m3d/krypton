@@ -74,6 +74,14 @@ func _winExists(p) {
     emit "0"
 }
 
+func tmpPath(prefix, suffix) {
+    let p = sh("mktemp /tmp/" + prefix + "_XXXXXX")
+    if suffix == "" { emit p }
+    let out = p + suffix
+    exec("mv " + q(p) + " " + q(out))
+    emit out
+}
+
 // Krypton's arg parser on Windows ALSO splits on spaces inside a
 // quoted string ("kp(\"hi there\")" → ["kp(\"hi, there\")"]). For
 // kcc -e, everything after the flag is one code expression, so re-
@@ -166,7 +174,7 @@ func ensureHost(root) {
         emit "0"
     }
     kp("kcc: building macho_host (one-time)...")
-    let tmpc = sh("mktemp /tmp/_kcchost_XXXXXX.c")
+    let tmpc = tmpPath("_kcchost", ".c")
     exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " " + q(src) + " > " + q(tmpc))
     exec("clang -O2 -w " + q(tmpc) + " -o " + q(host) + " -lm")
     rm(tmpc)
@@ -186,7 +194,7 @@ func compileMacos(root, src, out) {
     let fe = root + "/compiler/macos_arm64/kcc-arm64"
     let host = root + "/compiler/macos_arm64/macho_host"
     if ensureHost(root) == "0" { emit "0" }
-    let tmpir = sh("mktemp /tmp/_kcck_XXXXXX.kir")
+    let tmpir = tmpPath("_kcck", ".kir")
     // frontend: .k -> IR  (KRYPTON_ROOT must reach it for k: imports)
     exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src) + " > " + q(tmpir))
     if size(tmpir) == 0 {
@@ -237,7 +245,7 @@ func ensureElfHost(root) {
         emit "0"
     }
     kp("kcc: rebuilding elf_host natively (self-host, no C — slow on elf.k)...")
-    let tmpir = sh("mktemp /tmp/_kccelf_XXXXXX.kir")
+    let tmpir = tmpPath("_kccelf", ".kir")
     exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src) + " > " + q(tmpir))
     exec(q(boot) + " " + q(tmpir) + " " + q(host))
     rm(tmpir)
@@ -269,7 +277,7 @@ func ensureOptHost(root) {
     }
     // Native rebuild: elf_host compiles optimize.k's IR. No gcc.
     if exists(elf) == "0" { emit "0" }
-    let tmpir = sh("mktemp /tmp/_kccopt_XXXXXX.kir")
+    let tmpir = tmpPath("_kccopt", ".kir")
     exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src) + " > " + q(tmpir))
     exec(q(elf) + " " + q(tmpir) + " " + q(host))
     rm(tmpir)
@@ -309,7 +317,7 @@ func ensureArm64Host(root) {
     if ensureElfHost(root) == "0" { emit "0" }
     let elf = root + "/compiler/linux_x86/elf_host"
     kp("kcc: building arm64 backend host natively (self-host, no C)...")
-    let tmpir = sh("mktemp /tmp/_kccarm_XXXXXX.kir")
+    let tmpir = tmpPath("_kccarm", ".kir")
     exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(bsrc) + " > " + q(tmpir))
     exec(q(elf) + " " + q(tmpir) + " " + q(host))
     rm(tmpir)
@@ -324,7 +332,7 @@ func compileArm64(root, src, out) {
     let fe = root + "/compiler/linux_x86/kcc-x64"
     let host = root + "/compiler/linux_arm64/elf_host"
     if ensureArm64Host(root) == "0" { emit "0" }
-    let tmpir = sh("mktemp /tmp/_kcka_XXXXXX.kir")
+    let tmpir = tmpPath("_kcka", ".kir")
     exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src) + " > " + q(tmpir))
     if size(tmpir) == 0 {
         kp("kcc: IR emission failed for " + src)
@@ -381,7 +389,7 @@ func compileLinux(root, src, out) {
     let fe = root + "/compiler/linux_x86/kcc-x64"
     let host = root + "/compiler/linux_x86/elf_host"
     if ensureElfHost(root) == "0" { emit "0" }
-    let tmpir = sh("mktemp /tmp/_kcck_XXXXXX.kir")
+    let tmpir = tmpPath("_kcck", ".kir")
     exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src) + " > " + q(tmpir))
     if size(tmpir) == 0 {
         kp("kcc: IR emission failed for " + src)
@@ -390,7 +398,7 @@ func compileLinux(root, src, out) {
     }
     // optimizer pass (best-effort, IR->IR; mirrors kcc.sh)
     if ensureOptHost(root) == "1" {
-        let tmpopt = sh("mktemp /tmp/_kckopt_XXXXXX.kir")
+        let tmpopt = tmpPath("_kckopt", ".kir")
         exec(q(root + "/compiler/linux_x86/optimize_host") + " " + q(tmpir) + " > " + q(tmpopt) + " 2>/dev/null")
         if size(tmpopt) == 0 { rm(tmpopt) }
         else { exec("mv " + q(tmpopt) + " " + q(tmpir)) }
@@ -432,7 +440,7 @@ func ensureFreebsdHost(root) {
         emit "0"
     }
     kp("kcc: rebuilding FreeBSD elf_host natively (self-host, no C)...")
-    let tmpir = sh("mktemp /tmp/_kccfbsd_XXXXXX.kir")
+    let tmpir = tmpPath("_kccfbsd", ".kir")
     exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src) + " > " + q(tmpir))
     exec(q(boot) + " " + q(tmpir) + " " + q(host))
     rm(tmpir)
@@ -462,7 +470,7 @@ func ensureFreebsdOptHost(root) {
         }
     }
     if exists(elf) == "0" { emit "0" }
-    let tmpir = sh("mktemp /tmp/_kccfbopt_XXXXXX.kir")
+    let tmpir = tmpPath("_kccfbopt", ".kir")
     exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src) + " > " + q(tmpir))
     exec(q(elf) + " " + q(tmpir) + " " + q(host))
     rm(tmpir)
@@ -478,7 +486,7 @@ func compileFreebsd(root, src, out) {
     let fe = root + "/compiler/freebsd_x86/kcc-x64"
     let host = root + "/compiler/freebsd_x86/elf_host"
     if ensureFreebsdHost(root) == "0" { emit "0" }
-    let tmpir = sh("mktemp /tmp/_kccfb_XXXXXX.kir")
+    let tmpir = tmpPath("_kccfb", ".kir")
     exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src) + " > " + q(tmpir))
     if size(tmpir) == 0 {
         kp("kcc: IR emission failed for " + src)
@@ -486,7 +494,7 @@ func compileFreebsd(root, src, out) {
         emit "0"
     }
     if ensureFreebsdOptHost(root) == "1" {
-        let tmpopt = sh("mktemp /tmp/_kcfbopt_XXXXXX.kir")
+        let tmpopt = tmpPath("_kcfbopt", ".kir")
         exec(q(root + "/compiler/freebsd_x86/optimize_host") + " " + q(tmpir) + " > " + q(tmpopt) + " 2>/dev/null")
         if size(tmpopt) == 0 { rm(tmpopt) }
         else { exec("mv " + q(tmpopt) + " " + q(tmpir)) }
@@ -572,7 +580,7 @@ just run {
         // -e CODE: wrap in `just run { ... }`, compile (x86 or arm64), run, delete.
         if first == "-e" {
             if argCount() < 2 { kp("kcc: -e needs code")  exit("1") }
-            let ek = sh("mktemp /tmp/_kcceval_XXXXXX.ks")
+            let ek = tmpPath("_kcceval", ".ks")
             writeText(ek, "just run {\n" + arg(1) + "\n}\n")
             let ebin = sh("mktemp /tmp/_kcceval_XXXXXX")
             let oke = "0"
@@ -620,7 +628,7 @@ just run {
 
         if first == "-e" {
             if argCount() < 2 { kp("kcc: -e needs code")  exit("1") }
-            let ek = sh("mktemp /tmp/_kcceval_XXXXXX.ks")
+            let ek = tmpPath("_kcceval", ".ks")
             writeText(ek, "just run {\n" + arg(1) + "\n}\n")
             let ebin = sh("mktemp /tmp/_kcceval_XXXXXX")
             if compileFreebsd(root, ek, ebin) == "0" { rm(ek)  exit("1") }
@@ -749,7 +757,7 @@ just run {
     // -e CODE: wrap in `just run { ... }`, compile, run, delete.
     if first == "-e" {
         if argCount() < 2 { kp("kcc: -e needs code")  exit("1") }
-        let ek = sh("mktemp /tmp/_kcceval_XXXXXX.ks")
+        let ek = tmpPath("_kcceval", ".ks")
         writeText(ek, "just run {\n" + arg(1) + "\n}\n")
         let ebin = sh("mktemp /tmp/_kcceval_XXXXXX")
         if compileMacos(root, ek, ebin) == "0" { rm(ek)  exit("1") }
