@@ -76,7 +76,7 @@ func fsFileExists(path) {
 
 func fsMkdir(path) {
     if len(path) == 0 { emit "0" }
-    emit CreateDirectoryA(path, toHandle("0"))
+    emit CreateDirectoryA(path, "0")
 }
 
 // Delete a file. Returns "1" on success, "0" on failure.
@@ -144,7 +144,7 @@ func fsHomeDir() {
 //   FILE_ATTRIBUTE_NORMAL = 128
 //   INVALID_HANDLE_VALUE = (HANDLE)-1 = 18446744073709551615 unsigned
 func _fs_openRead(path) {
-    emit CreateFileA(path, "2147483648", "1", toHandle("0"), "3", "128", toHandle("0"))
+    emit CreateFileA(path, "2147483648", "1", "0", "3", "128", "0")
 }
 
 func _fs_isInvalid(h) {
@@ -162,7 +162,7 @@ func fsLooksBinary(path) {
     if _fs_isInvalid(h) == "1" { emit "0" }
     let buf = bufNew(1024)
     let nb  = bufNew(8)
-    let ok  = ReadFile(h, buf, "1024", nb, toHandle("0"))
+    let ok  = ReadFile(h, buf, "1024", nb, "0")
     CloseHandle(h)
     if ok == "0" { emit "0" }
     let n = toInt(bufGetDword(nb))
@@ -186,7 +186,7 @@ func fsHexDump(path, maxBytes) {
     if _fs_isInvalid(h) == "1" { emit "" }
     let buf = bufNew(cap)
     let nb  = bufNew(8)
-    let ok  = ReadFile(h, buf, cap + "", nb, toHandle("0"))
+    let ok  = ReadFile(h, buf, cap + "", nb, "0")
     CloseHandle(h)
     if ok == "0" { emit "" }
     let got = toInt(bufGetDword(nb))

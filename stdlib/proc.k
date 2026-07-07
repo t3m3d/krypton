@@ -111,7 +111,7 @@ func procSpawn(exe, args) {
     let pi = bufNew("24")
 
     //   CREATE_NO_WINDOW = 0x08000000 = 134217728
-    let okCreate = CreateProcessA(toHandle("0"), cmd, toHandle("0"), toHandle("0"), "1", "134217728", toHandle("0"), toHandle("0"), si, pi)
+    let okCreate = CreateProcessA(toHandle("0"), cmd, "0", "0", "1", "134217728", "0", toHandle("0"), si, pi)
 
     // Close parent's copies of child-side handles (EOF propagation).
     CloseHandle(hInRead)
@@ -136,7 +136,7 @@ func procWrite(h, data) {
     let hWrite = _proc_hInWrite(h)
     let n = len(data)
     let nb = bufNew("8")
-    let ok = WriteFile(hWrite, data, n + "", nb, toHandle("0"))
+    let ok = WriteFile(hWrite, data, n + "", nb, "0")
     if ok == "0" { emit "0" }
     let wrote = toInt(bufGetDword(nb))
     if wrote != n { emit "0" }
@@ -151,7 +151,7 @@ func procRead(h, maxBytes) {
     let hRead = _proc_hOutRead(h)
     let buf = bufNew(cap + 1)
     let nb  = bufNew("8")
-    let ok = ReadFile(hRead, buf, cap + "", nb, toHandle("0"))
+    let ok = ReadFile(hRead, buf, cap + "", nb, "0")
     if ok == "0" { emit "" }
     let got = toInt(bufGetDword(nb))
     if got == 0 { emit "" }
@@ -173,7 +173,7 @@ func procReadAvail(h, maxBytes) {
     if avail < want { want = avail }
     let buf = bufNew(want + 1)
     let nb  = bufNew("8")
-    let okR = ReadFile(hRead, buf, want + "", nb, toHandle("0"))
+    let okR = ReadFile(hRead, buf, want + "", nb, "0")
     if okR == "0" { emit "" }
     let got = toInt(bufGetDword(nb))
     if got == 0 { emit "" }

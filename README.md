@@ -417,7 +417,7 @@ just run {
 ```
 
 `emit` (or `return`) sends a value out of a function. Action-only functions can use `-> do` and fall through. `just run` is the program entry point.
-scan(prompt) is the standard line-input word. get() and getEcho() are the standard single-key contracts; native backends should lower them to no-Enter key reads.
+`scan(prompt)` is the standard line-input word. `get()` and `getEcho()` are the standard single-key contracts; native backends should lower them to no-Enter key reads.
 
 ### Imports — jxt block
 

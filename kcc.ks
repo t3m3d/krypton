@@ -407,7 +407,7 @@ func compileWindows(root, src, out) {
     let safe = replace(replace(replace(tick, ":", ""), ".", ""), " ", "") + "_" + rand
     let tmpIR = winTemp + "/tmp_kcc_build_" + safe + ".ir"
     let tmpOpt = winTemp + "/tmp_kcc_build_" + safe + "_opt.ir"
-    exec(kccExe + " " + src + " --ir > " + tmpIR)
+    exec("set KRYPTON_ROOT=" + root + "&& " + kccExe + " " + src + " --ir > " + tmpIR)
     if _winExists(tmpIR) == "0" { kp("kcc: IR emission failed for " + src)  emit "0" }
     exec(optExe + " " + tmpIR + " > " + tmpOpt)
     if _winExists(tmpOpt) == "0" {
@@ -720,7 +720,7 @@ just run {
         if hasFlag("--ir") {
             let s = linuxSrc()
             if s == "" { kp("kcc: --ir needs a source file")  exit("1") }
-            kp(_chompWS(exec(kccExe + " " + s + " --ir")))
+            kp(_chompWS(exec("set KRYPTON_ROOT=" + root + "&& " + kccExe + " " + s + " --ir")))
             exit("0")
         }
         // Windows temp-file helpers. POSIX mktemp doesn't ship with cmd.exe,

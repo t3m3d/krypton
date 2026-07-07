@@ -33,14 +33,14 @@ import "head:conio"
 // (bit 2 = 4) on the output handle. Also flip the console codepage to
 // 65001 (UTF-8) so multibyte output renders correctly.
 func termEnableVT100() {
-    let h = GetStdHandle(toHandle("-11"))
+    let h = GetStdHandle("-11")
     let mode = structNew("_DWord")
     GetConsoleMode(h, mode)
     let m = toInt(structGet(mode, "_DWord", "val"))
     if m / 4 % 2 == 0 {
-        SetConsoleMode(h, toHandle(m + 4 + ""))
+        SetConsoleMode(h, m + 4)
     }
-    SetConsoleOutputCP(toHandle("65001"))
+    SetConsoleOutputCP("65001")
     emit ""
 }
 
@@ -82,7 +82,7 @@ func termGetch() {
 
 func termSize() {
     let csbi = structNew("CONSOLE_SCREEN_BUFFER_INFO")
-    let h = GetStdHandle(toHandle("-11"))
+    let h = GetStdHandle("-11")
     GetConsoleScreenBufferInfo(h, csbi)
     let l = toInt(structGet(csbi, "CONSOLE_SCREEN_BUFFER_INFO", "srWindowLeft"))
     let r = toInt(structGet(csbi, "CONSOLE_SCREEN_BUFFER_INFO", "srWindowRight"))
@@ -98,6 +98,6 @@ func termSize() {
 // ── Sleep ─────────────────────────────────────────────────────
 
 func termSleep(ms) {
-    Sleep(toHandle(ms))
+    Sleep(ms)
     emit ""
 }
