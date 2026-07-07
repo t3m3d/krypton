@@ -416,7 +416,7 @@ func sitePage(title, content) {
         htVoid("meta", htAttr("name", "theme-color") + htAttr("content", "#5d16da")) +
         htVoid("meta", htAttr("name", "apple-mobile-web-app-capable") + htAttr("content", "yes")) +
         htVoid("meta", htAttr("name", "apple-mobile-web-app-status-bar-style") + htAttr("content", "black-translucent")) +
-        htVoid("meta", htAttr("name", "generator") + htAttr("content", "Krypton 2.4.4")) +
+        htVoid("meta", htAttr("name", "generator") + htAttr("content", "Krypton 2.4.5")) +
         htVoid("meta", htAttr("name", "author") + htAttr("content", "KryptonBytes")) +
         // Open Graph (Facebook, LinkedIn, Slack, Discord previews).
         htVoid("meta", htAttr("property", "og:title")       + htAttr("content", fullTitle)) +
@@ -510,7 +510,7 @@ func pageAbout() {
         "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Small Surface") + htP("The entire language specification fits on a single EBNF page, with the compiler under 5,000 lines.") + "</div>" +
         "</div>" +
         htH2("Current Status") +
-        htP("Krypton reached version 2.4.4 in July 2026. Native Windows, macOS, and Linux backends, a self-hosting compiler, Objective-K UI work, and kweb powering this site.") +
+        htP("Krypton reached version 2.4.5 in July 2026. Native Windows, macOS, and Linux backends, a self-hosting compiler, Objective-K UI work, and kweb powering this site.") +
         htH2("Credits") +
         htP("Developed by t3m3d under KryptonBytes, licensed under Apache 2.0.") +
         "</div></section>"
@@ -735,25 +735,25 @@ func dlBtn(url, label) {
 
 func pageDownloads() {
     let BS = fromCharCode(92)
-    let MAC_RELEASE = "https://github.com/t3m3d/krypton/releases/tag/2.4.4"
-    let MAC_PKG = "https://github.com/t3m3d/krypton/releases/download/2.4.4/krypton-2.4.4-macos-arm64.pkg"
-    let MAC_TAR = "https://github.com/t3m3d/krypton/releases/download/2.4.4/krypton-2.4.4-macos-arm64.tar.gz"
+    let MAC_RELEASE = "https://github.com/t3m3d/krypton/releases/tag/2.4.5"
+    let MAC_PKG = "https://github.com/t3m3d/krypton/releases/download/2.4.5/krypton-2.4.5-macos-arm64.pkg"
+    let MAC_TAR = "https://github.com/t3m3d/krypton/releases/download/2.4.5/krypton-2.4.5-macos-arm64.tar.gz"
     let OLD_RELEASE = "https://github.com/t3m3d/krypton/releases/tag/2.3.0"
     let WIN_INSTALLER = "https://github.com/t3m3d/krypton/releases/download/2.3.0/krypton-2.3.0-windows-x86_64.exe"
     let LINUX_TAR = "https://github.com/t3m3d/krypton/releases/download/2.4.4/krypton-2.4.4-linux-x86_64.tar.gz"
     let VSIX = "https://github.com/t3m3d/krypton/releases/download/2.3.0/krypton-language-2.3.0.vsix"
     let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
         "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
-        "<span class=" + DQ() + "tag" + DQ() + ">Latest macOS/Linux release: 2.4.4</span>" +
+        "<span class=" + DQ() + "tag" + DQ() + ">Latest macOS release: 2.4.5</span>" +
         htH1("Downloads") +
-        htP("Krypton 2.4.4 updates macOS Apple Silicon and Linux x86-64 with kweb, rebuilt native seeds, Choc Objective-K UI on macOS, and the " + htCode("do") + " no-result function contract. Windows remains on 2.3.0 until its matching artifact is cut.") +
+        htP("Krypton 2.4.5 refreshes macOS Apple Silicon with the current kweb CLI and " + htCode("kweb.app") + " deploy GUI. Linux x86-64 remains on 2.4.4. Windows remains on 2.3.0 until its matching artifact is cut.") +
         "</div>"
     let content = hero +
         "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
-        htP("macOS and Linux 2.4.4 assets live on " + htAA(htHref(MAC_RELEASE), "the 2.4.4 GitHub release page") + ". Windows and editor downloads still use " + htAA(htHref(OLD_RELEASE), "the 2.3.0 release page") + ".") +
+        htP("macOS 2.4.5 assets live on " + htAA(htHref(MAC_RELEASE), "the 2.4.5 GitHub release page") + ". Linux stays on 2.4.4 for now. Windows and editor downloads still use " + htAA(htHref(OLD_RELEASE), "the 2.3.0 release page") + ".") +
         htH3("Platform versions") +
         htUl(
-            htLi(htStrong("macOS arm64:") + " 2.4.4 " + DASH() + " newest release, includes kweb.app and Homebrew support.") +
+            htLi(htStrong("macOS arm64:") + " 2.4.5 " + DASH() + " newest release, includes kweb.app and Homebrew support.") +
             htLi(htStrong("Windows x86-64:") + " 2.3.0 " + DASH() + " current Windows installer until Forge's next Windows artifact lands.") +
             htLi(htStrong("Linux x86-64:") + " 2.4.4 " + DASH() + " current Linux tarball, rebuilt in QEMU with native seeds.") +
             htLi(htStrong("VS Code / Antigravity extension:") + " 2.3.0.")
@@ -761,8 +761,8 @@ func pageDownloads() {
 
         htH3("What's in the release") +
         htUl(
-            htLi(htCode("krypton-2.4.4-macos-arm64.pkg") + " " + DASH() + " macOS Apple Silicon installer. Includes " + htCode("kcc") + ", " + htCode("kweb") + ", " + htCode("kweb.app") + ", Choc, Objective-K helpers, and the 2.4.4 frontend.") +
-            htLi(htCode("krypton-2.4.4-macos-arm64.tar.gz") + " " + DASH() + " macOS Apple Silicon tarball, same contents as the .pkg.") +
+            htLi(htCode("krypton-2.4.5-macos-arm64.pkg") + " " + DASH() + " macOS Apple Silicon installer. Includes " + htCode("kcc") + ", " + htCode("kweb") + ", " + htCode("kweb.app") + ", Choc, Objective-K helpers, and the 2.4.5 frontend.") +
+            htLi(htCode("krypton-2.4.5-macos-arm64.tar.gz") + " " + DASH() + " macOS Apple Silicon tarball, same contents as the .pkg.") +
             htLi(htCode("krypton-2.4.4-linux-x86_64.tar.gz") + " " + DASH() + " Linux x86-64 self-contained tarball. Includes rebuilt 2.4.4 driver/frontend seeds and native " + htCode("kweb") + ".") +
             htLi(htCode("krypton-2.3.0-windows-x86_64.exe") + " " + DASH() + " Windows installer. Bundles " + htCode("kcc") + " (Krypton-native driver), " + htCode("kcc-bin") + " (the compile.k-built backend), " + htCode("kr") + " (KryptScript runner with REPL), " + htCode("krypton_rt.dll") + ", the WASM backend, " + htCode("kweb") + ", and " + htCode(".k") + " / " + htCode(".ks") + " file associations.") +
             htLi(htCode("krypton-language-2.3.0.vsix") + " " + DASH() + " VS Code / Antigravity extension. Adds " + htCode(".ks") + " (KryptScript) + " + htCode(".k") + " syntax and ships the " + htCode("kls") + " language server for Windows + macOS.")
@@ -782,9 +782,9 @@ func pageDownloads() {
         htP("Two install paths, both clang-free. The toolchain self-hosts on Mach-O without any external compiler. The kweb GUI is bundled as " + htCode("kweb.app") + ".") +
         htH3("Homebrew (recommended)") +
         htPre(htCode("brew install t3m3d/krypton/krypton" + NL() +
-                     "kcc --version        # -> kcc version 2.4.4" + NL() +
+                     "kcc --version        # -> kcc version 2.4.5" + NL() +
                      "kweb-gui             # opens kweb.app")) +
-        htP("Tap " + htCode("t3m3d/krypton") + " is live; the formula installs the 2.4.4 macOS toolchain and a " + htCode("kweb-gui") + " launcher.") +
+        htP("Tap " + htCode("t3m3d/krypton") + " is live; the formula installs the 2.4.5 macOS toolchain and a " + htCode("kweb-gui") + " launcher.") +
         htH3("Or the signed " + htCode(".pkg") + " / tarball") +
         htP(dlBtn(MAC_PKG, "Download .pkg") + " " + htAA(htHref(MAC_TAR), "or grab the tarball")) +
         htP("Both install scripts ad-hoc-sign the binaries (AMFI) and clear download quarantine, so they run with no " + htQ("unidentified developer") + " prompt.") +
@@ -821,7 +821,7 @@ func pageDownloads() {
             htLi(htCode("ks") + " " + DASH() + " server-side templating helpers.") +
             htLi(htCode("server") + " + " + htCode("router") + " " + DASH() + " HTTP server and route table for serving the output.")
         ) +
-        htP("Bundled inside the Windows installer at " + htCode("C:" + BS + "krypton" + BS + "kweb.exe") + ", Linux 2.4.4 as native " + htCode("kweb") + ", and macOS 2.4.4 as " + htCode("kweb") + " plus " + htCode("kweb.app") + ". CLI surface:") +
+        htP("Bundled inside the Windows installer at " + htCode("C:" + BS + "krypton" + BS + "kweb.exe") + ", Linux 2.4.4 as native " + htCode("kweb") + ", and macOS 2.4.5 as " + htCode("kweb") + " plus " + htCode("kweb.app") + ". CLI surface:") +
         htPre(htCode("kweb init <name>      # scaffold a new site" + NL() +
                      "kweb build            # render to dist/" + NL() +
                      "kweb serve [port]     # local dev server" + NL() +
@@ -832,7 +832,7 @@ func pageDownloads() {
 
         htH2("Verify") +
         htP("After install, confirm the toolchain version:") +
-        htPre(htCode("kcc --version    # kcc version 2.4.4 on macOS/Linux, 2.3.0 on Windows")) +
+        htPre(htCode("kcc --version    # kcc version 2.4.5 on macOS, 2.4.4 on Linux, 2.3.0 on Windows")) +
         htP("And confirm the editor extension version inside VS Code / Antigravity:") +
         htPre(htCode("Extensions panel " + fromCharCode(8594) + " Krypton " + fromCharCode(8594) + " v2.3.0")) +
         "</div></section>"
