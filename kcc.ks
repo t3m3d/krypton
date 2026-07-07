@@ -156,9 +156,8 @@ func findRoot() {
     emit ""
 }
 
-// Ensure macho_host exists and is newer than its source; rebuild via the
-// one-time clang bootstrap if not. (clang here = toolchain bootstrap only,
-// never for user programs.) Returns "1" ok / "0" fail.
+// Ensure macho_host exists and is newer than its source. Rebuild from the
+// bundled host seed or current host; no C/clang path.
 func ensureHost(root) {
     let host = root + "/compiler/macos_arm64/macho_host"
     let src  = root + "/compiler/macos_arm64/macho_arm64_self.k"
@@ -177,15 +176,22 @@ func ensureHost(root) {
             emit "1"
         }
     }
-    if has("clang") == "0" {
-        kp("kcc: macho_host needs a one-time clang build, but clang not found")
+    let boot = seed
+    if exists(boot) == "0" { boot = host }
+    if exists(boot) == "0" {
+        kp("kcc: no macho_host seed to self-host from")
         emit "0"
     }
-    kp("kcc: building macho_host (one-time)...")
-    let tmpc = tmpPath("_kcchost", ".c")
-    exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " " + q(src) + " > " + q(tmpc))
-    exec("clang -O2 -w " + q(tmpc) + " -o " + q(host) + " -lm")
-    rm(tmpc)
+    kp("kcc: rebuilding macho_host natively (self-host, no C)...")
+    let tmpir = tmpPath("_kcchost", ".kir")
+    let tmpout = tmpPath("_kcchostbin", "")
+    exec("KRYPTON_ROOT=" + q(root) + " " + q(fe) + " --ir " + q(src) + " > " + q(tmpir))
+    exec(q(boot) + " --ir " + q(tmpir) + " " + q(tmpout))
+    rm(tmpir)
+    if exists(tmpout) == "1" {
+        exec("mv " + q(tmpout) + " " + q(host))
+        exec("chmod +x " + q(host))
+    }
     if exists(host) == "0" { kp("kcc: macho_host build failed")  emit "0" }
     emit "1"
 }
