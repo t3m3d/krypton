@@ -1,20 +1,14 @@
 // kweb — Krypton Web Framework CLI
-// Build: kcc kweb.htk > /tmp/kweb.c && gcc /tmp/kweb.c -o kweb.exe -lws2_32 -lpsapi -lpdh -w
-//   (psapi/pdh are pulled in by head:windows via k:fs; deploy needs them.)
+// Build: kcc kweb.htk -o kweb
 // Usage:
 //   kweb init mysite        — scaffold a new .htk project
 //   kweb build              — compile .htk to static HTML in dist/
 //   kweb serve [port]       — local dev server
-//   kweb deploy host user   — upload dist/ (recursively) via curl SFTP
+//   kweb deploy host user [remote-dir] [password]
+//                         — upload dist/ (recursively) via FTP
 
-// Note: kweb currently ships only on Windows in 2.1.1. k:fs has
-// ungated Win32 calls (FindFirstFileA etc.) so kweb doesn't compile on
-// macOS / Linux without a stdlib/fs.k POSIX port. Deferred to 2.1.2.
-import "head:windows"
-import "head:fileio"
 import "k:htmk"
 import "k:server"
-import "k:fs"
 
 func printUsage() {
     let NL = fromCharCode(10)
@@ -24,9 +18,59 @@ func printUsage() {
     printErr("  kweb init <name>            Create a new .htk project" + NL)
     printErr("  kweb build                  Build dist/ from site.htk" + NL)
     printErr("  kweb serve [port]           Start local dev server (default: 8080)" + NL)
-    printErr("  kweb deploy <host> <user>   Deploy dist/ via SFTP" + NL)
+    printErr("  kweb deploy <host> <user> [remote-dir] [password]" + NL)
+    printErr("                              Deploy dist/ via FTP" + NL)
+    printErr("                              remote-dir is relative to FTP login root" + NL)
     printErr(NL)
     printErr("https://krypton-lang.org" + NL)
+}
+
+func _dq() { emit fromCharCode(34) }
+func _bs() { emit fromCharCode(92) }
+func DQ() { emit _dq() }
+
+func shellQuote(s) {
+    emit _dq() + replace(s, _dq(), _bs() + _dq()) + _dq()
+}
+
+func chomp(s) {
+    let lo = 0
+    let hi = len(s)
+    while lo < hi {
+        let c = toInt(charCode(s[lo]))
+        if c == 32 || c == 9 || c == 10 || c == 13 { lo = lo + 1 } else { break }
+    }
+    while hi > lo {
+        let c = toInt(charCode(s[hi - 1]))
+        if c == 32 || c == 9 || c == 10 || c == 13 { hi = hi - 1 } else { break }
+    }
+    emit substring(s, lo, hi)
+}
+
+func isWindows() {
+    if environ("OS") == "Windows_NT" { emit "1" }
+    emit "0"
+}
+
+func cwdPath() {
+    if isWindows() == "1" { emit chomp(exec("cd")) }
+    emit chomp(exec("pwd"))
+}
+
+func fsFileExists(path) {
+    if isWindows() == "1" {
+        emit chomp(exec("cmd /C if exist " + shellQuote(path) + " (echo 1) else (echo 0)"))
+    }
+    emit chomp(exec("test -e " + shellQuote(path) + " && echo 1 || echo 0"))
+}
+
+func fsMkdir(path) {
+    if isWindows() == "1" {
+        exec("cmd /C mkdir " + shellQuote(path) + " 2>nul")
+        emit "1"
+    }
+    exec("mkdir -p " + shellQuote(path) + " 2>/dev/null")
+    emit "1"
 }
 
 func scaffoldCSS() {
@@ -143,10 +187,11 @@ func tmpDir() {
 }
 
 func kwebRoot() {
+    if isWindows() != "1" { emit "" }
     let kr = environ("KRYPTON_ROOT")
     if kr != "" { if fsFileExists(kr + "/kcc-bin.exe") == "1" { emit kr } }
     if fsFileExists("C:/krypton/kcc-bin.exe") == "1" { emit "C:/krypton" }
-    let cwd = exec("cd")
+    let cwd = cwdPath()
     if fsFileExists(cwd + "/kcc-bin.exe") == "1" { emit cwd }
     emit ""
 }
@@ -158,14 +203,23 @@ func rootTool(root, relA, relB) {
 }
 func kccCommand() {
     let kr = environ("KRYPTON_ROOT")
-    if kr != "" {
-        let rooted = kr + "/kcc.exe"
-        if fsFileExists(rooted) == "1" { emit "set " + DQ() + "KRYPTON_ROOT=" + kr + DQ() + " && " + rooted }
+    if isWindows() == "1" {
+        if kr != "" {
+            let rooted = kr + "/kcc.exe"
+            if fsFileExists(rooted) == "1" { emit "set " + DQ() + "KRYPTON_ROOT=" + kr + DQ() + " && " + rooted }
+        }
+        let cwd = cwdPath()
+        let local = cwd + "/kcc.exe"
+        if fsFileExists(local) == "1" { emit "set " + DQ() + "KRYPTON_ROOT=" + cwd + DQ() + " && " + local }
+        if fsFileExists("C:/krypton/kcc.exe") == "1" { emit "C:/krypton/kcc.exe" }
+        emit "kcc"
     }
-    let cwd = exec("cd")
-    let local = cwd + "/kcc.exe"
-    if fsFileExists(local) == "1" { emit "set " + DQ() + "KRYPTON_ROOT=" + cwd + DQ() + " && " + local }
-    if fsFileExists("C:/krypton/kcc.exe") == "1" { emit "C:/krypton/kcc.exe" }
+    if kr != "" {
+        let mac = kr + "/compiler/macos_arm64/kcc-arm64"
+        let linux = kr + "/compiler/linux_x86/kcc-x64"
+        if fsFileExists(mac) == "1" { emit "KRYPTON_ROOT=" + shellQuote(kr) + " " + shellQuote(mac) }
+        if fsFileExists(linux) == "1" { emit "KRYPTON_ROOT=" + shellQuote(kr) + " " + shellQuote(linux) }
+    }
     emit "kcc"
 }
 func doBuild() {
@@ -223,39 +277,59 @@ func doServe(port) {
 
 // Recursively collect every file under base/, returning newline-separated
 // paths RELATIVE to base (e.g. "index.html", "learn/07_functions.html").
-// Uses k:fs (FindFirstFile) so it works from the native exe — no reliance
-// on a unix `ls` that cmd.exe doesn't have.
+// Uses platform shell commands so kweb stays C-free and works on macOS,
+// Linux, and Windows.
 func _walkDir(base, rel) {
-    let dirPath = base
-    if len(rel) > 0 { dirPath = base + "/" + rel }
-    let entries = fsListDir(dirPath)
     let out = sbNew()
+    let cmd = "find " + shellQuote(base) + " -type f 2>/dev/null"
+    if isWindows() == "1" {
+        cmd = "cmd /C dir /b /s /a:-d " + shellQuote(base) + " 2>nul"
+    }
+    let entries = exec(cmd)
     let n = lineCount(entries)
+    let cwd = replace(cwdPath(), _bs(), "/")
+    let fullPrefix = cwd + "/" + base + "/"
+    let relPrefix = base + "/"
     let i = 0
     while i < n {
         let line = getLine(entries, i)
         if len(line) > 0 {
-            let tab = indexOf(line, fromCharCode(9))
-            if tab >= 0 {
-                let typ = substring(line, 0, tab)
-                let name = substring(line, tab + 1, len(line))
-                let childRel = name
-                if len(rel) > 0 { childRel = rel + "/" + name }
-                if typ == "D" {
-                    out = sbAppend(out, _walkDir(base, childRel))
-                } else {
-                    out = sbAppend(out, childRel + fromCharCode(10))
-                }
-            }
+            let item = replace(line, _bs(), "/")
+            if startsWith(item, fullPrefix) { item = substring(item, len(fullPrefix), len(item)) }
+            if startsWith(item, relPrefix) { item = substring(item, len(relPrefix), len(item)) }
+            if len(item) > 0 { out = sbAppend(out, item + fromCharCode(10)) }
         }
         i += 1
     }
     emit sbToString(out)
 }
 
-func doDeploy(sftpHost, sftpUser) {
-    printErr("kweb: deploying dist/ to " + sftpUser + "@" + sftpHost + ":/")
-    printErr("kweb: enter password when prompted")
+func normalizeHost(host) {
+    let h = trim(host)
+    if startsWith(h, "ftp://") { h = substring(h, 6, len(h)) }
+    if startsWith(h, "sftp://") { h = substring(h, 7, len(h)) }
+    while len(h) > 0 && h[len(h) - 1] == "/" { h = substring(h, 0, len(h) - 1) }
+    emit h
+}
+
+func normalizeRemoteFolder(folder) {
+    let f = trim(folder)
+    while len(f) > 0 && f[0] == "/" { f = substring(f, 1, len(f)) }
+    while len(f) > 0 && f[len(f) - 1] == "/" { f = substring(f, 0, len(f) - 1) }
+    emit f
+}
+
+func remotePath(folder, rel) {
+    if folder == "" { emit rel }
+    emit folder + "/" + rel
+}
+
+func doDeploy(rawHost, ftpUser, remoteFolder, ftpPass) {
+    let ftpHost = normalizeHost(rawHost)
+    let folder = normalizeRemoteFolder(remoteFolder)
+    printErr("kweb: deploying dist/ to " + ftpUser + "@" + ftpHost + ":/")
+    if folder != "" { printErr("kweb: remote folder " + folder) }
+    if ftpPass == "" { printErr("kweb: enter password when prompted") }
 
     // Walk dist/ recursively so subfolders (e.g. learn/) are included.
     // --ftp-create-dirs makes curl create remote folders as needed.
@@ -267,9 +341,11 @@ func doDeploy(sftpHost, sftpUser) {
         let rel = getLine(files, i)
         if len(rel) > 0 {
             let local = "dist/" + rel
-            let remote = "sftp://" + sftpHost + "/" + rel
-            let cmd = "curl --ftp-create-dirs -T " + local + " " + remote +
-                " --user " + sftpUser + " --insecure 2>&1"
+            let remote = "ftp://" + ftpHost + "/" + remotePath(folder, rel)
+            let userArg = ftpUser
+            if ftpPass != "" { userArg = ftpUser + ":" + ftpPass }
+            let cmd = "curl --ftp-create-dirs -T " + shellQuote(local) + " " + shellQuote(remote) +
+                " --user " + shellQuote(userArg) + " --insecure 2>&1"
             printErr("  uploading " + rel + "...")
             let out = exec(cmd)
             if len(out) > 0 {
@@ -307,13 +383,15 @@ just run {
         if port == "" { port = "8080" }
         doServe(port)
     } else if cmd == "deploy" {
-        let sftpHost = arg("1")
-        let sftpUser = arg("2")
-        if sftpHost == "" || sftpUser == "" {
-            printErr("kweb: usage: kweb deploy <sftp-host> <username>" + NL)
+        let ftpHost = arg("1")
+        let ftpUser = arg("2")
+        let remoteFolder = arg("3")
+        let ftpPass = arg("4")
+        if ftpHost == "" || ftpUser == "" {
+            printErr("kweb: usage: kweb deploy <ftp-host> <username> [remote-dir] [password]" + NL)
             emit 1
         }
-        doDeploy(sftpHost, sftpUser)
+        doDeploy(ftpHost, ftpUser, remoteFolder, ftpPass)
     } else {
         printErr("kweb: unknown command: " + cmd + NL)
         printUsage()
