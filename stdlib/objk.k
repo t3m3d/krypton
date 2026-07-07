@@ -7,6 +7,7 @@ module objk
 
 import "k:cocoa"
 import "k:objc"
+import "k:objk_layout"
 import "head:cocoa"
 import "head:objc"
 
