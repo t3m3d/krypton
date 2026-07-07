@@ -17,7 +17,7 @@ func setStatus(text) {
     okAppend(g_notes, text + "\r\n")
 }
 
-func onBuild() {
+func onBuild(self, cmd, sender) {
     let name = okText(g_name)
     if len(name) == 0 {
         setStatus("Project name missing")
@@ -26,11 +26,11 @@ func onBuild() {
     g_level += 10
     if g_level > 100 { g_level = 100 }
     okSetProgress(g_bar, g_level)
-    setStatus("Built " + name + " with " + okComboText(g_mode))
+    setStatus("Built " + name + " with " + okComboText(g_mode) + " from " + sender)
     emit "1"
 }
 
-func onToggleSecure() {
+func onToggleSecure(self, cmd, sender) {
     if okState(g_secure) == "1" {
         setStatus("Secure deploy on")
         emit "1"
@@ -39,13 +39,13 @@ func onToggleSecure() {
     emit "1"
 }
 
-func onOpenSite() {
+func onOpenSite(self, cmd, sender) {
     okOpenURL("https://krypton-lang.org")
     setStatus("Opened krypton-lang.org")
     emit "1"
 }
 
-func onClear() {
+func onClear(self, cmd, sender) {
     okSetText(g_name, "")
     okSetText(g_value, "")
     okSetTextView(g_notes, "")
