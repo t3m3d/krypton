@@ -20,12 +20,18 @@ just run {
 
     let fe = root + "/compiler/macos_arm64/kcc-arm64"
     let host = root + "/compiler/macos_arm64/macho_host"
+    let seedHost = root + "/bootstrap/macho_host_macos_aarch64"
     let backend = root + "/compiler/macos_arm64/macho_arm64_self.k"
 
     // 1. ensure the macho codegen host is built from the current backend
     if isExec(host) != "yes" {
-        kp("==> building macho_host from macho_arm64_self.k")
-        exec("kcc --native \"" + backend + "\" -o \"" + host + "\"")
+        if isExec(seedHost) == "yes" {
+            kp("==> using bundled macho_host seed")
+            host = seedHost
+        } else {
+            kp("==> building macho_host from macho_arm64_self.k")
+            exec("kcc --native \"" + backend + "\" -o \"" + host + "\"")
+        }
     } else {
         if newer(backend, host) == "yes" {
             kp("==> rebuilding macho_host (backend changed)")
@@ -44,14 +50,16 @@ just run {
     exec("chmod +x \"" + app + "/Contents/MacOS/" + name + "\"")
 
     let q = fromCharCode(34)
+    let bundleId = "org.krypton-lang.macos." + name
     let plist = "<?xml version=" + q + "1.0" + q + " encoding=" + q + "UTF-8" + q + "?>\n" +
         "<!DOCTYPE plist PUBLIC " + q + "-//Apple//DTD PLIST 1.0//EN" + q + " " + q + "http://www.apple.com/DTDs/PropertyList-1.0.dtd" + q + ">\n" +
         "<plist version=" + q + "1.0" + q + "><dict>\n" +
         "  <key>CFBundleName</key><string>" + name + "</string>\n" +
         "  <key>CFBundleExecutable</key><string>" + name + "</string>\n" +
-        "  <key>CFBundleIdentifier</key><string>org.krypton-lang." + name + "</string>\n" +
+        "  <key>CFBundleIdentifier</key><string>" + bundleId + "</string>\n" +
         "  <key>CFBundlePackageType</key><string>APPL</string>\n" +
         "  <key>CFBundleShortVersionString</key><string>0.1.0</string>\n" +
+        "  <key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>\n" +
         "  <key>NSHighResolutionCapable</key><true/>\n" +
         "  <key>CFBundleIconFile</key><string>" + name + "</string>\n" +
         "  <key>NSDocumentsFolderUsageDescription</key><string>" + name + " edits files in your Documents.</string>\n" +
