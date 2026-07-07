@@ -27,6 +27,7 @@
 module builtins
 
 import "k:fp"
+import "k:io"
 
 
 // ── I/O ───────────────────────────────────────────────────────────────
@@ -39,10 +40,9 @@ func printk(x) {
     print(x)
 }
 
-// input(prompt="") -- read one line from stdin.
+// input(prompt="") -- Python-facing alias over scan().
 func inputk(prompt) {
-    if prompt != "" { print(prompt) }
-    emit readLine()
+    emit scan(prompt)
 }
 
 
