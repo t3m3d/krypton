@@ -68,3 +68,5 @@ dist/
 
 # Codex/local probe output
 _codex_probe*/
+_codex_choc_wrap.k
+_codex_choc_wrap_window_only.ks
