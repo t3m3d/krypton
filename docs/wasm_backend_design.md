@@ -147,8 +147,9 @@ the host frees the WASM instance.
 
 Each Krypton `func` lowers to one WASM function. Parameters and locals
 are `i32` (or `i64` for 64-bit numerics if Krypton starts emitting them
-— currently we don't). Return type is `i32` (or void if the func has
-no `emit`).
+— currently we don't). Return type is `i32`; functions with no `emit`
+lower as do-only functions in the language surface and as no-result
+functions in the WASM ABI.
 
 `callPtr(fn, args...)` lowers to `call_indirect` with the funcptr as
 the table index. **This requires the Table section + an Element section
