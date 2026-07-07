@@ -163,12 +163,20 @@ func ensureHost(root) {
     let host = root + "/compiler/macos_arm64/macho_host"
     let src  = root + "/compiler/macos_arm64/macho_arm64_self.k"
     let fe   = root + "/compiler/macos_arm64/kcc-arm64"
+    let seed = root + "/bootstrap/macho_host_macos_aarch64"
     let need = "0"
     if exists(host) == "0" { need = "1" }
     else {
         if sh("test " + q(src) + " -nt " + q(host) + " && echo 1 || echo 0") == "1" { need = "1" }
     }
     if need == "0" { emit "1" }
+    if exists(seed) == "1" {
+        if sh("test " + q(src) + " -nt " + q(seed) + " && echo 1 || echo 0") == "0" {
+            exec("cp " + q(seed) + " " + q(host))
+            exec("chmod +x " + q(host))
+            emit "1"
+        }
+    }
     if has("clang") == "0" {
         kp("kcc: macho_host needs a one-time clang build, but clang not found")
         emit "0"
