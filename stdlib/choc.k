@@ -14,7 +14,7 @@ func chocRun(app)                  { emit guiRun() }
 func chocQuit(app)                 { emit guiQuit() }
 func chocFinishLaunching(app)      { emit "1" }
 func chocPumpEvents(app)           { emit "0" }
-func chocWindow(app, title, w, h)  { emit guiWindow(title, w, h) }
+func chocWindow(app, title, w, h)  { let win = guiWindow(title, w, h)  emit win + "" }
 func chocShow(win, app)            { emit guiShow(win) }
 func chocSetTitle(obj, title)      { emit guiSetText(obj, title) }
 func chocTransparentTitlebar(win)  { emit guiEnableDarkTitle(win) }
