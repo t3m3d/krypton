@@ -1,4 +1,4 @@
-# objk demos — pure-Krypton macOS GUI
+# objk demos — pure-Krypton native GUI
 
 Native Cocoa apps written in pure Krypton, no Obj-C source, on the objk FFI
 (`compiler/macos_arm64/macho_arm64_self.k` + `stdlib/cocoa.k` + `stdlib/objc.k`).
@@ -15,6 +15,11 @@ Build + run (dev tree):
 - **term_grid.ks** — custom NSView drawRect: a terminal grid (colored cells + glyphs).
 - **table.ks** — NSTableView driven by a pure-Krypton multi-method data source.
 - **controls.ks** — `k:objk` facade: checkbox, combo box, slider, progress, defaults, clipboard, URL open.
+- **windows_controls.ks** — `k:objk_win` facade over `stdlib/gui.k`: Windows-native controls, events, shell open, password field, theme color.
 
 Note: every callback/delegate method is a plain Krypton func used as an Obj-C method
 IMP — objc passes (self, _cmd, …) in x0/x1/… = Krypton's register convention.
+
+Windows uses the same Objective-K naming style but routes through `stdlib/gui.k`
+instead of Cocoa/libobjc. Its callbacks currently follow the Windows `gui.k`
+no-arg callback shape.
