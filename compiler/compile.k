@@ -3533,11 +3533,133 @@ just run {
                 imported = imported + fullPath + "|"
                 let importSrc = readFile(fullPath)
                 if len(importSrc) > 0 {
-                    let iToks = tokenize(importSrc)
-                    let iNtoks = lineCount(iToks)
-                    let iFtable = scanFunctions(iToks, iNtoks)
-                    // forward declarations
-                    let iDecls = ""
+	                    let iToks = tokenize(importSrc)
+	                    let iNtoks = lineCount(iToks)
+	                    let iFtable = scanFunctions(iToks, iNtoks)
+	                    // Pull direct imports of imported modules too. This lets facade
+	                    // modules (for example k:objk) hide their lower layers without
+	                    // forcing app code to import k:cocoa/k:objc/head:* by hand.
+	                    let depScan = 0
+	                    while depScan < iNtoks {
+	                        let depTok = tokAt(iToks, depScan)
+	                        if depTok == "KW:import" {
+	                            let depPath = tokVal(tokAt(iToks, depScan + 1))
+	                            let depFull = depPath
+	                            let depColon = indexOf(depPath, ":")
+	                            if depColon > 0 && depColon < 8 {
+	                                let depPrefix = substring(depPath, 0, depColon)
+	                                let depSub = substring(depPath, depColon + 1, len(depPath))
+	                                if depPrefix == "k"       { depFull = installRoot + "/stdlib/"  + depSub + ".k"   }
+	                                if depPrefix == "core"    { depFull = installRoot + "/stdlib/"  + depSub + ".k"   }
+	                                if depPrefix == "head"    { depFull = installRoot + "/headers/" + depSub + ".krh" }
+	                                if depPrefix == "headers" { depFull = installRoot + "/headers/" + depSub + ".krh" }
+	                                if depPrefix == "k" || depPrefix == "core" {
+	                                    if len(readFile(depFull)) == 0 { depFull = installRoot + "/stdlib/" + depSub + ".ks" }
+	                                }
+	                            } else {
+	                                let depBase = ""
+	                                let depLastSlash = 0 - 1
+	                                let depFi = 0
+	                                while depFi < len(fullPath) {
+	                                    if fullPath[depFi] == "/" || fullPath[depFi] == "\\" { depLastSlash = depFi }
+	                                    depFi += 1
+	                                }
+	                                if depLastSlash >= 0 { depBase = substring(fullPath, 0, depLastSlash + 1) }
+	                                if len(depBase) > 0 {
+	                                    if !startsWith(depPath, "/") {
+	                                        if !startsWith(depPath, "C:") { depFull = depBase + depPath }
+	                                    }
+	                                }
+	                            }
+	                            if !contains(imported, depFull + "|") {
+	                                imported = imported + depFull + "|"
+	                                let depSrc = readFile(depFull)
+	                                if len(depSrc) > 0 {
+	                                    let depToks = tokenize(depSrc)
+	                                    let depNtoks = lineCount(depToks)
+	                                    let depFtable = scanFunctions(depToks, depNtoks)
+	                                    let depJ = 0
+	                                    while depJ < depNtoks {
+	                                        let depJTok = tokAt(depToks, depJ)
+	                                        if depJTok == "KW:jxt" {
+	                                            let depJxtPos = depJ + 2
+	                                            while tokAt(depToks, depJxtPos) != "RBRACE" {
+	                                                let depLang = tokVal(tokAt(depToks, depJxtPos))
+	                                                if depLang == "c" || depLang == "t" {
+	                                                    depJxtPos += 2
+	                                                } else if depLang == "struct" {
+	                                                    let depSName = tokVal(tokAt(depToks, depJxtPos + 1))
+	                                                    let depSfPos = depJxtPos + 3
+	                                                    let depSEntry = depSName + ":"
+	                                                    let depSFirst = 1
+	                                                    while tokAt(depToks, depSfPos) != "RBRACE" {
+	                                                        if tokVal(tokAt(depToks, depSfPos)) == "field" {
+	                                                            let depSfName = tokVal(tokAt(depToks, depSfPos + 1))
+	                                                            let depSfType = tokVal(tokAt(depToks, depSfPos + 2))
+	                                                            if tokType(tokAt(depToks, depSfPos + 3)) == "STR" { depSfPos = depSfPos + 4 }
+	                                                            else { depSfPos = depSfPos + 3 }
+	                                                            if depSFirst == 0 { depSEntry = depSEntry + "," }
+	                                                            depSEntry = depSEntry + depSfName + ":" + depSfType
+	                                                            depSFirst = 0
+	                                                        } else {
+	                                                            depSfPos += 1
+	                                                        }
+	                                                    }
+	                                                    structTable = structTable + depSEntry + "\n"
+	                                                    depJxtPos = depSfPos + 1
+	                                                } else if depLang == "func" {
+	                                                    let depFName = tokVal(tokAt(depToks, depJxtPos + 1))
+	                                                    let depFPos = depJxtPos + 3
+	                                                    let depFPc = 0
+	                                                    while tokAt(depToks, depFPos) != "RPAREN" {
+	                                                        if tokType(tokAt(depToks, depFPos)) == "ID" { depFPc += 1 }
+	                                                        depFPos += 1
+	                                                    }
+	                                                    let depFInfo = depFName + ":" + depFPc + ":0"
+	                                                    if len(ftable) > 0 { ftable = ftable + "\n" + depFInfo }
+	                                                    else { ftable = depFInfo }
+	                                                    depFPos += 1
+	                                                    if tokAt(depToks, depFPos) == "ARROW" { depFPos += 2 }
+	                                                    depJxtPos = depFPos
+	                                                } else {
+	                                                    depJxtPos += 2
+	                                                }
+	                                            }
+	                                            depJ = skipBlock(depToks, depJ + 1) - 1
+	                                        }
+	                                        depJ += 1
+	                                    }
+	                                    if irMode == 1 {
+	                                        let depIRi = 0
+	                                        let depStructTypes = irScanStructTypes(depToks, depNtoks)
+	                                        while depIRi < depNtoks {
+	                                            let depIRtok = tokAt(depToks, depIRi)
+	                                            if depIRtok == "KW:jxt" {
+	                                                depIRi = skipBlock(depToks, depIRi + 1)
+	                                            } else if (depIRtok == "KW:func" || depIRtok == "KW:fn") {
+	                                                let depIRfp = irFuncIR(depToks, depIRi, depNtoks, depStructTypes)
+	                                                importedIR = importedIR + pairVal(depIRfp)
+	                                                depIRi = pairPos(depIRfp)
+	                                            } else {
+	                                                depIRi += 1
+	                                            }
+	                                        }
+	                                    }
+	                                    if len(depFtable) > 0 {
+	                                        if len(ftable) > 0 { ftable = ftable + "\n" + depFtable }
+	                                        else { ftable = depFtable }
+	                                    }
+	                                } else {
+	                                    printErr("kcc: import not found: " + depFull)
+	                                }
+	                            }
+	                            depScan += 2
+	                        } else {
+	                            depScan += 1
+	                        }
+	                    }
+	                    // forward declarations
+	                    let iDecls = ""
                                         let ij = 0
                     while ij < iNtoks {
                         let itk = tokAt(iToks, ij)

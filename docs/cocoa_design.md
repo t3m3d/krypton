@@ -18,11 +18,13 @@ This doc is the architectural sketch behind the scaffold landed
 ## Layer cake
 
 ```
-  user code (.ks)              ← examples/cocoa_hello.ks
+  user code (.ks)              ← examples/cocoa_hello.ks, examples/objk/controls.ks
        ↓
-  stdlib/cocoa.k               ← cocoaWindow, cocoaButton, cocoaOnClick
+  stdlib/objk.k                ← higher-level Objective-K facade
        ↓
-  stdlib/objc.k                ← cls, sel, msg, withPool, nsString
+  stdlib/cocoa.k               ← Cocoa widgets and AppKit helpers
+       ↓
+  stdlib/objc.k                ← cls, sel, msg, nsString
        ↓
   headers/objc.krh             ← objc_msgSend, objc_getClass, sel_registerName
        ↓
@@ -30,6 +32,8 @@ This doc is the architectural sketch behind the scaffold landed
 ```
 
 User code never touches `objc_msgSend` directly. The stdlib hides it.
+Most apps should start at `import "k:objk"`; lower layers are still available
+for advanced widgets and backend work.
 The header layer is the only place a "C symbol" appears.
 
 ---

@@ -10,7 +10,6 @@
 // function that uses it.
 //
 //   import "k:cocoa"
-//   import "k:objc"          // imports are NOT transitive — pull both in
 //   func onClick(self, cmd, sender) { cocoaSetText(cocoaGetAssoc(sender), "hi") }
 //   just run {
 //       let app = cocoaInit()
@@ -35,6 +34,7 @@ func cocoaInit() {
     emit app
 }
 
+func cocoaSharedApp() { emit msg(cls("NSApplication"), "sharedApplication") }
 func cocoaRun(app)  { msg(app, "run")             emit "0" }
 func cocoaQuit(app) { msg_1(app, "terminate:", app)  emit "1" }
 
@@ -60,6 +60,15 @@ func cocoaButton(win, label, x, y, w, h) {
     msg_1(btn, "setTitle:", nsString(label))
     _addToContentView(win, btn)
     emit btn
+}
+
+func cocoaCheckbox(win, label, x, y, w, h) {
+    let raw = msg(cls("NSButton"), "alloc")
+    let cb = msg_frame(raw, "initWithFrame:", x, y, w, h)
+    msg_1(cb, "setTitle:", nsString(label))
+    msg_1(cb, "setButtonType:", 3)        // NSButtonTypeSwitch
+    _addToContentView(win, cb)
+    emit cb
 }
 
 func cocoaTextField(win, x, y, w, h) {
@@ -106,10 +115,73 @@ func cocoaPlainLabel(win, text, x, y, w, h) {
     emit lbl
 }
 
+func cocoaProgress(win, x, y, w, h) {
+    let p = msg_frame(msg(cls("NSProgressIndicator"), "alloc"), "initWithFrame:", x, y, w, h)
+    msg_1(p, "setIndeterminate:", 0)
+    msg_d1(p, "setMinValue:", 0)
+    msg_d1(p, "setMaxValue:", 100)
+    _addToContentView(win, p)
+    emit p
+}
+
+func cocoaProgressSpinner(win, x, y, w, h) {
+    let p = msg_frame(msg(cls("NSProgressIndicator"), "alloc"), "initWithFrame:", x, y, w, h)
+    msg_1(p, "setIndeterminate:", 1)
+    msg_1(p, "setStyle:", 1)              // spinning
+    _addToContentView(win, p)
+    emit p
+}
+
+func cocoaSlider(win, x, y, w, h, min, max, value) {
+    let s = msg_frame(msg(cls("NSSlider"), "alloc"), "initWithFrame:", x, y, w, h)
+    msg_d1(s, "setMinValue:", min)
+    msg_d1(s, "setMaxValue:", max)
+    msg_d1(s, "setDoubleValue:", value)
+    _addToContentView(win, s)
+    emit s
+}
+
+func cocoaComboBox(win, x, y, w, h) {
+    let c = msg_frame(msg(cls("NSComboBox"), "alloc"), "initWithFrame:", x, y, w, h)
+    msg_1(c, "setEditable:", 1)
+    msg_1(c, "setCompletes:", 1)
+    _addToContentView(win, c)
+    emit c
+}
+
 func cocoaSetText(control, text) { msg_1(control, "setStringValue:", nsString(text))  emit "1" }
 
 func cocoaGetText(control) {
     let s = msg(control, "stringValue")
+    emit msg(s, "UTF8String")
+}
+
+// ── Generic view/control state ────────────────────────────────────────
+func cocoaSetEnabled(control, enabled) { msg_1(control, "setEnabled:", enabled)  emit "1" }
+func cocoaSetHidden(view, hidden)      { msg_1(view, "setHidden:", hidden)       emit "1" }
+func cocoaSetFrame(view, x, y, w, h)   { msg_frame(view, "setFrame:", x, y, w, h) emit "1" }
+func cocoaSetTitle(obj, title)         { msg_1(obj, "setTitle:", nsString(title)) emit "1" }
+func cocoaSetToolTip(view, text)       { msg_1(view, "setToolTip:", nsString(text)) emit "1" }
+func cocoaSetEditable(control, editable) { msg_1(control, "setEditable:", editable) emit "1" }
+func cocoaSetSelectable(control, selectable) { msg_1(control, "setSelectable:", selectable) emit "1" }
+func cocoaSetBordered(control, bordered) { msg_1(control, "setBordered:", bordered) emit "1" }
+func cocoaSetBezeled(control, bezeled) { msg_1(control, "setBezeled:", bezeled) emit "1" }
+func cocoaSetDrawsBackground(control, draws) { msg_1(control, "setDrawsBackground:", draws) emit "1" }
+func cocoaSetPlaceholder(control, text) { msg_1(control, "setPlaceholderString:", nsString(text)) emit "1" }
+func cocoaSetAutoresizing(view, mask)  { msg_1(view, "setAutoresizingMask:", mask) emit "1" }
+func cocoaRemove(view)                 { msg(view, "removeFromSuperview") emit "1" }
+func cocoaSetWindowMinSize(win, w, h)  { msg_d2(win, "setMinSize:", w, h) emit "1" }
+func cocoaState(control)               { emit msg(control, "state") }
+func cocoaSetState(control, state)     { msg_1(control, "setState:", state) emit "1" }
+func cocoaSetProgress(p, value)        { msg_d1(p, "setDoubleValue:", value) emit "1" }
+func cocoaStartProgress(p)             { msg_1(p, "startAnimation:", p) emit "1" }
+func cocoaStopProgress(p)              { msg_1(p, "stopAnimation:", p) emit "1" }
+func cocoaComboAdd(combo, text)        { msg_1(combo, "addItemWithObjectValue:", nsString(text)) emit "1" }
+func cocoaComboSelect(combo, index)    { msg_1(combo, "selectItemAtIndex:", index) emit "1" }
+func cocoaComboSelected(combo)         { emit msg(combo, "indexOfSelectedItem") }
+func cocoaComboSelectedText(combo) {
+    let s = msg(combo, "objectValueOfSelectedItem")
+    if s == 0 { emit "" }
     emit msg(s, "UTF8String")
 }
 
@@ -289,6 +361,110 @@ func cocoaChooseFolder(title) {
     let url = msg(panel, "URL")
     if url == 0 { emit "" }
     emit msg(msg(url, "path"), "UTF8String")
+}
+
+func cocoaChooseFile(title) {
+    let panel = msg(cls("NSOpenPanel"), "openPanel")
+    msg_1(panel, "setTitle:", nsString(title))
+    msg_1(panel, "setCanChooseFiles:", 1)
+    msg_1(panel, "setCanChooseDirectories:", 0)
+    msg_1(panel, "setAllowsMultipleSelection:", 0)
+    if msg(panel, "runModal") != 1 { emit "" }
+    let url = msg(panel, "URL")
+    if url == 0 { emit "" }
+    emit msg(msg(url, "path"), "UTF8String")
+}
+
+func cocoaSaveFile(title, defaultName) {
+    let panel = msg(cls("NSSavePanel"), "savePanel")
+    msg_1(panel, "setTitle:", nsString(title))
+    if len(defaultName) > 0 { msg_1(panel, "setNameFieldStringValue:", nsString(defaultName)) }
+    if msg(panel, "runModal") != 1 { emit "" }
+    let url = msg(panel, "URL")
+    if url == 0 { emit "" }
+    emit msg(msg(url, "path"), "UTF8String")
+}
+
+// ── Pasteboard ────────────────────────────────────────────────────────
+func cocoaClipboardText() {
+    let pb = msg(cls("NSPasteboard"), "generalPasteboard")
+    let s = msg_1(pb, "stringForType:", nsString("public.utf8-plain-text"))
+    if s == 0 { emit "" }
+    emit msg(s, "UTF8String")
+}
+
+func cocoaSetClipboardText(text) {
+    let pb = msg(cls("NSPasteboard"), "generalPasteboard")
+    msg(pb, "clearContents")
+    msg_2(pb, "setString:forType:", nsString(text), nsString("public.utf8-plain-text"))
+    emit "1"
+}
+
+// ── User defaults ─────────────────────────────────────────────────────
+func cocoaDefaultsGet(key) {
+    let s = msg_1(msg(cls("NSUserDefaults"), "standardUserDefaults"), "stringForKey:", nsString(key))
+    if s == 0 { emit "" }
+    emit msg(s, "UTF8String")
+}
+
+func cocoaDefaultsSet(key, value) {
+    let d = msg(cls("NSUserDefaults"), "standardUserDefaults")
+    msg_2(d, "setObject:forKey:", nsString(value), nsString(key))
+    msg(d, "synchronize")
+    emit "1"
+}
+
+func cocoaDefaultsRemove(key) {
+    let d = msg(cls("NSUserDefaults"), "standardUserDefaults")
+    msg_1(d, "removeObjectForKey:", nsString(key))
+    msg(d, "synchronize")
+    emit "1"
+}
+
+// ── Workspace / URL helpers ───────────────────────────────────────────
+func cocoaURL(url)       { emit msg_1(cls("NSURL"), "URLWithString:", nsString(url)) }
+func cocoaFileURL(path)  { emit msg_1(cls("NSURL"), "fileURLWithPath:", nsString(path)) }
+
+func cocoaOpenURL(url) {
+    let u = cocoaURL(url)
+    if u == 0 { emit "0" }
+    emit msg_1(msg(cls("NSWorkspace"), "sharedWorkspace"), "openURL:", u)
+}
+
+func cocoaOpenPath(path) {
+    let u = cocoaFileURL(path)
+    if u == 0 { emit "0" }
+    emit msg_1(msg(cls("NSWorkspace"), "sharedWorkspace"), "openURL:", u)
+}
+
+func cocoaRevealPath(path) {
+    let u = cocoaFileURL(path)
+    if u == 0 { emit "0" }
+    let arr = cocoaArray()
+    cocoaArrayAdd(arr, u)
+    msg_1(msg(cls("NSWorkspace"), "sharedWorkspace"), "activateFileViewerSelectingURLs:", arr)
+    emit "1"
+}
+
+// ── Appearance helpers ────────────────────────────────────────────────
+func cocoaAppearanceName(obj) {
+    let a = msg(obj, "effectiveAppearance")
+    if a == 0 { emit "" }
+    let n = msg(a, "name")
+    if n == 0 { emit "" }
+    emit msg(n, "UTF8String")
+}
+
+func cocoaIsDark(obj) {
+    if indexOf(cocoaAppearanceName(obj), "Dark") >= 0 { emit 1 }
+    emit 0
+}
+
+func cocoaSetAppearance(obj, name) {
+    let a = msg_1(cls("NSAppearance"), "appearanceNamed:", nsString(name))
+    if a == 0 { emit "0" }
+    msg_1(obj, "setAppearance:", a)
+    emit "1"
 }
 
 // ── Fonts ──────────────────────────────────────────────────────────────
