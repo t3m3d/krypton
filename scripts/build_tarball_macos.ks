@@ -46,9 +46,9 @@ just run {
     if isFile("compiler/optimize.k") == "yes" { exec("install -m 0644 compiler/optimize.k \"" + rootd + "/compiler/optimize.k\"") }
     if isExec("compiler/macos_arm64/kls") == "yes" { exec("install -m 0755 compiler/macos_arm64/kls \"" + rootd + "/compiler/macos_arm64/kls\"") }
     // Runtime trees
-    exec("ditto --norsrc stdlib \"" + rootd + "/stdlib\"")
-    exec("ditto --norsrc headers \"" + rootd + "/headers\"")
-    if isDir("examples") == "yes" { exec("ditto --norsrc examples \"" + rootd + "/examples\"") }
+    exec("env COPYFILE_DISABLE=1 ditto --norsrc stdlib \"" + rootd + "/stdlib\"")
+    exec("env COPYFILE_DISABLE=1 ditto --norsrc headers \"" + rootd + "/headers\"")
+    if isDir("examples") == "yes" { exec("env COPYFILE_DISABLE=1 ditto --norsrc examples \"" + rootd + "/examples\"") }
     if isFile("LICENSE") == "yes" { exec("cp LICENSE \"" + rootd + "/LICENSE\"") }
     exec("find \"" + rootd + "\" -type f -name '*.k' -exec chmod 0644 {} +")
     exec("mkdir -p \"" + rootd + "/web\" \"" + rootd + "/apps\"")
@@ -56,7 +56,7 @@ just run {
     exec("install -m 0644 web/kweb.htk \"" + rootd + "/web/kweb.htk\"")
     exec("install -m 0644 web/kweb_gui.ks \"" + rootd + "/web/kweb_gui.ks\"")
     if isFile("web/README.md") == "yes" { exec("install -m 0644 web/README.md \"" + rootd + "/web/README.md\"") }
-    exec("ditto --norsrc dist/kweb.app \"" + rootd + "/apps/kweb.app\"")
+    exec("env COPYFILE_DISABLE=1 ditto --norsrc dist/kweb.app \"" + rootd + "/apps/kweb.app\"")
 
     // ── install.sh (BASH — bootstraps kcc on the user's machine) ──────────────
     let inst = "#!/usr/bin/env bash\n" +
@@ -101,7 +101,8 @@ just run {
     exec("find \"" + rootd + "\" -type f \\( -name macho_host -o -name 'kcc-*' -o -name 'kcc_*' -o -name kweb -o -name kweb_gui \\) -exec touch {} +")
     exec("sleep 1")
     exec("find \"" + rootd + "\" -type f \\( -name macho_host -o -name 'kcc-*' -o -name 'kcc_*' -o -name kweb -o -name kweb_gui \\) -exec touch {} +")
-    exec("find \"" + rootd + "\" -name '._*' -delete 2>/dev/null")
+    exec("dot_clean -m \"" + rootd + "\" 2>/dev/null || true")
+    exec("find \"" + rootd + "\" -name '._*' -exec rm -f {} + 2>/dev/null || true")
 
     exec("mkdir -p releases")
     let out = "releases/" + name + ".tar.gz"
