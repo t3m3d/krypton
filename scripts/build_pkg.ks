@@ -12,6 +12,22 @@ func isDir(p)  { emit trim(exec("test -d \"" + p + "\" && echo yes || echo no"))
 func has(c)    { emit trim(exec("command -v " + c + " >/dev/null 2>&1 && echo yes || echo no")) }
 func die(m)    { kp(m)  exit("1") }
 
+func cleanPkgAppleDouble(pkgFile) {
+    let work = trim(exec("mktemp -d"))
+    let pkgDir = work + "/pkg"
+    let payloadRoot = work + "/payload"
+    exec("pkgutil --expand \"" + pkgFile + "\" \"" + pkgDir + "\"")
+    exec("mkdir -p \"" + payloadRoot + "\"")
+    exec("(cd \"" + payloadRoot + "\" && gzip -dc \"" + pkgDir + "/Payload\" | cpio -idm --quiet)")
+    exec("find \"" + payloadRoot + "\" -name '._*' -exec rm -f {} + 2>/dev/null || true")
+    exec("(cd \"" + payloadRoot + "\" && find . | cpio -o --format odc --quiet | gzip -c > \"" + pkgDir + "/Payload\")")
+    exec("mkbom \"" + payloadRoot + "\" \"" + pkgDir + "/Bom\"")
+    exec("find \"" + pkgDir + "/Scripts\" -name '._*' -exec rm -f {} + 2>/dev/null || true")
+    exec("rm -f \"" + pkgFile + "\"")
+    exec("env COPYFILE_DISABLE=1 pkgutil --flatten \"" + pkgDir + "\" \"" + pkgFile + "\"")
+    exec("rm -rf \"" + work + "\"")
+}
+
 just run {
     let root = trim(exec("pwd"))
     if trim(exec("uname -s")) != "Darwin" { die("build_pkg.ks: macOS only") }
@@ -52,9 +68,9 @@ just run {
     exec("install -m 0644 compiler/compile.k \"" + r + "/compiler/compile.k\"")
     if isFile("compiler/optimize.k") == "yes" { exec("install -m 0644 compiler/optimize.k \"" + r + "/compiler/optimize.k\"") }
     if klsBin != "" { exec("install -m 0755 " + klsBin + " \"" + r + "/compiler/macos_arm64/kls\"") }
-    exec("ditto --norsrc stdlib \"" + r + "/stdlib\"")
-    exec("ditto --norsrc headers \"" + r + "/headers\"")
-    if isDir("examples") == "yes" { exec("ditto --norsrc examples \"" + r + "/examples\"") }
+    exec("env COPYFILE_DISABLE=1 ditto --norsrc stdlib \"" + r + "/stdlib\"")
+    exec("env COPYFILE_DISABLE=1 ditto --norsrc headers \"" + r + "/headers\"")
+    if isDir("examples") == "yes" { exec("env COPYFILE_DISABLE=1 ditto --norsrc examples \"" + r + "/examples\"") }
     if isDir("lsp") == "yes" {
         exec("mkdir -p \"" + r + "/lsp\"")
         exec("for f in lsp/*.k lsp/README.md; do [ -f \"$f\" ] && install -m 0644 \"$f\" \"" + r + "/$f\"; done")
@@ -68,7 +84,7 @@ just run {
     exec("install -m 0644 web/kweb_gui.ks \"" + r + "/web/kweb_gui.ks\"")
     if isFile("web/README.md") == "yes" { exec("install -m 0644 web/README.md \"" + r + "/web/README.md\"") }
     exec("mkdir -p \"" + stage + "/Applications/Krypton\"")
-    exec("ditto --norsrc dist/kweb.app \"" + stage + "/Applications/Krypton/kweb.app\"")
+    exec("env COPYFILE_DISABLE=1 ditto --norsrc dist/kweb.app \"" + stage + "/Applications/Krypton/kweb.app\"")
 
     // ── postinstall (BASH — Installer runs it as root) ────────────────────────
     let post = "#!/bin/bash\n" +
@@ -86,13 +102,13 @@ just run {
     writeFile(scriptsDir + "/postinstall", post)
     exec("chmod 0755 \"" + scriptsDir + "/postinstall\"")
 
-    exec("xattr -cr \"" + stage + "\" 2>/dev/null")
-    exec("find \"" + stage + "\" -name '._*' -delete 2>/dev/null")
+    exec("find \"" + stage + "\" \"" + scriptsDir + "\" -name '._*' -exec rm -f {} + 2>/dev/null || true")
 
     exec("mkdir -p releases")
     exec("rm -f \"" + pkgFile + "\"")
     kp("building " + pkgFile + "...")
-    exec("env COPYFILE_DISABLE=1 pkgbuild --root \"" + stage + "\" --identifier \"" + pkgId + "\" --version \"" + version + "\" --scripts \"" + scriptsDir + "\" --install-location / \"" + pkgFile + "\"")
+    exec("env COPYFILE_DISABLE=1 pkgbuild --root \"" + stage + "\" --identifier \"" + pkgId + "\" --version \"" + version + "\" --scripts \"" + scriptsDir + "\" --install-location / --filter '(^|/)[.]_[^/]*$' --filter '(^|/)[.]DS_Store$' --filter '(^|/)CVS($|/)' --filter '(^|/)[.]svn($|/)' \"" + pkgFile + "\"")
+    cleanPkgAppleDouble(pkgFile)
     exec("rm -rf \"" + stage + "\" \"" + scriptsDir + "\"")
 
     kp("")
