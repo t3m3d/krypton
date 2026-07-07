@@ -4134,8 +4134,9 @@ just run {
                     if environ("OS") == "Windows_NT" { tmpDir = "C:\\Windows\\Temp" }
                     else { tmpDir = "/tmp" }
                 }
-                let tmpIR  = tmpDir + "/tmp_kcc_build.ir"
-                let tmpOpt = tmpDir + "/tmp_kcc_build_opt.ir"
+                let tmpBase = replace(replace(replace(outFile, "\\", "_"), "/", "_"), ":", "_")
+                let tmpIR  = tmpDir + "/tmp_kcc_build_" + tmpBase + ".ir"
+                let tmpOpt = tmpDir + "/tmp_kcc_build_" + tmpBase + "_opt.ir"
                 writeFile(tmpIR, irLibText)
                 let optCmd2  = compilerDir + "\\optimize_host.exe " + tmpIR + " > " + tmpOpt
                 let codeCmd2 = compilerDir + "\\x64_host_new.exe " + tmpOpt + " " + outFile
@@ -4299,8 +4300,9 @@ just run {
                 if environ("OS") == "Windows_NT" { tmpDir = "C:\\Windows\\Temp" }
                 else { tmpDir = "/tmp" }
             }
-            let tmpIR  = tmpDir + "/tmp_kcc_build.ir"
-            let tmpOpt = tmpDir + "/tmp_kcc_build_opt.ir"
+            let tmpBase = replace(replace(replace(outFile, "\\", "_"), "/", "_"), ":", "_")
+            let tmpIR  = tmpDir + "/tmp_kcc_build_" + tmpBase + ".ir"
+            let tmpOpt = tmpDir + "/tmp_kcc_build_" + tmpBase + "_opt.ir"
             writeFile(tmpIR, irText)
             let optCmd  = compilerDir + "\\optimize_host.exe " + tmpIR + " > " + tmpOpt
             let codeCmd = compilerDir + "\\x64_host_new.exe " + tmpOpt + " " + outFile
