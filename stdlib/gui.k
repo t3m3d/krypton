@@ -78,7 +78,7 @@ func _krkWndProc(hwnd, msg, wParam, lParam) {
         let id = idInt + ""
         let cb = guiStateGet("cb.click." + id)
         if cb != "" {
-            callPtr(cb, "")
+            callPtr(cb, "", "", id)
         }
         emit "0"
     }
@@ -1551,6 +1551,8 @@ func guiGetText(hwnd) {
 // 2026-05-11 Phase D: register a Krypton funcptr keyed by control id.
 // _krkWndProc looks up "cb.click.<id>" on WM_COMMAND and invokes via callPtr.
 // `hwnd` here is a control id (decimal, from widget creators), not a hex hwnd.
+// Dispatch passes Obj-K-shaped args ("", "", senderId). Older no-arg handlers
+// still work because extra callPtr args are ignored by the Windows backend.
 func guiOnClick(hwnd, sinkPtr) {
     guiStateSet("cb.click." + hwnd, sinkPtr)
     emit "1"
