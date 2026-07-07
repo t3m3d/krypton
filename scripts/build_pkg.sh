@@ -71,11 +71,11 @@ install -m 0644 compiler/compile.k                      "$ROOT/compiler/compile.
 
 # Standard library — REQUIRED for `import "k:..."` (the FE resolves k: modules
 # from <root>/stdlib). Was missing before — imports failed from a .pkg install.
-ditto --norsrc stdlib "$ROOT/stdlib"
+env COPYFILE_DISABLE=1 ditto --norsrc stdlib "$ROOT/stdlib"
 
 # Header files (--headers flag + kls) and examples.
-ditto --norsrc headers "$ROOT/headers"
-[[ -d examples ]] && ditto --norsrc examples "$ROOT/examples"
+env COPYFILE_DISABLE=1 ditto --norsrc headers "$ROOT/headers"
+[[ -d examples ]] && env COPYFILE_DISABLE=1 ditto --norsrc examples "$ROOT/examples"
 
 # LSP sources (so users can rebuild kls if they edit it).
 if [[ -d lsp ]]; then
@@ -95,7 +95,7 @@ install -m 0644 web/kweb.htk "$ROOT/web/kweb.htk"
 install -m 0644 web/kweb_gui.ks "$ROOT/web/kweb_gui.ks"
 [[ -f web/README.md ]] && install -m 0644 web/README.md "$ROOT/web/README.md"
 mkdir -p "$STAGE/Applications/Krypton"
-ditto --norsrc dist/kweb.app "$STAGE/Applications/Krypton/kweb.app"
+env COPYFILE_DISABLE=1 ditto --norsrc dist/kweb.app "$STAGE/Applications/Krypton/kweb.app"
 
 # ── Post-install script ────────────────────────────────────────────────────
 # Runs as root via Installer.app: symlink kcc/kls onto PATH, ad-hoc sign the
@@ -132,8 +132,7 @@ EOF
 chmod 0755 "$SCRIPTS_DIR/postinstall"
 
 # ── Strip xattrs so pkgbuild doesn't bake AppleDouble (._*) files ─────────
-xattr -cr "$STAGE" 2>/dev/null || true
-find "$STAGE" -name '._*' -delete 2>/dev/null || true
+find "$STAGE" "$SCRIPTS_DIR" -name '._*' -exec rm -f {} + 2>/dev/null || true
 
 # ── Build the .pkg ─────────────────────────────────────────────────────────
 mkdir -p releases
@@ -146,7 +145,25 @@ pkgbuild \
     --version         "$VERSION" \
     --scripts         "$SCRIPTS_DIR" \
     --install-location / \
+    --filter '(^|/)[.]_[^/]*$' \
+    --filter '(^|/)[.]DS_Store$' \
+    --filter '(^|/)CVS($|/)' \
+    --filter '(^|/)[.]svn($|/)' \
     "$PKG_FILE"
+
+PKG_CLEAN=$(mktemp -d)
+PAYLOAD_ROOT="$PKG_CLEAN/payload"
+PKG_EXPANDED="$PKG_CLEAN/pkg"
+pkgutil --expand "$PKG_FILE" "$PKG_EXPANDED"
+mkdir -p "$PAYLOAD_ROOT"
+(cd "$PAYLOAD_ROOT" && gzip -dc "$PKG_EXPANDED/Payload" | cpio -idm --quiet)
+find "$PAYLOAD_ROOT" -name '._*' -exec rm -f {} + 2>/dev/null || true
+(cd "$PAYLOAD_ROOT" && find . | cpio -o --format odc --quiet | gzip -c > "$PKG_EXPANDED/Payload")
+mkbom "$PAYLOAD_ROOT" "$PKG_EXPANDED/Bom"
+find "$PKG_EXPANDED/Scripts" -name '._*' -exec rm -f {} + 2>/dev/null || true
+rm -f "$PKG_FILE"
+env COPYFILE_DISABLE=1 pkgutil --flatten "$PKG_EXPANDED" "$PKG_FILE"
+rm -rf "$PKG_CLEAN"
 
 SIZE=$(stat -f%z "$PKG_FILE")
 echo ""
