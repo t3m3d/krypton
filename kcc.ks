@@ -357,13 +357,22 @@ func compileWindows(root, src, out) {
     let winTemp = _winEnv("TEMP")
     if winTemp == "" { winTemp = "C:/Windows/Temp" }
     winTemp = replace(winTemp, "\\", "/")
-    let tmpIR = winTemp + "/tmp_kcc_build.ir"
-    let tmpOpt = winTemp + "/tmp_kcc_build_opt.ir"
+    let tick = _chompWS(exec("echo %TIME%"))
+    let rand = _chompWS(exec("echo %RANDOM%"))
+    let safe = replace(replace(replace(tick, ":", ""), ".", ""), " ", "") + "_" + rand
+    let tmpIR = winTemp + "/tmp_kcc_build_" + safe + ".ir"
+    let tmpOpt = winTemp + "/tmp_kcc_build_" + safe + "_opt.ir"
     exec(kccExe + " " + src + " --ir > " + tmpIR)
     if _winExists(tmpIR) == "0" { kp("kcc: IR emission failed for " + src)  emit "0" }
     exec(optExe + " " + tmpIR + " > " + tmpOpt)
-    if _winExists(tmpOpt) == "0" { kp("kcc: optimize failed")  emit "0" }
+    if _winExists(tmpOpt) == "0" {
+        exec("del /q " + replace(tmpIR, "/", "\\"))
+        kp("kcc: optimize failed")
+        emit "0"
+    }
     exec(x64Exe + " " + tmpOpt + " " + out)
+    exec("del /q " + replace(tmpIR, "/", "\\"))
+    exec("del /q " + replace(tmpOpt, "/", "\\"))
     if _winExists(out) == "0" { kp("kcc: native codegen failed")  emit "0" }
     emit "1"
 }
