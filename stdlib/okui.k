@@ -15,6 +15,8 @@ func minSize(win, w, h)         { emit okMinSize(win, w, h) }
 func doShow(win)                { emit okShow(win, okSharedApp()) }
 func doRun()                    { emit okRun(okSharedApp()) }
 func doQuit()                   { emit okQuit(okSharedApp()) }
+func doTransparentTitlebar(win) { emit okTransparentTitlebar(win) }
+func alert(title, message)      { emit okAlert(title, message) }
 
 // Layout words
 func area(x, y, w, h)           { emit okRect(x, y, w, h) }
@@ -53,7 +55,12 @@ func choiceIndex(combo)         { emit okComboIndex(combo) }
 
 // Action-only helpers
 func doText(control, value)     { emit okSetText(control, value) }
+func doTextBox(box, value)      { emit okSetTextView(box, value) }
 func doAppend(box, value)       { emit okAppend(box, value) }
+func textBoxValue(box)          { emit okTextViewText(box) }
+func doNoWrap(box)              { emit okNoWrap(box) }
+func textLength(box)            { emit okTextLength(box) }
+func doTextRangeColor(box, color, loc, n) { emit okTextColorRange(box, color, loc, n) }
 func doPlaceholder(control, v)  { emit okPlaceholder(control, v) }
 func doEnable(control)          { emit okEnabled(control, 1) }
 func doDisable(control)         { emit okEnabled(control, 0) }
@@ -73,6 +80,9 @@ func doSet(obj, key, value)     { emit okSet(obj, key, value) }
 func get(obj, key)              { emit okGet(obj, key) }
 
 // System actions
+func chooseFolder(title)         { emit okChooseFolder(title) }
+func chooseFile(title)           { emit okChooseFile(title) }
+func saveFile(title, name)       { emit okSaveFile(title, name) }
 func doCopyText(value)          { emit okSetClipboard(value) }
 func clipboard()                { emit okClipboard() }
 func setting(key)               { emit okDefault(key) }
@@ -91,9 +101,18 @@ func secondaryTextColor()        { emit okSystemSecondaryText() }
 func textBackground()            { emit okSystemTextBg() }
 func doBackground(view, c)       { emit okSetBg(view, c) }
 func doTextColor(view, c)        { emit okSetTextColor(view, c) }
+func doButtonTextColor(btn, c)   { emit okSetButtonTextColor(btn, c) }
 func doWindowBackground(win, c)  { emit okSetWindowBg(win, c) }
 func mono(size)                  { emit okMonoFont(size) }
 func fontFamily(base, family)    { emit okFontFamily(base, family) }
 func doFont(view, font)          { emit okSetFont(view, font) }
+
+// Menus
+func menuBar()                   { emit okMenuBar(okSharedApp()) }
+func menu(bar, title)            { emit okMenuAdd(bar, title) }
+func menuAction(menu, title, key, fnPtr) { emit okMenuAction(menu, title, key, fnPtr) }
+func menuSelector(menu, title, key, selector) { emit okMenuSelector(menu, title, key, selector) }
+func menuSelectorTag(menu, title, key, selector, tag) { emit okMenuSelectorTag(menu, title, key, selector, tag) }
+func menuSeparator(menu)         { emit okMenuSeparator(menu) }
 
 func done()                      { emit "1" }

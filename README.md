@@ -58,6 +58,11 @@ The web framework adds a third extension for templates:
 
 - **kweb deploy refresh** — rebuilt macOS release with the FTP root/default-folder fix and current `kweb.app`.
 
+## Next: 2.4.6 Objective-K hardening
+
+- **OKUI becomes the app-facing Objective-K layer** — app code imports `k:okui`; macOS routes through `objk`/Choc/AppKit and Windows routes through `objkwin`/Choc/Win32.
+- **kweb GUI now builds on OKUI** — fewer direct backend calls in the app.
+
 ## What's new in 2.4.4
 
 - **macOS GUI app name fixed** — the app is now `kweb.app`, not `kweb_gui.app`.
