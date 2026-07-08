@@ -23,11 +23,17 @@ Note: every callback/delegate method is a plain Krypton func used as an Obj-C me
 IMP — objc passes (self, _cmd, …) in x0/x1/… = Krypton's register convention.
 
 Windows uses the same Objective-K naming style without Cocoa/libobjc. App code
-should prefer `k:okui`; macOS resolves through `stdlib/objk.k`, while Windows
-resolves `k:objk` through `stdlib/objkwin.k` so the same OKUI layer can sit on
-Forge's Choc/Win32 backend. Click dispatch passes Obj-K-shaped args:
-`(self, cmd, sender)`, and old no-arg handlers still work.
+should prefer `k:okui`; macOS uses `stdlib/okui.k`, Windows routes `k:okui` to
+`stdlib/okui_win.k`, and both load the shared app-facing API in
+`stdlib/okui_core.k`. Windows then resolves `k:objk` through
+`stdlib/objkwin.k` so OKUI sits on Forge's Choc/Win32 backend. Click dispatch
+passes Obj-K-shaped args: `(self, cmd, sender)`, and old no-arg handlers still
+work.
 
 Focused OKUI check:
 
     KRYPTON_ROOT="$PWD" bootstrap/kcc_driver_macos_aarch64 -r scripts/check_okui.ks
+
+Windows parity check:
+
+    kcc.exe -r scripts/check_okui.ks
