@@ -193,6 +193,8 @@ func kwebRoot() {
     if fsFileExists("C:/krypton/kcc-bin.exe") == "1" { emit "C:/krypton" }
     let cwd = cwdPath()
     if fsFileExists(cwd + "/kcc-bin.exe") == "1" { emit cwd }
+    if fsFileExists(cwd + "/../kcc-bin.exe") == "1" { emit cwd + "/.." }
+    if fsFileExists(cwd + "/../../kcc-bin.exe") == "1" { emit cwd + "/../.." }
     emit ""
 }
 
@@ -248,13 +250,20 @@ func doBuild() {
         let tmpOpt = tmpDir() + "/kweb_build_opt.ir"
         let fe = root + "/kcc-bin.exe"
         let opt = rootTool(root, "/bin/optimize_host.exe", "/compiler/windows_x86/optimize_host.exe")
-        let x64 = rootTool(root, "/bootstrap/x64_host_windows_x86_64.exe", "/compiler/windows_x86/x64_host.exe")
+        let x64 = rootTool(root, "/compiler/windows_x86/x64_host.exe", "/bootstrap/x64_host_windows_x86_64.exe")
         let rc1 = shellRun(fe + " export.htk --ir > " + tmpIR)
         if rc1 != "0" { printErr("kweb: IR emission failed")  exit("1") }
         let rc2 = shellRun(opt + " " + tmpIR + " > " + tmpOpt)
         if rc2 != "0" { printErr("kweb: optimize failed")  exit("1") }
         let rc3 = shellRun(x64 + " " + tmpOpt + " " + bin)
         if rc3 != "0" { printErr("kweb: codegen failed")  exit("1") }
+        if isWindows() == "1" {
+            let rt1 = root + "/compiler/windows_x86/krypton_rt.dll"
+            let rt2 = root + "/krypton_rt.dll"
+            let rtOut = tmpDir() + "/krypton_rt.dll"
+            exec("cmd /C copy /Y " + shellQuote(replace(rt1, "/", _bs())) + " " + shellQuote(replace(rtOut, "/", _bs())))
+            if fsFileExists(rtOut) != "1" { exec("cmd /C copy /Y " + shellQuote(replace(rt2, "/", _bs())) + " " + shellQuote(replace(rtOut, "/", _bs()))) }
+        }
     } else {
         let cmd = kccCommand() + " export.htk -o " + shellQuote(bin) + " 2>&1"
         let rc = shellRun(cmd)

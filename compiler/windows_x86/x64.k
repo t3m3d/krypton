@@ -99,13 +99,13 @@ func hexQword64(lo, hi) {
 
 func hexPad(n) {
     // emit n zero bytes
-    let out = ""
+    let out = sbNew()
     let i = 0
     while i < n {
-        out = out + hexByte(0)
+        out = sbAppend(out, hexByte(0))
         i += 1
     }
-    emit out
+    emit sbToString(out)
 }
 
 func hexStr(s) {
@@ -492,6 +492,24 @@ let KRBCRYPT_FUNCS   = "BCryptOpenAlgorithmProvider,BCryptCloseAlgorithmProvider
 // wininet -- WinINet HTTP client.  Wired 2026-06-13 to back the
 // refactored stdlib/httpc.k -- in-process HTTP without spawning curl.
 let KRWININET_FUNCS  = "InternetOpenA,InternetOpenUrlA,InternetReadFile,HttpQueryInfoA,InternetCloseHandle,InternetConnectA,HttpOpenRequestA,HttpSendRequestA,InternetCrackUrlA,InternetCanonicalizeUrlA"
+func kr32Funcs() { emit "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,GetCurrentThreadId,GetLastError,SetLastError,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,SetHandleInformation,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA,WaitForSingleObject,TerminateProcess,OpenProcess,CreateFileMappingA,MapViewOfFile,UnmapViewOfFile,GetModuleHandleA,SetEnvironmentVariableA,CreatePipe,PeekNamedPipe,CreateProcessA,InitializeProcThreadAttributeList,UpdateProcThreadAttribute,DeleteProcThreadAttributeList,CreatePseudoConsole,ResizePseudoConsole,ClosePseudoConsole,GetExitCodeProcess,CreateDirectoryA,DeleteFileA,RemoveDirectoryA,MoveFileA,CopyFileA,GetCurrentDirectoryA,SetCurrentDirectoryA,GetTempPathA" }
+func krrtFuncs() { emit "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword,kr_envnew,kr_envset,kr_envget,kr_hasfield,kr_structfields,kr_repeat,kr_padleft,kr_padright,kr_reverse,kr_abs,kr_min,kr_max,kr_endswith,kr_bin,kr_pow,kr_gc_allocated,kr_gc_limit,kr_gc_set_limit,kr_gc_collect,kr_arena_reset,kr_gc_checkpoint,kr_gc_restore,kr_gc_slab_count,kr_gc_slab_bytes,kr_bufgetbyte,kr_bufgetwordat,kr_bufsetwordat,kr_bufsetqwordat,kr_bufgetwordatbe,kr_bufgetdwordatbe,kr_bufgetqwordatbe,kr_gc_alloc_count,kr_gc_shadow_count,kr_gc_shadow_pop_n,kr_gc_shadow_push,kr_gc_walk_allocs,kr_rdtsc,kr_gc_mark,kr_gc_sweep,kr_pause,kr_mfence,kr_lfence,kr_sfence,kr_gc_freelist_count,kr_set_wndproc,kr_wndproc_addr,kr_inttoptr,kr_gc_set_threshold" }
+func kradvFuncs() { emit "RegOpenKeyExA,RegQueryValueExA,RegEnumKeyExA,RegCloseKey,GetUserNameA" }
+func krpdhFuncs() { emit "PdhOpenQueryA,PdhAddEnglishCounterA,PdhCollectQueryData,PdhGetFormattedCounterArrayA,PdhCloseQuery" }
+func kruserFuncs() { emit "GetSystemMetrics,MessageBoxA,ShowWindow,SetTimer,KillTimer,GetForegroundWindow,SetForegroundWindow,GetMessageA,TranslateMessage,DispatchMessageA,PostQuitMessage,UpdateWindow,DestroyWindow,SetWindowTextA,GetWindowTextA,SendMessageA,GetDlgItem,InvalidateRect,MoveWindow,SetWindowPos,GetClientRect,GetWindowRect,RegisterClassExA,CreateWindowExA,DefWindowProcA,LoadCursorA,LoadIconA,CreateMenu,CreatePopupMenu,AppendMenuA,SetMenu,DrawMenuBar,DestroyMenu,LoadImageA,SetClassLongPtrA,FillRect,GetWindow,SetProcessDpiAwarenessContext" }
+func krgdi32Funcs() { emit "GetStockObject,CreateFontIndirectA,SetTextColor,SetBkColor,SetBkMode,SelectObject,DeleteObject,CreateSolidBrush,GetTextExtentPoint32A" }
+func krcomctl32Funcs() { emit "InitCommonControlsEx,ImageList_Create,ImageList_AddIcon,ImageList_Destroy" }
+func krcomdlg32Funcs() { emit "GetOpenFileNameA,GetSaveFileNameA,ChooseColorA" }
+func krole32Funcs() { emit "CoInitialize,CoUninitialize,CoCreateInstance,CoTaskMemFree" }
+func kruxthemeFuncs() { emit "SetWindowTheme,IsThemeActive" }
+func krdwmapiFuncs() { emit "DwmSetWindowAttribute,DwmExtendFrameIntoClientArea" }
+func krws232Funcs() { emit "WSAStartup,WSACleanup,socket,bind,listen,accept,recv,send,connect,closesocket,htons,htonl,ntohs,ntohl" }
+func krshell32Funcs() { emit "SHBrowseForFolderA,SHGetPathFromIDListA,ShellExecuteA,SHGetFolderPathA" }
+func krpsapiFuncs() { emit "EnumProcesses,EnumProcessModules,GetModuleBaseNameA,GetModuleFileNameExA,GetProcessMemoryInfo" }
+func kriphlpapiFuncs() { emit "GetAdaptersAddresses,GetAdaptersInfo,GetIfTable,GetTcpTable,IcmpCreateFile,IcmpCloseHandle,IcmpSendEcho" }
+func krbcryptFuncs() { emit "BCryptOpenAlgorithmProvider,BCryptCloseAlgorithmProvider,BCryptHash,BCryptCreateHash,BCryptHashData,BCryptFinishHash,BCryptDestroyHash,BCryptGenRandom,BCryptGenerateSymmetricKey,BCryptEncrypt,BCryptDecrypt,BCryptDestroyKey" }
+func krwininetFuncs() { emit "InternetOpenA,InternetOpenUrlA,InternetReadFile,HttpQueryInfoA,InternetCloseHandle,InternetConnectA,HttpOpenRequestA,HttpSendRequestA,InternetCrackUrlA,InternetCanonicalizeUrlA" }
+
 
 // __user_rt_atoi: 69-byte ASCII-decimal-to-int64 helper, RCX=str → RAX=int64.
 // Same machine code as the bootstrap helper at offset 197 in the helper block.
@@ -1582,123 +1600,112 @@ func countFuncs(csv) {
 }
 
 func funcAt(csv, idx) {
-    let n = 0
-    let start = 0
-    let i = 0
-    while i < len(csv) {
-        if csv[i] == "," {
-            if n == idx { emit substring(csv, start, i) }
-            n += 1
-            start = i + 1
-        }
-        i += 1
-    }
-    emit substring(csv, start, len(csv))
+    emit split(csv, idx)
 }
 
 func iatIndexOf(funcName) {
     // Returns index within its own DLL's IAT, prefixed by one of:
     // k32:, rt:, adv:, pdh:, user:, gdi:, comctl:, comdlg:, ole:, uxtheme:, dwm:
-    let k32count = countFuncs(KR32_FUNCS)
+    let k32count = countFuncs(kr32Funcs())
     let i = 0
     while i < k32count {
-        if funcAt(KR32_FUNCS, i) == funcName { emit "k32:" + i }
+        if funcAt(kr32Funcs(), i) == funcName { emit "k32:" + i }
         i += 1
     }
-    let rtcount = countFuncs(KRRT_FUNCS)
+    let rtcount = countFuncs(krrtFuncs())
     let j = 0
     while j < rtcount {
-        if funcAt(KRRT_FUNCS, j) == funcName { emit "rt:" + j }
+        if funcAt(krrtFuncs(), j) == funcName { emit "rt:" + j }
         j += 1
     }
-    let advcount = countFuncs(KRADV_FUNCS)
+    let advcount = countFuncs(kradvFuncs())
     let k = 0
     while k < advcount {
-        if funcAt(KRADV_FUNCS, k) == funcName { emit "adv:" + k }
+        if funcAt(kradvFuncs(), k) == funcName { emit "adv:" + k }
         k += 1
     }
-    let pdhcount = countFuncs(KRPDH_FUNCS)
+    let pdhcount = countFuncs(krpdhFuncs())
     let m = 0
     while m < pdhcount {
-        if funcAt(KRPDH_FUNCS, m) == funcName { emit "pdh:" + m }
+        if funcAt(krpdhFuncs(), m) == funcName { emit "pdh:" + m }
         m += 1
     }
-    let usercount = countFuncs(KRUSER_FUNCS)
+    let usercount = countFuncs(kruserFuncs())
     let n = 0
     while n < usercount {
-        if funcAt(KRUSER_FUNCS, n) == funcName { emit "user:" + n }
+        if funcAt(kruserFuncs(), n) == funcName { emit "user:" + n }
         n += 1
     }
-    let gdicount = countFuncs(KRGDI32_FUNCS)
+    let gdicount = countFuncs(krgdi32Funcs())
     let gd = 0
     while gd < gdicount {
-        if funcAt(KRGDI32_FUNCS, gd) == funcName { emit "gdi:" + gd }
+        if funcAt(krgdi32Funcs(), gd) == funcName { emit "gdi:" + gd }
         gd += 1
     }
-    let cctlcount = countFuncs(KRCOMCTL32_FUNCS)
+    let cctlcount = countFuncs(krcomctl32Funcs())
     let cc = 0
     while cc < cctlcount {
-        if funcAt(KRCOMCTL32_FUNCS, cc) == funcName { emit "comctl:" + cc }
+        if funcAt(krcomctl32Funcs(), cc) == funcName { emit "comctl:" + cc }
         cc += 1
     }
-    let cdlgcount = countFuncs(KRCOMDLG32_FUNCS)
+    let cdlgcount = countFuncs(krcomdlg32Funcs())
     let cd = 0
     while cd < cdlgcount {
-        if funcAt(KRCOMDLG32_FUNCS, cd) == funcName { emit "comdlg:" + cd }
+        if funcAt(krcomdlg32Funcs(), cd) == funcName { emit "comdlg:" + cd }
         cd += 1
     }
-    let olecount = countFuncs(KROLE32_FUNCS)
+    let olecount = countFuncs(krole32Funcs())
     let ol = 0
     while ol < olecount {
-        if funcAt(KROLE32_FUNCS, ol) == funcName { emit "ole:" + ol }
+        if funcAt(krole32Funcs(), ol) == funcName { emit "ole:" + ol }
         ol += 1
     }
-    let uxcount = countFuncs(KRUXTHEME_FUNCS)
+    let uxcount = countFuncs(kruxthemeFuncs())
     let ux = 0
     while ux < uxcount {
-        if funcAt(KRUXTHEME_FUNCS, ux) == funcName { emit "uxtheme:" + ux }
+        if funcAt(kruxthemeFuncs(), ux) == funcName { emit "uxtheme:" + ux }
         ux += 1
     }
-    let dwmcount = countFuncs(KRDWMAPI_FUNCS)
+    let dwmcount = countFuncs(krdwmapiFuncs())
     let dw = 0
     while dw < dwmcount {
-        if funcAt(KRDWMAPI_FUNCS, dw) == funcName { emit "dwm:" + dw }
+        if funcAt(krdwmapiFuncs(), dw) == funcName { emit "dwm:" + dw }
         dw += 1
     }
-    let wscount = countFuncs(KRWS2_32_FUNCS)
+    let wscount = countFuncs(krws232Funcs())
     let ws = 0
     while ws < wscount {
-        if funcAt(KRWS2_32_FUNCS, ws) == funcName { emit "ws:" + ws }
+        if funcAt(krws232Funcs(), ws) == funcName { emit "ws:" + ws }
         ws += 1
     }
-    let shcount = countFuncs(KRSHELL32_FUNCS)
+    let shcount = countFuncs(krshell32Funcs())
     let sh = 0
     while sh < shcount {
-        if funcAt(KRSHELL32_FUNCS, sh) == funcName { emit "sh:" + sh }
+        if funcAt(krshell32Funcs(), sh) == funcName { emit "sh:" + sh }
         sh += 1
     }
-    let pscount = countFuncs(KRPSAPI_FUNCS)
+    let pscount = countFuncs(krpsapiFuncs())
     let ps = 0
     while ps < pscount {
-        if funcAt(KRPSAPI_FUNCS, ps) == funcName { emit "ps:" + ps }
+        if funcAt(krpsapiFuncs(), ps) == funcName { emit "ps:" + ps }
         ps += 1
     }
-    let iphcount = countFuncs(KRIPHLPAPI_FUNCS)
+    let iphcount = countFuncs(kriphlpapiFuncs())
     let iph = 0
     while iph < iphcount {
-        if funcAt(KRIPHLPAPI_FUNCS, iph) == funcName { emit "iph:" + iph }
+        if funcAt(kriphlpapiFuncs(), iph) == funcName { emit "iph:" + iph }
         iph += 1
     }
-    let bccount = countFuncs(KRBCRYPT_FUNCS)
+    let bccount = countFuncs(krbcryptFuncs())
     let bc = 0
     while bc < bccount {
-        if funcAt(KRBCRYPT_FUNCS, bc) == funcName { emit "bc:" + bc }
+        if funcAt(krbcryptFuncs(), bc) == funcName { emit "bc:" + bc }
         bc += 1
     }
-    let wicount = countFuncs(KRWININET_FUNCS)
+    let wicount = countFuncs(krwininetFuncs())
     let wi = 0
     while wi < wicount {
-        if funcAt(KRWININET_FUNCS, wi) == funcName { emit "wi:" + wi }
+        if funcAt(krwininetFuncs(), wi) == funcName { emit "wi:" + wi }
         wi += 1
     }
     emit "none"
@@ -1782,7 +1789,7 @@ func iatEntryRvaFor(funcName, iatBases) {
 
 // IAT total entries (with null terminators between DLLs)
 func iatTotalEntries() {
-    emit countFuncs(KR32_FUNCS) + 1 + countFuncs(KRRT_FUNCS) + 1 + countFuncs(KRADV_FUNCS) + 1 + countFuncs(KRPDH_FUNCS) + 1 + countFuncs(KRUSER_FUNCS) + 1 + countFuncs(KRGDI32_FUNCS) + 1 + countFuncs(KRCOMCTL32_FUNCS) + 1 + countFuncs(KRCOMDLG32_FUNCS) + 1 + countFuncs(KROLE32_FUNCS) + 1 + countFuncs(KRUXTHEME_FUNCS) + 1 + countFuncs(KRDWMAPI_FUNCS) + 1 + countFuncs(KRWS2_32_FUNCS) + 1 + countFuncs(KRSHELL32_FUNCS) + 1 + countFuncs(KRPSAPI_FUNCS) + 1 + countFuncs(KRIPHLPAPI_FUNCS) + 1 + countFuncs(KRBCRYPT_FUNCS) + 1 + countFuncs(KRWININET_FUNCS) + 1
+    emit countFuncs(kr32Funcs()) + 1 + countFuncs(krrtFuncs()) + 1 + countFuncs(kradvFuncs()) + 1 + countFuncs(krpdhFuncs()) + 1 + countFuncs(kruserFuncs()) + 1 + countFuncs(krgdi32Funcs()) + 1 + countFuncs(krcomctl32Funcs()) + 1 + countFuncs(krcomdlg32Funcs()) + 1 + countFuncs(krole32Funcs()) + 1 + countFuncs(kruxthemeFuncs()) + 1 + countFuncs(krdwmapiFuncs()) + 1 + countFuncs(krws232Funcs()) + 1 + countFuncs(krshell32Funcs()) + 1 + countFuncs(krpsapiFuncs()) + 1 + countFuncs(kriphlpapiFuncs()) + 1 + countFuncs(krbcryptFuncs()) + 1 + countFuncs(krwininetFuncs()) + 1
 }
 
 // ── Instruction byte-size calculator ─────────────────────────────
@@ -2244,6 +2251,10 @@ func emitInstr(op, arg1, arg2, vsp, iatRva, rdataRva, codeRva, strs) {
 }
 
 // ── Parse IR into function list ───────────────────────────────────
+func funcBodySep() {
+    emit "|" + "|" + "|"
+}
+
 func parseFunctions(ir) {
     // Returns a table: "funcName|argc|body\n" per function
     // body is the raw lines joined with \x01 (to avoid newline collision)
@@ -2261,7 +2272,7 @@ func parseFunctions(ir) {
             i += 1
             while i < total {
                 let bl = getLine(lines, i)
-                if len(body) > 0 { body = body + "|||" }
+                if len(body) > 0 { body = body + funcBodySep() }
                 body = body + bl
                 i += 1
                 if irGetOp(bl) == "END" { break }
@@ -2377,10 +2388,11 @@ func addRspNSz(n) { emit 7 }
 // Generates the actual hex-encoded function machine code
 // with known addresses for everything.
 
-// emitFuncFull: appends machine code directly to sbOut (no return string).
-// Returns number of bytes written as a string (for realTextSize accounting).
+// emitFuncFull: returns "hex,count" so caller appends the function body explicitly.
+// Avoids relying on caller-visible string-builder mutation.
 func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, labelPositions, allFuncOffsets, sbOut) {
     let PE_TEXT_RVA = 4096
+    let fnSb = sbNew()
     let count = lineCount(ir_lines)
     let vsp = 0  // virtual stack depth (slots used in frame above locals)
     // Map of label-name → vsp at the source of the JUMP that targets it.
@@ -2407,7 +2419,7 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
     }
 
     // prologue: SUB RSP, frameSize
-    sbOut = sbAppend(sbOut, subRspN(frameSize))
+    fnSb = sbAppend(fnSb, subRspN(frameSize))
     let pos = subRspNSz(frameSize)
 
     // Save parameters from registers to local slots
@@ -2418,16 +2430,16 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
         let op = irGetOp(line)
         if op == "PARAM" {
             let off = localRspOff(paramIdx)
-            if paramIdx == 0 { sbOut = sbAppend(sbOut,movRspFromRcx(off))  pos += 8 }
-            if paramIdx == 1 { sbOut = sbAppend(sbOut,movRspFromRdx(off))  pos += 8 }
-            if paramIdx == 2 { sbOut = sbAppend(sbOut,movRspFromR8(off))   pos += 8 }
-            if paramIdx == 3 { sbOut = sbAppend(sbOut,movRspFromR9(off))   pos += 8 }
+            if paramIdx == 0 { fnSb = sbAppend(fnSb,movRspFromRcx(off))  pos += 8 }
+            if paramIdx == 1 { fnSb = sbAppend(fnSb,movRspFromRdx(off))  pos += 8 }
+            if paramIdx == 2 { fnSb = sbAppend(fnSb,movRspFromR8(off))   pos += 8 }
+            if paramIdx == 3 { fnSb = sbAppend(fnSb,movRspFromR9(off))   pos += 8 }
             if paramIdx >= 4 {
                 // 5th+ arg: caller put it at [RSP + frameSize + 40 + (paramIdx-4)*8]
                 // (above callee's frame in caller's extra-args area)
                 let stackArgOff = frameSize + 40 + (paramIdx - 4) * 8
-                sbOut = sbAppend(sbOut,movRaxFromRsp(stackArgOff))   // MOV RAX, [RSP+stackArgOff] (8)
-                sbOut = sbAppend(sbOut,movRspFromRax(off))           // MOV [RSP+localOff], RAX    (8)
+                fnSb = sbAppend(fnSb,movRaxFromRsp(stackArgOff))   // MOV RAX, [RSP+stackArgOff] (8)
+                fnSb = sbAppend(fnSb,movRspFromRax(off))           // MOV [RSP+localOff], RAX    (8)
                 pos += 16
             }
             paramIdx += 1
@@ -2450,8 +2462,8 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
                 if getLine(locals, li) == a1 { idx = li  break }
                 li += 1
             }
-            sbOut = sbAppend(sbOut,hexByte(0x33) + hexByte(0xC0))    // XOR EAX, EAX  (2)
-            sbOut = sbAppend(sbOut,movRspFromRax(localRspOff(idx)))   // MOV [RSP+off], RAX (8)
+            fnSb = sbAppend(fnSb,hexByte(0x33) + hexByte(0xC0))    // XOR EAX, EAX  (2)
+            fnSb = sbAppend(fnSb,movRspFromRax(localRspOff(idx)))   // MOV [RSP+off], RAX (8)
             pos += 10
         }
 
@@ -2462,8 +2474,8 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
             if startsWith(val, "\"") { sval = substring(val, 1, len(val) - 1) }
             let soff = strOffset(strs, sval)
             let disp = (rdataBaseRva + soff) - (funcBaseRva + pos + 7)
-            sbOut = sbAppend(sbOut,hexByte(0x48) + hexByte(0x8D) + hexByte(0x05) + hexDword(disp))
-            sbOut = sbAppend(sbOut,movRspFromRax(vstBase + vsp * 8))
+            fnSb = sbAppend(fnSb,hexByte(0x48) + hexByte(0x8D) + hexByte(0x05) + hexDword(disp))
+            fnSb = sbAppend(fnSb,movRspFromRax(vstBase + vsp * 8))
             pos += 15
             vsp += 1
         }
@@ -2476,8 +2488,8 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
                 if getLine(locals, li2) == a1 { idx = li2  break }
                 li2 += 1
             }
-            sbOut = sbAppend(sbOut,movRaxFromRsp(localRspOff(idx)))
-            sbOut = sbAppend(sbOut,movRspFromRax(vstBase + vsp * 8))
+            fnSb = sbAppend(fnSb,movRaxFromRsp(localRspOff(idx)))
+            fnSb = sbAppend(fnSb,movRspFromRax(vstBase + vsp * 8))
             pos += 16
             vsp += 1
         }
@@ -2491,17 +2503,17 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
                 li3 += 1
             }
             vsp -= 1
-            sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + vsp * 8))
-            sbOut = sbAppend(sbOut,movRspFromRax(localRspOff(idx)))
+            fnSb = sbAppend(fnSb,movRaxFromRsp(vstBase + vsp * 8))
+            fnSb = sbAppend(fnSb,movRspFromRax(localRspOff(idx)))
             pos += 16
         }
 
         if op == "RETURN" {
             // MOV RAX, [RSP+vstSlot]  (8) + ADD RSP, frameSize  (7) + RET  (1) = 16
             vsp -= 1
-            sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + vsp * 8))
-            sbOut = sbAppend(sbOut,addRspN(frameSize))
-            sbOut = sbAppend(sbOut,hexByte(0xC3))
+            fnSb = sbAppend(fnSb,movRaxFromRsp(vstBase + vsp * 8))
+            fnSb = sbAppend(fnSb,addRspN(frameSize))
+            fnSb = sbAppend(fnSb,hexByte(0xC3))
             pos += 16
         }
 
@@ -2524,14 +2536,14 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
             if op == "GT"  { rtFunc = "kr_gt" }
             if op == "LTE" { rtFunc = "kr_lte" }
             if op == "GTE" { rtFunc = "kr_gte" }
-            sbOut = sbAppend(sbOut,movRdxFromRsp(vstBase + (vsp - 1) * 8))   // RDX = b  (8)
-            sbOut = sbAppend(sbOut,movRcxFromRsp(vstBase + (vsp - 2) * 8))   // RCX = a  (8)
+            fnSb = sbAppend(fnSb,movRdxFromRsp(vstBase + (vsp - 1) * 8))   // RDX = b  (8)
+            fnSb = sbAppend(fnSb,movRcxFromRsp(vstBase + (vsp - 2) * 8))   // RCX = a  (8)
             vsp -= 2
             let iatEntryRva = iatEntryRvaFor(rtFunc, iatBases)
             // CALL at pos+16, RIP after CALL = pos+22
             let disp2 = iatEntryRva - (funcBaseRva + pos + 22)
-            sbOut = sbAppend(sbOut,hexByte(0xFF) + hexByte(0x15) + hexDword(disp2))   // 6 bytes
-            sbOut = sbAppend(sbOut,movRspFromRax(vstBase + vsp * 8))                   // 8 bytes
+            fnSb = sbAppend(fnSb,hexByte(0xFF) + hexByte(0x15) + hexDword(disp2))   // 6 bytes
+            fnSb = sbAppend(fnSb,movRspFromRax(vstBase + vsp * 8))                   // 8 bytes
             vsp += 1
             pos += 30
         }
@@ -2540,12 +2552,12 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
         if op == "NEG" || op == "NOT" {
             let rtFunc = "kr_neg"
             if op == "NOT" { rtFunc = "kr_not" }
-            sbOut = sbAppend(sbOut,movRcxFromRsp(vstBase + (vsp - 1) * 8))   // RCX = top  (8)
+            fnSb = sbAppend(fnSb,movRcxFromRsp(vstBase + (vsp - 1) * 8))   // RCX = top  (8)
             // CALL at pos+8, RIP after CALL = pos+14
             let iatEntryRvaNeg = iatEntryRvaFor(rtFunc, iatBases)
             let disp3 = iatEntryRvaNeg - (funcBaseRva + pos + 14)
-            sbOut = sbAppend(sbOut,hexByte(0xFF) + hexByte(0x15) + hexDword(disp3))   // 6 bytes
-            sbOut = sbAppend(sbOut,movRspFromRax(vstBase + (vsp - 1) * 8))             // replace top  (8)
+            fnSb = sbAppend(fnSb,hexByte(0xFF) + hexByte(0x15) + hexDword(disp3))   // 6 bytes
+            fnSb = sbAppend(fnSb,movRspFromRax(vstBase + (vsp - 1) * 8))             // replace top  (8)
             pos += 22
             // vsp unchanged (pop 1, push 1)
         }
@@ -2569,79 +2581,79 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
                 while iai < nia {
                     let pi2 = toInt(funcAt(intArgsList, iai))
                     let slotOff = vstBase + (vsp - argc2 + pi2) * 8
-                    sbOut = sbAppend(sbOut, movRcxFromRsp(slotOff))                          // 8
+                    fnSb = sbAppend(fnSb, movRcxFromRsp(slotOff))                          // 8
                     let atoiDisp = atoiRva - (funcBaseRva + pos + convSz0 + 8 + 5)
-                    sbOut = sbAppend(sbOut, hexByte(0xE8) + hexDword(atoiDisp))             // 5
-                    sbOut = sbAppend(sbOut, movRspFromRax(slotOff))                          // 8
+                    fnSb = sbAppend(fnSb, hexByte(0xE8) + hexDword(atoiDisp))             // 5
+                    fnSb = sbAppend(fnSb, movRspFromRax(slotOff))                          // 8
                     convSz0 += 21
                     iai += 1
                 }
             }
             let loadSz = convSz0
-            if argc2 >= 1 { sbOut = sbAppend(sbOut,movRcxFromRsp(vstBase + (vsp - argc2) * 8))       loadSz += 8 }
-            if argc2 >= 2 { sbOut = sbAppend(sbOut,movRdxFromRsp(vstBase + (vsp - argc2 + 1) * 8))   loadSz += 8 }
-            if argc2 >= 3 { sbOut = sbAppend(sbOut,movR8FromRsp(vstBase + (vsp - argc2 + 2) * 8))    loadSz += 8 }
-            if argc2 >= 4 { sbOut = sbAppend(sbOut,movR9FromRsp(vstBase + (vsp - argc2 + 3) * 8))    loadSz += 8 }
+            if argc2 >= 1 { fnSb = sbAppend(fnSb,movRcxFromRsp(vstBase + (vsp - argc2) * 8))       loadSz += 8 }
+            if argc2 >= 2 { fnSb = sbAppend(fnSb,movRdxFromRsp(vstBase + (vsp - argc2 + 1) * 8))   loadSz += 8 }
+            if argc2 >= 3 { fnSb = sbAppend(fnSb,movR8FromRsp(vstBase + (vsp - argc2 + 2) * 8))    loadSz += 8 }
+            if argc2 >= 4 { fnSb = sbAppend(fnSb,movR9FromRsp(vstBase + (vsp - argc2 + 3) * 8))    loadSz += 8 }
             // 5th+ args: write to [RSP+32 + (i-4)*8] (caller's extra-args area)
             // Callee reads these from [RSP_callee + frameSize + 40 + (i-4)*8]
             if argc2 >= 5 {
-                sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + (vsp - argc2 + 4) * 8))   // 8
-                sbOut = sbAppend(sbOut,movRspFromRax(32))                                  // 8
+                fnSb = sbAppend(fnSb,movRaxFromRsp(vstBase + (vsp - argc2 + 4) * 8))   // 8
+                fnSb = sbAppend(fnSb,movRspFromRax(32))                                  // 8
                 loadSz += 16
             }
             if argc2 >= 6 {
-                sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + (vsp - argc2 + 5) * 8))   // 8
-                sbOut = sbAppend(sbOut,movRspFromRax(40))                                  // 8
+                fnSb = sbAppend(fnSb,movRaxFromRsp(vstBase + (vsp - argc2 + 5) * 8))   // 8
+                fnSb = sbAppend(fnSb,movRspFromRax(40))                                  // 8
                 loadSz += 16
             }
             if argc2 >= 7 {
-                sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + (vsp - argc2 + 6) * 8))   // 8
-                sbOut = sbAppend(sbOut,movRspFromRax(48))                                  // 8
+                fnSb = sbAppend(fnSb,movRaxFromRsp(vstBase + (vsp - argc2 + 6) * 8))   // 8
+                fnSb = sbAppend(fnSb,movRspFromRax(48))                                  // 8
                 loadSz += 16
             }
             if argc2 >= 8 {
-                sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + (vsp - argc2 + 7) * 8))   // 8
-                sbOut = sbAppend(sbOut,movRspFromRax(56))                                  // 8
+                fnSb = sbAppend(fnSb,movRaxFromRsp(vstBase + (vsp - argc2 + 7) * 8))   // 8
+                fnSb = sbAppend(fnSb,movRspFromRax(56))                                  // 8
                 loadSz += 16
             }
             if argc2 >= 9 {
-                sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + (vsp - argc2 + 8) * 8))   // 8
-                sbOut = sbAppend(sbOut,movRspFromRax(64))                                  // 8
+                fnSb = sbAppend(fnSb,movRaxFromRsp(vstBase + (vsp - argc2 + 8) * 8))   // 8
+                fnSb = sbAppend(fnSb,movRspFromRax(64))                                  // 8
                 loadSz += 16
             }
             if argc2 >= 10 {
-                sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + (vsp - argc2 + 9) * 8))   // 8
-                sbOut = sbAppend(sbOut,movRspFromRax(72))                                  // 8
+                fnSb = sbAppend(fnSb,movRaxFromRsp(vstBase + (vsp - argc2 + 9) * 8))   // 8
+                fnSb = sbAppend(fnSb,movRspFromRax(72))                                  // 8
                 loadSz += 16
             }
             if argc2 >= 11 {
-                sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + (vsp - argc2 + 10) * 8))  // 8
-                sbOut = sbAppend(sbOut,movRspFromRax(80))                                  // 8
+                fnSb = sbAppend(fnSb,movRaxFromRsp(vstBase + (vsp - argc2 + 10) * 8))  // 8
+                fnSb = sbAppend(fnSb,movRspFromRax(80))                                  // 8
                 loadSz += 16
             }
             if argc2 >= 12 {
-                sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + (vsp - argc2 + 11) * 8))  // 8
-                sbOut = sbAppend(sbOut,movRspFromRax(88))                                  // 8
+                fnSb = sbAppend(fnSb,movRaxFromRsp(vstBase + (vsp - argc2 + 11) * 8))  // 8
+                fnSb = sbAppend(fnSb,movRspFromRax(88))                                  // 8
                 loadSz += 16
             }
             if argc2 >= 13 {
-                sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + (vsp - argc2 + 12) * 8))  // 8
-                sbOut = sbAppend(sbOut,movRspFromRax(96))                                  // 8
+                fnSb = sbAppend(fnSb,movRaxFromRsp(vstBase + (vsp - argc2 + 12) * 8))  // 8
+                fnSb = sbAppend(fnSb,movRspFromRax(96))                                  // 8
                 loadSz += 16
             }
             if argc2 >= 14 {
-                sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + (vsp - argc2 + 13) * 8))  // 8
-                sbOut = sbAppend(sbOut,movRspFromRax(104))                                 // 8
+                fnSb = sbAppend(fnSb,movRaxFromRsp(vstBase + (vsp - argc2 + 13) * 8))  // 8
+                fnSb = sbAppend(fnSb,movRspFromRax(104))                                 // 8
                 loadSz += 16
             }
             if argc2 >= 15 {
-                sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + (vsp - argc2 + 14) * 8))  // 8
-                sbOut = sbAppend(sbOut,movRspFromRax(112))                                 // 8
+                fnSb = sbAppend(fnSb,movRaxFromRsp(vstBase + (vsp - argc2 + 14) * 8))  // 8
+                fnSb = sbAppend(fnSb,movRspFromRax(112))                                 // 8
                 loadSz += 16
             }
             if argc2 >= 16 {
-                sbOut = sbAppend(sbOut,movRaxFromRsp(vstBase + (vsp - argc2 + 15) * 8))  // 8
-                sbOut = sbAppend(sbOut,movRspFromRax(120))                                 // 8
+                fnSb = sbAppend(fnSb,movRaxFromRsp(vstBase + (vsp - argc2 + 15) * 8))  // 8
+                fnSb = sbAppend(fnSb,movRspFromRax(120))                                 // 8
                 loadSz += 16
             }
             vsp -= argc2
@@ -2651,8 +2663,8 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
             let inlineSz3 = inlineBuiltinSize(a1)
             if inlineSz3 > 0 {
                 let inlineBody = emitInlineBuiltin(a1, iatBases, funcBaseRva, pos + loadSz)
-                sbOut = sbAppend(sbOut, inlineBody)
-                sbOut = sbAppend(sbOut, movRspFromRax(vstBase + vsp * 8))
+                fnSb = sbAppend(fnSb, inlineBody)
+                fnSb = sbAppend(fnSb, movRspFromRax(vstBase + vsp * 8))
                 vsp += 1
                 pos += loadSz + inlineSz3 + 8
             } else {
@@ -2685,7 +2697,7 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
                 callCode = hexByte(0xE8) + hexDword(userDisp)
                 callSz = 5
             }
-            sbOut = sbAppend(sbOut,callCode)
+            fnSb = sbAppend(fnSb,callCode)
             // Int-return marshalling: convert raw int RAX → Krypton char*
             // by calling __user_rt_itoa via E8+rel32 (5 bytes). Only for
             // Win32 fns whose return value is an int (DWORD/BOOL/LONG).
@@ -2694,10 +2706,10 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
                 let itoaOff = toInt(funcOffsetLookup(allFuncOffsets, "__user_rt_itoa"))
                 let itoaRva = PE_TEXT_RVA + itoaOff
                 let itoaDisp = itoaRva - (funcBaseRva + pos + loadSz + callSz + 5)
-                sbOut = sbAppend(sbOut, hexByte(0xE8) + hexDword(itoaDisp))           // 5
+                fnSb = sbAppend(fnSb, hexByte(0xE8) + hexDword(itoaDisp))           // 5
                 retSz0 = 5
             }
-            sbOut = sbAppend(sbOut,movRspFromRax(vstBase + vsp * 8))   // store result  (8)
+            fnSb = sbAppend(fnSb,movRspFromRax(vstBase + vsp * 8))   // store result  (8)
             vsp += 1
             pos += loadSz + callSz + retSz0 + 8
             }
@@ -2722,29 +2734,29 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
             vspAtLabel = vspAtLabel + a1 + ":" + vsp
             let jmpTarget = labelLookup(labelPositions, a1)
             let jmpDisp = jmpTarget - (pos + 5)
-            sbOut = sbAppend(sbOut,hexByte(0xE9) + hexDword(jmpDisp))
+            fnSb = sbAppend(fnSb,hexByte(0xE9) + hexDword(jmpDisp))
             pos += 5
         }
 
         if op == "JUMPIF" || op == "JUMPIFNOT" {
             // MOV RCX(8) + CALL[kr_truthy](6) + MOVZX(3) + CMP(2) + JCC(6) = 25 bytes
             // CALL at pos+8, RIP after = pos+14; JCC at pos+19, RIP after = pos+25
-            sbOut = sbAppend(sbOut,movRcxFromRsp(vstBase + (vsp - 1) * 8))
+            fnSb = sbAppend(fnSb,movRcxFromRsp(vstBase + (vsp - 1) * 8))
             vsp -= 1
             // Record vsp at this branch source so the target LABEL reconciles.
             if len(vspAtLabel) > 0 { vspAtLabel = vspAtLabel + "\n" }
             vspAtLabel = vspAtLabel + a1 + ":" + vsp
             let iatRva3 = iatEntryRvaFor("kr_truthy", iatBases)
             let disp5 = iatRva3 - (funcBaseRva + pos + 14)
-            sbOut = sbAppend(sbOut,hexByte(0xFF) + hexByte(0x15) + hexDword(disp5))
-            sbOut = sbAppend(sbOut,hexByte(0x0F) + hexByte(0xB6) + hexByte(0x00))  // MOVZX EAX, BYTE[RAX]
-            sbOut = sbAppend(sbOut,hexByte(0x3C) + hexByte(0x30))                   // CMP AL, '0' (0x30)
+            fnSb = sbAppend(fnSb,hexByte(0xFF) + hexByte(0x15) + hexDword(disp5))
+            fnSb = sbAppend(fnSb,hexByte(0x0F) + hexByte(0xB6) + hexByte(0x00))  // MOVZX EAX, BYTE[RAX]
+            fnSb = sbAppend(fnSb,hexByte(0x3C) + hexByte(0x30))                   // CMP AL, '0' (0x30)
             let jcTarget = labelLookup(labelPositions, a1)
             let jcDisp = jcTarget - (pos + 25)
             if op == "JUMPIF" {
-                sbOut = sbAppend(sbOut,hexByte(0x0F) + hexByte(0x85) + hexDword(jcDisp))  // JNE (truthy = not '0')
+                fnSb = sbAppend(fnSb,hexByte(0x0F) + hexByte(0x85) + hexDword(jcDisp))  // JNE (truthy = not '0')
             } else {
-                sbOut = sbAppend(sbOut,hexByte(0x0F) + hexByte(0x84) + hexDword(jcDisp))  // JE  (falsy = is '0')
+                fnSb = sbAppend(fnSb,hexByte(0x0F) + hexByte(0x84) + hexDword(jcDisp))  // JE  (falsy = is '0')
             }
             pos += 25
         }
@@ -2752,14 +2764,14 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
         if op == "INDEX" {
             // s[i]: string at vsp-2, index at vsp-1 → kr_idx(string, index)
             // MOV RDX(8) + MOV RCX(8) + CALL(6) + MOV result(8) = 30 bytes
-            sbOut = sbAppend(sbOut,movRdxFromRsp(vstBase + (vsp - 1) * 8))   // index → RDX  (8)
-            sbOut = sbAppend(sbOut,movRcxFromRsp(vstBase + (vsp - 2) * 8))   // string → RCX (8)
+            fnSb = sbAppend(fnSb,movRdxFromRsp(vstBase + (vsp - 1) * 8))   // index → RDX  (8)
+            fnSb = sbAppend(fnSb,movRcxFromRsp(vstBase + (vsp - 2) * 8))   // string → RCX (8)
             vsp -= 2
             let iatIdx = iatEntryRvaFor("kr_idx", iatBases)
             // CALL at pos+16, RIP after = pos+22
             let dispIdx = iatIdx - (funcBaseRva + pos + 22)
-            sbOut = sbAppend(sbOut,hexByte(0xFF) + hexByte(0x15) + hexDword(dispIdx))   // 6 bytes
-            sbOut = sbAppend(sbOut,movRspFromRax(vstBase + vsp * 8))   // 8 bytes
+            fnSb = sbAppend(fnSb,hexByte(0xFF) + hexByte(0x15) + hexDword(dispIdx))   // 6 bytes
+            fnSb = sbAppend(fnSb,movRspFromRax(vstBase + vsp * 8))   // 8 bytes
             vsp += 1
             pos += 30
         }
@@ -2769,8 +2781,8 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
             // CALL [IAT](6) + MOV result(8) = 14 bytes
             let iatNew = iatEntryRvaFor("kr_envnew", iatBases)
             let dispNew = iatNew - (funcBaseRva + pos + 6)
-            sbOut = sbAppend(sbOut,hexByte(0xFF) + hexByte(0x15) + hexDword(dispNew))
-            sbOut = sbAppend(sbOut,movRspFromRax(vstBase + vsp * 8))
+            fnSb = sbAppend(fnSb,hexByte(0xFF) + hexByte(0x15) + hexDword(dispNew))
+            fnSb = sbAppend(fnSb,movRspFromRax(vstBase + vsp * 8))
             vsp += 1
             pos += 14
         }
@@ -2782,14 +2794,14 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
             // CALL [IAT](6) + MOV result(8) = 37 bytes.
             let sf_soff = strOffset(strs, a1)
             let sf_disp = (rdataBaseRva + sf_soff) - (funcBaseRva + pos + 7)
-            sbOut = sbAppend(sbOut,hexByte(0x48) + hexByte(0x8D) + hexByte(0x15) + hexDword(sf_disp))   // [0-6]   LEA RDX, [name]
-            sbOut = sbAppend(sbOut,movRcxFromRsp(vstBase + (vsp - 2) * 8))                              // [7-14]  MOV RCX, env
-            sbOut = sbAppend(sbOut,movR8FromRsp(vstBase + (vsp - 1) * 8))                               // [15-22] MOV R8, value
+            fnSb = sbAppend(fnSb,hexByte(0x48) + hexByte(0x8D) + hexByte(0x15) + hexDword(sf_disp))   // [0-6]   LEA RDX, [name]
+            fnSb = sbAppend(fnSb,movRcxFromRsp(vstBase + (vsp - 2) * 8))                              // [7-14]  MOV RCX, env
+            fnSb = sbAppend(fnSb,movR8FromRsp(vstBase + (vsp - 1) * 8))                               // [15-22] MOV R8, value
             vsp -= 2
             let iatSet = iatEntryRvaFor("kr_envset", iatBases)
             let sf_callDisp = iatSet - (funcBaseRva + pos + 29)
-            sbOut = sbAppend(sbOut,hexByte(0xFF) + hexByte(0x15) + hexDword(sf_callDisp))               // [23-28] CALL [kr_envset]
-            sbOut = sbAppend(sbOut,movRspFromRax(vstBase + vsp * 8))                                    // [29-36] store new env
+            fnSb = sbAppend(fnSb,hexByte(0xFF) + hexByte(0x15) + hexDword(sf_callDisp))               // [23-28] CALL [kr_envset]
+            fnSb = sbAppend(fnSb,movRspFromRax(vstBase + vsp * 8))                                    // [29-36] store new env
             vsp += 1
             pos += 37
         }
@@ -2799,13 +2811,13 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
             // LEA RDX(7) + MOV RCX(8) + CALL(6) + MOV result(8) = 29 bytes.
             let gf_soff = strOffset(strs, a1)
             let gf_disp = (rdataBaseRva + gf_soff) - (funcBaseRva + pos + 7)
-            sbOut = sbAppend(sbOut,hexByte(0x48) + hexByte(0x8D) + hexByte(0x15) + hexDword(gf_disp))   // [0-6]  LEA RDX, [name]
-            sbOut = sbAppend(sbOut,movRcxFromRsp(vstBase + (vsp - 1) * 8))                              // [7-14] MOV RCX, env
+            fnSb = sbAppend(fnSb,hexByte(0x48) + hexByte(0x8D) + hexByte(0x15) + hexDword(gf_disp))   // [0-6]  LEA RDX, [name]
+            fnSb = sbAppend(fnSb,movRcxFromRsp(vstBase + (vsp - 1) * 8))                              // [7-14] MOV RCX, env
             vsp -= 1
             let iatGet = iatEntryRvaFor("kr_envget", iatBases)
             let gf_callDisp = iatGet - (funcBaseRva + pos + 21)
-            sbOut = sbAppend(sbOut,hexByte(0xFF) + hexByte(0x15) + hexDword(gf_callDisp))               // [15-20] CALL [kr_envget]
-            sbOut = sbAppend(sbOut,movRspFromRax(vstBase + vsp * 8))                                    // [21-28] store value
+            fnSb = sbAppend(fnSb,hexByte(0xFF) + hexByte(0x15) + hexDword(gf_callDisp))               // [15-20] CALL [kr_envget]
+            fnSb = sbAppend(fnSb,movRspFromRax(vstBase + vsp * 8))                                    // [21-28] store value
             vsp += 1
             pos += 29
         }
@@ -2823,8 +2835,8 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
             let fpTarget = funcOffsetLookup(allFuncOffsets, a1)
             let fpRva = PE_TEXT_RVA + fpTarget
             let fpDisp = fpRva - (funcBaseRva + pos + 7)
-            sbOut = sbAppend(sbOut, hexByte(0x48) + hexByte(0x8D) + hexByte(0x05) + hexDword(fpDisp))
-            sbOut = sbAppend(sbOut, movRspFromRax(vstBase + vsp * 8))
+            fnSb = sbAppend(fnSb, hexByte(0x48) + hexByte(0x8D) + hexByte(0x05) + hexDword(fpDisp))
+            fnSb = sbAppend(fnSb, movRspFromRax(vstBase + vsp * 8))
             vsp += 1
             pos += 15
         }
@@ -2855,21 +2867,21 @@ func emitFuncFull(ir_lines, locals, funcBaseRva, iatBases, rdataBaseRva, strs, l
             }
             let wendTarget = labelLookup(labelPositions, wendName)
             let breakDisp = wendTarget - (pos + 5)
-            sbOut = sbAppend(sbOut,hexByte(0xE9) + hexDword(breakDisp))
+            fnSb = sbAppend(fnSb,hexByte(0xE9) + hexDword(breakDisp))
             pos += 5
         }
 
         if op == "END" {
-            sbOut = sbAppend(sbOut,hexByte(0x33) + hexByte(0xC0))   // XOR EAX, EAX (2)
-            sbOut = sbAppend(sbOut,addRspN(frameSize))               // ADD RSP, frameSize (7)
-            sbOut = sbAppend(sbOut,hexByte(0xC3))                    // RET (1)
+            fnSb = sbAppend(fnSb,hexByte(0x33) + hexByte(0xC0))   // XOR EAX, EAX (2)
+            fnSb = sbAppend(fnSb,addRspN(frameSize))               // ADD RSP, frameSize (7)
+            fnSb = sbAppend(fnSb,hexByte(0xC3))                    // RET (1)
             pos += 10
         }
 
         i += 1
     }
 
-    emit pos
+    emit sbToString(fnSb) + "," + pos
 }
 
 // ── DOS header (64 bytes) ─────────────────────────────────────────
@@ -8072,23 +8084,23 @@ func buildBootstrapImportTable(rdataRva, strsSize) {
 //   [J] IMAGE_IMPORT_BY_NAME entries for each function
 
 func buildImportTable(rdataRva, strsSize, rtDllName) {
-    let k32funcs = KR32_FUNCS
-    let rtfuncs = KRRT_FUNCS
-    let advfuncs = KRADV_FUNCS
-    let pdhfuncs = KRPDH_FUNCS
-    let userfuncs = KRUSER_FUNCS
-    let gdifuncs = KRGDI32_FUNCS
-    let cctlfuncs = KRCOMCTL32_FUNCS
-    let cdlgfuncs = KRCOMDLG32_FUNCS
-    let olefuncs = KROLE32_FUNCS
-    let uxfuncs = KRUXTHEME_FUNCS
-    let dwmfuncs = KRDWMAPI_FUNCS
-    let wsfuncs = KRWS2_32_FUNCS
-    let shfuncs = KRSHELL32_FUNCS
-    let psfuncs = KRPSAPI_FUNCS
-    let iphfuncs = KRIPHLPAPI_FUNCS
-    let bcfuncs = KRBCRYPT_FUNCS
-    let wifuncs = KRWININET_FUNCS
+    let k32funcs = kr32Funcs()
+    let rtfuncs = krrtFuncs()
+    let advfuncs = kradvFuncs()
+    let pdhfuncs = krpdhFuncs()
+    let userfuncs = kruserFuncs()
+    let gdifuncs = krgdi32Funcs()
+    let cctlfuncs = krcomctl32Funcs()
+    let cdlgfuncs = krcomdlg32Funcs()
+    let olefuncs = krole32Funcs()
+    let uxfuncs = kruxthemeFuncs()
+    let dwmfuncs = krdwmapiFuncs()
+    let wsfuncs = krws232Funcs()
+    let shfuncs = krshell32Funcs()
+    let psfuncs = krpsapiFuncs()
+    let iphfuncs = kriphlpapiFuncs()
+    let bcfuncs = krbcryptFuncs()
+    let wifuncs = krwininetFuncs()
     let k32count = countFuncs(k32funcs)
     let rtcount = countFuncs(rtfuncs)
     let advcount = countFuncs(advfuncs)
@@ -9009,7 +9021,7 @@ just run {
     while fi < funcCount {
         let entry2 = getLine(funcTable, fi)
         let fname3 = funcTableName(entry2)
-        let body3 = replace(funcTableBody(entry2), "|||", "\n")
+        let body3 = replace(funcTableBody(entry2), funcBodySep(), "\n")
         let g_loc3 = collectLocals(body3)
         let fsz = funcByteSize(body3)
         if afoFirst == "0" { allFuncOffsetsSb = sbAppend(allFuncOffsetsSb, "\n") }
@@ -9054,7 +9066,7 @@ just run {
     let realIatIphRva = toInt(split(realImportData, 16))
     let realIatBcRva = toInt(split(realImportData, 17))
     let realIatWiRva = toInt(split(realImportData, 18))
-    let realIatRtRva = realIatK32 + (countFuncs(KR32_FUNCS) + 1) * 8
+    let realIatRtRva = realIatK32 + (countFuncs(kr32Funcs()) + 1) * 8
 
     // Build export table (DLL only, if any exports exist)
     let realExportHex = ""
@@ -9100,11 +9112,14 @@ just run {
     while fi2 < funcCount {
         let entry3 = getLine(funcTable, fi2)
         let fname4 = funcTableName(entry3)
-        let body4 = replace(funcTableBody(entry3), "|||", "\n")
+        let body4 = replace(funcTableBody(entry3), funcBodySep(), "\n")
         let g_loc4 = collectLocals(body4)
         let funcRva2 = PE_TEXT_RVA2 + realTextSize
         let labelPositions = collectLabelPositions(body4)
-        let fbytes = toInt(emitFuncFull(body4, g_loc4, funcRva2, iatBases, realRdataRva, strs, labelPositions, allFuncOffsets, sbCode))
+        let fdata = emitFuncFull(body4, g_loc4, funcRva2, iatBases, realRdataRva, strs, labelPositions, allFuncOffsets, sbCode)
+        let fhex = split(fdata, 0)
+        let fbytes = toInt(split(fdata, 1))
+        sbCode = sbAppend(sbCode, fhex)
         realTextSize += fbytes
         fi2 += 1
     }
