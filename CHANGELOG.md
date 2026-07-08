@@ -4,6 +4,16 @@ All notable changes to the Krypton language and compiler.
 
 ## [Unreleased]
 
+- **Objective-K UI hardening for 2.4.6.** `stdlib/okui.k` now exposes the
+  missing app-facing pieces kweb needs: alerts, menus, text-view helpers,
+  text-range colour, and button-title tinting.
+- **kweb GUI moved to OKUI.** `web/kweb_gui.ks` now imports `k:okui` instead of
+  calling `k:choc_macos` directly, keeping app code on the shared Objective-K
+  surface.
+- **Windows Obj-K route wired.** The compiler resolves `k:objk` to
+  `stdlib/objkwin.k` when running on Windows, so `k:okui` can target Forge's
+  Choc/Win32 backend without macOS imports.
+
 ## [2.4.5] - 2026-07-07 — kweb deploy refresh
 
 - Rebuilt macOS release assets with the current `kweb` CLI and `kweb.app`.

@@ -3500,6 +3500,9 @@ just run {
                 let sub    = substring(importPath, colonAt + 1, len(importPath))
                 if prefix == "k"       { fullPath = installRoot + "/stdlib/"  + sub + ".k"   }
                 if prefix == "core"    { fullPath = installRoot + "/stdlib/"  + sub + ".k"   }
+                if (prefix == "k" || prefix == "core") && sub == "objk" {
+                    if environ("OS") == "Windows_NT" { fullPath = installRoot + "/stdlib/objkwin.k" }
+                }
                 if prefix == "head"    { fullPath = installRoot + "/headers/" + sub + ".krh" }
                 if prefix == "headers" { fullPath = installRoot + "/headers/" + sub + ".krh" }
                 // .ks fallback: objk + KryptScript stdlib modules are tagged
@@ -3567,6 +3570,9 @@ just run {
 	                                let depSub = substring(depPath, depColon + 1, len(depPath))
 	                                if depPrefix == "k"       { depFull = installRoot + "/stdlib/"  + depSub + ".k"   }
 	                                if depPrefix == "core"    { depFull = installRoot + "/stdlib/"  + depSub + ".k"   }
+	                                if (depPrefix == "k" || depPrefix == "core") && depSub == "objk" {
+	                                    if environ("OS") == "Windows_NT" { depFull = installRoot + "/stdlib/objkwin.k" }
+	                                }
 	                                if depPrefix == "head"    { depFull = installRoot + "/headers/" + depSub + ".krh" }
 	                                if depPrefix == "headers" { depFull = installRoot + "/headers/" + depSub + ".krh" }
 	                                if depPrefix == "k" || depPrefix == "core" {

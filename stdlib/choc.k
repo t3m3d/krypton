@@ -63,6 +63,8 @@ func chocMenuAction(menu, title, fnPtr) {
     guiOnClick(item, fnPtr)
     emit item
 }
+func chocMenuSeparator(menu)                 { emit guiMenuSeparator(menu) }
+func chocAlert(title, message)               { emit guiMessageBox(title, message) }
 
 // Files/system
 func chocChooseFolder(title)               { emit guiPickFolder(title) }
@@ -79,3 +81,7 @@ func chocSystemSecondaryText()             { emit "0xBEB4E8" }
 func chocSystemTextBg()                    { emit "0x101014" }
 func chocSetWindowBg(win, color)           { emit guiSetWindowBg(color) }
 func chocSetFont(view, font)               { emit guiSetUiFont(font, "10") }
+func chocSetTextColor(view, color)          { emit "1" }
+func chocSetButtonTextColor(btn, color)     { emit "1" }
+func chocTextLength(tv)                     { emit len(chocGetText(tv)) }
+func chocTextColorRange(tv, color, loc, n)  { emit "1" }
