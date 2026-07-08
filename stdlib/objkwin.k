@@ -45,6 +45,8 @@ func okAppend(tv, text)             { emit chocAppend(tv, text) }
 func okSetTextView(tv, text)        { emit chocSetText(tv, text) }
 func okTextViewText(tv)             { emit chocGetText(tv) }
 func okNoWrap(tv)                   { emit "1" }
+func okTextLength(tv)               { emit len(chocGetText(tv)) }
+func okTextColorRange(tv, color, loc, n) { emit chocTextColorRange(tv, color, loc, n) }
 func okEnabled(control, enabled)    { emit "1" }
 func okHidden(view, hidden)         { emit "1" }
 func okFrame(view, x, y, w, h)      { emit "1" }
@@ -121,10 +123,12 @@ func okSystemSecondaryText()        { emit chocSystemSecondaryText() }
 func okSystemTextBg()               { emit chocSystemTextBg() }
 func okSetBg(view, color)           { emit "1" }
 func okSetTextColor(view, color)    { emit "1" }
+func okSetButtonTextColor(btn, color) { emit chocSetButtonTextColor(btn, color) }
 func okSetWindowBg(win, color)      { emit chocSetWindowBg(win, color) }
 func okMonoFont(size)               { emit "Consolas" }
 func okFontFamily(base, family)     { emit family }
 func okSetFont(view, font)          { emit chocSetFont(view, font) }
+func okAlert(title, message)        { emit chocAlert(title, message) }
 
 // Menus: use Choc flat menu items for now.
 func okMenuBar(app)                 { emit chocMenuBar(app) }
@@ -134,7 +138,7 @@ func okMenuAction(menu, title, key, fnPtr) {
 }
 func okMenuSelector(menu, title, key, selName) { emit chocMenuAdd(menu, title) }
 func okMenuSelectorTag(menu, title, key, selName, tag) { emit chocMenuAdd(menu, title) }
-func okMenuSeparator(menu)          { emit "1" }
+func okMenuSeparator(menu)          { emit chocMenuSeparator(menu) }
 func okSubmenu(menu, title)         { emit menu }
 
 // Runtime class synthesis is Cocoa-specific.  Keep stubs so portable code can
