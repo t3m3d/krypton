@@ -3608,7 +3608,7 @@ just run {
 	                                        let depJTok = tokAt(depToks, depJ)
 	                                        if depJTok == "KW:jxt" {
 	                                            let depJxtPos = depJ + 2
-	                                            while tokAt(depToks, depJxtPos) != "RBRACE" {
+	                                            while depJxtPos < depNtoks && tokAt(depToks, depJxtPos) != "RBRACE" {
 	                                                let depLang = tokVal(tokAt(depToks, depJxtPos))
 	                                                if depLang == "c" || depLang == "t" {
 	                                                    depJxtPos += 2
@@ -3617,7 +3617,7 @@ just run {
 	                                                    let depSfPos = depJxtPos + 3
 	                                                    let depSEntry = depSName + ":"
 	                                                    let depSFirst = 1
-	                                                    while tokAt(depToks, depSfPos) != "RBRACE" {
+	                                                    while depSfPos < depNtoks && tokAt(depToks, depSfPos) != "RBRACE" {
 	                                                        if tokVal(tokAt(depToks, depSfPos)) == "field" {
 	                                                            let depSfName = tokVal(tokAt(depToks, depSfPos + 1))
 	                                                            let depSfType = tokVal(tokAt(depToks, depSfPos + 2))
@@ -3636,7 +3636,7 @@ just run {
 	                                                    let depFName = tokVal(tokAt(depToks, depJxtPos + 1))
 	                                                    let depFPos = depJxtPos + 3
 	                                                    let depFPc = 0
-	                                                    while tokAt(depToks, depFPos) != "RPAREN" {
+	                                                    while depFPos < depNtoks && tokAt(depToks, depFPos) != "RPAREN" {
 	                                                        if tokType(tokAt(depToks, depFPos)) == "ID" { depFPc += 1 }
 	                                                        depFPos += 1
 	                                                    }
@@ -3691,7 +3691,7 @@ just run {
                         if itk == "KW:jxt" {
                             // Process jxt block from imported file (IR-only)
                             let ijxtPos = ij + 2
-                            while tokAt(iToks, ijxtPos) != "RBRACE" {
+                            while ijxtPos < iNtoks && tokAt(iToks, ijxtPos) != "RBRACE" {
                                 let ijLang = tokVal(tokAt(iToks, ijxtPos))
                                 if ijLang == "c" || ijLang == "t" {
                                     ijxtPos += 2
@@ -3700,7 +3700,7 @@ just run {
                                     let isfPos = ijxtPos + 3
                                     let isEntry = isName + ":"
                                     let isFirst = 1
-                                    while tokAt(iToks, isfPos) != "RBRACE" {
+                                    while isfPos < iNtoks && tokAt(iToks, isfPos) != "RBRACE" {
                                         if tokVal(tokAt(iToks, isfPos)) == "field" {
                                             let isfName = tokVal(tokAt(iToks, isfPos + 1))
                                             let isfType = tokVal(tokAt(iToks, isfPos + 2))
@@ -3722,7 +3722,7 @@ just run {
                                     let ijfName = tokVal(tokAt(iToks, ijxtPos + 1))
                                     let ijfPos = ijxtPos + 3
                                     let ijfPc = 0
-                                    while tokAt(iToks, ijfPos) != "RPAREN" {
+                                    while ijfPos < iNtoks && tokAt(iToks, ijfPos) != "RPAREN" {
                                         if tokType(tokAt(iToks, ijfPos)) == "ID" { ijfPc += 1 }
                                         ijfPos += 1
                                     }
