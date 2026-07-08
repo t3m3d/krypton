@@ -94,6 +94,8 @@ Source: "{#KryptonRoot}\kcc-bin.exe";                                     DestDi
 ; itself (avoids circular self-import) — copy is small and harmless to bundle.
 Source: "{#KryptonRoot}\runtime\krypton_rt.dll";                          DestDir: "{app}";                          Flags: ignoreversion
 Source: "{#KryptonRoot}\runtime\krypton_rt.dll";                          DestDir: "{app}\runtime";                  Flags: ignoreversion
+Source: "{#KryptonRoot}\runtime\krypton_rt.dll";                          DestDir: "{app}\bin";                      Flags: ignoreversion
+Source: "{#KryptonRoot}\runtime\krypton_rt.dll";                          DestDir: "{app}\compiler\windows_x86";     Flags: ignoreversion
 Source: "{#KryptonRoot}\runtime\krypton_rt_legacy.dll";                   DestDir: "{app}\runtime";                  Flags: ignoreversion
 Source: "{#KryptonRoot}\runtime\krypton_rt.k";                            DestDir: "{app}\runtime";                  Flags: ignoreversion
 

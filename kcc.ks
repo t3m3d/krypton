@@ -395,6 +395,20 @@ func winTool(root, name) {
     emit name
 }
 
+func winSlash() { emit fromCharCode(92) }
+func winQuote() { emit fromCharCode(34) }
+func winPath(path) { emit replace(path, "/", winSlash()) }
+
+func winDirOf(path) {
+    let last = 0 - 1
+    let i = 0
+    while i < len(path) {
+        if path[i] == "/" || path[i] == winSlash() { last = i }
+        i += 1
+    }
+    if last < 0 { emit "." }
+    emit substring(path, 0, last)
+}
 func compileWindows(root, src, out) {
     let kccExe = root + "/kcc-bin.exe"
     let optExe = winTool(root, "optimize_host.exe")
@@ -416,6 +430,13 @@ func compileWindows(root, src, out) {
         emit "0"
     }
     exec(x64Exe + " " + tmpOpt + " " + out)
+    if _winExists(out) == "1" {
+        let rtSrc = root + "/krypton_rt.dll"
+        let rtDst = winDirOf(out) + "/krypton_rt.dll"
+        if _winExists(rtSrc) == "1" {
+            exec("copy /Y " + winQuote() + winPath(rtSrc) + winQuote() + " " + winQuote() + winPath(rtDst) + winQuote())
+        }
+    }
     exec("del /q " + replace(tmpIR, "/", "\\"))
     exec("del /q " + replace(tmpOpt, "/", "\\"))
     if _winExists(out) == "0" { kp("kcc: native codegen failed")  emit "0" }
