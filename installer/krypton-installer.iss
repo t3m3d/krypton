@@ -143,7 +143,7 @@ Source: "{#KryptonRoot}\compiler\wasm32\wasm_self.k";                     DestDi
 Source: "{#KryptonRoot}\scripts\run_wasm.js";                             DestDir: "{app}\scripts";                  Flags: ignoreversion
 Source: "{#KryptonRoot}\scripts\run_wasm.sh";                             DestDir: "{app}\scripts";                  Flags: ignoreversion
 Source: "{#KryptonRoot}\docs\wasm_backend_design.md";                     DestDir: "{app}\docs";                     Flags: ignoreversion
-Source: "{#KryptonRoot}\docs\claude\WASM_HOST_ABI.md";                    DestDir: "{app}\docs";                     Flags: ignoreversion
+Source: "{#KryptonRoot}\docs\claude\WASM_HOST_ABI.md";                    DestDir: "{app}\docs";                     Flags: ignoreversion skipifsourcedoesntexist
 
 ; --- Krypton standard library (k: prefix imports) ---
 Source: "{#KryptonRoot}\stdlib\*.k";                                      DestDir: "{app}\stdlib";                   Flags: ignoreversion recursesubdirs
