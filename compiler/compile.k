@@ -3503,6 +3503,9 @@ just run {
                 if (prefix == "k" || prefix == "core") && sub == "objk" {
                     if environ("OS") == "Windows_NT" { fullPath = installRoot + "/stdlib/objkwin.k" }
                 }
+                if prefix == "k" && sub == "okui" {
+                    if environ("OS") == "Windows_NT" { fullPath = installRoot + "/stdlib/okui_win.k" }
+                }
                 if prefix == "head"    { fullPath = installRoot + "/headers/" + sub + ".krh" }
                 if prefix == "headers" { fullPath = installRoot + "/headers/" + sub + ".krh" }
                 // .ks fallback: objk + KryptScript stdlib modules are tagged
