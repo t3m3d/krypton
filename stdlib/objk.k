@@ -45,6 +45,8 @@ func okAppend(tv, text)              { emit chocTVAppend(tv, text) }
 func okSetTextView(tv, text)         { emit chocTVSetString(tv, text) }
 func okTextViewText(tv)              { emit chocTVGetString(tv) }
 func okNoWrap(tv)                    { emit chocTVNoWrap(tv) }
+func okTextLength(tv)                { emit chocTVLength(tv) }
+func okTextColorRange(tv, color, loc, n) { emit chocTVColorRange(tv, color, loc, n) }
 func okEnabled(control, enabled)     { emit chocSetEnabled(control, enabled) }
 func okHidden(view, hidden)          { emit chocSetHidden(view, hidden) }
 func okFrame(view, x, y, w, h)       { emit chocSetFrame(view, x, y, w, h) }
@@ -110,10 +112,12 @@ func okSystemSecondaryText()         { emit chocSystemSecondaryText() }
 func okSystemTextBg()                { emit chocSystemTextBg() }
 func okSetBg(view, color)            { emit chocSetBg(view, color) }
 func okSetTextColor(view, color)     { emit chocSetTextColor(view, color) }
+func okSetButtonTextColor(btn, color){ emit chocSetButtonTextColor(btn, color) }
 func okSetWindowBg(win, color)       { emit chocSetWindowBg(win, color) }
 func okMonoFont(size)                { emit chocMonoFont(size) }
 func okFontFamily(base, family)      { emit chocFontFamily(base, family) }
 func okSetFont(view, font)           { emit chocSetFont(view, font) }
+func okAlert(title, message)         { emit chocAlert(title, message) }
 
 // Menus
 func okMenuBar(app)                  { emit chocMenuBar(app) }

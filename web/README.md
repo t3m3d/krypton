@@ -228,7 +228,9 @@ Examples live in `web/examples/`:
 
 `web/kweb_gui.ks` is the native macOS GUI wrapper for kweb.
 
-It is KryptScript compiled by `kcc`, using Objective-K/Cocoa helpers:
+It is KryptScript compiled by `kcc`, using `k:okui`, the app-facing
+Objective-K layer. `okui` routes to the macOS Choc/AppKit backend here and to
+Forge's Windows Choc/Win32 backend on Windows.
 
 - project path
 - kweb binary path
@@ -258,6 +260,12 @@ Output:
 
 ```text
 dist/kweb.app
+```
+
+OKUI smoke app:
+
+```bash
+bootstrap/kcc_driver_macos_aarch64 -r scripts/build-objk-app.ks examples/objk/human_ui.ks human_ui
 ```
 
 ## Mental Model
