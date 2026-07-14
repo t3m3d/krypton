@@ -1,0 +1,20 @@
+[Unit]
+Description=Krypton Vault sync
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/krypton
+EnvironmentFile=/etc/krypton-vault/sync.env
+ExecStart=/usr/bin/python3 /opt/krypton/tools/vault_sync_server.py
+Restart=on-failure
+User=krypton-vault
+Group=krypton-vault
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/krypton-vault
+
+[Install]
+WantedBy=multi-user.target
