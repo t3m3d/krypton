@@ -293,6 +293,14 @@ func foreignLibFor(name) {
     if name == "ioctl"        { emit "/usr/lib/libSystem.B.dylib" }
     if name == "_exit"        { emit "/usr/lib/libSystem.B.dylib" }
     if name == "kill"         { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "CCKeyDerivationPBKDF" { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "CCHmac"               { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "CCCrypt"              { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "CCCryptorCreate"      { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "CCCryptorUpdate"      { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "CCCryptorFinal"       { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "CCCryptorRelease"     { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "SecRandomCopyBytes"   { emit "/System/Library/Frameworks/Security.framework/Security" }
     emit ""
 }
 // Krypton call name → the C import symbol. The objc_msgSend_N/fpret wrappers all

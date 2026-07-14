@@ -1,0 +1,16 @@
+// commoncrypto.krh -- macOS CommonCrypto declarations.
+// Usage: import "head:commoncrypto"
+//
+// dylib: /usr/lib/libSystem.B.dylib (dyld shared cache on modern macOS)
+// Pipeline: native Mach-O. Symbols are allowlisted in
+// compiler/macos_arm64/macho_arm64_self.k.
+
+jxt {
+    func CCKeyDerivationPBKDF(algorithm, password, passwordLen, salt, saltLen, prf, rounds, derivedKey, derivedKeyLen)
+    func CCHmac(algorithm, key, keyLength, data, dataLength, macOut)
+    func CCCrypt(op, alg, options, key, keyLength, iv, dataIn, dataInLength, dataOut, dataOutAvailable, dataOutMoved)
+    func CCCryptorCreate(op, alg, options, key, keyLength, iv, cryptorRef)
+    func CCCryptorUpdate(cryptorRef, dataIn, dataInLength, dataOut, dataOutAvailable, dataOutMoved)
+    func CCCryptorFinal(cryptorRef, dataOut, dataOutAvailable, dataOutMoved)
+    func CCCryptorRelease(cryptorRef)
+}
