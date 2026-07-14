@@ -10,15 +10,6 @@ func isFile(p) { emit trim(exec("test -f \"" + p + "\" && echo yes || echo no"))
 func newer(a, b) { emit trim(exec("test \"" + a + "\" -nt \"" + b + "\" && echo yes || echo no")) }
 func dirname(p) { emit trim(exec("dirname \"" + p + "\"")) }
 
-func rebuildHost(fe, host, backend) {
-    let kir = "/tmp/macho_arm64_self_rebuild.kir"
-    let out = "/tmp/macho_host_rebuild"
-    exec("env KRYPTON_ROOT=\"" + trim(exec("pwd")) + "\" \"" + fe + "\" \"" + backend + "\" > \"" + kir + "\"")
-    exec("\"" + host + "\" --ir \"" + kir + "\" \"" + out + "\"")
-    exec("cp \"" + out + "\" \"" + host + "\"")
-    exec("chmod +x \"" + host + "\"")
-}
-
 just run {
     // Repo root = parent of scripts/. The driver runs us from CWD; assume repo root.
     let root = trim(exec("pwd"))
@@ -39,12 +30,12 @@ just run {
             host = seedHost
         } else {
             kp("==> building macho_host from macho_arm64_self.k")
-            rebuildHost(fe, host, backend)
+            exec("kcc --native \"" + backend + "\" -o \"" + host + "\"")
         }
     } else {
         if newer(backend, host) == "yes" {
             kp("==> rebuilding macho_host (backend changed)")
-            rebuildHost(fe, host, backend)
+            exec("kcc --native \"" + backend + "\" -o \"" + host + "\"")
         }
     }
 
