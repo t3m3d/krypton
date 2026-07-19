@@ -1,0 +1,10 @@
+// security.krh -- macOS Security.framework declarations.
+// Usage: import "head:security"
+//
+// dylib: /System/Library/Frameworks/Security.framework/Security
+// Pipeline: native Mach-O. Symbols are allowlisted in
+// compiler/macos_arm64/macho_arm64_self.k.
+
+jxt {
+    func SecRandomCopyBytes(rnd, count, bytes)
+}

@@ -1475,6 +1475,7 @@ func buildSitemap() {
         _sitemapUrl("/programs/") +
         _sitemapUrl("/brain.html") +
         _sitemapUrl("/programs/stem.html") +
+        _sitemapUrl("/stem-privacy.html") +
         // /programs/brain.html removed — brain page lives at top-level /brain.html now
         _sitemapUrl("/objk.html") +
         _sitemapUrl("/downloads.html") +
@@ -1617,6 +1618,50 @@ func pageStem() {
         "</div></section>"
 
     emit sitePage("stem", hero + features + install)
+}
+
+func pageStemPrivacy() {
+    let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
+        "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
+        "<span class=" + DQ() + "tag" + DQ() + ">Privacy Policy</span>" +
+        htH1("Stem Privacy Policy") +
+        htP("Effective July 15, 2026") +
+        "</div>"
+
+    let body = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
+        "<div class=" + DQ() + "card" + DQ() + " style=" + DQ() + "margin-bottom:28px" + DQ() + ">" +
+        htH2("Stem does not collect your data") +
+        htP("Stem has no telemetry, analytics, advertising, user accounts, tracking SDKs, or developer-operated cloud service. Stem does not sell, rent, or share personal information.") +
+        "</div>" +
+        htH2("Scope") +
+        htP("This policy applies to Stem, the Krypton terminal application for Windows, macOS, and Linux, including the Windows version distributed through the Microsoft Store.") +
+        htH2("Information processed on your device") +
+        htP("A terminal must process text you type and text produced by your shell and command-line programs. This can include commands, file and folder paths, environment information, remote host names in profiles, and program output. Stem processes this information locally to provide the terminal session.") +
+        htUl(
+            htLi("Terminal input and output are held locally in the active session and scrollback buffer.") +
+            htLi("Settings, including themes, shell choices, profiles, and window preferences, are stored locally in " + htCode("stem.conf") + ".") +
+            htLi("Stem reads clipboard text when you choose Paste and writes clipboard text when you choose Copy, use copy-on-select, or enable a related local preference.") +
+            htLi("Stem does not transmit terminal contents, command history, clipboard contents, configuration, profiles, or file paths to the developer.")
+        ) +
+        htH2("Commands, shells, profiles, and third-party services") +
+        htP("Stem launches shells and commands, including PowerShell, SSH, and custom profiles that you configure. Those programs, package managers, websites, remote servers, and other third-party tools may access files or networks under their own behavior and privacy terms. Network activity started by a command or profile is not data collection by Stem.") +
+        htH2("Updates and operating-system services") +
+        htP("Microsoft Store, Windows, GitHub, Homebrew, or your operating system may process update, download, crash, or diagnostic information according to their own settings and privacy policies. Stem does not receive that information unless you deliberately send it when requesting support.") +
+        htH2("Storage, retention, and your controls") +
+        htP("Stem does not maintain a developer-controlled database of user information. Session scrollback is not uploaded and is discarded when the applicable session ends unless a shell or command separately saves information. You can clear scrollback, edit or delete " + htCode("stem.conf") + ", clear the system clipboard, remove saved profiles, and uninstall Stem using normal operating-system controls.") +
+        htH2("Disclosure and sale") +
+        htP("Because Stem does not collect personal information, it does not disclose or sell personal information to advertisers, data brokers, or other third parties.") +
+        htH2("Children's privacy") +
+        htP("Stem is a general-purpose developer tool and is not directed to children. Stem does not knowingly collect personal information from children or any other users.") +
+        htH2("Security") +
+        htP("Stem keeps its own configuration and terminal processing local. Users remain responsible for the commands they run, software they install, remote systems they access, profile credentials they configure, and the security of their operating-system account.") +
+        htH2("Changes to this policy") +
+        htP("If Stem adds a feature that changes its data practices, this policy will be updated before that feature is released. The effective date above identifies the current version.") +
+        htH2("Contact") +
+        htP("Privacy questions may be sent to " + htA("mailto:brian@krypton-lang.org", "brian@krypton-lang.org") + ".") +
+        "</div></section>"
+
+    emit sitePage("Stem Privacy Policy", hero + body)
 }
 
 func pageBrain() {
@@ -1937,6 +1982,7 @@ just run {
     writePage(dist + "/zipforge-privacy.html", pageZipForgePrivacy())
     writePage(dist + "/brain.html", pageBrain())
     writePage(dist + "/programs/stem.html", pageStem())
+    writePage(dist + "/stem-privacy.html", pageStemPrivacy())
     writePage(dist + "/objk.html", pageObjk())
     writePage(dist + "/sponsor.html", pageSponsor())
     writePage(dist + "/playground.html", pagePlayground())
