@@ -251,6 +251,62 @@ jxt {
         field hStdError         HANDLE
     }
 
+    struct COORD {
+        field X                 WORD
+        field Y                 WORD
+    }
+
+    struct SECURITY_ATTRIBUTES {
+        field nLength           DWORD
+        field lpSecurityDescriptor HANDLE
+        field bInheritHandle    DWORD
+    }
+
+    struct STARTUPINFOW {
+        field cb                DWORD
+        field lpReserved        HANDLE
+        field lpDesktop         HANDLE
+        field lpTitle           HANDLE
+        field dwX               DWORD
+        field dwY               DWORD
+        field dwXSize           DWORD
+        field dwYSize           DWORD
+        field dwXCountChars     DWORD
+        field dwYCountChars     DWORD
+        field dwFillAttribute   DWORD
+        field dwFlags           DWORD
+        field wShowWindow       WORD
+        field cbReserved2       WORD
+        field lpReserved2       HANDLE
+        field hStdInput         HANDLE
+        field hStdOutput        HANDLE
+        field hStdError         HANDLE
+    }
+
+    // Flattened STARTUPINFOEXW layout: STARTUPINFOW (104 bytes) followed
+    // by PROC_THREAD_ATTRIBUTE_LIST* at offset 104.
+    struct STARTUPINFOEXW {
+        field cb                DWORD
+        field lpReserved        HANDLE
+        field lpDesktop         HANDLE
+        field lpTitle           HANDLE
+        field dwX               DWORD
+        field dwY               DWORD
+        field dwXSize           DWORD
+        field dwYSize           DWORD
+        field dwXCountChars     DWORD
+        field dwYCountChars     DWORD
+        field dwFillAttribute   DWORD
+        field dwFlags           DWORD
+        field wShowWindow       WORD
+        field cbReserved2       WORD
+        field lpReserved2       HANDLE
+        field hStdInput         HANDLE
+        field hStdOutput        HANDLE
+        field hStdError         HANDLE
+        field lpAttributeList   HANDLE
+    }
+
     struct PROCESS_INFORMATION {
         field hProcess          HANDLE
         field hThread           HANDLE
@@ -261,6 +317,13 @@ jxt {
     func CreatePipe(hReadPipe, hWritePipe, sa, size)                                -> BOOL
     func PeekNamedPipe(handle, buffer, size, read, totalAvail, leftThisMessage)     -> BOOL
     func CreateProcessA(appName, cmdLine, procAttr, threadAttr, inherit, flags, env, dir, si, pi) -> BOOL
+    func CreateProcessW(appName, cmdLine, procAttr, threadAttr, inherit, flags, env, dir, si, pi) -> BOOL
+    func CreateJobObjectW(sa, name)
+    func AssignProcessToJobObject(job, process)                                    -> BOOL
+    func TerminateJobObject(job, exitCode)                                         -> BOOL
+    func ResumeThread(thread)                                                       -> DWORD
+    func GetEnvironmentStringsW()
+    func FreeEnvironmentStringsW(environment)                                      -> BOOL
     func GetExitCodeProcess(handle, exitCode)                                       -> BOOL
     func TerminateProcess(handle, exitCode)                                         -> BOOL
 

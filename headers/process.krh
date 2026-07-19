@@ -11,6 +11,13 @@
 
 jxt {
     func CreateProcessA(app, cmd, pa, ta, inherit, flags, env, dir, si, pi)
+    func CreateProcessW(app, cmd, pa, ta, inherit, flags, env, dir, si, pi)
+    func CreateJobObjectW(sa, name)
+    func AssignProcessToJobObject(job, process)
+    func TerminateJobObject(job, code)
+    func ResumeThread(thread)
+    func GetEnvironmentStringsW()
+    func FreeEnvironmentStringsW(environment)
     func WaitForSingleObject(handle, ms)
     func GetExitCodeProcess(handle, code)
     func TerminateProcess(handle, code)

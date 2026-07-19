@@ -22,6 +22,7 @@ jxt {
     func WriteFile(handle, buf, toWrite, written, overlapped)
     func CloseHandle(handle)
     func GetFileSize(handle, high)
+    func GetFileSizeEx(handle, size)
     func SetFilePointer(handle, dist, high, method)
     func FlushFileBuffers(handle)
     func DeleteFileA(path)

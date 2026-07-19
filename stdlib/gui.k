@@ -67,6 +67,16 @@ func _krkWndProc(hwnd, msg, wParam, lParam) {
         PostQuitMessage("0")
         emit "0"
     }
+    if msgInt == 20 {
+        // WM_ERASEBKGND: fill top-level window chrome with themed brush.
+        let brush = guiStateGet("ui.window.brush")
+        if brush != "" {
+            let rc = bufNew("16")
+            GetClientRect(hwnd, rc)
+            FillRect(wParam, rc, brush)
+            emit "1"
+        }
+    }
     if msgInt == 273 {
         // WM_COMMAND: LOWORD(wParam) = control / menu item id.  bitAnd
         // on string args is documented broken (feedback_native_codegen
@@ -100,8 +110,15 @@ func _krkWndProc(hwnd, msg, wParam, lParam) {
         emit "0"
     }
     if msgInt == 312 {
-        // WM_CTLCOLORSTATIC: wParam=HDC of label, lParam=HWND of label.
-        // Set text + bg color, return a transparent-or-themed brush.
+        // WM_CTLCOLORSTATIC: labels, flat panels, and clickable flat buttons.
+        let ctlBrush = guiStateGet("ui.static.brush." + lParam)
+        if ctlBrush != "" {
+            let ctlText = guiStateGet("ui.static.text." + lParam)
+            if ctlText != "" { SetTextColor(wParam, _guiColorRefFromHex(ctlText) + "") }
+            let ctlBg = guiStateGet("ui.static.bg." + lParam)
+            if ctlBg != "" { SetBkColor(wParam, _guiColorRefFromHex(ctlBg) + "") }
+            emit ctlBrush
+        }
         let textHex = guiStateGet("ui.text.color")
         if textHex != "" {
             SetTextColor(wParam, _guiColorRefFromHex(textHex) + "")
@@ -119,6 +136,15 @@ func _krkWndProc(hwnd, msg, wParam, lParam) {
         let bgHex = guiStateGet("ui.edit.bg")
         if bgHex != "" { SetBkColor(wParam, _guiColorRefFromHex(bgHex) + "") }
         let brush = guiStateGet("ui.edit.brush")
+        if brush != "" { emit brush }
+    }
+    if msgInt == 309 {
+        // WM_CTLCOLORBTN: standard buttons may honor this when classic themed.
+        let textHex = guiStateGet("ui.button.text.color")
+        if textHex != "" { SetTextColor(wParam, _guiColorRefFromHex(textHex) + "") }
+        let bgHex = guiStateGet("ui.button.bg")
+        if bgHex != "" { SetBkColor(wParam, _guiColorRefFromHex(bgHex) + "") }
+        let brush = guiStateGet("ui.button.brush")
         if brush != "" { emit brush }
     }
     if msgInt == 310 {
@@ -320,6 +346,32 @@ func guiLabel(parent, text, x, y, w, h) {
     if ctl == "0" { emit "0" }
     emit id
 }
+func guiFlatButton(parent, label, x, y, w, h) {
+    let pHwnd = _guiHexToInt(parent)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    // WS_CHILD|WS_VISIBLE|SS_CENTER|SS_NOTIFY|SS_CENTERIMAGE
+    let ctl = CreateWindowExA("0", "STATIC", label, "1342178049", x + "", y + "", w + "", h + "", pHwnd + "", id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    let bg = guiStateGet("ui.button.bg")
+    let fg = guiStateGet("ui.button.text.color")
+    if bg != "" {
+        guiStateSet("ui.static.bg." + ctl, bg)
+        guiStateSet("ui.static.brush." + ctl, CreateSolidBrush(_guiColorRefFromHex(bg) + ""))
+    }
+    if fg != "" { guiStateSet("ui.static.text." + ctl, fg) }
+    emit id
+}
+func guiPanel(parent, x, y, w, h, bgHex) {
+    let pHwnd = _guiHexToInt(parent)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let ctl = CreateWindowExA("0", "STATIC", "", "1342177280", x + "", y + "", w + "", h + "", pHwnd + "", id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    guiStateSet("ui.static.bg." + ctl, bgHex)
+    guiStateSet("ui.static.brush." + ctl, CreateSolidBrush(_guiColorRefFromHex(bgHex) + ""))
+    emit id
+}
 // "EDIT" class, single-line. Style = WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL = 1342242944.
 // dwExStyle = WS_EX_CLIENTEDGE (512) for the sunken border.
 func guiTextInput(parent, x, y, w, h) {
@@ -336,6 +388,22 @@ func guiTextArea(parent, x, y, w, h) {
     let hInst = GetModuleHandleA("0")
     let id = _guiNextId()
     let ctl = CreateWindowExA("512", "EDIT", "", "1344606276", x + "", y + "", w + "", h + "", pHwnd + "", id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    emit id
+}
+func guiTextInputFlat(parent, x, y, w, h) {
+    let pHwnd = _guiHexToInt(parent)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let ctl = CreateWindowExA("0", "EDIT", "", "1342242944", x + "", y + "", w + "", h + "", pHwnd + "", id, hInst, "0")
+    if ctl == "0" { emit "0" }
+    emit id
+}
+func guiTextAreaFlat(parent, x, y, w, h) {
+    let pHwnd = _guiHexToInt(parent)
+    let hInst = GetModuleHandleA("0")
+    let id = _guiNextId()
+    let ctl = CreateWindowExA("0", "EDIT", "", "1344606276", x + "", y + "", w + "", h + "", pHwnd + "", id, hInst, "0")
     if ctl == "0" { emit "0" }
     emit id
 }
@@ -449,12 +517,12 @@ func guiRichSetMonoFont(rich, family, ptSize) {
 // EM_SETBKGNDCOLOR=1097 (0x449). wParam=0 → use lParam as COLORREF.
 // hexColor format: "0xRRGGBB" → COLORREF (0x00BBGGRR byte order).
 func _guiColorRefFromHex(hex) {
-    // 2026-05-12: rewritten in arithmetic (no bitShr/bitAnd) to dodge the
-    // Windows-native string-operand codegen bug documented in
-    // feedback_native_codegen_bugs.md. v is an int; r/g/b extracted via
-    // integer division and modulo; result packed as little-endian BGR
-    // (which is the Win32 COLORREF byte order).
-    let v = _guiHexToInt(hex)
+    // Accept "0xRRGGBB", "#RRGGBB", or bare "RRGGBB". Win32 wants
+    // COLORREF byte order (0x00BBGGRR), so pack with arithmetic.
+    let h = trim(hex)
+    if startsWith(h, "#") { h = substring(h, 1, len(h)) }
+    if !startsWith(h, "0x") && !startsWith(h, "0X") { h = "0x" + h }
+    let v = _guiHexToInt(h)
     let r = (v / 65536) % 256
     let g = (v / 256) % 256
     let b = v % 256
@@ -1769,6 +1837,30 @@ func guiSetWindowBg(hexColor) {
 }
 func guiSetUiTextColor(hexColor) {
     guiStateSet("ui.text.color", hexColor)
+    let main = guiStateGet("main.hwnd")
+    if main != "" {
+        InvalidateRect(main, "0", "1")
+    }
+    emit "1"
+}
+
+func guiSetEditColors(bgHex, textHex) {
+    let brush = CreateSolidBrush(_guiColorRefFromHex(bgHex) + "")
+    guiStateSet("ui.edit.bg", bgHex)
+    guiStateSet("ui.edit.text.color", textHex)
+    guiStateSet("ui.edit.brush", brush)
+    let main = guiStateGet("main.hwnd")
+    if main != "" {
+        InvalidateRect(main, "0", "1")
+    }
+    emit "1"
+}
+
+func guiSetButtonColors(bgHex, textHex) {
+    let brush = CreateSolidBrush(_guiColorRefFromHex(bgHex) + "")
+    guiStateSet("ui.button.bg", bgHex)
+    guiStateSet("ui.button.text.color", textHex)
+    guiStateSet("ui.button.brush", brush)
     let main = guiStateGet("main.hwnd")
     if main != "" {
         InvalidateRect(main, "0", "1")

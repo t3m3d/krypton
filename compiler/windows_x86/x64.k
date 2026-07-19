@@ -451,7 +451,7 @@ func emitStringTable(strs) {
 // ckrypton_proc.dll dropped 2026-05-11 after stdlib/fs.k + stdlib/proc.k
 // were already pure Krypton via head:windows + head:fileio.)
 
-let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,GetCurrentThreadId,GetLastError,SetLastError,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,SetHandleInformation,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA,WaitForSingleObject,TerminateProcess,OpenProcess,CreateFileMappingA,MapViewOfFile,UnmapViewOfFile,GetModuleHandleA,SetEnvironmentVariableA,CreatePipe,PeekNamedPipe,CreateProcessA,InitializeProcThreadAttributeList,UpdateProcThreadAttribute,DeleteProcThreadAttributeList,CreatePseudoConsole,ResizePseudoConsole,ClosePseudoConsole,GetExitCodeProcess,CreateDirectoryA,DeleteFileA,RemoveDirectoryA,MoveFileA,CopyFileA,GetCurrentDirectoryA,SetCurrentDirectoryA,GetTempPathA"
+let KR32_FUNCS = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,GetCurrentThreadId,GetLastError,SetLastError,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,SetHandleInformation,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA,WaitForSingleObject,TerminateProcess,OpenProcess,CreateFileMappingA,MapViewOfFile,UnmapViewOfFile,GetModuleHandleA,SetEnvironmentVariableA,CreatePipe,PeekNamedPipe,CreateProcessA,InitializeProcThreadAttributeList,UpdateProcThreadAttribute,DeleteProcThreadAttributeList,CreatePseudoConsole,ResizePseudoConsole,ClosePseudoConsole,GetExitCodeProcess,CreateDirectoryA,DeleteFileA,RemoveDirectoryA,MoveFileA,CopyFileA,GetCurrentDirectoryA,SetCurrentDirectoryA,GetTempPathA,CreateProcessW,CreateJobObjectW,AssignProcessToJobObject,TerminateJobObject,ResumeThread,GetEnvironmentStringsW,FreeEnvironmentStringsW"
 let KRUSER_FUNCS = "GetSystemMetrics,MessageBoxA,ShowWindow,SetTimer,KillTimer,GetForegroundWindow,SetForegroundWindow,GetMessageA,TranslateMessage,DispatchMessageA,PostQuitMessage,UpdateWindow,DestroyWindow,SetWindowTextA,GetWindowTextA,SendMessageA,GetDlgItem,InvalidateRect,MoveWindow,SetWindowPos,GetClientRect,GetWindowRect,RegisterClassExA,CreateWindowExA,DefWindowProcA,LoadCursorA,LoadIconA,CreateMenu,CreatePopupMenu,AppendMenuA,SetMenu,DrawMenuBar,DestroyMenu,LoadImageA,SetClassLongPtrA,FillRect,GetWindow,SetProcessDpiAwarenessContext"
 let KRRT_FUNCS = "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword,kr_envnew,kr_envset,kr_envget,kr_hasfield,kr_structfields,kr_repeat,kr_padleft,kr_padright,kr_reverse,kr_abs,kr_min,kr_max,kr_endswith,kr_bin,kr_pow,kr_gc_allocated,kr_gc_limit,kr_gc_set_limit,kr_gc_collect,kr_arena_reset,kr_gc_checkpoint,kr_gc_restore,kr_gc_slab_count,kr_gc_slab_bytes,kr_bufgetbyte,kr_bufgetwordat,kr_bufsetwordat,kr_bufsetqwordat,kr_bufgetwordatbe,kr_bufgetdwordatbe,kr_bufgetqwordatbe,kr_gc_alloc_count,kr_gc_shadow_count,kr_gc_shadow_pop_n,kr_gc_shadow_push,kr_gc_walk_allocs,kr_rdtsc,kr_gc_mark,kr_gc_sweep,kr_pause,kr_mfence,kr_lfence,kr_sfence,kr_gc_freelist_count,kr_set_wndproc,kr_wndproc_addr,kr_inttoptr,kr_gc_set_threshold"
 let KRADV_FUNCS = "RegOpenKeyExA,RegQueryValueExA,RegEnumKeyExA,RegCloseKey,GetUserNameA"
@@ -492,7 +492,7 @@ let KRBCRYPT_FUNCS   = "BCryptOpenAlgorithmProvider,BCryptCloseAlgorithmProvider
 // wininet -- WinINet HTTP client.  Wired 2026-06-13 to back the
 // refactored stdlib/httpc.k -- in-process HTTP without spawning curl.
 let KRWININET_FUNCS  = "InternetOpenA,InternetOpenUrlA,InternetReadFile,HttpQueryInfoA,InternetCloseHandle,InternetConnectA,HttpOpenRequestA,HttpSendRequestA,InternetCrackUrlA,InternetCanonicalizeUrlA"
-func kr32Funcs() { emit "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,GetCurrentThreadId,GetLastError,SetLastError,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,SetHandleInformation,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA,WaitForSingleObject,TerminateProcess,OpenProcess,CreateFileMappingA,MapViewOfFile,UnmapViewOfFile,GetModuleHandleA,SetEnvironmentVariableA,CreatePipe,PeekNamedPipe,CreateProcessA,InitializeProcThreadAttributeList,UpdateProcThreadAttribute,DeleteProcThreadAttributeList,CreatePseudoConsole,ResizePseudoConsole,ClosePseudoConsole,GetExitCodeProcess,CreateDirectoryA,DeleteFileA,RemoveDirectoryA,MoveFileA,CopyFileA,GetCurrentDirectoryA,SetCurrentDirectoryA,GetTempPathA" }
+func kr32Funcs() { emit "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,GetCurrentThreadId,GetLastError,SetLastError,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,SetHandleInformation,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA,WaitForSingleObject,TerminateProcess,OpenProcess,CreateFileMappingA,MapViewOfFile,UnmapViewOfFile,GetModuleHandleA,SetEnvironmentVariableA,CreatePipe,PeekNamedPipe,CreateProcessA,InitializeProcThreadAttributeList,UpdateProcThreadAttribute,DeleteProcThreadAttributeList,CreatePseudoConsole,ResizePseudoConsole,ClosePseudoConsole,GetExitCodeProcess,CreateDirectoryA,DeleteFileA,RemoveDirectoryA,MoveFileA,CopyFileA,GetCurrentDirectoryA,SetCurrentDirectoryA,GetTempPathA,CreateProcessW,CreateJobObjectW,AssignProcessToJobObject,TerminateJobObject,ResumeThread,GetEnvironmentStringsW,FreeEnvironmentStringsW" }
 func krrtFuncs() { emit "kr_str,kr_plus,kr_sub,kr_mul,kr_div,kr_mod,kr_neg,kr_not,kr_eq,kr_neq,kr_lt,kr_gt,kr_lte,kr_gte,kr_truthy,kr_print,kr_printerr,kr_printl,kr_exit,kr_len,kr_idx,kr_substring,kr_startswith,kr_contains,kr_indexof,kr_trim,kr_toint,kr_charcode,kr_isdigit,kr_replace,kr_split,kr_readfile,kr_arg,kr_sbnew,kr_sbappend,kr_sbtostring,kr_init_args,kr_linecount,kr_getline,kr_count,kr_argcount,kr_writefile,kr_writebytes,kr_range,kr_length,kr_fromcharcode,kr_tolower,kr_tohandle,kr_bitor,kr_bitand,kr_bitxor,kr_bitnot,kr_shl,kr_shr,kr_bufnew,kr_bufsetdword,kr_bufgetdword,kr_bufsetdwordat,kr_bufgetdwordat,kr_bufgetword,kr_bufgetqword,kr_bufsetbyte,kr_structnew,kr_structget,kr_structset,kr_bufstr,kr_bufgetqwordat,kr_handleout,kr_handleget,kr_handlevalid,kr_handleint,kr_ptrderef,kr_ptrindex,kr_callptr1,kr_callptr2,kr_callptr3,kr_callptr4,kr_hex,kr_touppers,kr_div64,kr_environ,kr_sizeof,kr_rawalloc,kr_rawfree,kr_rawrealloc,kr_ptradd,kr_ptrtoint,kr_rawreadbyte,kr_rawreadword,kr_rawwriteword,kr_rawwriteqword,kr_envnew,kr_envset,kr_envget,kr_hasfield,kr_structfields,kr_repeat,kr_padleft,kr_padright,kr_reverse,kr_abs,kr_min,kr_max,kr_endswith,kr_bin,kr_pow,kr_gc_allocated,kr_gc_limit,kr_gc_set_limit,kr_gc_collect,kr_arena_reset,kr_gc_checkpoint,kr_gc_restore,kr_gc_slab_count,kr_gc_slab_bytes,kr_bufgetbyte,kr_bufgetwordat,kr_bufsetwordat,kr_bufsetqwordat,kr_bufgetwordatbe,kr_bufgetdwordatbe,kr_bufgetqwordatbe,kr_gc_alloc_count,kr_gc_shadow_count,kr_gc_shadow_pop_n,kr_gc_shadow_push,kr_gc_walk_allocs,kr_rdtsc,kr_gc_mark,kr_gc_sweep,kr_pause,kr_mfence,kr_lfence,kr_sfence,kr_gc_freelist_count,kr_set_wndproc,kr_wndproc_addr,kr_inttoptr,kr_gc_set_threshold" }
 func kradvFuncs() { emit "RegOpenKeyExA,RegQueryValueExA,RegEnumKeyExA,RegCloseKey,GetUserNameA" }
 func krpdhFuncs() { emit "PdhOpenQueryA,PdhAddEnglishCounterA,PdhCollectQueryData,PdhGetFormattedCounterArrayA,PdhCloseQuery" }
@@ -749,6 +749,15 @@ func win32IntArgs(name) {
     // CreateProcessA — args 4(bInheritHandles), 5(dwCreationFlags) are DWORDs;
     // 2,3(security attrs) and 6(env) accept "0" for NULL via atoi marshalling
     if name == "CreateProcessA"              { emit "2,3,4,5,6" }
+    // Wide structured process API passes UTF-16 and environment pointers as
+    // decimal pointer-sized values; STARTUPINFO/PROCESS_INFORMATION stay raw.
+    if name == "CreateProcessW"              { emit "0,1,2,3,4,5,6,7" }
+    if name == "CreateJobObjectW"            { emit "0,1" }
+    if name == "AssignProcessToJobObject"    { emit "0,1" }
+    if name == "TerminateJobObject"          { emit "0,1" }
+    if name == "ResumeThread"                { emit "0" }
+    if name == "GetEnvironmentStringsW"      { emit "" }
+    if name == "FreeEnvironmentStringsW"     { emit "" }
     if name == "InitializeProcThreadAttributeList" { emit "0,1,2" }     // list,count,flags ; 3=*size real ptr
     if name == "UpdateProcThreadAttribute"   { emit "0,1,2,4,5,6" }     // list(via ptrToInt),flags,attribute,cbSize,prev,retSize ; 3=*value real ptr
     if name == "DeleteProcThreadAttributeList" { emit "0" }
@@ -916,6 +925,12 @@ func win32IntReturns(name) {
     if name == "CreatePipe"                 { emit "1" }   // BOOL
     if name == "PeekNamedPipe"              { emit "1" }   // BOOL
     if name == "CreateProcessA"             { emit "1" }   // BOOL
+    if name == "CreateProcessW"             { emit "1" }   // BOOL
+    if name == "CreateJobObjectW"           { emit "1" }   // HANDLE
+    if name == "AssignProcessToJobObject"   { emit "1" }   // BOOL
+    if name == "TerminateJobObject"         { emit "1" }   // BOOL
+    if name == "ResumeThread"               { emit "1" }   // DWORD
+    if name == "FreeEnvironmentStringsW"    { emit "1" }   // BOOL
     if name == "InitializeProcThreadAttributeList" { emit "1" }  // BOOL
     if name == "UpdateProcThreadAttribute"  { emit "1" }   // BOOL
     if name == "CreatePseudoConsole"        { emit "1" }   // HRESULT
@@ -3052,7 +3067,7 @@ func buildExportTable(exportNames, allFuncOffsets, textRva, rdataRva, exportBase
     emit sbToString(outSb)
 }
 
-func emitPEHeader(numSections, textSize, rdataSize, textRva, rdataRva, entryRva, imageSize, iatRva, iatSize, iatInfo) {
+func emitPEHeader(numSections, textSize, rdataSize, textRva, rdataRva, entryRva, imageSize, iatRva, iatSize, iatInfo, subsystem) {
     let iatK32Rva = toInt(getLine(iatInfo, 0))
     let isDll = getLine(iatInfo, 1)
     let exportRva = toInt(getLine(iatInfo, 2))
@@ -3096,7 +3111,7 @@ func emitPEHeader(numSections, textSize, rdataSize, textRva, rdataRva, entryRva,
     h = sbAppend(h, hexDword(imageSize))
     h = sbAppend(h, hexDword(PE_HEADER_SIZE))       // SizeOfHeaders
     h = sbAppend(h, hexDword(0))                    // CheckSum
-    h = sbAppend(h, hexByte(3) + hexByte(0))        // Subsystem: CUI
+    h = sbAppend(h, hexWord(subsystem))              // 2=Windows GUI, 3=console
     h = sbAppend(h, hexByte(0x60) + hexByte(0x01))  // DllCharacteristics
     h = sbAppend(h, hexQword64(8388608, 0))         // SizeOfStackReserve = 8MB
     h = sbAppend(h, hexQword64(65536, 0))           // SizeOfStackCommit = 64KB
@@ -7999,7 +8014,7 @@ func emitBootstrapHelpers(textRva, iatK32Rva, gcGlobalsRva) {
 // Used when building krypton_rt.dll itself so it has no circular dependency.
 func buildBootstrapImportTable(rdataRva, strsSize) {
     // Inline KR32_FUNCS literal (global variable access is broken in current codegen)
-    let k32funcs = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,GetCurrentThreadId,GetLastError,SetLastError,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,SetHandleInformation,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA,WaitForSingleObject,TerminateProcess,OpenProcess,CreateFileMappingA,MapViewOfFile,UnmapViewOfFile,GetModuleHandleA,SetEnvironmentVariableA,CreatePipe,PeekNamedPipe,CreateProcessA,InitializeProcThreadAttributeList,UpdateProcThreadAttribute,DeleteProcThreadAttributeList,CreatePseudoConsole,ResizePseudoConsole,ClosePseudoConsole,GetExitCodeProcess,CreateDirectoryA,DeleteFileA,RemoveDirectoryA,MoveFileA,CopyFileA,GetCurrentDirectoryA,SetCurrentDirectoryA,GetTempPathA"
+    let k32funcs = "ExitProcess,GetStdHandle,SetConsoleOutputCP,GetConsoleMode,SetConsoleMode,GetConsoleScreenBufferInfo,GetCurrentProcessId,GetCurrentThreadId,GetLastError,SetLastError,CreateToolhelp32Snapshot,Process32First,Process32Next,CloseHandle,SetHandleInformation,GetDiskFreeSpaceExA,GlobalMemoryStatusEx,GetSystemPowerStatus,GetTickCount64,GetLogicalDrives,GetNativeSystemInfo,GetComputerNameA,FindFirstFileA,FindNextFileA,FindClose,GetFileAttributesA,LoadLibraryA,FreeLibrary,GetProcAddress,GetEnvironmentVariableA,HeapAlloc,HeapFree,HeapReAlloc,GetProcessHeap,WriteFile,ReadFile,CreateFileA,GetCommandLineA,GetFileSizeEx,Sleep,GetTickCount,SetConsoleTitleA,GetConsoleTitleA,WaitForSingleObject,TerminateProcess,OpenProcess,CreateFileMappingA,MapViewOfFile,UnmapViewOfFile,GetModuleHandleA,SetEnvironmentVariableA,CreatePipe,PeekNamedPipe,CreateProcessA,InitializeProcThreadAttributeList,UpdateProcThreadAttribute,DeleteProcThreadAttributeList,CreatePseudoConsole,ResizePseudoConsole,ClosePseudoConsole,GetExitCodeProcess,CreateDirectoryA,DeleteFileA,RemoveDirectoryA,MoveFileA,CopyFileA,GetCurrentDirectoryA,SetCurrentDirectoryA,GetTempPathA,CreateProcessW,CreateJobObjectW,AssignProcessToJobObject,TerminateJobObject,ResumeThread,GetEnvironmentStringsW,FreeEnvironmentStringsW"
     let k32count = countFuncs(k32funcs)
 
     let impBase = strsSize
@@ -8783,6 +8798,9 @@ just run {
     let file = arg("0")
     let outFile = arg("1")
     let isDll = "0"
+    let subsystemName = toLower(arg("2"))
+    let peSubsystem = 3
+    if subsystemName == "windows" || subsystemName == "gui" || subsystemName == "2" { peSubsystem = 2 }
     if len(outFile) >= 4 {
         let ext = substring(outFile, len(outFile) - 4, len(outFile))
         if ext == ".dll" || ext == ".DLL" { isDll = "1" }
@@ -8974,7 +8992,7 @@ just run {
 
         let bsDos = emitDosHeader()
         let bsIatInfo = bsIatK32B + "\n" + "1" + "\n" + bsExpRva + "\n" + bsExpSz
-        let bsPEH = emitPEHeader(2, bsFullText, bsRdataSz, PE_TEXT_RVA2, bsRdataRvaB, bsEntryRva, bsImgSz, bsIatDescRvaB, bsIatTotalSzB, bsIatInfo)
+        let bsPEH = emitPEHeader(2, bsFullText, bsRdataSz, PE_TEXT_RVA2, bsRdataRvaB, bsEntryRva, bsImgSz, bsIatDescRvaB, bsIatTotalSzB, bsIatInfo, 3)
         let bsTxtHdr = emitSectionHeader(".text", bsFullText, PE_TEXT_RVA2, bsTextFileSz, PE_TEXT_FILE_OFF, 536870944)
         // .rdata characteristics: 0xC0000040 = MEM_READ | MEM_WRITE | CNT_INITIALIZED_DATA
         // (was 0x40000040, MEM_READ only — needed write for the GC globals slot).
@@ -9155,7 +9173,8 @@ just run {
         realImageSize,
         realIatDescRva,
         realIatTotalSz,
-        iatInfo
+        iatInfo,
+        peSubsystem
     )
 
     let textSecHdr = emitSectionHeader(
