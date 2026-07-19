@@ -165,6 +165,26 @@ func siteCSS() {
         ".tag{display:inline-block;background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;padding:4px 14px;border-radius:20px;font-size:0.8rem;margin-bottom:8px;font-weight:600}" +
         ".stat{text-align:center;padding:20px}.stat .num{font-size:2.5rem;font-weight:800;color:var(--primary);display:block}.stat .label{font-size:0.95rem;color:var(--text-light)}" +
         "ul{margin:8px 0 8px 24px}li{margin:4px 0}" +
+        ".legal-head{background:var(--nav-bg);color:var(--nav-text);border-bottom:1px solid rgba(119,34,255,0.3);padding:46px 20px}" +
+        ".legal-head .wrap{max-width:860px;display:flex;align-items:center;gap:22px}" +
+        ".legal-head img{width:72px;height:72px;flex:0 0 72px;border-radius:8px}" +
+        ".legal-head h1{font-size:2.25rem;line-height:1.15;margin:4px 0 8px;color:#fff}" +
+        ".legal-head p{color:var(--nav-text);opacity:0.84;max-width:680px}" +
+        ".legal-kicker{color:#b793ff;font-size:0.78rem;font-weight:700;text-transform:uppercase}" +
+        ".privacy-content{padding:42px 20px 64px}" +
+        ".privacy-wrap{max-width:860px!important}" +
+        ".privacy-meta{color:var(--text-light);font-size:0.92rem;margin-bottom:24px}" +
+        ".privacy-summary{border-left:4px solid var(--primary);background:var(--card-bg);padding:20px 22px;margin:0 0 30px;border-radius:0 6px 6px 0}" +
+        ".privacy-summary strong{display:block;color:var(--text);font-size:1.08rem;margin-bottom:4px}" +
+        ".privacy-facts{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--card-border);border-bottom:1px solid var(--card-border);margin:0 0 34px}" +
+        ".privacy-fact{padding:18px 20px;border-right:1px solid var(--card-border)}" +
+        ".privacy-fact:last-child{border-right:0}" +
+        ".privacy-fact strong{display:block;color:var(--primary);margin-bottom:3px}" +
+        ".privacy-section{padding:26px 0;border-bottom:1px solid var(--card-border)}" +
+        ".privacy-section:last-child{border-bottom:0}" +
+        ".privacy-section h2{font-size:1.45rem;margin-bottom:10px}" +
+        ".privacy-section p+p{margin-top:10px}" +
+        ".privacy-section ul{margin-top:10px}" +
         ".nav-sponsor{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(135deg,#ff5277,#d9326a);color:#fff!important;padding:6px 14px;border-radius:999px;font-weight:600;font-size:0.88rem;margin-left:18px;transition:transform 0.15s,box-shadow 0.15s;-webkit-tap-highlight-color:transparent;box-shadow:0 2px 8px rgba(217,50,106,0.35)}" +
         ".nav-sponsor:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(217,50,106,0.5);text-decoration:none}" +
         ".nav-sponsor::after{display:none!important}" +
@@ -226,7 +246,15 @@ func siteCSS() {
             ".floater.f3{width:110px;height:110px}" +
             ".floater.f4{display:none}" +
             "table{font-size:0.85rem}" +
-            "th,td{padding:10px 12px}"
+            "th,td{padding:10px 12px}" +
+            ".legal-head{padding:32px 14px}" +
+            ".legal-head .wrap{align-items:flex-start;gap:14px}" +
+            ".legal-head img{width:54px;height:54px;flex-basis:54px}" +
+            ".legal-head h1{font-size:1.65rem}" +
+            ".privacy-content{padding:30px 14px 48px}" +
+            ".privacy-facts{grid-template-columns:1fr}" +
+            ".privacy-fact{border-right:0;border-bottom:1px solid var(--card-border);padding:14px 0}" +
+            ".privacy-fact:last-child{border-bottom:0}"
         ) +
         kcssReducedMotion(
             "*,*::before,*::after{animation-duration:0.001s!important;animation-iteration-count:1!important;transition-duration:0.001s!important}" +
@@ -985,6 +1013,112 @@ func pageContact() {
     emit sitePage("Contact", content)
 }
 
+func zipForgePrivacyDesc() {
+    emit "ZipForge privacy policy: local archive processing, no app telemetry, no advertising, and no upload of user files or passwords."
+}
+
+func pageZipForgePrivacy() {
+    let hero = "<header class=" + DQ() + "legal-head" + DQ() + "><div class=" + DQ() + "wrap" + DQ() + ">" +
+        "<img src=" + DQ() + "/assets/zipforge-icon.png" + DQ() + " alt=" + DQ() + "ZipForge app icon" + DQ() + " width=" + DQ() + "72" + DQ() + " height=" + DQ() + "72" + DQ() + ">" +
+        "<div><div class=" + DQ() + "legal-kicker" + DQ() + ">ZipForge 1.0</div>" +
+        htH1("Privacy Policy") +
+        htP("Local-first archive management. Your files remain under your control on your Windows device.") +
+        "</div></div></header>"
+
+    let body = "<section class=" + DQ() + "privacy-content" + DQ() + "><div class=" + DQ() + "wrap privacy-wrap" + DQ() + ">" +
+        "<p class=" + DQ() + "privacy-meta" + DQ() + "><strong>Effective:</strong> July 14, 2026 &nbsp;|&nbsp; <strong>Last updated:</strong> July 14, 2026</p>" +
+        "<div class=" + DQ() + "privacy-summary" + DQ() + "><strong>The short version</strong>ZipForge does not upload your archives, files, filenames, or passwords. Archive operations run locally on your device, and ZipForge contains no advertising or app analytics.</div>" +
+        "<div class=" + DQ() + "privacy-facts" + DQ() + ">" +
+            "<div class=" + DQ() + "privacy-fact" + DQ() + "><strong>No uploads</strong>Your files stay on your device.</div>" +
+            "<div class=" + DQ() + "privacy-fact" + DQ() + "><strong>No tracking</strong>No telemetry, analytics, or ads.</div>" +
+            "<div class=" + DQ() + "privacy-fact" + DQ() + "><strong>You choose</strong>You control inputs and output locations.</div>" +
+        "</div>" +
+
+        "<div class=" + DQ() + "privacy-section" + DQ() + ">" +
+            htH2("1. Scope") +
+            htP("This policy applies to ZipForge 1.0, published by t3m3d and distributed through the Microsoft Store. It also describes the ZipForge archive engine when used through Cortex: Advanced File Manager. Other Cortex features are outside the scope of this policy.") +
+        "</div>" +
+
+        "<div class=" + DQ() + "privacy-section" + DQ() + ">" +
+            htH2("2. Information ZipForge accesses") +
+            htP("ZipForge accesses information only as needed to perform actions you request. Files may contain personal information, but ZipForge does not collect that information for a separate purpose.") +
+            htUl(
+                htLi("Files and folders that you browse, select, drag into the app, open, create, preview, test, convert, or extract.") +
+                htLi("File paths, filenames, archive entries, sizes, timestamps, compression details, and checksums needed to display or process those items.") +
+                htLi("Archive passwords that you enter for encryption or extraction.") +
+                htLi("Current-user Windows registry entries when you choose to enable or disable optional Explorer context-menu commands.")
+            ) +
+        "</div>" +
+
+        "<div class=" + DQ() + "privacy-section" + DQ() + ">" +
+            htH2("3. How information is used") +
+            htP("The accessed information is used locally to create, open, preview, test, inspect, extract, convert, split, encrypt, or calculate checksums for archives. ZipForge does not use file contents for profiling, advertising, machine learning, or any unrelated purpose.") +
+        "</div>" +
+
+        "<div class=" + DQ() + "privacy-section" + DQ() + ">" +
+            htH2("4. Collection and transmission") +
+            htP("ZipForge does not collect, upload, sell, rent, or monetize your personal information. The app has no account system, cloud service, advertising SDK, analytics SDK, or publisher-operated telemetry endpoint. ZipForge does not send your archives, file contents, filenames, paths, passwords, or checksums to t3m3d or any remote service.") +
+        "</div>" +
+
+        "<div class=" + DQ() + "privacy-section" + DQ() + ">" +
+            htH2("5. Local storage and retention") +
+            htUl(
+                htLi("Created archives and extracted files are stored only in locations you choose.") +
+                htLi("ZipForge may create temporary working files or folders in the Windows temporary directory for previews, conversions, selected extraction, and compressed TAR operations.") +
+                htLi("Temporary items are removed on a best-effort basis after the operation. If Windows or the app closes unexpectedly, temporary items may remain and can be removed through Windows temporary-file cleanup.") +
+                htLi("ZipForge does not save archive passwords. A password is passed to the local archive engine only when required for the operation you requested.")
+            ) +
+            htP("Because no user data is uploaded to t3m3d, the publisher has no remote copy to retain, access, correct, export, or delete.") +
+        "</div>" +
+
+        "<div class=" + DQ() + "privacy-section" + DQ() + ">" +
+            htH2("6. Local archive engines and third-party software") +
+            htP("ZipForge uses SharpCompress and DiscUtils libraries and includes 7-Zip components for supported archive operations. If you create a RAR archive, ZipForge may invoke a copy of WinRAR that you installed separately. Files and passwords provided to these components are processed locally on your device. ZipForge does not use these components to transmit your information over a network.") +
+        "</div>" +
+
+        "<div class=" + DQ() + "privacy-section" + DQ() + ">" +
+            htH2("7. Microsoft Store and Windows") +
+            htP("Microsoft may process installation, licensing, update, reliability, and Windows diagnostic information independently under the " + htA("https://privacy.microsoft.com/privacystatement", "Microsoft Privacy Statement") + ". ZipForge does not control Microsoft's platform-level processing and does not add its own telemetry to it.") +
+        "</div>" +
+
+        "<div class=" + DQ() + "privacy-section" + DQ() + ">" +
+            htH2("8. Security") +
+            htP("ZipForge reduces privacy risk by keeping archive work local and by not operating a user-data server. Access remains subject to your Windows account permissions. Encryption security depends on the archive format, selected engine, and password strength. ZipForge cannot recover a forgotten archive password.") +
+        "</div>" +
+
+        "<div class=" + DQ() + "privacy-section" + DQ() + ">" +
+            htH2("9. Your controls") +
+            htUl(
+                htLi("Choose which files and folders ZipForge accesses and where results are written.") +
+                htLi("Delete created archives, extracted files, or remaining temporary files with normal Windows file tools.") +
+                htLi("Enable or disable ZipForge Explorer context-menu integration from the app.") +
+                htLi("Uninstall ZipForge through Windows Settings or the Microsoft Store.")
+            ) +
+        "</div>" +
+
+        "<div class=" + DQ() + "privacy-section" + DQ() + ">" +
+            htH2("10. Children") +
+            htP("ZipForge is a general-purpose archive utility and is not directed to children. The app does not knowingly collect personal information from children or any other users.") +
+        "</div>" +
+
+        "<div class=" + DQ() + "privacy-section" + DQ() + ">" +
+            htH2("11. Changes to this policy") +
+            htP("This policy may be updated when ZipForge features or legal requirements change. The revised date will be shown at the top of this page. Material changes will be described clearly before they take effect when required.") +
+        "</div>" +
+
+        "<div class=" + DQ() + "privacy-section" + DQ() + ">" +
+            htH2("12. Contact") +
+            htP("Questions or privacy requests can be sent to " + htA("mailto:brian@krypton-lang.org", "brian@krypton-lang.org") + ".") +
+            htP("Publisher: t3m3d" + DOT() + " Product: ZipForge: Archive Manager" + DOT() + " Website: " + htA("https://krypton-lang.org", "krypton-lang.org")) +
+        "</div></div></section>"
+
+    let page = sitePage("ZipForge Privacy Policy", hero + body)
+    page = replace(page, siteDesc(), zipForgePrivacyDesc())
+    page = replace(page, "<meta property=" + DQ() + "og:url" + DQ() + " content=" + DQ() + "https://krypton-lang.org/" + DQ() + ">", "<meta property=" + DQ() + "og:url" + DQ() + " content=" + DQ() + "https://krypton-lang.org/zipforge-privacy.html" + DQ() + ">")
+    page = replace(page, siteSponsorSlot(), "")
+    page = replace(page, "</head>", "<link rel=" + DQ() + "canonical" + DQ() + " href=" + DQ() + "https://krypton-lang.org/zipforge-privacy.html" + DQ() + "></head>")
+    emit page
+}
 // ── Playground page ──────────────────────────────────────────────────
 // Standalone editor + Run button. No lesson context; visitor can write
 // arbitrary Krypton in the subset the runner supports.
@@ -1346,6 +1480,7 @@ func buildSitemap() {
         _sitemapUrl("/downloads.html") +
         _sitemapUrl("/kryptscript.html") +
         _sitemapUrl("/contact.html") +
+        _sitemapUrl("/zipforge-privacy.html") +
         _sitemapUrl("/sponsor.html")
     let lessons = htEach(lessonFiles(), funcptr(_sitemapLesson))
     let posts = htEach(blogPosts(), funcptr(_sitemapPost))
@@ -1783,6 +1918,13 @@ func writePage(path, html) {
 
 just run {
     let dist = "dist"
+    if environ("OS") == "Windows_NT" {
+        shellRun("if not exist dist" + fromCharCode(92) + "assets mkdir dist" + fromCharCode(92) + "assets")
+        shellRun("copy /Y assets" + fromCharCode(92) + "zipforge-icon.png dist" + fromCharCode(92) + "assets" + fromCharCode(92) + "zipforge-icon.png >nul")
+    } else {
+        shellRun("mkdir -p dist/assets")
+        shellRun("cp assets/zipforge-icon.png dist/assets/zipforge-icon.png")
+    }
 
     writePage(dist + "/index.html", pageHome())
     writePage(dist + "/about.html", pageAbout())
@@ -1792,6 +1934,7 @@ just run {
     writePage(dist + "/downloads.html", pageDownloads())
     writePage(dist + "/kryptscript.html", pageKryptScript())
     writePage(dist + "/contact.html", pageContact())
+    writePage(dist + "/zipforge-privacy.html", pageZipForgePrivacy())
     writePage(dist + "/brain.html", pageBrain())
     writePage(dist + "/programs/stem.html", pageStem())
     writePage(dist + "/objk.html", pageObjk())

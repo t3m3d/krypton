@@ -336,10 +336,21 @@ func normalizeHost(host) {
 }
 
 func normalizeRemoteFolder(folder) {
-    let f = trim(folder)
+    let raw = trim(folder)
+    let quotedEmpty = _dq() + _dq()
+    let windowsQuotedEmpty = _dq() + _bs() + _dq() + _bs() + _dq() + _dq()
+    if raw == "" || raw == "." || raw == "./" || raw == quotedEmpty || raw == windowsQuotedEmpty || raw == "''" { emit "" }
+    let f = replace(raw, _bs(), "/")
     while len(f) > 0 && f[0] == "/" { f = substring(f, 1, len(f)) }
     while len(f) > 0 && f[len(f) - 1] == "/" { f = substring(f, 0, len(f) - 1) }
+    if f == "." || f == quotedEmpty || f == "''" { emit "" }
     emit f
+}
+
+func remoteFolderIsSafe(folder) {
+    if contains(folder, _dq()) { emit "0" }
+    if folder == ".." || startsWith(folder, "../") || contains(folder, "/../") || endsWith(folder, "/..") { emit "0" }
+    emit "1"
 }
 
 func remotePath(folder, rel) {
@@ -350,6 +361,10 @@ func remotePath(folder, rel) {
 func doDeploy(rawHost, ftpUser, remoteFolder, ftpPass) {
     let ftpHost = normalizeHost(rawHost)
     let folder = normalizeRemoteFolder(remoteFolder)
+    if remoteFolderIsSafe(folder) != "1" {
+        printErr("kweb: invalid remote folder; use an empty value or . for the FTP root")
+        exit("1")
+    }
     printErr("kweb: deploying dist/ to " + ftpUser + "@" + ftpHost + ":/")
     if folder != "" { printErr("kweb: remote folder " + folder) }
     if ftpPass == "" { printErr("kweb: enter password when prompted") }
@@ -368,11 +383,13 @@ func doDeploy(rawHost, ftpUser, remoteFolder, ftpPass) {
             let userArg = ftpUser
             if ftpPass != "" { userArg = ftpUser + ":" + ftpPass }
             let cmd = "curl --ftp-create-dirs -T " + shellQuote(local) + " " + shellQuote(remote) +
-                " --user " + shellQuote(userArg) + " --insecure 2>&1"
+                " --user " + shellQuote(userArg) + " --insecure --silent --show-error"
             printErr("  uploading " + rel + "...")
-            let out = exec(cmd)
-            if len(out) > 0 {
-                printErr("  " + out)
+            let rc = shellRun(cmd)
+            if rc != "0" {
+                printErr("kweb: upload failed for " + rel + " (curl exit " + rc + ")")
+                printErr("kweb: deploy stopped after " + count + " successful files")
+                exit("1")
             }
             count = count + 1
         }
