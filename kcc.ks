@@ -375,7 +375,7 @@ func linuxSrc() {
     let i = 0
     while i < argCount() {
         let a = arg(i)
-        if a == "-o" || a == "--target" { i = i + 2 }
+        if a == "-o" || a == "--target" || a == "--subsystem" { i = i + 2 }
         else {
             if startsWith(a, "-") { i = i + 1 }
             else { emit a }
@@ -456,7 +456,7 @@ func winDirOf(path) {
     if last < 0 { emit "." }
     emit substring(path, 0, last)
 }
-func compileWindows(root, src, out) {
+func compileWindowsTarget(root, src, out, subsystem) {
     let kccExe = root + "/kcc-bin.exe"
     let optExe = winTool(root, "optimize_host.exe")
     let x64Exe = winTool(root, "x64_host_new.exe")
@@ -476,7 +476,7 @@ func compileWindows(root, src, out) {
         kp("kcc: optimize failed")
         emit "0"
     }
-    exec(x64Exe + " " + tmpOpt + " " + out)
+    exec(x64Exe + " " + tmpOpt + " " + out + " " + subsystem)
     if _winExists(out) == "1" {
         let rtSrc = root + "/krypton_rt.dll"
         let rtDst = winDirOf(out) + "/krypton_rt.dll"
@@ -488,6 +488,9 @@ func compileWindows(root, src, out) {
     exec("del /q " + replace(tmpOpt, "/", "\\"))
     if _winExists(out) == "0" { kp("kcc: native codegen failed")  emit "0" }
     emit "1"
+}
+func compileWindows(root, src, out) {
+    emit compileWindowsTarget(root, src, out, "console")
 }
 // native Linux x86-64 compile: src -> out. Returns "1" ok / "0" fail.
 func compileLinux(root, src, out) {
@@ -630,7 +633,8 @@ just run {
         kp("  --native    (default) emit native binary at ./<basename>")
         kp("  --ir        emit Krypton IR to stdout")
         kp("  --arm64     cross-compile to a static aarch64 ELF")
-        kp("  --target T  cross-compile: ios-sim-arm64 or ios-device-arm64")
+        kp("  --target T  ios-sim-arm64|ios-device-arm64 (macOS), windows-x86_64 (Windows)")
+        kp("  --subsystem console|windows (Windows)")
         kp("  -o FILE     output path")
         kp("  -r FILE     compile, run, delete (like python file.py)")
         kp("  -e CODE     compile + run an inline snippet (like python -c)")
@@ -653,8 +657,9 @@ just run {
 
     let os = sh("uname -s")
     let requestedTarget = optValue("--target", "")
-    if requestedTarget != "" && os != "Darwin" {
-        kp("kcc: target " + requestedTarget + " requires a macOS build host")
+    if requestedTarget != "" && os != "Darwin" && environ("OS") != "Windows_NT" &&
+        startsWith(os, "MINGW") != "1" && startsWith(os, "MSYS") != "1" && startsWith(os, "CYGWIN") != "1" {
+        kp("kcc: target " + requestedTarget + " requires a macOS or Windows build host")
         exit("1")
     }
 
@@ -780,6 +785,18 @@ just run {
         if hasFlag("--llvm") { kp("kcc: --llvm was removed (Krypton is C-free; native pipeline only).") exit("1") }
         if hasFlag("--wasm") { kp("kcc: --wasm is not wired into the Krypton-native driver yet.")        exit("1") }
 
+        let target = optValue("--target", "windows-x86_64")
+        if target != "windows-x86_64" && target != "windows-x64" {
+            kp("kcc: unsupported Windows target " + target)
+            exit("1")
+        }
+        let subsystem = toLower(optValue("--subsystem", "console"))
+        if subsystem == "gui" { subsystem = "windows" }
+        if subsystem != "console" && subsystem != "windows" {
+            kp("kcc: --subsystem must be console or windows")
+            exit("1")
+        }
+
         // Try install root, then C:\krypton, then PATH-installed.
         // kcc-bin.exe is the compile.k-built backend. kcc.exe is this
         // driver (kcc.ks compiled).
@@ -817,7 +834,7 @@ just run {
             let ek = winTemp + "/_kcceval_" + safe + ".ks"
             let ebin = winTemp + "/_kcceval_" + safe + ".exe"
             writeText(ek, "just run {\n" + _winUnquote(_winJoinFrom(1)) + "\n}\n")
-            if compileWindows(root, ek, ebin) == "0" {
+            if compileWindowsTarget(root, ek, ebin, subsystem) == "0" {
                 exec("del /q " + replace(ek, "/", "\\"))
                 exit("1")
             }
@@ -833,7 +850,7 @@ just run {
             let tick = _chompWS(exec("echo %TIME%"))
             let safe = replace(replace(replace(tick, ":", ""), ".", ""), " ", "")
             let tmpbin = winTemp + "/_kcckrun_" + safe + ".exe"
-            if compileWindows(root, src, tmpbin) == "0" { exit("1") }
+            if compileWindowsTarget(root, src, tmpbin, subsystem) == "0" { exit("1") }
             let passed = restFrom(2)
             kp(_chompWS(exec(tmpbin + " " + passed)))
             exec("del /q " + replace(tmpbin, "/", "\\"))
@@ -847,7 +864,7 @@ just run {
         let src = linuxSrc()
         if src == "" { kp("kcc: no source file")  exit("1") }
         let out = optValue("-o", baseName(src) + ".exe")
-        if compileWindows(root, src, out) == "0" { exit("1") }
+        if compileWindowsTarget(root, src, out, subsystem) == "0" { exit("1") }
         exit("0")
     }
 

@@ -43,10 +43,19 @@ func normalizeHost(host) {
 }
 
 func normalizeRemoteFolder(folder) {
-    let f = trim(folder)
+    let f = replace(trim(folder), bs(), "/")
+    let quotedEmpty = dq() + dq()
+    if f == "" || f == "." || f == "./" || f == quotedEmpty || f == "''" { emit "" }
     while len(f) > 0 && f[0] == "/" { f = substring(f, 1, len(f)) }
     while len(f) > 0 && f[len(f) - 1] == "/" { f = substring(f, 0, len(f) - 1) }
+    if f == "." || f == quotedEmpty || f == "''" { emit "" }
     emit f
+}
+
+func remoteFolderIsSafe(folder) {
+    if contains(folder, dq()) { emit "0" }
+    if folder == ".." || startsWith(folder, "../") || contains(folder, "/../") || endsWith(folder, "/..") { emit "0" }
+    emit "1"
 }
 
 func isDarkMode() {
@@ -156,6 +165,10 @@ func onDeploy(self, cmd, sender) {
         alert("kweb deploy", "Choose a project folder first.")
         emit "1"
     }
+    if remoteFolderIsSafe(remoteFolder) != "1" {
+        alert("kweb deploy", "Invalid remote folder. Leave it blank or use . for the FTP root.")
+        emit "1"
+    }
 
     setStatus(state, "Deploy running")
     appendLog(log, "FTP deploy to " + host + " as " + user)
@@ -180,9 +193,15 @@ func onDeploy(self, cmd, sender) {
             let remote = "ftp://" + host + "/" + remoteRel
             appendLog(log, "upload " + rel)
             let curl = "curl --ftp-create-dirs -T " + shellQuote(local) + " " +
-                shellQuote(remote) + " --user " + shellQuote(user + ":" + pass) + " --insecure 2>&1"
-            let out = exec(curl)
-            if len(out) > 0 { appendLog(log, out) }
+                shellQuote(remote) + " --user " + shellQuote(user + ":" + pass) +
+                " --insecure --silent --show-error"
+            let rc = shellRun(curl)
+            if rc != "0" {
+                appendLog(log, "Upload failed for " + rel + " (curl exit " + rc + ")")
+                setStatus(state, "Deploy failed")
+                alert("kweb deploy", "Upload failed for " + rel + ". The deploy was stopped.")
+                emit "1"
+            }
             count = count + 1
         }
         i = i + 1

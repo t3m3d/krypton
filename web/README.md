@@ -135,6 +135,10 @@ Uploads `dist/` recursively by FTP. The default remote target is the FTP login
 root. For hosts like Hostinger where the FTP account already starts inside
 `public_html`, do not add `public_html/`.
 
+Blank, `.`, `./`, `""`, and `''` remote-directory values are all normalized to
+the FTP login root. KWeb rejects quote-bearing and parent-traversal paths rather
+than creating accidental remote folders.
+
 To deploy into a folder under the login root:
 
 ```bash
@@ -149,8 +153,18 @@ For non-interactive deploys, a fourth argument can pass the FTP password:
 kweb deploy example.com username test your-password
 ```
 
-The macOS GUI uses FTP directly and has fields for host, user, password, and an
-optional remote folder.
+To pass a password while still targeting the FTP login root, use `.` as the
+remote-directory placeholder:
+
+```bash
+kweb deploy example.com username . your-password
+```
+
+KWeb stops at the first failed upload and exits nonzero instead of reporting a
+successful deployment after curl fails.
+
+The Windows and macOS GUIs use FTP directly and have fields for host, user,
+password, and an optional remote folder.
 
 ## Creating A New Site
 
