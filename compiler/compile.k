@@ -2772,6 +2772,27 @@ func kccEnums(tokens, ntoks) {
     emit irScanEnums(tokens, ntoks)
 }
 
+// Imported modules have no entry block, but their globals must initialize in
+// the executable's __main__. Skip nested declarations and function bodies.
+func irModuleGlobals(tokens, ntoks, types) {
+    let sb = sbNew()
+    let i = 0
+    let depth = 0
+    while i < ntoks {
+        let tok = tokAt(tokens, i)
+        if depth == 0 && (tok == "KW:let" || tok == "KW:const") {
+            let init = irLetIR(tokens, i + 1, ntoks, 0, "0", types)
+            sb = sbAppend(sb, pairVal(init))
+            i = pairPos(init)
+        } else {
+            if tok == "LBRACE" { depth += 1 }
+            if tok == "RBRACE" { depth -= 1 }
+            i += 1
+        }
+    }
+    emit sbToString(sb)
+}
+
 func irScanStructTypes(tokens, ntoks) {
     let prev = ""
     let curr = irScanStructTypesOnce(tokens, ntoks, "")
@@ -3349,7 +3370,7 @@ func emitPortWarnings(tokens, ntoks, fname) {
 just run {
     let kccVer = "2.4.5"
 
-    // Parse flags: --version, --ir, -o OUTFILE, --port-1to2
+    // Parse flags: --version, --ir, -o OUTFILE, --target TARGET, --port-1to2
     // 1.8.4: removed --headers. Install root is fixed at C:\krypton;
     // stdlib lives at <root>/stdlib and C bindings at <root>/headers.
     // The new `k:` / `c:` import prefixes resolve under those.
@@ -3382,6 +3403,7 @@ just run {
     }
     let headersDir  = installRoot + "/headers"   // legacy var, kept for bin-dir derivation
     let outFile = ""
+    let target = environ("KRYPTON_TARGET")
     let file = arg("0")
     let argIdx = 0
 
@@ -3392,7 +3414,7 @@ just run {
 
     if argCount() == 0 {
         printErr("kcc: no input file")
-        printErr("usage: kcc [-o out.exe] [--port-1to2] source.k")
+        printErr("usage: kcc [-o out] [--target ios-sim-arm64|ios-device-arm64] [--port-1to2] source.k")
         emit 1
     }
 
@@ -3406,7 +3428,7 @@ just run {
         _aRej += 1
     }
 
-    while file == "--ir" || file == "-o" || file == "--port-1to2" {
+    while file == "--ir" || file == "-o" || file == "--target" || file == "--port-1to2" {
         if file == "--ir" {
             irMode = 1
             argIdx += 1
@@ -3416,11 +3438,25 @@ just run {
             outFile = arg(argIdx + "")
             argIdx += 1
         }
+        if file == "--target" {
+            argIdx += 1
+            target = arg(argIdx + "")
+            if target == "" {
+                printErr("kcc: --target needs a target name")
+                emit 1
+            }
+            argIdx += 1
+        }
         if file == "--port-1to2" {
             portMode = 1
             argIdx += 1
         }
         file = arg(argIdx + "")
+    }
+
+    if target != "" && target != "ios-sim-arm64" && target != "ios-device-arm64" {
+        printErr("kcc: unsupported target '" + target + "'")
+        emit 1
     }
 
     // When -o is given, force IR mode internally (pipeline handles the rest)
@@ -3478,6 +3514,7 @@ just run {
     let importFwdDecls = ""
     let importBodies = ""
     let importedIR = ""  // accumulated IR from imported files (--ir mode)
+    let importedInit = ""  // dependency-first module initializers for __main__
     let lambdaBank = ""  // pre-compiled lambda C functions
     let lambdaFreeVars = ""  // lambda pos -> free vars mapping
     let structTable = ""  // extern struct definitions: "NAME:field1:TYPE1,field2:TYPE2\n"
@@ -3501,10 +3538,18 @@ just run {
                 if prefix == "k"       { fullPath = installRoot + "/stdlib/"  + sub + ".k"   }
                 if prefix == "core"    { fullPath = installRoot + "/stdlib/"  + sub + ".k"   }
                 if (prefix == "k" || prefix == "core") && sub == "objk" {
-                    if environ("OS") == "Windows_NT" { fullPath = installRoot + "/stdlib/objkwin.k" }
+                    if target == "ios-sim-arm64" || target == "ios-device-arm64" {
+                        fullPath = installRoot + "/stdlib/objk_ios.k"
+                    } else {
+                        if environ("OS") == "Windows_NT" { fullPath = installRoot + "/stdlib/objkwin.k" }
+                    }
                 }
                 if prefix == "k" && sub == "okui" {
-                    if environ("OS") == "Windows_NT" { fullPath = installRoot + "/stdlib/okui_win.k" }
+                    if target == "ios-sim-arm64" || target == "ios-device-arm64" {
+                        fullPath = installRoot + "/stdlib/okui_ios.k"
+                    } else {
+                        if environ("OS") == "Windows_NT" { fullPath = installRoot + "/stdlib/okui_win.k" }
+                    }
                 }
                 if prefix == "head"    { fullPath = installRoot + "/headers/" + sub + ".krh" }
                 if prefix == "headers" { fullPath = installRoot + "/headers/" + sub + ".krh" }
@@ -3574,7 +3619,11 @@ just run {
 	                                if depPrefix == "k"       { depFull = installRoot + "/stdlib/"  + depSub + ".k"   }
 	                                if depPrefix == "core"    { depFull = installRoot + "/stdlib/"  + depSub + ".k"   }
 	                                if (depPrefix == "k" || depPrefix == "core") && depSub == "objk" {
-	                                    if environ("OS") == "Windows_NT" { depFull = installRoot + "/stdlib/objkwin.k" }
+	                                    if target == "ios-sim-arm64" || target == "ios-device-arm64" {
+	                                        depFull = installRoot + "/stdlib/objk_ios.k"
+	                                    } else {
+	                                        if environ("OS") == "Windows_NT" { depFull = installRoot + "/stdlib/objkwin.k" }
+	                                    }
 	                                }
 	                                if depPrefix == "head"    { depFull = installRoot + "/headers/" + depSub + ".krh" }
 	                                if depPrefix == "headers" { depFull = installRoot + "/headers/" + depSub + ".krh" }
@@ -3657,6 +3706,7 @@ just run {
 	                                    if irMode == 1 {
 	                                        let depIRi = 0
 	                                        let depStructTypes = irScanStructTypes(depToks, depNtoks)
+	                                        importedInit = importedInit + irModuleGlobals(depToks, depNtoks, depStructTypes)
 	                                        while depIRi < depNtoks {
 	                                            let depIRtok = tokAt(depToks, depIRi)
 	                                            if depIRtok == "KW:jxt" {
@@ -3751,6 +3801,7 @@ just run {
                         let iIRi = 0
                         let iIRinJxt = 0
                         let iStructTypes = kccStructTypes(iToks, iNtoks)
+                        importedInit = importedInit + irModuleGlobals(iToks, iNtoks, iStructTypes)
                         while iIRi < iNtoks {
                             let iIRtok = tokAt(iToks, iIRi)
                             if iIRtok == "KW:jxt" {
@@ -4303,7 +4354,7 @@ just run {
             // 2.0-alpha-3 GC stage 3: same shadow-stack save/restore wrap
             // as irFuncIR applies to __main__'s body (and prepended global
             // inits). On normal exit, all per-let pushes get popped.
-            let mainBody = irScanStatics(tokens, ntoks, mainTypes) + sbToString(sbGlobInit) + pairVal(ep)
+            let mainBody = importedInit + irScanStatics(tokens, ntoks, mainTypes) + sbToString(sbGlobInit) + pairVal(ep)
             mainBody = "" + mainBody +
                        ""
             sbIR = sbAppend(sbIR, "FUNC __main__ 0\n" + mainBody + "END\n")

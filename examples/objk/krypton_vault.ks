@@ -535,7 +535,7 @@ just run {
     putLabel(win, "VPS URL", 24, 446, 90)
     let syncUrl = field(win, area(166, 442, 300, 28))
     tint(syncUrl)
-    doPlaceholder(syncUrl, "https://vault.example.com")
+    doPlaceholder(syncUrl, "https://kry.li")
 
     putLabel(win, "Account", 488, 446, 90)
     let syncUser = field(win, area(582, 442, 132, 28))

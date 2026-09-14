@@ -1,0 +1,10 @@
+module module_globals_head
+
+const importedHeaderNumber = 17
+const importedHeaderText = "setTitle:"
+let importedInitCount = 0
+
+func importedInitialize() {
+    importedInitCount = importedInitCount + 1
+    emit importedHeaderNumber + 3
+}

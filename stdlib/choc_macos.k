@@ -1,31 +1,6 @@
-// stdlib/choc_macos.k — High-level Choc GUI for macOS, written in pure Krypton.
-//
-// Runs on the objk FFI (macho_arm64_self.k): objc_msgSend + dyld-imported
-// libobjc/Foundation/AppKit, NSRect via objc_msgSend_rect/_frame, and Krypton
-// funcs used directly as Obj-C method IMPs for callbacks.
-//
-// IMPORTANT: selector/class strings + enum values are INLINED here, not pulled
-// from header consts — module-level `const`/`let` does NOT initialise across
-// the native import boundary (it reads as garbage), so every literal lives in the
-// function that uses it.
-//
-//   import "k:choc_macos"
-//   func onClick(self, cmd, sender) { chocSetText(chocGetAssoc(sender), "hi") }
-//   just run {
-//       let app = chocInit()
-//       let win = chocWindow(app, "Demo", 400, 220)
-//       let btn = chocButton(win, "Click me", 150, 90, 100, 30)
-//       chocSetAssoc(btn, win)
-//       chocOnClick(btn, funcptr(onClick))
-//       chocShow(win, app)
-//       chocRun(app)
-//   }
-
 module choc_macos
 
 import "k:objc"
-
-// ── App lifecycle ──────────────────────────────────────────────────────
 
 func chocInit() {
     let app = msg(cls("NSApplication"), "sharedApplication")
@@ -38,8 +13,6 @@ func chocSharedApp() { emit msg(cls("NSApplication"), "sharedApplication") }
 func chocRun(app)  { msg(app, "run")             emit "0" }
 func chocQuit(app) { msg_1(app, "terminate:", app)  emit "1" }
 
-// ── Windows ────────────────────────────────────────────────────────────
-
 func chocWindow(app, title, w, h) {
     let mask = 15                                 // Titled|Closable|Miniaturizable|Resizable
     let raw = msg(cls("NSWindow"), "alloc")
@@ -51,8 +24,6 @@ func chocWindow(app, title, w, h) {
 
 func chocShow(win, app) { msg_1(win, "makeKeyAndOrderFront:", app)  emit "1" }
 func chocTransparentTitlebar(win) { msg_1(win, "setTitlebarAppearsTransparent:", 1)  emit "1" }
-
-// ── Widgets (attach to the window's content view) ───────────────────────
 
 func chocButton(win, label, x, y, w, h) {
     let raw = msg(cls("NSButton"), "alloc")
@@ -156,7 +127,6 @@ func chocGetText(control) {
     emit msg(s, "UTF8String")
 }
 
-// ── Generic view/control state ────────────────────────────────────────
 func chocSetEnabled(control, enabled) { msg_1(control, "setEnabled:", enabled)  emit "1" }
 func chocSetHidden(view, hidden)      { msg_1(view, "setHidden:", hidden)       emit "1" }
 func chocSetFrame(view, x, y, w, h)   { msg_frame(view, "setFrame:", x, y, w, h) emit "1" }
@@ -193,16 +163,8 @@ func chocAlert(title, message) {
     emit "1"
 }
 
-// ── Event handlers ─────────────────────────────────────────────────────
-// The handler IS the Obj-C method IMP — objc passes (self, _cmd, sender) in
-// x0/x1/x2 = Krypton's register calling convention, so a Krypton
-// `func onClick(self, cmd, sender)` works directly. One synthesised target
-// class per distinct handler (named from the funcptr).
-// Wire a control to a handler, the synth class keyed by `keyName` (a funcptr
-// is a raw pointer with NUL high bytes — "" + fnPtr collapses all handlers to
-// one class; an explicit key keeps distinct handlers distinct). Many controls
-// may share one keyName (= one class, the same handler) and read which one
-// fired off `sender` via associated state.
+// IMP callbacks receive (self, _cmd, sender) in x0..x2, matching K's ABI.
+// Use a distinct key per handler: pointer-to-string conversion loses identity.
 func chocOnClickKeyed(control, keyName, fnPtr) {
     let nm = "KryptonObjkCB_" + _classSafe(keyName)
     let c = objc_lookUpClass(nm)
@@ -218,11 +180,7 @@ func chocOnClickKeyed(control, keyName, fnPtr) {
 }
 func chocOnClick(control, fnPtr) { emit chocOnClickKeyed(control, "default", fnPtr) }
 
-// ── Associated state (closure-capture equivalent) ──────────────────────
-// Attach a value to a control; the handler reads it back off `sender`.
-// sel("kr.assoc") is the key — sel_registerName is idempotent, so set + get
-// resolve to the same stable SEL pointer (a plain string literal would be two
-// different addresses and miss).
+// Intern selectors as association keys; separate string literals can differ.
 func chocSetAssoc(control, value) {
     objc_setAssociatedObject(control, sel("kr.assoc"), value, 1)  // RETAIN_NONATOMIC
     emit "1"
@@ -231,12 +189,9 @@ func chocSetAssoc(control, value) {
 func chocGetAssoc(control) {
     emit objc_getAssociatedObject(control, sel("kr.assoc"))
 }
-// Keyed variants (attach several values under named keys; sel(key) is stable).
 func chocSetAssocKey(control, key, value) { objc_setAssociatedObject(control, sel(key), value, 1)  emit "1" }
 func chocGetAssocKey(control, key)        { emit objc_getAssociatedObject(control, sel(key)) }
 
-// ── NSArray (mutable) — hold model data in Obj-C so stateless Krypton
-//    delegates can read it back (no fork/exec inside AppKit callbacks) ────
 func chocArray()             { emit msg(cls("NSMutableArray"), "array") }
 func chocArrayAdd(arr, obj)  { msg_1(arr, "addObject:", obj)  emit "1" }
 func chocArrayCount(arr)     { emit msg(arr, "count") }
@@ -246,7 +201,6 @@ func chocArrayRemove(arr, i) { msg_1(arr, "removeObjectAtIndex:", i)  emit "1" }
 func chocNumber(n)           { emit msg_1(cls("NSNumber"), "numberWithInt:", n) }
 func chocNumberVal(num)      { emit msg(num, "intValue") }
 
-// ── Segmented control (tab bar) ────────────────────────────────────────
 func chocSegmented(win, x, y, w, h) {
     let seg = msg_frame(msg(cls("NSSegmentedControl"), "alloc"), "initWithFrame:", x, y, w, h)
     _addToContentView(win, seg)
@@ -258,10 +212,7 @@ func chocSegSelect(seg, i)       { msg_1(seg, "setSelectedSegment:", i)  emit "1
 func chocSegSelected(seg)        { emit msg(seg, "selectedSegment") }
 func chocSegOnChange(seg, fnPtr) { chocOnClick(seg, fnPtr)  emit "1" }
 
-// ── Scrollable text view (the editor core kcode needs) ─────────────────
-// NSTextView inside an NSScrollView. Returns the NSTextView handle; the
-// scroll view is added to the window's content view. All plain msg/msg_frame
-// — no new backend primitives needed.
+// Return the text view; attach its scroll view to the window.
 func chocScrollText(win, x, y, w, h) {
     let sv = msg_frame(msg(cls("NSScrollView"), "alloc"), "initWithFrame:", x, y, w, h)
     msg_1(sv, "setHasVerticalScroller:", 1)
@@ -313,10 +264,8 @@ func chocTVFontRange(tv, font, loc, len) {
     msg_4(ts, "addAttribute:value:range:", nsString("NSFont"), font, loc, l)
     emit "1"
 }
-// Length of the text view's storage (for full-range ops).
 func chocTVLength(tv) { emit msg(msg(tv, "textStorage"), "length") }
 
-// ── Live syntax highlighting via the NSTextStorage delegate ────────────
 // Set a delegate whose textStorageDidProcessEditing: (a Krypton func) re-colours
 // on every edit — the canonical highlighting hook. These operate on the storage
 // the delegate receives (notif object); guard on chocTSEditedChars so re-adding
@@ -338,7 +287,6 @@ func chocTSColorRange(ts, color, loc, len) {
     emit "1"
 }
 
-// ── Colors (named — Krypton has no float literals for colorWithRed:…) ───
 func chocColorNamed(name)        { emit msg(cls("NSColor"), name) }
 func chocSystemWindowBg()        { emit chocColorNamed("windowBackgroundColor") }
 func chocSystemText()            { emit chocColorNamed("textColor") }
@@ -350,7 +298,6 @@ func chocSetBg(view, color)      { msg_1(view, "setBackgroundColor:", color)  em
 func chocSetTextColor(tv, color) { msg_1(tv, "setTextColor:", color)          emit "1" }
 func chocSetWindowBg(win, color) { msg_1(win, "setBackgroundColor:", color)   emit "1" }
 
-// ── Open panels ───────────────────────────────────────────────────────
 func chocChooseFolder(title) {
     let panel = msg(cls("NSOpenPanel"), "openPanel")
     msg_1(panel, "setTitle:", nsString(title))
@@ -385,7 +332,6 @@ func chocSaveFile(title, defaultName) {
     emit msg(msg(url, "path"), "UTF8String")
 }
 
-// ── Pasteboard ────────────────────────────────────────────────────────
 func chocClipboardText() {
     let pb = msg(cls("NSPasteboard"), "generalPasteboard")
     let s = msg_1(pb, "stringForType:", nsString("public.utf8-plain-text"))
@@ -400,7 +346,6 @@ func chocSetClipboardText(text) {
     emit "1"
 }
 
-// ── User defaults ─────────────────────────────────────────────────────
 func chocDefaultsGet(key) {
     let s = msg_1(msg(cls("NSUserDefaults"), "standardUserDefaults"), "stringForKey:", nsString(key))
     if s == 0 { emit "" }
@@ -421,7 +366,6 @@ func chocDefaultsRemove(key) {
     emit "1"
 }
 
-// ── Workspace / URL helpers ───────────────────────────────────────────
 func chocURL(url)       { emit msg_1(cls("NSURL"), "URLWithString:", nsString(url)) }
 func chocFileURL(path)  { emit msg_1(cls("NSURL"), "fileURLWithPath:", nsString(path)) }
 
@@ -446,7 +390,6 @@ func chocRevealPath(path) {
     emit "1"
 }
 
-// ── Appearance helpers ────────────────────────────────────────────────
 func chocAppearanceName(obj) {
     let a = msg(obj, "effectiveAppearance")
     if a == 0 { emit "" }
@@ -467,7 +410,6 @@ func chocSetAppearance(obj, name) {
     emit "1"
 }
 
-// ── Fonts ──────────────────────────────────────────────────────────────
 // [NSFont userFixedPitchFontOfSize:n] — monospaced (size in pt, int is fine).
 func chocMonoFont(size)     { emit msg_d1(cls("NSFont"), "userFixedPitchFontOfSize:", size) }
 // Refamily a font (keeps size/metrics) — e.g. to a Nerd Font for powerline glyphs.
@@ -477,7 +419,6 @@ func chocFontFamily(base, family) {
 }
 func chocSetFont(view, font){ msg_1(view, "setFont:", font)  emit "1" }
 
-// ── Runtime class synthesis (delegates / data sources) ─────────────────
 // Build an Obj-C class at runtime whose methods are Krypton funcs (used as
 // IMPs). Lets a data source / delegate be written in pure Krypton — every
 // method takes (self, _cmd, …) and returns via x0/d0.
@@ -523,14 +464,12 @@ func chocCustomView(win, c, x, y, w, h) {
 func chocNeedsDisplay(v)           { msg_1(v, "setNeedsDisplay:", 1)  emit "1" }
 func chocMakeFirstResponder(win, v){ msg_1(win, "makeFirstResponder:", v)  emit "1" }
 
-// ── Timer (repeating) — drives async work (e.g. polling a pty) ─────────
 // Fires `actionSel` on `target` every `ms` milliseconds (ms/1000 -> TimeInterval).
 func chocTimer(target, actionSel, ms) {
     emit msg_timer(cls("NSTimer"), "scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:",
         ms, target, actionSel, 0, 1)
 }
 
-// ── Manual event loop ──────────────────────────────────────────────────
 // Use instead of chocRun when you must interleave native work (e.g. reading a
 // pty) with event handling in the MAIN flow — doing such work inside a timer/
 // action callback can fault. chocFinishLaunching once, then loop:
@@ -552,7 +491,6 @@ func chocPumpEvent(app) {
     msg_1(app, "sendEvent:", ev)
     emit 1
 }
-// Drain all currently-pending events.
 func chocPumpEvents(app) {
     while chocPumpEvent(app) == 1 { }
     emit "1"
@@ -561,7 +499,6 @@ func chocClassAddMethod(c, selName, fnPtr, types) { class_addMethod(c, sel(selNa
 func chocClassRegister(c)          { objc_registerClassPair(c)  emit "1" }
 func chocNew(c)                    { emit msg(msg(c, "alloc"), "init") }
 
-// ── Table view (single column) — feed it a data source instance ────────
 func chocTable(win, x, y, w, h) {
     let sv = msg_frame(msg(cls("NSScrollView"), "alloc"), "initWithFrame:", x, y, w, h)
     msg_1(sv, "setHasVerticalScroller:", 1)
@@ -579,7 +516,6 @@ func chocTable(win, x, y, w, h) {
 func chocSetDataSource(table, ds) { msg_1(table, "setDataSource:", ds)  emit "1" }
 func chocReload(table)            { msg(table, "reloadData")            emit "1" }
 
-// ── Split view (sidebar | main — kcode's layout) ───────────────────────
 func chocSplit(win, x, y, w, h) {
     let sp = msg_frame(msg(cls("NSSplitView"), "alloc"), "initWithFrame:", x, y, w, h)
     msg_1(sp, "setVertical:", 1)
@@ -588,7 +524,6 @@ func chocSplit(win, x, y, w, h) {
 }
 func chocSplitAdd(split, view) { msg_1(split, "addSubview:", view)  emit "1" }
 
-// ── Menu bar ───────────────────────────────────────────────────────────
 func chocMenuBar(app) {
     let bar = msg(cls("NSMenu"), "new")
     msg_1(app, "setMainMenu:", bar)
@@ -613,7 +548,6 @@ func chocMenuItemSel(menu, title, key, selName) {
     msg_1(menu, "addItem:", item)
     emit "1"
 }
-// A separator line in a menu.
 func chocMenuSeparator(menu) { msg_1(menu, "addItem:", msg(cls("NSMenuItem"), "separatorItem"))  emit "1" }
 // Selector-action item carrying a tag (e.g. performTextFinderAction: reads sender.tag).
 func chocMenuItemSelTag(menu, title, key, selName, tag) {
@@ -666,7 +600,6 @@ func chocMenuItem(menu, title, key, fnPtr) {
     emit "1"
 }
 
-// ── Internal helpers ───────────────────────────────────────────────────
 
 func _addToContentView(win, view) {
     let cv = msg(win, "contentView")

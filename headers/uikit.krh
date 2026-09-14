@@ -1,0 +1,28 @@
+// uikit.krh -- UIKit names and entry point for pure-Krypton iOS apps.
+
+module uikit_constants
+
+const UIApplication_cls = "UIApplication"
+const UIWindow_cls = "UIWindow"
+const UIViewController_cls = "UIViewController"
+const UILabel_cls = "UILabel"
+const UIButton_cls = "UIButton"
+const UITextField_cls = "UITextField"
+const UITextView_cls = "UITextView"
+const UIColor_cls = "UIColor"
+const UIFont_cls = "UIFont"
+
+const sel_sharedApplication = "sharedApplication"
+const sel_setRootViewController = "setRootViewController:"
+const sel_makeKeyAndVisible = "makeKeyAndVisible"
+const sel_view = "view"
+const sel_addSubview = "addSubview:"
+const sel_setText = "setText:"
+const sel_text = "text"
+const sel_setTitle_forState = "setTitle:forState:"
+const sel_setBorderStyle = "setBorderStyle:"
+const sel_addTarget_action_forControlEvents = "addTarget:action:forControlEvents:"
+
+jxt {
+    func UIApplicationMain(argc, argv, principalClassName, delegateClassName)
+}

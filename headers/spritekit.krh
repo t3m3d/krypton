@@ -1,0 +1,19 @@
+// spritekit.krh -- canonical SpriteKit names for Krypton visual apps.
+
+module spritekit_constants
+
+const SKView_cls = "SKView"
+const SKScene_cls = "SKScene"
+const SKNode_cls = "SKNode"
+const SKShapeNode_cls = "SKShapeNode"
+const SKSpriteNode_cls = "SKSpriteNode"
+const SKLabelNode_cls = "SKLabelNode"
+const SKAction_cls = "SKAction"
+const SKPhysicsBody_cls = "SKPhysicsBody"
+
+const sel_presentScene = "presentScene:"
+const sel_addChild = "addChild:"
+const sel_setPosition = "setPosition:"
+const sel_runAction = "runAction:"
+const sel_touchesBegan_withEvent = "touchesBegan:withEvent:"
+const sel_touchesMoved_withEvent = "touchesMoved:withEvent:"

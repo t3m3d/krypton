@@ -61,6 +61,9 @@ jxt {
     func objc_msgSend_timer(self, sel, ms, target, actsel, info, rep)  // scheduledTimer: ms/1000->d0 + x2..x5
     func objc_msgSend_rgb(self, sel, r, g, b)       // colorWithRed:green:blue:alpha: r/g/b/255->d0..d2, 1.0->d3
     func objc_msgSend_d2(self, sel, a, b)            // NSSize a->d0, b->d1 (setSize:/setMaxSize:)
+    func objc_msgSend_d3(self, sel, a, b, c)         // three CGFloat args -> d0..d2
+    func objc_msgSend_point_x(self, sel, obj)         // CGPoint return d0 -> integer x
+    func objc_msgSend_point_y(self, sel, obj)         // CGPoint return d1 -> integer y
 
     // ── Class introspection (rarely needed at runtime) ─────────────────
     func class_getName(cls)

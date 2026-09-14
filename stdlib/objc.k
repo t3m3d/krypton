@@ -1,43 +1,10 @@
-// stdlib/objc.k — Krypton wrappers over the Objective-C runtime.
-//
-// Hides the `objc_msgSend(objc_getClass("…"), sel_registerName("…"), …)`
-// boilerplate so user code reads almost like Swift / Obj-C:
-//
-//   import "k:objc"
-//   import "head:cocoa"
-//
-//   just run {
-//       let app = msg(cls(NSApplication_cls), sel_sharedApplication)
-//       msg_1(app, sel_setActivationPolicy, NSApplicationActivationPolicyRegular)
-//       msg(app, sel_run)
-//   }
-//
-// FULLY STATELESS — no module-level `let`. Same constraint the macOS backend
-// hit shipping `stdlib/server_native.k`: imported Krypton modules
-// export functions only; top-level `let` state does NOT persist across
-// the import boundary. So everything here takes its inputs from the
-// caller and returns values back; no hidden caches, no globals.
-//
-// Performance note: `objc_getClass` and `sel_registerName` are
-// idempotent runtime hash lookups — fast enough that a per-call cache
-// isn't worth the state-management complexity. If profiling later
-// shows hot spots on selector resolution, the caller can hoist a
-// `let SEL_setTitle = sel("setTitle:")` out of any loop, paying the
-// lookup cost once at startup.
-
 module objc
 
 import "head:objc"
 import "head:cocoa"
 
-// ── Class + selector lookup ────────────────────────────────────────────
-
 func cls(name) { emit objc_getClass(name) }
 func sel(name) { emit sel_registerName(name) }
-
-// ── Message dispatch ───────────────────────────────────────────────────
-// One thin wrapper per arity. The selector name is resolved through
-// sel() each call; for hot loops, hoist via `let s = sel("foo:")`.
 
 func msg(obj, selName) {
     emit objc_msgSend(obj, sel(selName))
@@ -96,33 +63,16 @@ func msg_timer(obj, methodSel, ms, target, actionSel, info, rep) {
     emit objc_msgSend_timer(obj, sel(methodSel), ms, target, sel(actionSel), info, rep)
 }
 
-// ── Convenience ────────────────────────────────────────────────────────
-
-// [[Class alloc] init] in one call. (Selectors inlined — head consts don't
-// survive the native import boundary.)
 func allocInit(className) {
     let raw = msg(cls(className), "alloc")
     emit msg(raw, "init")
 }
 
-// Convert a Krypton string to an NSString. Use any time a Cocoa setter
-// wants an `NSString *` argument: setTitle:, setStringValue:, etc.
 func nsString(s) {
     emit msg_1(cls("NSString"), "stringWithUTF8String:", s)
 }
 
-// ── Autorelease pool — caller-held handle ──────────────────────────────
-// Cocoa's drain-at-scope-exit memory pattern. The pool is just a regular
-// NSAutoreleasePool instance; the caller is responsible for `drainPool`
-// at the matching scope-end.
-//
-//   let pool = newPool()
-//   let win  = makeWindow(...)
-//   drainPool(pool)
-//
-// Encouraged at the top of every event-callback that allocates Cocoa
-// objects, so autoreleased instances don't pile up between events.
-
+// Caller drains the pool at scope exit; callbacks need their own pool.
 func newPool() {
     emit allocInit(NSAutoreleasePool_cls)
 }
@@ -140,4 +90,19 @@ func msg_rgb(obj, selName, r, g, b) {
 // NSSize arg (a->d0, b->d1) — e.g. setSize:/setMaxSize:.
 func msg_d2(obj, selName, a, b) {
     emit objc_msgSend_d2(obj, sel(selName), a, b)
+}
+
+// Three CGFloat args, used by visual motion APIs.
+func msg_d3(obj, selName, a, b, c) {
+    emit objc_msgSend_d3(obj, sel(selName), a, b, c)
+}
+
+// CGPoint-returning message helpers. Objective-C returns x/y in d0/d1;
+// backend converts selected component to Krypton integer coordinates.
+func msgPointX(obj, selName, relativeTo) {
+    emit objc_msgSend_point_x(obj, sel(selName), relativeTo)
+}
+
+func msgPointY(obj, selName, relativeTo) {
+    emit objc_msgSend_point_y(obj, sel(selName), relativeTo)
 }

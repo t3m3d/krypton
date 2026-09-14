@@ -44,8 +44,8 @@ systemctl status krypton-vault-sync
 
 ## Reverse Proxy
 
-With Caddy, copy the sample `Caddyfile` stanza and replace
-`vault.example.com` with the real hostname.
+With Caddy, copy the sample `Caddyfile` stanza. It is currently set up for
+`kry.li`.
 
 The service should stay bound to `127.0.0.1`; TLS terminates at the reverse
 proxy.
@@ -55,7 +55,7 @@ proxy.
 From a trusted machine:
 
 ```bash
-export BASE_URL=https://vault.example.com
+export BASE_URL=https://kry.li
 export KRYPTON_VAULT_TOKEN='same-token-from-sync.env'
 tools/vault_sync_smoke.sh
 ```

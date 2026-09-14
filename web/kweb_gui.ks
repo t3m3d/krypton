@@ -233,6 +233,8 @@ func wire(btn, key, handler) {
 
 func setupMenus(app) {
     let bar = menuBar()
+    let applicationMenu = menu(bar, "kweb")
+    menuSelector(applicationMenu, "Quit", "q", "terminate:")
     let edit = menu(bar, "Edit")
     menuSelector(edit, "Cut", "x", "cut:")
     menuSelector(edit, "Copy", "c", "copy:")

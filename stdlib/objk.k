@@ -1,28 +1,21 @@
-// stdlib/objk.k -- Objective-K facade for native macOS apps.
-//
-// Purpose: app code imports one Krypton module and uses ok* APIs.
-// Choc is the backend surface; platform legacy stays behind that layer.
-
 module objk
 
 import "k:choc_macos"
 import "k:objk_layout"
 
-// App/window
 func okApp()                         { emit chocInit() }
 func okSharedApp()                   { emit chocSharedApp() }
 func okRun(app)                      { emit chocRun(app) }
 func okQuit(app)                     { emit chocQuit(app) }
 func okFinish(app)                   { emit chocFinishLaunching(app) }
 func okPump(app)                     { emit chocPumpEvents(app) }
-func okWindow(app, title, w, h)      { let win = chocWindow(app, title, w, h)  emit win + "" }
+func okWindow(app, title, w, h)      { emit chocWindow(app, title, w, h) }
 func okShow(win, app)                { emit chocShow(win, app) }
 func okTitle(obj, title)             { emit chocSetTitle(obj, title) }
 func okMinSize(win, w, h)            { emit chocSetWindowMinSize(win, w, h) }
 func okTransparentTitlebar(win)      { emit chocTransparentTitlebar(win) }
 func okMakeFirstResponder(win, view) { emit chocMakeFirstResponder(win, view) }
 
-// Controls
 func okButton(win, label, x, y, w, h)      { emit chocButton(win, label, x, y, w, h) }
 func okCheckbox(win, label, x, y, w, h)    { emit chocCheckbox(win, label, x, y, w, h) }
 func okField(win, x, y, w, h)              { emit chocTextField(win, x, y, w, h) }
@@ -38,7 +31,6 @@ func okTable(win, x, y, w, h)              { emit chocTable(win, x, y, w, h) }
 func okSplit(win, x, y, w, h)              { emit chocSplit(win, x, y, w, h) }
 func okSplitAdd(split, view)               { emit chocSplitAdd(split, view) }
 
-// Values/state
 func okText(control)                 { emit chocGetText(control) }
 func okSetText(control, text)        { emit chocSetText(control, text) }
 func okAppend(tv, text)              { emit chocTVAppend(tv, text) }
@@ -69,7 +61,6 @@ func okComboSelect(combo, index)     { emit chocComboSelect(combo, index) }
 func okComboIndex(combo)             { emit chocComboSelected(combo) }
 func okComboText(combo)              { emit chocComboSelectedText(combo) }
 
-// Events/bindings
 func okOn(control, key, fnPtr)       { emit chocOnClickKeyed(control, key, fnPtr) }
 func okClick(control, fnPtr)         { emit chocOnClick(control, fnPtr) }
 func okSet(obj, key, value)          { emit chocSetAssocKey(obj, key, value) }
@@ -77,7 +68,6 @@ func okGet(obj, key)                 { emit chocGetAssocKey(obj, key) }
 func okSetValue(obj, value)          { emit chocSetAssoc(obj, value) }
 func okValue(obj)                    { emit chocGetAssoc(obj) }
 
-// Data containers
 func okArray()                       { emit chocArray() }
 func okArrayAdd(arr, obj)            { emit chocArrayAdd(arr, obj) }
 func okArrayCount(arr)               { emit chocArrayCount(arr) }
@@ -87,7 +77,6 @@ func okArrayRemove(arr, i)           { emit chocArrayRemove(arr, i) }
 func okNumber(n)                     { emit chocNumber(n) }
 func okNumberValue(num)              { emit chocNumberVal(num) }
 
-// Files/system
 func okChooseFolder(title)           { emit chocChooseFolder(title) }
 func okChooseFile(title)             { emit chocChooseFile(title) }
 func okSaveFile(title, defaultName)  { emit chocSaveFile(title, defaultName) }
@@ -100,7 +89,6 @@ func okOpenURL(url)                  { emit chocOpenURL(url) }
 func okOpenPath(path)                { emit chocOpenPath(path) }
 func okReveal(path)                  { emit chocRevealPath(path) }
 
-// Theme/color/font
 func okDark(obj)                     { emit chocIsDark(obj) }
 func okAppearanceName(obj)           { emit chocAppearanceName(obj) }
 func okAppearance(obj, name)         { emit chocSetAppearance(obj, name) }
@@ -119,7 +107,6 @@ func okFontFamily(base, family)      { emit chocFontFamily(base, family) }
 func okSetFont(view, font)           { emit chocSetFont(view, font) }
 func okAlert(title, message)         { emit chocAlert(title, message) }
 
-// Menus
 func okMenuBar(app)                  { emit chocMenuBar(app) }
 func okMenuAdd(bar, title)           { emit chocMenuAdd(bar, title) }
 func okMenuAction(menu, title, key, fnPtr) { emit chocMenuItem(menu, title, key, fnPtr) }
@@ -128,7 +115,6 @@ func okMenuSelectorTag(menu, title, key, selName, tag) { emit chocMenuItemSelTag
 func okMenuSeparator(menu)           { emit chocMenuSeparator(menu) }
 func okSubmenu(menu, title)          { emit chocSubmenuIn(menu, title) }
 
-// Runtime class synthesis for delegates/custom views, still no Obj-C source.
 func okClass(name)                   { emit chocClassNew(name) }
 func okViewClass(name)               { emit chocViewClassNew(name) }
 func okMethod(c, selName, fnPtr, types) { emit chocClassAddMethod(c, selName, fnPtr, types) }

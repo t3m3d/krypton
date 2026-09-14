@@ -226,6 +226,29 @@ func streamFrontendIR(root, fe, src) {
     emit "0"
 }
 
+func streamFrontendIRTarget(root, fe, src, target) {
+    let tmpir = tmpPath("_kccir", ".kir")
+    let tmperr = tmpPath("_kccirerr", ".txt")
+    exec("KRYPTON_TARGET=" + q(target) + " KRYPTON_ROOT=" + q(root) + " " +
+        q(fe) + " --target " + q(target) + " --ir " + q(src) +
+        " > " + q(tmpir) + " 2> " + q(tmperr))
+    let ir = readText(tmpir)
+    let err = readText(tmperr)
+    rm(tmpir)
+    rm(tmperr)
+    if err != "" {
+        kp(_chompWS(err))
+        emit "0"
+    }
+    if startsWith(ir, "; Krypton IR") {
+        kp(ir)
+        emit "1"
+    }
+    if ir != "" { kp(_chompWS(ir)) }
+    else { kp("kcc: iOS IR emission failed for " + src) }
+    emit "0"
+}
+
 // native macOS arm64 compile: src -> out. Returns "1" ok / "0" fail.
 func compileMacos(root, src, out) {
     let fe = root + "/compiler/macos_arm64/kcc-arm64"
@@ -244,6 +267,30 @@ func compileMacos(root, src, out) {
     rm(tmpir)
     if exists(out) == "0" {
         kp("kcc: native codegen failed")
+        emit "0"
+    }
+    exec("chmod +x " + q(out))
+    emit "1"
+}
+
+// macOS-hosted iOS cross compile. Frontend and shared arm64 Mach-O backend both
+// receive target explicitly; no C, Swift, or Objective-C source compiler runs.
+func compileIos(root, src, out, target) {
+    let fe = root + "/compiler/macos_arm64/kcc-arm64"
+    let host = root + "/compiler/macos_arm64/macho_host"
+    if ensureHost(root) == "0" { emit "0" }
+    let tmpir = tmpPath("_kccios", ".kir")
+    exec("KRYPTON_TARGET=" + q(target) + " KRYPTON_ROOT=" + q(root) + " " +
+        q(fe) + " --target " + q(target) + " --ir " + q(src) + " > " + q(tmpir))
+    if size(tmpir) == 0 {
+        kp("kcc: iOS IR emission failed for " + src)
+        rm(tmpir)
+        emit "0"
+    }
+    exec(q(host) + " --target " + q(target) + " --ir " + q(tmpir) + " " + q(out))
+    rm(tmpir)
+    if exists(out) == "0" {
+        kp("kcc: iOS codegen failed")
         emit "0"
     }
     exec("chmod +x " + q(out))
@@ -328,7 +375,7 @@ func linuxSrc() {
     let i = 0
     while i < argCount() {
         let a = arg(i)
-        if a == "-o" { i = i + 2 }
+        if a == "-o" || a == "--target" { i = i + 2 }
         else {
             if startsWith(a, "-") { i = i + 1 }
             else { emit a }
@@ -583,6 +630,7 @@ just run {
         kp("  --native    (default) emit native binary at ./<basename>")
         kp("  --ir        emit Krypton IR to stdout")
         kp("  --arm64     cross-compile to a static aarch64 ELF")
+        kp("  --target T  cross-compile: ios-sim-arm64 or ios-device-arm64")
         kp("  -o FILE     output path")
         kp("  -r FILE     compile, run, delete (like python file.py)")
         kp("  -e CODE     compile + run an inline snippet (like python -c)")
@@ -604,6 +652,11 @@ just run {
     }
 
     let os = sh("uname -s")
+    let requestedTarget = optValue("--target", "")
+    if requestedTarget != "" && os != "Darwin" {
+        kp("kcc: target " + requestedTarget + " requires a macOS build host")
+        exit("1")
+    }
 
     // ── Linux native pipeline (x86-64 native, or --arm64 cross to aarch64) ────
     if os == "Linux" {
@@ -801,6 +854,28 @@ just run {
     if os != "Darwin" {
         kp("kcc-native: unsupported host " + os + " (macOS + Linux + FreeBSD + Windows wired)")
         exit("1")
+    }
+
+    let target = requestedTarget
+    if target != "" {
+        if target != "ios-sim-arm64" && target != "ios-device-arm64" {
+            kp("kcc: unsupported target " + target)
+            exit("1")
+        }
+        let src = linuxSrc()
+        if src == "" { kp("kcc: --target needs a source file")  exit("1") }
+        let fe = root + "/compiler/macos_arm64/kcc-arm64"
+        if hasFlag("--ir") {
+            if streamFrontendIRTarget(root, fe, src, target) == "0" { exit("1") }
+            exit("0")
+        }
+        if hasFlag("-r") {
+            kp("kcc: iOS targets cannot run directly on macOS; use scripts/build-ios-app.ks")
+            exit("1")
+        }
+        let out = optValue("-o", baseName(src))
+        if compileIos(root, src, out, target) == "0" { exit("1") }
+        exit("0")
     }
 
     // --ir <src>: just stream IR from the frontend.

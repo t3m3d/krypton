@@ -233,6 +233,7 @@ let g_NFOREIGN  = 0
 let g_FORSYMS   = ""    // newline-sep import symbols, with leading "_" (e.g. "_getpid")
 let g_FORLIB    = ""    // newline-sep 1-based dylib ordinal, parallel to g_FORSYMS
 let g_DYLIBS    = ""    // newline-sep dylib paths (ordinal = index+1)
+let g_TARGET_PLATFORM = "macos"
 // N-import layout (set by computeLayout when g_NFOREIGN>0; all 0 otherwise)
 let g_TEXT_OFF      = 0x460   // file offset of __text (bumped to 0x800 when N>0 for LC headroom)
 let g_STUBS_SZ      = 0
@@ -265,6 +266,7 @@ func _isMsgSend(name) {
 }
 func foreignLibFor(name) {
     if name == "getpid"          { emit "/usr/lib/libSystem.B.dylib" }
+    if name == "UIApplicationMain" { emit "/System/Library/Frameworks/UIKit.framework/UIKit" }
     if _isMsgSend(name) == 1     { emit "/usr/lib/libobjc.A.dylib" }
     if name == "objc_getClass"   { emit "/usr/lib/libobjc.A.dylib" }
     if name == "objc_lookUpClass"{ emit "/usr/lib/libobjc.A.dylib" }
@@ -345,6 +347,7 @@ func arm64_load64(xd, val) {
 // instruction count for a CALL_FUNC (must match the byte emitter). The NSRect
 // window-init special form is 15 instrs (3 GP pops + 4×(pop+scvtf) + 2 GP pops + bl + push).
 func cfCount(cname, argc) {
+    if cname == "callPtr" { emit argc + 4 }
     if cname == "objc_msgSend_rect" { emit 15 }
     if cname == "objc_msgSend_frame" { emit 12 }   // (obj,sel,x,y,w,h): rect-only NSRect arg
     if cname == "objc_msgSend_d1" { emit 6 }        // (obj,sel,n): one CGFloat arg -> d0
@@ -352,6 +355,9 @@ func cfCount(cname, argc) {
     if cname == "objc_msgSend_timer" { emit 13 }    // (self,sel,ms,target,actsel,info,rep): ms/1000->d0 + x2..x5
     if cname == "objc_msgSend_rgb" { emit 17 }      // (self,sel,r,g,b): r/g/b/255->d0..d2, 1.0->d3 (colorWithRed:green:blue:alpha:)
     if cname == "objc_msgSend_d2" { emit 8 }        // (self,sel,a,b): NSSize a->d0, b->d1 (setSize:/setMaxSize:)
+    if cname == "objc_msgSend_d3" { emit 10 }       // (self,sel,a,b,c): CGFloat args d0..d2
+    if cname == "objc_msgSend_point_x" { emit 6 }   // (self,sel,obj): CGPoint d0 -> x0
+    if cname == "objc_msgSend_point_y" { emit 6 }   // (self,sel,obj): CGPoint d1 -> x0
     emit argc + 2
 }
 // 0-based index of foreign symbol "_"+name in g_FORSYMS, or -1 if not foreign.
@@ -399,7 +405,15 @@ func detectForeign(parsed) {
     while d < lineCount(g_DYLIBS) { if getLine(g_DYLIBS, d) == "/usr/lib/libobjc.A.dylib" { usesObjc = 1 }  d += 1 }
     if usesObjc == 1 {
         _dylibOrd("/System/Library/Frameworks/Foundation.framework/Foundation")
-        _dylibOrd("/System/Library/Frameworks/AppKit.framework/AppKit")
+        if g_TARGET_PLATFORM == "ios-sim-arm64" || g_TARGET_PLATFORM == "ios-device-arm64" {
+            _dylibOrd("/System/Library/Frameworks/UIKit.framework/UIKit")
+            _dylibOrd("/System/Library/Frameworks/SpriteKit.framework/SpriteKit")
+        } else {
+            _dylibOrd("/System/Library/Frameworks/AppKit.framework/AppKit")
+            if indexOf(parsed, "SKView") >= 0 || indexOf(parsed, "SKScene") >= 0 {
+                _dylibOrd("/System/Library/Frameworks/SpriteKit.framework/SpriteKit")
+            }
+        }
     }
     emit 0
 }
@@ -832,6 +846,7 @@ func arm64_ldr_imm(rt, rn, imm12_scaled) {
 }
 // br Xn  →  0xd61f0000 | (Xn << 5)
 func arm64_br(rn) { emit hexDword((0xd61f * 0x10000 + 0x0) + rn * 0x20) }
+func arm64_blr(rn) { emit hexDword((0xd63f * 0x10000 + 0x0) + rn * 0x20) }
 
 // str Xt, [sp, #-16]!   (push Xt to eval stack)  → 0xf81f0fe0 | Rt
 func arm64_push(rt) { emit hexDword((0xf81f * 0x10000 + 0xfe0) + rt) }
@@ -2174,6 +2189,14 @@ func parseFullIR(ir) {
                     let bname = substring(rest, 0, bj)
                     if bname == "kp" {
                         curOps = sbAppend(curOps, "BUILTIN_KP\n")
+                        nOps += 1
+                    } else if bname == "callPtr" {
+                        let argc = toInt(trim(substring(rest, bj + 1, len(rest))))
+                        if argc < 1 || argc > 9 {
+                            printErr("macho_arm64_self: callPtr needs a pointer and 0..8 arguments")
+                            exit("1")
+                        }
+                        curOps = sbAppend(curOps, "CALL_FUNC callPtr " + argc + "\n")
                         nOps += 1
                     } else if bname == "structNew" {
                         // Dynamic reflection API over the same (keyPtr,value) env
@@ -5986,7 +6009,21 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             if s2 < len(restTok) { argc = toInt(trim(substring(restTok, s2 + 1, len(restTok)))) }
             // objk NSRect form: objc_msgSend_rect(obj, sel, x, y, w, h, mask, backing, defer)
             // arm64 AAPCS: self x0, sel x1, NSRect{x,y,w,h} -> d0..d3, mask x2, backing x3, defer x4.
-            if cname == "objc_msgSend_rect" {
+            if cname == "callPtr" {
+                // Native Krypton ABI: arguments in x0..x7, boxed values intact.
+                let reg = argc - 2
+                while reg >= 0 {
+                    s = sbAppend(s, arm64_pop(reg))
+                    instrIdx += 1
+                    reg -= 1
+                }
+                s = sbAppend(s, arm64_pop(16))
+                s = sbAppend(s, arm64_cbnz(16, 2))
+                s = sbAppend(s, arm64_brk(101))
+                s = sbAppend(s, arm64_blr(16))
+                s = sbAppend(s, arm64_push_x0())
+                instrIdx += 5
+            } else if cname == "objc_msgSend_rect" {
                 s = sbAppend(s, arm64_pop(4))  instrIdx = instrIdx + 1   // defer
                 s = sbAppend(s, arm64_pop(3))  instrIdx = instrIdx + 1   // backing
                 s = sbAppend(s, arm64_pop(2))  instrIdx = instrIdx + 1   // mask
@@ -6090,6 +6127,32 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
                 s = sbAppend(s, arm64_pop(0))  instrIdx = instrIdx + 1   // self
                 let d2i = textSz / 4 + foreignIdx("objc_msgSend_d2") * 3
                 s = sbAppend(s, arm64_bl(d2i - instrIdx))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_push(0))  instrIdx = instrIdx + 1
+            } else if cname == "objc_msgSend_d3" {
+                // (self,sel,a,b,c): CGFloat args d0..d2
+                s = sbAppend(s, arm64_pop(9))  instrIdx = instrIdx + 1   // c
+                s = sbAppend(s, arm64_scvtf_d_x(2, 9))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_pop(9))  instrIdx = instrIdx + 1   // b
+                s = sbAppend(s, arm64_scvtf_d_x(1, 9))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_pop(9))  instrIdx = instrIdx + 1   // a
+                s = sbAppend(s, arm64_scvtf_d_x(0, 9))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_pop(1))  instrIdx = instrIdx + 1   // sel
+                s = sbAppend(s, arm64_pop(0))  instrIdx = instrIdx + 1   // self
+                let d3i = textSz / 4 + foreignIdx("objc_msgSend_d3") * 3
+                s = sbAppend(s, arm64_bl(d3i - instrIdx))  instrIdx = instrIdx + 1
+                s = sbAppend(s, arm64_push(0))  instrIdx = instrIdx + 1
+            } else if cname == "objc_msgSend_point_x" || cname == "objc_msgSend_point_y" {
+                // (self,sel,obj): CGPoint return in d0/d1, selected component -> x0.
+                s = sbAppend(s, arm64_pop(2))  instrIdx = instrIdx + 1   // relativeTo
+                s = sbAppend(s, arm64_pop(1))  instrIdx = instrIdx + 1   // sel
+                s = sbAppend(s, arm64_pop(0))  instrIdx = instrIdx + 1   // self
+                let pi = textSz / 4 + foreignIdx(cname) * 3
+                s = sbAppend(s, arm64_bl(pi - instrIdx))  instrIdx = instrIdx + 1
+                if cname == "objc_msgSend_point_x" {
+                    s = sbAppend(s, arm64_fcvtzs_x_d(0, 0))  instrIdx = instrIdx + 1
+                } else {
+                    s = sbAppend(s, arm64_fcvtzs_x_d(0, 1))  instrIdx = instrIdx + 1
+                }
                 s = sbAppend(s, arm64_push(0))  instrIdx = instrIdx + 1
             } else {
             // Pop args in reverse: x(argc-1) first (TOS), down to x0 (deepest)
@@ -7163,13 +7226,23 @@ func emitLcLoadDylinker() {
     emit s
 }
 
-// LC_BUILD_VERSION (24 B): platform=1 (MACOS), minos=14.0, sdk=14.0, ntools=0
+// LC_BUILD_VERSION (24 B). iOS simulator=7, iOS device=2, macOS=1.
 func emitLcBuildVersion() {
     let s = ""
+    let platform = 1
+    let minos = 0x000e0000
+    if g_TARGET_PLATFORM == "ios-sim-arm64" {
+        platform = 7
+        minos = 0x000f0000
+    }
+    if g_TARGET_PLATFORM == "ios-device-arm64" {
+        platform = 2
+        minos = 0x000f0000
+    }
     s = s + hexDword(LC_BUILD_VERSION()) + hexDword(24)
-    s = s + hexDword(1)                             // PLATFORM_MACOS
-    s = s + hexDword(0x000e0000)                    // minos = 14.0.0
-    s = s + hexDword(0x000e0000)                    // sdk = 14.0.0
+    s = s + hexDword(platform)
+    s = s + hexDword(minos)
+    s = s + hexDword(minos)
     s = s + hexDword(0)                             // ntools
     emit s
 }
@@ -7345,11 +7418,26 @@ just run {
     if argCount() == 0 {
         printErr("usage: kcc compiler/macos_arm64/macho_arm64_self.k <output_path>")
         printErr("       kcc compiler/macos_arm64/macho_arm64_self.k --ir <input.kir> <output_path>")
+        printErr("       kcc compiler/macos_arm64/macho_arm64_self.k --target ios-sim-arm64|ios-device-arm64 --ir <input.kir> <output_path>")
         printErr("       kcc compiler/macos_arm64/macho_arm64_self.k --sha256-test")
         exit("1")
     }
 
+    let argBase = 0
     let arg0 = arg("0")
+    if arg0 == "--target" {
+        g_TARGET_PLATFORM = arg("1")
+        if g_TARGET_PLATFORM != "ios-sim-arm64" && g_TARGET_PLATFORM != "ios-device-arm64" {
+            printErr("macho_arm64_self: unsupported target '" + g_TARGET_PLATFORM + "'")
+            exit("1")
+        }
+        argBase = 2
+        arg0 = arg("2")
+        if arg0 == "" {
+            printErr("macho_arm64_self: --target needs an operation")
+            exit("1")
+        }
+    }
     let outFile = arg0
 
     // --ir <input.kir> <output_path>: compile the simple-subset IR to a
@@ -7359,8 +7447,8 @@ just run {
     let irStrOffsets = ""
     let useIr = "0"
     if arg0 == "--ir" {
-        let inFile = arg("1")
-        outFile = arg("2")
+        let inFile = arg((argBase + 1) + "")
+        outFile = arg((argBase + 2) + "")
         if len(inFile) == 0 || len(outFile) == 0 {
             printErr("usage: --ir <input.kir> <output_path>")
             exit("1")
@@ -7394,7 +7482,7 @@ just run {
 
     // objk import de-risk (isolated; no IR, no production layout).
     if arg0 == "--objk-import-test" {
-        let oOut = arg("1")
+        let oOut = arg((argBase + 1) + "")
         if len(oOut) == 0 { printErr("usage: --objk-import-test <out>")  exit("1") }
         emitObjkTestBinary(oOut)
         exit("0")

@@ -1,0 +1,15 @@
+// foundation_ios.krh -- Foundation names used by Objective-K on iOS.
+
+module foundation_ios_constants
+
+const NSObject_cls = "NSObject"
+const NSString_cls = "NSString"
+const NSArray_cls = "NSArray"
+const NSDictionary_cls = "NSDictionary"
+const NSNumber_cls = "NSNumber"
+const NSURL_cls = "NSURL"
+
+const sel_alloc = "alloc"
+const sel_init = "init"
+const sel_stringWithUTF8String = "stringWithUTF8String:"
+const sel_UTF8String = "UTF8String"

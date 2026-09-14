@@ -130,19 +130,19 @@ the Python daemon.
 Health check:
 
 ```bash
-curl https://vault.example.com/health
+curl https://kry.li/health
 ```
 
 Vault fetch:
 
 ```bash
-curl 'https://vault.example.com/v1/vault?user=alice&token=TOKEN'
+curl 'https://kry.li/v1/vault?user=alice&token=TOKEN'
 ```
 
 Raw sealed-vault fetch for desktop restore:
 
 ```bash
-curl -G https://vault.example.com/v1/vault/blob \
+curl -G https://kry.li/v1/vault/blob \
   --data-urlencode 'user=alice' \
   --data-urlencode 'token=TOKEN'
 ```
@@ -150,7 +150,7 @@ curl -G https://vault.example.com/v1/vault/blob \
 Vault upload:
 
 ```bash
-curl -X POST https://vault.example.com/v1/vault \
+curl -X POST https://kry.li/v1/vault \
   -d 'user=alice' \
   -d 'token=TOKEN' \
   -d 'rev=1' \
