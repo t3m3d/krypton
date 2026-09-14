@@ -62,6 +62,14 @@ The web framework adds a third extension for templates:
 
 - **OKUI becomes the app-facing Objective-K layer** — app code imports `k:okui`; macOS routes through `objk`/Choc/AppKit and Windows routes through `objkwin`/Choc/Win32.
 - **kweb GUI now builds on OKUI** — fewer direct backend calls in the app.
+- **Experimental macOS K-owned core** — classes, inheritance, dispatch, owned/weak fields, cleanup, and object/field memory reuse with fresh handle IDs. Uses normal imports and function calls, not new class syntax.
+- **Compiler support** — imported executable globals initialize before entry work; macOS native `callPtr` supports zero through eight Krypton arguments.
+
+These are checkout changes, not confirmation of a published 2.4.6. Apple GUI
+adapters remain in use; Windows/Linux/BSD execution parity is not claimed.
+See [implementation spec and remaining work](spec.md) and
+[macOS runtime guide](docs/objk_runtime_macos.md). Last recorded full macOS
+suite: 70 pass, 1 negative-number assertion failure, 8 platform/pointer skips.
 
 ## What's new in 2.4.4
 
