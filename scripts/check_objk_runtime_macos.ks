@@ -90,6 +90,8 @@ just run {
     runCheck(lifetime, "owned fields and cleanup", log)
     let weak = compileCheck(root, work, "tests/macos/test_objk_weak.k", "weak")
     runCheck(weak, "weak fields", log)
+    let reuse = compileCheck(root, work, "tests/macos/test_objk_reuse.k", "reuse")
+    runCheck(reuse, "arena reuse and stale weak handles", log)
 
     let invalid = compileCheck(root, work, "tests/fixtures/objk_runtime_invalid.ks", "invalid")
     rejectCheck(invalid, "unregistered", "class not registered", log)
@@ -105,6 +107,7 @@ just run {
     rejectCheck(invalid, "pointer", "field needs integer or arena handle", log)
     rejectCheck(invalid, "capacity", "arena full", log)
     rejectCheck(invalid, "released", "object released", log)
+    rejectCheck(invalid, "stale-reused", "object released", log)
     rejectCheck(invalid, "double-release", "object released", log)
     rejectCheck(invalid, "retain-dead", "object released", log)
     rejectCheck(invalid, "cleanup-null", "invalid cleanup callback", log)

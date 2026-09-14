@@ -65,6 +65,10 @@ just run {
         okKText(small, "this string is too long to fit inside this arena allocation")
     }
     doKRelease(runtime, object)
+    if mode == "stale-reused" {
+        let replacement = okKNew(runtime, base)
+        okKSend(runtime, object, "value")
+    }
     if mode == "released" { okKSend(runtime, object, "value") }
     if mode == "double-release" { doKRelease(runtime, object) }
     if mode == "retain-dead" { okKRetain(runtime, object) }

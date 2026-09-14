@@ -100,14 +100,24 @@ is rejected by the same write guard. Cleanup errors use the runtime's fail-fast
 diagnostics; no exception unwinding is provided.
 
 All records and copied text live in one fixed-capacity arena. Handles are
-checked allocation offsets, not raw pointers, and are never reused. Keep the
+checked integer IDs, not raw pointers or offsets, and are never reused. Keep the
 runtime buffer reachable for every handle's lifetime. Arena identity is implicit
 in the runtime argument; do not mix handles from different runtimes.
 
-Individual release does not return memory to the allocator. The host GC can
-reclaim the entire arena once its runtime buffer becomes unreachable. This
-layout avoids depending on macOS GC object-graph traversal, which is not yet
-implemented. Do not use it as a long-lived, unbounded allocation pool.
+Final release returns object records, field records, and their private field
+names to a first-fit allocator, after cleanup and owned-child release finish.
+Replacement allocations get fresh IDs: stale strong handles are rejected and
+expired weak handles remain zero even after storage reuse. `okKRefCount` returns
+zero for a previously issued ID whose record has been freed; it cannot recover
+the old record kind after reuse, so pass only object IDs to this API.
+
+Classes, methods, their names, and caller-created `okKText` remain allocated.
+Free blocks are not split or coalesced yet; variable-size churn can fragment
+the arena. ID exhaustion fails rather than wrapping (about 62 million issued
+IDs per arena). Lookup scans allocation blocks; this is not a dispatch-speed
+optimization. Arena identity remains implicit, and the runtime is single-threaded.
+The host GC reclaims the whole arena once its buffer becomes unreachable.
+This layout avoids relying on macOS GC object-graph traversal.
 
 ## Compiler Support
 
@@ -165,7 +175,7 @@ identity and previously caused `setMinSize:` to crash.
 
 ## Next Stages
 
-1. Add arena reclamation without stale-handle reuse.
+1. Extend reclamation with block splitting/coalescing and explicit text lifetime.
 2. Add typed method metadata and compiler-checked dispatch.
 3. Add generated Apple bridge adapters for K-owned objects.
 4. Extend Choc widget state and events around the K-owned core.
