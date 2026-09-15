@@ -1,5 +1,17 @@
 # Krypton Roadmap
 
+## Current Objective-K Track
+
+macOS arm64 K-owned classes, dispatch, owned/weak fields, cleanup, and fresh-ID
+storage reuse are implemented experimentally. Free-block splitting/coalescing
+and runtime object-class method contracts are now added. Next: text ownership,
+primitive/compiler type checks, then more K-owned Choc state/adapters. Nominal
+runtime protocols now check required methods and inherited conformance at sealing.
+See [spec and validation gates](../spec.md) and
+[runtime guide](objk_runtime_macos.md). Apple GUI backends remain; this is not
+a Cocoa replacement or a new release announcement. Older version/GC notes
+below are historical, not the status of this Objective-K work.
+
 Current released version: **1.7.5** (2026-05-04). Internal builds beyond
 1.7.5 (1.7.6 / 1.7.7 / 1.7.8) are kept under `versions/kcc_v17X.exe`
 snapshots and ship features incrementally as the GC machinery is built

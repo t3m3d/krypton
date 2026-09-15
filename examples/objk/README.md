@@ -37,3 +37,60 @@ Focused OKUI check:
 Windows parity check:
 
     kcc.exe -r scripts/check_okui.ks
+
+## Objective-K Focus
+
+`objective_k_focus.ks` is a macOS app built on the K-owned additions. It uses:
+
+- `Scoreable` protocol with required methods
+- runtime-checked `combine(Focus) -> Focus` dispatch
+- owned work/rest models in application state
+- weak peer links that do not form a cycle
+- cleanup hooks released through Quit
+- OKUI controls following system theme
+
+Build:
+
+```sh
+export KRYPTON_ROOT="$PWD"
+./bootstrap/kcc_driver_macos_aarch64 -r scripts/build-objk-app.ks \
+  examples/objk/objective_k_focus.ks objective_k_focus
+open dist/objective_k_focus.app
+```
+
+Run native integration smoke through `scripts/check_objk_runtime_macos.ks --gui`.
+
+## macOS K-Owned Counter
+
+`k_owned_counter_macos.ks` uses `k:objk_runtime_macos` for its model and
+`k:okui` for native controls. `.ks` and `.k` compile with the same compiler;
+this demo introduces no new class syntax.
+
+From checkout root on macOS arm64:
+
+```sh
+export KRYPTON_ROOT="$PWD"
+./bootstrap/kcc_driver_macos_aarch64 -r scripts/build-objk-app.ks \
+  examples/objk/k_owned_counter_macos.ks objk_counter
+open dist/objk_counter.app
+```
+
+K state owns the counter model. Buttons dispatch to it and update the native
+label. `Quit`/Command-Q releases state and its model, then terminates the app.
+Native controls stay outside K integer fields. Do not stringify window handles;
+native selectors require pointer identity.
+
+Check integration rather than relying only on a visible window:
+
+```sh
+./bootstrap/kcc_driver_macos_aarch64 -r scripts/check_objk_runtime_macos.ks --gui
+```
+
+This verifies actions reach value 1 and model cleanup runs exactly once.
+Without `--gui`, it checks object behavior and stale-ID safety without opening
+windows. Other examples may use older Apple-backed object APIs; they are not
+proof that every object has migrated to the K-owned core.
+
+Contracts and remaining work: [spec](../../spec.md),
+[runtime guide](../../docs/objk_runtime_macos.md),
+[grammar](../../docs/spec/grammar.md#objective-k-runtime-boundary).

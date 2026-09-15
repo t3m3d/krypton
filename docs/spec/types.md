@@ -2,6 +2,21 @@
 
 **Version 2.2**
 
+## Objective-K Arena IDs
+
+The macOS K-owned runtime uses integer IDs, not native pointers, typed struct
+receivers, or stringified objects. IDs belong to the supplied runtime and must
+not be mixed across arenas or used in pointer arithmetic. Slots can be reused;
+IDs cannot. Weak reads return 0 after target release, including after reuse.
+
+`doKSet` permits only integers/arena IDs in -1000000000..1000000000.
+Owned/weak fields accept live object IDs or 0 and keep their ownership policy.
+Copied text uses `okKText`/`okKTextValue`; external heap/control pointers must
+stay outside value fields. Ordinary parameter annotations do not yet establish
+compiler-checked Objective-K method signatures. `okKObjectMethod` can constrain
+arguments/results to object classes at runtime; signature 0 is unconstrained,
+not a nullable type. See [spec](../../spec.md#arena-and-ids).
+
 Krypton uses a **dynamic, string-based value model** by default. All values
 are strings at runtime; numeric and boolean operations work by inspecting
 and converting string content. Two opt-in escape hatches override this for

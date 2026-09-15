@@ -1,5 +1,18 @@
 # Import paths
 
+## Objective-K Module Initialization
+
+`import "k:objk_runtime_macos"` is an ordinary stdlib import from either `.k`
+or `.ks`. In executable builds, module-scope `let`/`const` initializer IR from
+discovered imports runs before entry work in dependency-first traversal order.
+Imported functions can access those globals; locals and parameters shadow them.
+
+The existing walker supports its current one dependency layer, not arbitrary
+transitive graphs. Namespaces, cyclic initialization semantics, entryless
+DLL initialization, and imported floating-point type propagation are not supplied
+by this change. Keep a runtime arena reachable for all of its handles' lifetime.
+See [compiler contract](../spec.md#imported-globals).
+
 Krypton uses Odin-style import prefixes — short namespace aliases that
 encode both the source folder and the file extension, so you never type
 `.k` or `.krh` in an import line.

@@ -8,6 +8,10 @@ Krypton. It does not import Cocoa, UIKit, Foundation, or `libobjc`. Existing
 Objective-K GUI apps still use their Apple adapters; this core does not replace
 those adapters yet.
 
+The [repo spec](../spec.md) contains API contracts, arena layout, compiler
+prerequisites, validation gates, and outstanding work. Grammar references cover
+existing imports/calls only; this module adds no Objective-K syntax.
+
 ## Use From Krypton Or KryptScript
 
 ```krypton
@@ -49,6 +53,53 @@ version supports zero-user-argument `super` messages.
 
 `okKResponds` checks for a method; `okKIsA` checks class ancestry.
 
+## Object-Class Method Contracts
+
+Use `okKObjectMethod(runtime, klass, name, arity, pointer, firstClass,
+secondClass, resultClass)` to constrain arguments/results to object classes.
+Signature 0 means unconstrained; constrained values must be nonnull readable
+objects of that class or a subclass. Absent argument slots must be unconstrained.
+Checks run before arguments reach the callback and after its result returns.
+No retain/release is added. Legacy overrides inherit constraints; explicit typed
+overrides of typed parents must match exactly. Callback ABI remains caller-owned.
+This is not compiler type checking. See [full contract](../spec.md#object-typed-methods).
+
+## K-Owned Protocols
+
+Define `okKProtocol(runtime, name, parent)` with parent 0 or a sealed protocol.
+Add `doKRequireMethod(runtime, protocol, name, arity, firstClass, secondClass,
+resultClass)`, then `doKRegisterProtocol`. Adopt it with
+`doKConform(runtime, klass, protocol)` before `doKRegister`.
+
+Class sealing checks required methods, arity, and exact class constraints using
+effective inherited lookup. Subclass sealing rechecks inherited conformance, so
+overrides cannot silently invalidate it. `okKConforms` queries nominal adoption,
+including class/protocol ancestors; matching methods alone do not confer adoption.
+Requirements have no callback pointers or default implementations. This adds
+runtime APIs, not grammar keywords or Objective-C protocol interoperation.
+See [complete protocol contract](../spec.md#protocols).
+
+```krypton
+func answer(runtime, self) { emit 42 }
+
+just run {
+    let runtime = okKRuntime(4096)
+    let readable = okKProtocol(runtime, "Readable", 0)
+    doKRequireMethod(runtime, readable, "answer", 0, 0, 0, 0)
+    doKRegisterProtocol(runtime, readable)
+    let model = okKClass(runtime, "Model", 0)
+    okKMethod(runtime, model, "answer", 0, funcptr(answer))
+    doKConform(runtime, model, readable)
+    doKRegister(runtime, model)
+    let object = okKNew(runtime, model)
+    kp(okKConforms(runtime, object, readable))
+    kp(okKSend(runtime, object, "answer"))
+    doKRelease(runtime, object)
+}
+```
+
+This snippet assumes `import "k:objk_runtime_macos"` at the top of the file.
+
 ## Fields And Lifetime
 
 - Fields contain integers in `[-1000000000, 1000000000]` or arena handles.
@@ -88,8 +139,10 @@ may register one callback; null pointers, duplicate hooks, and sealed-class
 changes are rejected. The function signature remains caller-checked.
 
 Final release invokes the most-derived class hook first, then each parent hook,
-then releases owned fields and tombstones the object. Hooks are automatic; do
-not manually invoke parent cleanup. Classes without hooks are skipped.
+then releases owned children and reclaims the object and its private field
+storage. Owner fields stay readable until every owned-child callback finishes.
+Hooks are automatic; do not manually invoke parent cleanup. Classes without
+hooks are skipped.
 Owned field release order is unspecified and currently walks the field list.
 
 During cleanup, getters and read-only messages still work, owned children remain
@@ -112,8 +165,9 @@ zero for a previously issued ID whose record has been freed; it cannot recover
 the old record kind after reuse, so pass only object IDs to this API.
 
 Classes, methods, their names, and caller-created `okKText` remain allocated.
-Free blocks are not split or coalesced yet; variable-size churn can fragment
-the arena. ID exhaustion fails rather than wrapping (about 62 million issued
+Adjacent free blocks coalesce during allocation; spare space splits when at
+least 24 bytes remain. Live records are not moved, so fragmentation is still
+possible. ID exhaustion fails rather than wrapping (about 62 million issued
 IDs per arena). Lookup scans allocation blocks; this is not a dispatch-speed
 optimization. Arena identity remains implicit, and the runtime is single-threaded.
 The host GC reclaims the whole arena once its buffer becomes unreachable.
@@ -148,6 +202,11 @@ Checks module initialization, indirect calls, class ancestry, method overrides,
 survival, and failure paths. Lifetime checks include same-child replacement,
 shared ownership, cycle breaking, release chains, and resurrection rejection.
 Also inspects the test binary to reject Apple object-runtime dependencies.
+Reuse checks run 2,000 allocation/release cycles in a 1KB arena without
+high-water growth, preserve expired weak IDs, reject stale strong access after
+slot replacement, and verify cleanup can allocate without reusing self early.
+Protocol checks cover class/protocol inheritance, multiple adoption, missing
+methods, signature/arity mismatches, sealing, duplicates, and subclass overrides.
 Pass `--gui` to also compile and run the native window/button callback smoke
 test. It requires a macOS desktop session; the default checks do not launch GUI
 apps.
@@ -175,11 +234,12 @@ identity and previously caused `setMinSize:` to crash.
 
 ## Next Stages
 
-1. Extend reclamation with block splitting/coalescing and explicit text lifetime.
-2. Add typed method metadata and compiler-checked dispatch.
-3. Add generated Apple bridge adapters for K-owned objects.
-4. Extend Choc widget state and events around the K-owned core.
+1. Extend reclamation with explicit text lifetime and fragmentation stress tests.
+2. Extend runtime class contracts to primitive/text types and compiler diagnostics.
+3. Extend protocols with protocol-typed signatures and compiler diagnostics.
+4. Add generated Apple bridge adapters for K-owned objects.
+5. Extend Choc widget state and events around the K-owned core.
 
-No automatic reference counting, protocols, thread safety, dispatch cache,
+No automatic reference counting, thread safety, dispatch cache,
 compiler class-syntax integration, or Cocoa replacement is claimed by this
 prototype. No Windows runtime binaries are changed.

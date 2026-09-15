@@ -2,6 +2,35 @@
 
 **Version 2.2** — Reference for built-in functions.
 
+## Objective-K macOS Addendum
+
+The experimental K-owned API is a library, not a collection of compiler
+builtins. Import `k:objk_runtime_macos`; see the
+[API contract](../../spec.md#public-api) and [usage guide](../objk_runtime_macos.md).
+It provides classes/inheritance, 0..2-user-argument message dispatch, integer
+fields, owned/weak references, cleanup, and storage reuse without ID reuse.
+
+Native macOS arm64 `callPtr(pointer, ...)` accepts 0..8 Krypton arguments,
+preserves boxed values/returns, and traps on null. It does not validate the
+target signature or implement a general foreign ABI. `funcptr(name)` supplies
+the native callback address. Object methods take `(runtime, self, ...)`;
+cleanup takes `(runtime, self)` and its return value is ignored.
+
+`okKObjectMethod(runtime, klass, name, arity, pointer, firstClass, secondClass,
+resultClass)` checks object-class constraints at dispatch. Signature 0 leaves
+that position unconstrained. Constrained values accept subclasses, reject null,
+and remain borrowed. Explicit typed-parent overrides must match; legacy overrides
+inherit constraints. See [typed contract](../../spec.md#object-typed-methods).
+
+K-owned protocols use `okKProtocol`, `doKRequireMethod`, `doKRegisterProtocol`,
+`doKConform`, and `okKConforms`. Required methods and exact signatures are checked
+on class sealing, including inherited adoption against subclass overrides.
+See [protocol contract](../../spec.md#protocols). These APIs do not call libobjc.
+
+Historical pipeline tags below are not evidence of current cross-platform
+support. This addendum is verified only on macOS arm64 and does not reintroduce
+the removed C-emitter workflow.
+
 All values in Krypton are strings by default. Functions that operate on numbers
 parse their arguments and return numeric strings. Lists are comma-separated
 strings (`"a,b,c"`). Maps are interleaved key-value lists

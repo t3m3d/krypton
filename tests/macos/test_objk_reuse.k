@@ -1,6 +1,14 @@
 import "k:objk_runtime_macos"
 
 let reuseCleanupCount = 0
+let ownerReadCount = 0
+
+func readOwnerCleanup(runtime, self) {
+    let owner = okKGet(runtime, self, "owner")
+    if okKGet(runtime, owner, "tag") != 123 { kp("[FAIL] owner field list reclaimed early"); exit("1") }
+    ownerReadCount += 1
+    emit 0
+}
 
 func churnCleanup(runtime, self) {
     let temporary = okKNew(runtime, okKGet(runtime, self, "temporaryClass"))
@@ -52,4 +60,41 @@ just run {
     doKSet(runtime, releasing, "value", 7)
     doKRelease(runtime, releasing)
     check("cleanup can allocate without reclaiming self early", 1, reuseCleanupCount)
+
+    let fragmented = okKRuntime(1024)
+    let blockClass = okKClass(fragmented, "Blocks", 0)
+    doKRegister(fragmented, blockClass)
+    let a = okKNew(fragmented, blockClass)
+    let b = okKNew(fragmented, blockClass)
+    let c = okKNew(fragmented, blockClass)
+    let end = bufGetQwordAt(fragmented, 8)
+    doKRelease(fragmented, a)
+    doKRelease(fragmented, b)
+    doKRelease(fragmented, c)
+    let text = okKText(fragmented, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+    check("adjacent free records coalesced for larger text", end, bufGetQwordAt(fragmented, 8))
+    let splitObject = okKNew(fragmented, blockClass)
+    check("split remainder holds another object", end, bufGetQwordAt(fragmented, 8))
+    check("split preserves text", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", okKTextValue(fragmented, text))
+    doKRelease(fragmented, splitObject)
+    check("coalesced old ID remains dead", 0, okKRefCount(fragmented, b))
+
+    let graph = okKRuntime(4096)
+    let ownerClass = okKClass(graph, "Owner", 0)
+    doKRegister(graph, ownerClass)
+    let readerClass = okKClass(graph, "Reader", 0)
+    doKCleanup(graph, readerClass, funcptr(readOwnerCleanup))
+    doKRegister(graph, readerClass)
+    let owner = okKNew(graph, ownerClass)
+    let readerA = okKNew(graph, readerClass)
+    let readerB = okKNew(graph, readerClass)
+    doKSet(graph, readerA, "owner", owner)
+    doKSet(graph, readerB, "owner", owner)
+    doKOwn(graph, owner, "a", readerA)
+    doKOwn(graph, owner, "b", readerB)
+    doKSet(graph, owner, "tag", 123)
+    doKRelease(graph, readerA)
+    doKRelease(graph, readerB)
+    doKRelease(graph, owner)
+    check("both child hooks can read owner fields", 2, ownerReadCount)
 }

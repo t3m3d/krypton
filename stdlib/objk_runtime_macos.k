@@ -21,7 +21,24 @@ func okKAllocate(runtime, bytes) {
     let size = ((bytes + 7) / 8) * 8 + 16
     let cursor = 32
     while cursor < used {
-        if bufGetQwordAt(runtime, cursor + 16) == 0 && bufGetQwordAt(runtime, cursor) >= size { break }
+        if bufGetQwordAt(runtime, cursor + 16) == 0 {
+            let next = cursor + bufGetQwordAt(runtime, cursor)
+            while next < used && bufGetQwordAt(runtime, next + 16) == 0 {
+                bufSetQwordAt(runtime, cursor, bufGetQwordAt(runtime, cursor) + bufGetQwordAt(runtime, next))
+                next = cursor + bufGetQwordAt(runtime, cursor)
+            }
+            let available = bufGetQwordAt(runtime, cursor)
+            if available >= size {
+                if available - size >= 24 {
+                    let remainder = cursor + size
+                    bufSetQwordAt(runtime, remainder, available - size)
+                    bufSetQwordAt(runtime, remainder + 8, 0)
+                    bufSetQwordAt(runtime, remainder + 16, 0)
+                    bufSetQwordAt(runtime, cursor, size)
+                }
+                break
+            }
+        }
         cursor += bufGetQwordAt(runtime, cursor)
     }
     if cursor == used {
@@ -70,8 +87,9 @@ func doKFree(runtime, handle) {
     bufSetQwordAt(runtime, okKOffset(runtime, handle), 0)
 }
 
-// Record layouts: class {kind,parent,name,methods,sealed,cleanup}; method
-// {kind,next,name,arity,fn}; object {kind,class,refs,fields,alive}; field
+// Record layouts: class {kind,parent,name,methods,sealed,cleanup,protocols}; method
+// {kind,next,name,arity,fn,argClassA,argClassB,resultClass}; object
+// {kind,class,refs,fields,alive}; field
 // {kind,next,name,value,policy}; text {kind,length,bytes...}.
 // Field policy: 0 borrowed, 1 owned, 2 weak.
 func okKText(runtime, text) {
@@ -118,13 +136,14 @@ func okKClass(runtime, name, parent) {
         if okKRead(runtime, parent, 32) != 1 { okKFail("parent class not registered") }
     }
     let storedName = okKText(runtime, name)
-    let handle = okKAllocate(runtime, 48)
+    let handle = okKAllocate(runtime, 56)
     okKWrite(runtime, handle, 0, 1)
     okKWrite(runtime, handle, 8, parent)
     okKWrite(runtime, handle, 16, storedName)
     okKWrite(runtime, handle, 24, 0)
     okKWrite(runtime, handle, 32, 0)
     okKWrite(runtime, handle, 40, 0)
+    okKWrite(runtime, handle, 48, 0)
     emit handle
 }
 
@@ -149,21 +168,195 @@ func okKMethod(runtime, klass, name, arity, fnPtr) {
     if name == "" || fnPtr == 0 { okKFail("invalid method") }
     if arity < 0 || arity > 2 { okKFail("method arity out of range") }
     if okKOwnMethod(runtime, klass, name) != 0 { okKFail("duplicate method") }
+    let inherited = okKFindMethod(runtime, okKRead(runtime, klass, 8), name)
+    let firstClass = 0
+    let secondClass = 0
+    let resultClass = 0
+    if inherited != 0 {
+        firstClass = okKRead(runtime, inherited, 40)
+        secondClass = okKRead(runtime, inherited, 48)
+        resultClass = okKRead(runtime, inherited, 56)
+        if firstClass != 0 || secondClass != 0 || resultClass != 0 {
+            if arity != okKRead(runtime, inherited, 24) { okKFail("typed override argument count") }
+        }
+    }
     let storedName = okKText(runtime, name)
-    let method = okKAllocate(runtime, 40)
+    let method = okKAllocate(runtime, 64)
     okKWrite(runtime, method, 0, 2)
     okKWrite(runtime, method, 8, okKRead(runtime, klass, 24))
     okKWrite(runtime, method, 16, storedName)
     okKWrite(runtime, method, 24, arity)
     okKWrite(runtime, method, 32, fnPtr)
+    okKWrite(runtime, method, 40, firstClass)
+    okKWrite(runtime, method, 48, secondClass)
+    okKWrite(runtime, method, 56, resultClass)
     okKWrite(runtime, klass, 24, method)
     emit method
 }
 
+func okKObjectMethod(runtime, klass, name, arity, fnPtr, firstClass, secondClass, resultClass) {
+    if arity < 1 && firstClass != 0 { okKFail("type for absent argument") }
+    if arity < 2 && secondClass != 0 { okKFail("type for absent argument") }
+    if firstClass != 0 { okKRequire(runtime, firstClass, 1) }
+    if secondClass != 0 { okKRequire(runtime, secondClass, 1) }
+    if resultClass != 0 { okKRequire(runtime, resultClass, 1) }
+    let method = okKMethod(runtime, klass, name, arity, fnPtr)
+    let inherited = okKFindMethod(runtime, okKRead(runtime, klass, 8), name)
+    if inherited != 0 {
+        let oldFirst = okKRead(runtime, inherited, 40)
+        let oldSecond = okKRead(runtime, inherited, 48)
+        let oldResult = okKRead(runtime, inherited, 56)
+        if oldFirst != 0 || oldSecond != 0 || oldResult != 0 {
+            if oldFirst != firstClass || oldSecond != secondClass || oldResult != resultClass {
+                okKFail("typed override signature")
+            }
+        }
+    }
+    okKWrite(runtime, method, 40, firstClass)
+    okKWrite(runtime, method, 48, secondClass)
+    okKWrite(runtime, method, 56, resultClass)
+    emit method
+}
+
+func okKCheckObjectType(runtime, value, klass) {
+    if klass != 0 {
+        if okKIsA(runtime, value, klass) != 1 { okKFail("method object type mismatch") }
+    }
+    emit value
+}
+
 func doKRegister(runtime, klass) {
     okKRequire(runtime, klass, 1)
+    let current = klass
+    while current != 0 {
+        let declaration = okKRead(runtime, current, 48)
+        while declaration != 0 {
+            okKCheckProtocol(runtime, klass, okKRead(runtime, declaration, 16))
+            declaration = okKRead(runtime, declaration, 8)
+        }
+        current = okKRead(runtime, current, 8)
+    }
     okKWrite(runtime, klass, 32, 1)
     emit klass
+}
+
+func okKProtocol(runtime, name, parent) {
+    if name == "" { okKFail("empty protocol name") }
+    if parent != 0 {
+        okKRequire(runtime, parent, 7)
+        if okKRead(runtime, parent, 32) != 1 { okKFail("parent protocol not registered") }
+    }
+    let storedName = okKText(runtime, name)
+    let protocol = okKAllocate(runtime, 40)
+    okKWrite(runtime, protocol, 0, 7)
+    okKWrite(runtime, protocol, 8, parent)
+    okKWrite(runtime, protocol, 16, storedName)
+    okKWrite(runtime, protocol, 24, 0)
+    okKWrite(runtime, protocol, 32, 0)
+    emit protocol
+}
+
+func okKProtocolRequirement(runtime, protocol, name) {
+    let current = protocol
+    while current != 0 {
+        okKRequire(runtime, current, 7)
+        let requirement = okKRead(runtime, current, 24)
+        while requirement != 0 {
+            if okKTextEquals(runtime, okKRead(runtime, requirement, 16), name) { emit requirement }
+            requirement = okKRead(runtime, requirement, 8)
+        }
+        current = okKRead(runtime, current, 8)
+    }
+    emit 0
+}
+
+func doKRequireMethod(runtime, protocol, name, arity, firstClass, secondClass, resultClass) {
+    okKRequire(runtime, protocol, 7)
+    if okKRead(runtime, protocol, 32) != 0 { okKFail("protocol already registered") }
+    if name == "" { okKFail("empty requirement name") }
+    if arity < 0 || arity > 2 { okKFail("method arity out of range") }
+    if arity < 1 && firstClass != 0 { okKFail("type for absent argument") }
+    if arity < 2 && secondClass != 0 { okKFail("type for absent argument") }
+    if firstClass != 0 { okKRequire(runtime, firstClass, 1) }
+    if secondClass != 0 { okKRequire(runtime, secondClass, 1) }
+    if resultClass != 0 { okKRequire(runtime, resultClass, 1) }
+    if okKProtocolRequirement(runtime, protocol, name) != 0 { okKFail("duplicate requirement") }
+    let storedName = okKText(runtime, name)
+    let requirement = okKAllocate(runtime, 64)
+    okKWrite(runtime, requirement, 0, 8)
+    okKWrite(runtime, requirement, 8, okKRead(runtime, protocol, 24))
+    okKWrite(runtime, requirement, 16, storedName)
+    okKWrite(runtime, requirement, 24, arity)
+    okKWrite(runtime, requirement, 32, 0)
+    okKWrite(runtime, requirement, 40, firstClass)
+    okKWrite(runtime, requirement, 48, secondClass)
+    okKWrite(runtime, requirement, 56, resultClass)
+    okKWrite(runtime, protocol, 24, requirement)
+    emit protocol
+}
+
+func doKRegisterProtocol(runtime, protocol) {
+    okKRequire(runtime, protocol, 7)
+    okKWrite(runtime, protocol, 32, 1)
+    emit protocol
+}
+
+func doKConform(runtime, klass, protocol) {
+    okKRequire(runtime, klass, 1)
+    okKRequire(runtime, protocol, 7)
+    if okKRead(runtime, klass, 32) != 0 { okKFail("class already registered") }
+    if okKRead(runtime, protocol, 32) != 1 { okKFail("protocol not registered") }
+    let declaration = okKRead(runtime, klass, 48)
+    while declaration != 0 {
+        if okKRead(runtime, declaration, 16) == protocol { okKFail("duplicate conformance") }
+        declaration = okKRead(runtime, declaration, 8)
+    }
+    declaration = okKAllocate(runtime, 24)
+    okKWrite(runtime, declaration, 0, 9)
+    okKWrite(runtime, declaration, 8, okKRead(runtime, klass, 48))
+    okKWrite(runtime, declaration, 16, protocol)
+    okKWrite(runtime, klass, 48, declaration)
+    emit klass
+}
+
+func okKCheckProtocol(runtime, klass, protocol) {
+    let current = protocol
+    while current != 0 {
+        let requirement = okKRead(runtime, current, 24)
+        while requirement != 0 {
+            let name = okKTextValue(runtime, okKRead(runtime, requirement, 16))
+            let method = okKFindMethod(runtime, klass, name)
+            if method == 0 { okKFail("protocol missing method: " + name) }
+            if okKRead(runtime, method, 24) != okKRead(runtime, requirement, 24) { okKFail("protocol method arity: " + name) }
+            if okKRead(runtime, method, 40) != okKRead(runtime, requirement, 40) ||
+                okKRead(runtime, method, 48) != okKRead(runtime, requirement, 48) ||
+                okKRead(runtime, method, 56) != okKRead(runtime, requirement, 56) {
+                okKFail("protocol method signature: " + name)
+            }
+            requirement = okKRead(runtime, requirement, 8)
+        }
+        current = okKRead(runtime, current, 8)
+    }
+    emit klass
+}
+
+func okKConforms(runtime, object, protocol) {
+    okKRequire(runtime, protocol, 7)
+    if okKRead(runtime, protocol, 32) != 1 { okKFail("protocol not registered") }
+    let klass = okKObjectClass(runtime, object)
+    while klass != 0 {
+        let declaration = okKRead(runtime, klass, 48)
+        while declaration != 0 {
+            let current = okKRead(runtime, declaration, 16)
+            while current != 0 {
+                if current == protocol { emit 1 }
+                current = okKRead(runtime, current, 8)
+            }
+            declaration = okKRead(runtime, declaration, 8)
+        }
+        klass = okKRead(runtime, klass, 8)
+    }
+    emit 0
 }
 
 func doKCleanup(runtime, klass, fnPtr) {
@@ -233,10 +426,14 @@ func okKInvoke(runtime, object, klass, name, arity, a, b) {
     let method = okKFindMethod(runtime, klass, name)
     if method == 0 { okKFail("unknown method: " + name) }
     if okKRead(runtime, method, 24) != arity { okKFail("method argument count: " + name) }
+    if arity > 0 { okKCheckObjectType(runtime, a, okKRead(runtime, method, 40)) }
+    if arity > 1 { okKCheckObjectType(runtime, b, okKRead(runtime, method, 48)) }
     let fnPtr = okKRead(runtime, method, 32)
-    if arity == 0 { emit callPtr(fnPtr, runtime, object) }
-    if arity == 1 { emit callPtr(fnPtr, runtime, object, a) }
-    emit callPtr(fnPtr, runtime, object, a, b)
+    let result = 0
+    if arity == 0 { result = callPtr(fnPtr, runtime, object) }
+    else if arity == 1 { result = callPtr(fnPtr, runtime, object, a) }
+    else { result = callPtr(fnPtr, runtime, object, a, b) }
+    emit okKCheckObjectType(runtime, result, okKRead(runtime, method, 56))
 }
 
 func okKSend(runtime, object, name) {
@@ -352,6 +549,11 @@ func doKRelease(runtime, object) {
                 okKWrite(runtime, field, 24, 0)
                 if child != 0 { doKRelease(runtime, child) }
             }
+            field = okKRead(runtime, field, 8)
+        }
+        // Child hooks can still read their releasing owner's entire field list.
+        field = okKRead(runtime, object, 24)
+        while field != 0 {
             let next = okKRead(runtime, field, 8)
             doKFree(runtime, okKRead(runtime, field, 16))
             doKFree(runtime, field)

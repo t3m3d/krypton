@@ -4,6 +4,16 @@
 (* Human-readable companion: docs/spec/grammar.md *)
 (* Function reference:        docs/spec/functions.md *)
 
+(* Objective-K macOS runtime uses ImportStmt and ordinary function calls. *)
+(* okKClass/okKMethod/doKOwn/doKWeak/okKSend are library identifiers.      *)
+(* okKObjectMethod adds runtime class constraints, not declaration syntax.*)
+(* They add no keywords or productions. StructDecl is not registration   *)
+(* of a K-owned runtime class. Typed declarations remain planned.       *)
+(* okKProtocol/doKConform are library calls, not declaration keywords.   *)
+(* Native macOS callPtr allows 0..8 arguments after its pointer operand; *)
+(* argument limits and imported-global initialization are semantic rules.*)
+(* Implementation contract: spec.md; guide: docs/objk_runtime_macos.md.   *)
+
 (* ═══════════════════════════════════════════════════════════════ *)
 (*  Program Structure                                              *)
 (* ═══════════════════════════════════════════════════════════════ *)

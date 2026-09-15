@@ -1,5 +1,15 @@
 # `stdlib/gui.k` — Krypton GUI library reference
 
+## Objective-K macOS Boundary
+
+This page's widget catalog covers the Windows GUI library. macOS Objective-K
+apps use `k:okui`, backed by Choc/Apple adapters, with
+`k:objk_runtime_macos` for K-owned model state and dispatch. The core owns
+classes/fields/lifetime, not native windows. Keep native window/control pointers
+outside integer fields. Wire state release to quit; window close is separate.
+See [core guide](../objk_runtime_macos.md) and [spec](../../spec.md).
+Historical C-emitter/DLL descriptions below do not describe this core.
+
 High-level Win32 wrapper. Lets a Krypton program build a native
 Windows GUI in 30-50 lines instead of 300+. All strings are UTF-8
 end-to-end; the library converts to UTF-16 internally and uses the

@@ -2,6 +2,29 @@
 
 **Version 2.3.0** — EBNF grammar for the Krypton language and KryptScript.
 
+## Objective-K Runtime Boundary
+
+The experimental macOS K-owned core adds no grammar productions. Import
+`k:objk_runtime_macos` and use ordinary calls such as `okKClass`, `okKMethod`,
+`doKOwn`, and `okKSend`. `.k` and `.ks` share this syntax. Runtime class handles
+are integer IDs; existing `class`/`struct`/`type` declarations do not register
+these classes, and field access uses `okKGet`, not automatic `object.field`
+lowering. Ownership is explicit API behavior, not an annotation or keyword.
+
+Methods receive `(runtime, self)` plus 0..2 declared user arguments. Runtime
+arity checks alone do not check types. `okKObjectMethod` adds runtime class
+constraints, not compiler type checking or pointer-signature validation. Native
+macOS `callPtr` accepts 0..8 arguments after its pointer operand. Imported
+module globals initialize before executable entry work within the current
+import walker's limits; this is lowering behavior, not new syntax.
+
+Typed method declarations, protocol declaration syntax, and compiler-native Objective-K
+classes remain planned. Do not add them to normative EBNF until implemented.
+Runtime protocol registration uses ordinary `okKProtocol`, `doKRequireMethod`,
+`doKRegisterProtocol`, `doKConform`, and `okKConforms` calls.
+See [implementation contract](../../spec.md) and
+[runtime guide](../objk_runtime_macos.md).
+
 ```ebnf
 (* ===== Top-Level ===== *)
 

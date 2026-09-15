@@ -64,6 +64,7 @@ The web framework adds a third extension for templates:
 - **kweb GUI now builds on OKUI** — fewer direct backend calls in the app.
 - **Experimental macOS K-owned core** — classes, inheritance, dispatch, owned/weak fields, cleanup, and object/field memory reuse with fresh handle IDs. Uses normal imports and function calls, not new class syntax.
 - **Compiler support** — imported executable globals initialize before entry work; macOS native `callPtr` supports zero through eight Krypton arguments.
+- **Core hardening** — free-block splitting/coalescing, owner fields preserved through child cleanup, runtime class constraints, and K-owned protocols with inherited conformance checks. Compiler-checked signatures remain pending.
 
 These are checkout changes, not confirmation of a published 2.4.6. Apple GUI
 adapters remain in use; Windows/Linux/BSD execution parity is not claimed.

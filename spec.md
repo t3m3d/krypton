@@ -6,21 +6,12 @@ not a release announcement. Language syntax: [EBNF](grammar/krypton.ebnf) and
 [functions](docs/spec/functions.md), [types](docs/spec/types.md),
 [imports](docs/imports.md), [GUI](docs/spec/gui.md).
 
-## Scope Of The Last Three Operations
+## Objective-K Scope
 
-Documented baseline, in chronological order:
-
-1. `44737cca`: macOS K-owned Objective-K core, module initialization, native
-   function-pointer calls, lifetime tests, counter integration, and iOS visuals.
-2. `c46a21cf`: integrate Windows changes without dropping macOS/iOS support;
-   preserve Windows process/bytes/ConPTY APIs and deployment fixes; rebuild
-   the macOS driver and add platform-specific test skips.
-3. `c23264f0`: reclaim object/field storage with fresh IDs, reject stale handles,
-   and verify churn, weak references, and allocation during cleanup.
-
-These commits do not establish a new published version. README release numbers
-remain separate from checkout capabilities. Windows native execution was not
-available during this macOS validation; Linux and BSD parity is not implied.
+This spec covers three macOS Objective-K stages: compiler support and K-owned
+class/message core; owned/weak fields and cleanup; then storage reuse with fresh
+IDs. It excludes Windows merge and deployment work. Native verification is
+macOS arm64 only. Checkout capabilities do not establish a published version.
 
 ## Language And Compiler Contract
 
@@ -31,7 +22,8 @@ can wrap script statements in an entry block. Explicit `just run` remains valid.
 The K-owned object API currently consists of ordinary function calls and
 imports. It introduces no method, inheritance, protocol, ownership, or handle
 keywords. Existing `class`/`struct`/`type` declarations are not automatically
-K-owned runtime classes. Typed methods and protocol declarations remain planned.
+K-owned runtime classes. Compiler-checked signatures remain planned;
+object class constraints are available through runtime registration.
 
 Use `-> do` for an explicit no-result contract. Do not add `void` declarations
 to new APIs. The unannotated cleanup callbacks in the prototype return an
@@ -82,6 +74,7 @@ the app-facing API; it does not yet replace Apple's windowing implementation.
 | `okKClass(runtime, name, parent)` | Nonempty name; parent 0 or registered class. |
 | `okKClassName` | Retrieve stored class name. |
 | `okKMethod(runtime, klass, name, arity, pointer)` | Before sealing; unique nonempty name, nonnull pointer, arity 0..2. |
+| `okKObjectMethod(runtime, klass, name, arity, pointer, firstClass, secondClass, resultClass)` | Runtime object-class constraints; 0 means unconstrained. |
 | `doKCleanup(runtime, klass, pointer)` | Before sealing; one nonnull cleanup callback per class. |
 | `doKRegister(runtime, klass)` | Seal class; instance creation then permitted. |
 | `okKNew(runtime, klass)` | Live instance with one independent reference. |
@@ -95,6 +88,11 @@ the app-facing API; it does not yet replace Apple's windowing implementation.
 | `okKHas` / `okKGet` | Distinguish absent field from stored 0 / read field. |
 | `okKRetain` / `doKRelease` | Balanced manual ownership; reference-count overflow rejected. |
 | `okKRefCount` | Count for object ID; 0 for previously issued ID whose storage was freed. |
+| `okKProtocol(runtime, name, parent)` | Define named protocol; parent 0 or sealed protocol. |
+| `doKRequireMethod(runtime, protocol, name, arity, firstClass, secondClass, resultClass)` | Add required method with exact object-class signature. |
+| `doKRegisterProtocol(runtime, protocol)` | Seal protocol before adoption or use as parent. |
+| `doKConform(runtime, klass, protocol)` | Explicit adoption before class sealing. |
+| `okKConforms(runtime, object, protocol)` | Query inherited, declared conformance on readable object. |
 
 Functions for allocation, lookup, raw record access, invocation, and freeing
 are implementation helpers, not supported app APIs. In particular, do not call
@@ -123,6 +121,51 @@ cannot retain, release again, mutate, or install the releasing object in an
 owned/weak field. Weak references to it already read 0. Hooks are automatic;
 do not invoke parent cleanup manually. Field-release order is unspecified.
 Failures are fail-fast, with no exception unwinding or transactional rollback.
+All owner field records remain allocated until every owned-child release
+callback completes, so child hooks can still read the releasing owner's fields.
+
+### Object-Typed Methods
+
+`okKObjectMethod` registers argument/result class handles alongside ordinary
+method metadata. A nonzero constraint requires a readable object of that class
+or a subclass. It is nonnullable: 0 is not an object ID. Signature 0 means
+unconstrained, not nullable. Absent argument positions must have constraint 0.
+Signature handles must be classes; they can reference the class currently being
+defined before sealing.
+
+Dispatch checks arguments before calling and the result afterward. It does not
+retain arguments/results or check native callback ABI. Legacy `okKMethod`
+overrides copy inherited object constraints and must keep typed-parent arity.
+Explicit typed overrides must match typed-parent constraints exactly; variance
+is not implemented. Typed registration may constrain an untyped parent, so an
+untyped parent supplies no substitution guarantee.
+
+This is runtime class checking, not primitive/text checking or compiler-checked
+dispatch. Raw pointer calls bypass it. Result validation occurs after callback
+side effects and cannot undo them.
+
+### Protocols
+
+Protocols are K-owned runtime records, not Objective-C protocols or parser
+declarations. Define a nonempty name with `okKProtocol`, add requirements with
+`doKRequireMethod`, then seal with `doKRegisterProtocol`. A protocol has at most
+one sealed parent. Required names must be unique across that ancestry; arity is
+0..2 and absent argument constraints must be 0. Object-class constraints follow
+`okKObjectMethod` rules. No function pointer is needed for a requirement.
+
+Adopt sealed protocols through `doKConform` before sealing the class. Duplicate
+adoption on the same class is rejected. `doKRegister` validates all declared
+protocols from the entire class ancestry against the new class's effective
+method lookup. Each required method must exist with exactly matching arity and
+argument/result class constraints, including unconstrained 0 positions. This
+also revalidates inherited conformance when a subclass overrides methods.
+
+`okKConforms` requires a readable object and sealed protocol. Conformance is
+nominal, not inferred from matching methods. Adopting a child protocol implies
+its parent; subclasses inherit declared conformance. Dispatch still uses normal
+`okKSend` calls. Protocol-typed argument signatures, optional requirements,
+default implementations, multiple protocol parents, variance, compiler checks,
+and Objective-C protocol interoperability remain unimplemented.
 
 ### Arena And IDs
 
@@ -135,9 +178,16 @@ Arena header qwords: capacity at 0, high-water end at 8, next ID at 16;
 allocation blocks begin at 32. Each block has total aligned size and issued ID
 in a 16-byte header, followed by payload. Payload kinds are class 1, method 2,
 object 3, field 4, text 5; free payloads use 0 and allocation initialization uses
-6. Class payload is 48 bytes; method/object/field payloads are 40 bytes; text
+6; protocol is 7, requirement 8, conformance declaration 9. Class payload is
+56 bytes, including a conformance-list ID after cleanup; method payload is 64
+bytes, including three class constraints after the function pointer;
+object/field payloads are 40 bytes; text
 payload is 16 bytes plus copied bytes, rounded to qword alignment. These are
 internal layouts, not a serialized format or a stable ABI.
+Protocol payloads are 40 bytes `{kind,parent,name,requirements,sealed}`;
+requirements use the 64-byte method layout with function pointer 0;
+conformance declarations are 24 bytes `{kind,next,protocol}`. Protocol metadata
+and its names persist for the runtime lifetime, like class/method metadata.
 
 IDs start at 24 and increase by 16. Every allocation, including reused storage,
 gets a fresh ID. Lookup scans block headers rather than treating an ID as an
@@ -146,58 +196,32 @@ offset. Stale strong access fails; weak reads remain 0 after slot reuse.
 pass object IDs, not arbitrary previously issued IDs. Do not add offsets to IDs.
 IDs are local to their runtime; cross-runtime identity is not encoded.
 
-Allocation uses first-fit free blocks or appends at high-water end. No block
-splitting, coalescing, or compaction exists. Variable-sized workloads can
-fragment the arena despite unused bytes. Classes, methods, their names, and
+Allocation uses first-fit free blocks or appends at high-water end. During
+allocation, adjacent free blocks coalesce. A fitting block splits if the
+remainder can hold a 16-byte header and at least one payload qword; smaller
+remainders stay with the allocation. No compaction exists: separated live
+records can still fragment the arena. Classes, methods, their names, and
 caller-created text are not individually reclaimed. The whole arena is
 host-GC-owned. Fresh IDs fail before exceeding the integer guard instead of
 wrapping, after approximately 62 million allocations per runtime. Neither
 unbounded allocation nor thread safety is promised.
 
-## GUI, iOS, And Deployment Integration
+## Native GUI Boundary
 
 The macOS counter demonstrates a K-owned model, owned state, read-only dispatch,
 native callbacks, and exactly-once cleanup on `Quit`. Native window handles must
 stay raw pointers: converting `okWindow` results to text previously caused a
 `setMinSize:` crash. [Demo](examples/objk/k_owned_counter_macos.ks).
 
-`kweb` uses `k:okui`; its global app menu has `Quit` with Command-Q and Edit
-actions. Closing a window alone is not documented as terminating the app.
-Its bundle name is `kweb.app`. [Build/deploy guide](web/README.md).
+Apps should use `k:okui` for controls and `k:objk_runtime_macos` for this object
+core. OKUI/Choc currently adapt Apple APIs; a K-owned model does not make an
+Apple window into a K-owned object. Keep native pointers outside integer fields.
+Closing a window and terminating its application are separate lifecycle events;
+wire cleanup to an explicit quit callback where the app owns K state.
 
-FTP remote paths are relative to the account root. Empty folder means root;
-`test` places `dist/index.html` at `test/index.html`. Do not automatically insert
-`public_html`: Hostinger accounts already rooted there would create a duplicate
-directory. CLI and both GUIs retain remote-path normalization, parent-traversal
-rejection, quoting guards, and fail-fast upload behavior. A smoke build is not
-proof of a live FTP deployment. Website output is `web/site/dist`; preserve its
-existing design and separate platform release information.
-
-The same macOS-hosted arm64 emitter supports `ios-sim-arm64` and
-`ios-device-arm64` profiles. `-r` cannot directly execute an iOS target on macOS;
-use the bundle script and simulator. UIKit/Objective-C/SpriteKit remain backend
-dependencies. `k:visual` supports scene shapes, labels, sprites, one-shot motion,
-physics bodies, touch coordinates, and interpolated painting. Painting still
-adds circle nodes, not a retained vector stroke, and needs node-budget/performance
-work for long sessions. Repeat/sequence action ABI wrappers, device signing,
-device execution, and distribution remain separate work.
-[iOS roadmap](docs/ios_native_roadmap.md), [examples](examples/ios/README.md).
-iOS feature work remains paused while macOS core hardening proceeds.
-
-## Windows Merge Boundaries
-
-Windows retains `--target windows-x86_64` (`windows-x64` alias) on Windows hosts
-and `--subsystem console|windows` (`gui` alias for windows). Default is console;
-GUI emits PE subsystem 2, console emits 3. Driver source selection consumes
-target/output/subsystem flag values rather than treating them as source files.
-These flags do not enable PE compilation on the macOS host.
-
-Preserved incoming work includes wide process creation, environment/job APIs,
-Windows header structs, bytes/file helpers, argv/environment encoding, ConPTY,
-and Win32 colors/flat controls. Do not port these modules by swapping platform
-names: memory representation, FFI structs, and runtime imports need validation.
-No Windows executable tests were run here. Backend IR generation and driver
-argument checks do not substitute for Windows runtime tests.
+The iOS adapters and SpriteKit visual layer are separate, Apple-backed work.
+They have not verified this macOS-only core on iOS. No simulator build is proof
+of object-runtime portability. [iOS roadmap](docs/ios_native_roadmap.md).
 
 ## Validation And Outstanding Work
 
@@ -208,7 +232,6 @@ export KRYPTON_ROOT="$PWD"
 ./bootstrap/kcc_driver_macos_aarch64 -r scripts/check_objk_runtime_macos.ks
 ./bootstrap/kcc_driver_macos_aarch64 -r scripts/check_objk_runtime_macos.ks --gui
 ./bootstrap/kcc_driver_macos_aarch64 -r scripts/check_okui.ks
-./bootstrap/kcc_driver_macos_aarch64 -r scripts/check_ios.ks
 ./build.sh test
 ```
 
@@ -218,22 +241,26 @@ dispatch, text, fields, lifetime/cleanup, weak references, and failure cases;
 they inspect dependencies to reject Apple object frameworks. Reuse tests run
 2,000 object/field/name cycles in a 1KB arena without high-water growth, test
 expired weak IDs and stale strong access, GC, and allocation during cleanup.
+Additional checks cover free-block merging/splitting, owner-field reads from
+multiple child hooks, runtime class constraints, and typed override failures.
+Protocol checks cover inherited/multiple adoption, exact signatures, required
+methods, subclass override revalidation, sealing/duplicate guards, and GC.
 
-Last recorded full macOS suite after integration: 70 pass, 1 failure
+Last recorded full macOS suite: 70 pass, 1 failure
 (`test_negative_nums.k` assertion), 8 skips. This is not an all-green release
-gate. Win32 tests are skipped off Windows; macOS additionally skips
+gate. macOS skips
 `test_bytes.k` and `test_process_win_argv.k` because `ptrAdd`/`ptrToInt` are
 not emitted there. Generic-looking module names do not establish parity.
 
 Next work, in order:
 
-1. Harden allocator behavior for fragmented/variable-size workloads and design
-   explicit text ownership. Preserve stale-ID and cleanup reentrancy tests.
-2. Specify typed method arguments/results, registration compatibility and
-   override rules; validate signatures before native calls. Then add compiler
-   diagnostics and tests. Metadata alone is not compile-time type safety.
-3. Specify protocols/interfaces, inherited conformance and required-method
-   checks. Keep proposed syntax separate until parser/codegen support lands.
+1. Design explicit text ownership and extend fragmented-workload stress checks.
+   Splitting/coalescing is implemented; preserve stale-ID and reentrancy tests.
+2. Extend object-class contracts to primitive/text/result ownership contracts,
+   then add compiler signature diagnostics. Runtime checks alone are not
+   compile-time type safety.
+3. Extend nominal runtime protocols with protocol-typed arguments and compiler
+   diagnostics. Keep proposed declaration syntax separate until implemented.
 4. Move more Choc widget state/events into K-owned objects and generate native
    adapters without losing pointer identity or platform ABI correctness.
 5. Repair remaining macOS pointer primitives, negative-number regression, import
