@@ -71,10 +71,13 @@ the app-facing API; it does not yet replace Apple's windowing implementation.
 | --- | --- |
 | `okKRuntime(capacity)` | Rooted arena, 64..1048576 bytes; small capacities may not fit records. |
 | `okKText(runtime, text)` / `okKTextValue` | Copy text into arena / return text value. |
+| `okKRetainText` / `doKReleaseText` / `okKTextRefCount` | Manage caller-owned arena text references. |
 | `okKClass(runtime, name, parent)` | Nonempty name; parent 0 or registered class. |
 | `okKClassName` | Retrieve stored class name. |
 | `okKMethod(runtime, klass, name, arity, pointer)` | Before sealing; unique nonempty name, nonnull pointer, arity 0..2. |
 | `okKObjectMethod(runtime, klass, name, arity, pointer, firstClass, secondClass, resultClass)` | Runtime object-class constraints; 0 means unconstrained. |
+| `okKTypedMethod(runtime, klass, name, arity, pointer, firstType, secondType, resultType)` | Runtime integer, text, class, or protocol constraints. |
+| `okKTypeInteger()` / `okKTypeText()` | Type tokens for typed method signatures. |
 | `doKCleanup(runtime, klass, pointer)` | Before sealing; one nonnull cleanup callback per class. |
 | `doKRegister(runtime, klass)` | Seal class; instance creation then permitted. |
 | `okKNew(runtime, klass)` | Live instance with one independent reference. |
@@ -85,6 +88,7 @@ the app-facing API; it does not yet replace Apple's windowing implementation.
 | `doKSet(runtime, object, name, value)` | Borrowed integer/arena ID, range -1000000000..1000000000. |
 | `doKOwn(runtime, object, name, child)` | Retain new child before replacement; release previous owned child; 0 clears. |
 | `doKWeak(runtime, object, name, target)` | No retain/release; read as 0 once target starts releasing. |
+| `doKText(runtime, object, name, text)` | Own arena text; retain replacement, release old value; 0 clears. |
 | `okKHas` / `okKGet` | Distinguish absent field from stored 0 / read field. |
 | `okKRetain` / `doKRelease` | Balanced manual ownership; reference-count overflow rejected. |
 | `okKRefCount` | Count for object ID; 0 for previously issued ID whose storage was freed. |
@@ -107,11 +111,17 @@ matching names. Unknown methods, wrong arity, invalid IDs/kinds, and invalid
 ownership operations fail with an `Objective-K:` diagnostic and exit 1.
 `super` validates that its defining class belongs to the object's ancestry.
 
-Borrowed fields do not manage references. Owned and weak policies cannot be
+Borrowed fields do not manage references. Owned, weak, and text policies cannot be
 overwritten by `doKSet` or converted to each other; a borrowed field can acquire
 either policy. Clearing with the matching API preserves that policy. Getters
 return borrowed values: retain before keeping an independent object reference.
 Strong cycles are not collected. Break them explicitly or use weak back-links.
+
+`okKText` returns one caller-owned reference. Balance it with
+`doKReleaseText`; retain before keeping another independent reference.
+`doKText` retains nonzero text before replacement, releases old text afterward,
+and releases stored text during object teardown. Clearing preserves text policy.
+Borrowed text stored with `doKSet` remains caller-managed and can become stale.
 
 Final release sets references to 0 and state to releasing. It runs cleanup
 most-derived first through all ancestors, then releases owned children and
@@ -126,12 +136,16 @@ callback completes, so child hooks can still read the releasing owner's fields.
 
 ### Object-Typed Methods
 
-`okKObjectMethod` registers argument/result class handles alongside ordinary
-method metadata. A nonzero constraint requires a readable object of that class
-or a subclass. It is nonnullable: 0 is not an object ID. Signature 0 means
-unconstrained, not nullable. Absent argument positions must have constraint 0.
-Signature handles must be classes; they can reference the class currently being
-defined before sealing.
+`okKTypedMethod` registers argument/result constraints alongside ordinary method
+metadata. `okKObjectMethod` remains its compatible older name. Signature 0 means
+unconstrained, not nullable. `okKTypeInteger()` accepts values inside the native
+small-integer guard. `okKTypeText()` accepts live arena text IDs. A class handle
+accepts readable instances of that class or subclasses. A sealed protocol handle
+accepts readable, nominally conforming objects. Class/protocol constraints are
+nonnullable: 0 is not an object ID. Absent argument positions must use 0.
+Signature handles must identify classes/protocols; a class can reference itself
+before sealing, and protocol requirement signatures can reference definitions
+available in the same arena.
 
 Dispatch checks arguments before calling and the result afterward. It does not
 retain arguments/results or check native callback ABI. Legacy `okKMethod`
@@ -140,8 +154,9 @@ Explicit typed overrides must match typed-parent constraints exactly; variance
 is not implemented. Typed registration may constrain an untyped parent, so an
 untyped parent supplies no substitution guarantee.
 
-This is runtime class checking, not primitive/text checking or compiler-checked
-dispatch. Raw pointer calls bypass it. Result validation occurs after callback
+This is runtime checking, not compiler-checked dispatch. It does not yet
+distinguish every Krypton dynamic value category or declare ownership transfer.
+Raw pointer calls bypass it. Result validation occurs after callback
 side effects and cannot undo them.
 
 ### Protocols
@@ -181,8 +196,8 @@ object 3, field 4, text 5; free payloads use 0 and allocation initialization use
 6; protocol is 7, requirement 8, conformance declaration 9. Class payload is
 56 bytes, including a conformance-list ID after cleanup; method payload is 64
 bytes, including three class constraints after the function pointer;
-object/field payloads are 40 bytes; text
-payload is 16 bytes plus copied bytes, rounded to qword alignment. These are
+object/field payloads are 40 bytes; text payload is 32 bytes plus copied bytes,
+including reference count and live state, rounded to qword alignment. These are
 internal layouts, not a serialized format or a stable ABI.
 Protocol payloads are 40 bytes `{kind,parent,name,requirements,sealed}`;
 requirements use the 64-byte method layout with function pointer 0;
@@ -199,9 +214,10 @@ IDs are local to their runtime; cross-runtime identity is not encoded.
 Allocation uses first-fit free blocks or appends at high-water end. During
 allocation, adjacent free blocks coalesce. A fitting block splits if the
 remainder can hold a 16-byte header and at least one payload qword; smaller
-remainders stay with the allocation. No compaction exists: separated live
-records can still fragment the arena. Classes, methods, their names, and
-caller-created text are not individually reclaimed. The whole arena is
+remainders stay with the allocation. Free blocks at the allocation tail lower
+the arena high-water mark immediately. No compaction exists: separated live
+records can still fragment the arena. Classes, methods, and metadata names
+remain allocated. Caller-created text is reclaimed at reference count zero. The whole arena is
 host-GC-owned. Fresh IDs fail before exceeding the integer guard instead of
 wrapping, after approximately 62 million allocations per runtime. Neither
 unbounded allocation nor thread safety is promised.
@@ -254,13 +270,12 @@ not emitted there. Generic-looking module names do not establish parity.
 
 Next work, in order:
 
-1. Design explicit text ownership and extend fragmented-workload stress checks.
-   Splitting/coalescing is implemented; preserve stale-ID and reentrancy tests.
-2. Extend object-class contracts to primitive/text/result ownership contracts,
-   then add compiler signature diagnostics. Runtime checks alone are not
-   compile-time type safety.
-3. Extend nominal runtime protocols with protocol-typed arguments and compiler
-   diagnostics. Keep proposed declaration syntax separate until implemented.
+1. Extend fragmented-workload stress checks and evaluate compaction.
+   Splitting, coalescing, tail trimming, and explicit text ownership are implemented.
+2. Add compiler signature diagnostics and result ownership contracts. Runtime
+   integer/text/class/protocol checks are not compile-time type safety.
+3. Add compiler syntax/diagnostics for nominal protocols. Protocol-typed runtime
+   arguments are implemented; declaration syntax remains separate.
 4. Move more Choc widget state/events into K-owned objects and generate native
    adapters without losing pointer identity or platform ABI correctness.
 5. Repair remaining macOS pointer primitives, negative-number regression, import

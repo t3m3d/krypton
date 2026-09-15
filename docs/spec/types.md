@@ -11,11 +11,13 @@ IDs cannot. Weak reads return 0 after target release, including after reuse.
 
 `doKSet` permits only integers/arena IDs in -1000000000..1000000000.
 Owned/weak fields accept live object IDs or 0 and keep their ownership policy.
-Copied text uses `okKText`/`okKTextValue`; external heap/control pointers must
+Copied text uses `okKText`/`okKTextValue` and explicit text reference counts.
+`doKText` creates an owned text field; external heap/control pointers must
 stay outside value fields. Ordinary parameter annotations do not yet establish
-compiler-checked Objective-K method signatures. `okKObjectMethod` can constrain
-arguments/results to object classes at runtime; signature 0 is unconstrained,
-not a nullable type. See [spec](../../spec.md#arena-and-ids).
+compiler-checked Objective-K method signatures. `okKTypedMethod` can constrain
+arguments/results to guarded integers, live arena text, classes, or nominal
+protocols at runtime. Signature 0 is unconstrained, not nullable.
+See [spec](../../spec.md#object-typed-methods).
 
 Krypton uses a **dynamic, string-based value model** by default. All values
 are strings at runtime; numeric and boolean operations work by inspecting

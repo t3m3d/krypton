@@ -13,7 +13,8 @@ lowering. Ownership is explicit API behavior, not an annotation or keyword.
 
 Methods receive `(runtime, self)` plus 0..2 declared user arguments. Runtime
 arity checks alone do not check types. `okKObjectMethod` adds runtime class
-constraints, not compiler type checking or pointer-signature validation. Native
+constraints; `okKTypedMethod` also accepts integer, text, and protocol runtime
+constraints. Neither adds compiler type checking or pointer-signature validation. Native
 macOS `callPtr` accepts 0..8 arguments after its pointer operand. Imported
 module globals initialize before executable entry work within the current
 import walker's limits; this is lowering behavior, not new syntax.

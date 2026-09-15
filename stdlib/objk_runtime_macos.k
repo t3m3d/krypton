@@ -85,21 +85,35 @@ func okKRequire(runtime, handle, kind) {
 
 func doKFree(runtime, handle) {
     bufSetQwordAt(runtime, okKOffset(runtime, handle), 0)
+    let cursor = 32
+    let freeTail = 0
+    let used = bufGetQwordAt(runtime, 8)
+    while cursor < used {
+        if bufGetQwordAt(runtime, cursor + 16) == 0 {
+            if freeTail == 0 { freeTail = cursor }
+        } else {
+            freeTail = 0
+        }
+        cursor += bufGetQwordAt(runtime, cursor)
+    }
+    if freeTail != 0 { bufSetQwordAt(runtime, 8, freeTail) }
 }
 
 // Record layouts: class {kind,parent,name,methods,sealed,cleanup,protocols}; method
 // {kind,next,name,arity,fn,argClassA,argClassB,resultClass}; object
-// {kind,class,refs,fields,alive}; field
-// {kind,next,name,value,policy}; text {kind,length,bytes...}.
-// Field policy: 0 borrowed, 1 owned, 2 weak.
+// {kind,class,refs,fields,alive}; field {kind,next,name,value,policy};
+// text {kind,length,refs,state,bytes...}.
+// Field policy: 0 borrowed, 1 owned object, 2 weak object, 3 owned text.
 func okKText(runtime, text) {
     let n = len(text)
-    let handle = okKAllocate(runtime, 16 + n)
+    let handle = okKAllocate(runtime, 32 + n)
     okKWrite(runtime, handle, 0, 5)
     okKWrite(runtime, handle, 8, n)
+    okKWrite(runtime, handle, 16, 1)
+    okKWrite(runtime, handle, 24, 1)
     let i = 0
     while i < n {
-        bufSetByte(runtime, okKOffset(runtime, handle) + 16 + i, charCode(text[i]))
+        bufSetByte(runtime, okKOffset(runtime, handle) + 32 + i, charCode(text[i]))
         i += 1
     }
     emit handle
@@ -111,7 +125,7 @@ func okKTextEquals(runtime, handle, text) {
     if n != len(text) { emit 0 }
     let i = 0
     while i < n {
-        if bufGetByte(runtime, okKOffset(runtime, handle) + 16 + i) != charCode(text[i]) { emit 0 }
+        if bufGetByte(runtime, okKOffset(runtime, handle) + 32 + i) != charCode(text[i]) { emit 0 }
         i += 1
     }
     emit 1
@@ -123,10 +137,37 @@ func okKTextValue(runtime, handle) {
     let text = ""
     let i = 0
     while i < n {
-        text = text + fromCharCode(bufGetByte(runtime, okKOffset(runtime, handle) + 16 + i))
+        text = text + fromCharCode(bufGetByte(runtime, okKOffset(runtime, handle) + 32 + i))
         i += 1
     }
     emit text
+}
+
+func okKRetainText(runtime, text) {
+    okKRequire(runtime, text, 5)
+    if okKRead(runtime, text, 24) != 1 { okKFail("text released") }
+    let refs = okKRead(runtime, text, 16)
+    if refs >= 1000000000 { okKFail("reference count overflow") }
+    okKWrite(runtime, text, 16, refs + 1)
+    emit text
+}
+
+func okKTextRefCount(runtime, text) {
+    if okKLookup(runtime, text) == 0 { emit 0 }
+    okKRequire(runtime, text, 5)
+    emit okKRead(runtime, text, 16)
+}
+
+func doKReleaseText(runtime, text) {
+    okKRequire(runtime, text, 5)
+    if okKRead(runtime, text, 24) != 1 { okKFail("text released") }
+    let refs = okKRead(runtime, text, 16) - 1
+    okKWrite(runtime, text, 16, refs)
+    if refs == 0 {
+        okKWrite(runtime, text, 24, 0)
+        doKFree(runtime, text)
+    }
+    emit refs
 }
 
 func okKClass(runtime, name, parent) {
@@ -197,9 +238,9 @@ func okKMethod(runtime, klass, name, arity, fnPtr) {
 func okKObjectMethod(runtime, klass, name, arity, fnPtr, firstClass, secondClass, resultClass) {
     if arity < 1 && firstClass != 0 { okKFail("type for absent argument") }
     if arity < 2 && secondClass != 0 { okKFail("type for absent argument") }
-    if firstClass != 0 { okKRequire(runtime, firstClass, 1) }
-    if secondClass != 0 { okKRequire(runtime, secondClass, 1) }
-    if resultClass != 0 { okKRequire(runtime, resultClass, 1) }
+    okKCheckSignatureType(runtime, firstClass)
+    okKCheckSignatureType(runtime, secondClass)
+    okKCheckSignatureType(runtime, resultClass)
     let method = okKMethod(runtime, klass, name, arity, fnPtr)
     let inherited = okKFindMethod(runtime, okKRead(runtime, klass, 8), name)
     if inherited != 0 {
@@ -218,11 +259,43 @@ func okKObjectMethod(runtime, klass, name, arity, fnPtr, firstClass, secondClass
     emit method
 }
 
-func okKCheckObjectType(runtime, value, klass) {
-    if klass != 0 {
-        if okKIsA(runtime, value, klass) != 1 { okKFail("method object type mismatch") }
+func okKTypeInteger() { emit 0 - 1 }
+func okKTypeText() { emit 0 - 2 }
+
+func okKCheckSignatureType(runtime, expected) {
+    if expected == 0 || expected == okKTypeInteger() || expected == okKTypeText() { emit expected }
+    let offset = okKLookup(runtime, expected)
+    if offset == 0 { okKFail("invalid method type") }
+    let kind = okKRead(runtime, expected, 0)
+    if kind != 1 && kind != 7 { okKFail("invalid method type") }
+    emit expected
+}
+
+func okKTypedMethod(runtime, klass, name, arity, fnPtr, firstType, secondType, resultType) {
+    emit okKObjectMethod(runtime, klass, name, arity, fnPtr, firstType, secondType, resultType)
+}
+
+func okKCheckObjectType(runtime, value, expected) {
+    if expected == 0 { emit value }
+    if expected == okKTypeInteger() {
+        if value < (0 - 1000000000) || value > 1000000000 { okKFail("method integer type mismatch") }
+        emit value
     }
-    emit value
+    if expected == okKTypeText() {
+        if okKLookup(runtime, value) == 0 || okKRead(runtime, value, 0) != 5 { okKFail("method text type mismatch") }
+        emit value
+    }
+    let expectedKind = okKRead(runtime, expected, 0)
+    if expectedKind == 1 {
+        if okKIsA(runtime, value, expected) != 1 { okKFail("method object type mismatch") }
+        emit value
+    }
+    if expectedKind == 7 {
+        if okKLookup(runtime, value) == 0 || okKRead(runtime, value, 0) != 3 { okKFail("method protocol type mismatch") }
+        if okKConforms(runtime, value, expected) != 1 { okKFail("method protocol type mismatch") }
+        emit value
+    }
+    okKFail("invalid method type")
 }
 
 func doKRegister(runtime, klass) {
@@ -277,9 +350,9 @@ func doKRequireMethod(runtime, protocol, name, arity, firstClass, secondClass, r
     if arity < 0 || arity > 2 { okKFail("method arity out of range") }
     if arity < 1 && firstClass != 0 { okKFail("type for absent argument") }
     if arity < 2 && secondClass != 0 { okKFail("type for absent argument") }
-    if firstClass != 0 { okKRequire(runtime, firstClass, 1) }
-    if secondClass != 0 { okKRequire(runtime, secondClass, 1) }
-    if resultClass != 0 { okKRequire(runtime, resultClass, 1) }
+    okKCheckSignatureType(runtime, firstClass)
+    okKCheckSignatureType(runtime, secondClass)
+    okKCheckSignatureType(runtime, resultClass)
     if okKProtocolRequirement(runtime, protocol, name) != 0 { okKFail("duplicate requirement") }
     let storedName = okKText(runtime, name)
     let requirement = okKAllocate(runtime, 64)
@@ -463,15 +536,22 @@ func okKField(runtime, object, name) {
 
 func okKWriteField(runtime, object, name, value, policy) {
     okKWritable(runtime, object)
-    if policy != 0 && value != 0 { okKWritable(runtime, value) }
+    if (policy == 1 || policy == 2) && value != 0 { okKWritable(runtime, value) }
+    if policy == 3 && value != 0 { okKRequire(runtime, value, 5) }
     let field = okKField(runtime, object, name)
     let previous = 0
-    if field != 0 && okKRead(runtime, field, 32) == 1 {
+    let previousPolicy = 0
+    if field != 0 { previousPolicy = okKRead(runtime, field, 32) }
+    if field != 0 && previousPolicy == 1 {
         if policy != 1 { okKFail("owned field needs doKOwn") }
         previous = okKRead(runtime, field, 24)
     }
-    if field != 0 && okKRead(runtime, field, 32) == 2 && policy != 2 {
+    if field != 0 && previousPolicy == 2 && policy != 2 {
         okKFail("weak field needs doKWeak")
+    }
+    if field != 0 && previousPolicy == 3 {
+        if policy != 3 { okKFail("text field needs doKText") }
+        previous = okKRead(runtime, field, 24)
     }
     if field == 0 {
         let storedName = okKText(runtime, name)
@@ -483,9 +563,11 @@ func okKWriteField(runtime, object, name, value, policy) {
     }
     // Retain before replacement so assigning the same child cannot destroy it.
     if policy == 1 && value != 0 { okKRetain(runtime, value) }
+    if policy == 3 && value != 0 { okKRetainText(runtime, value) }
     okKWrite(runtime, field, 24, value)
     okKWrite(runtime, field, 32, policy)
-    if previous != 0 { doKRelease(runtime, previous) }
+    if previous != 0 && previousPolicy == 1 { doKRelease(runtime, previous) }
+    if previous != 0 && previousPolicy == 3 { doKReleaseText(runtime, previous) }
     emit value
 }
 
@@ -501,6 +583,10 @@ func doKOwn(runtime, object, name, child) {
 
 func doKWeak(runtime, object, name, target) {
     emit okKWriteField(runtime, object, name, target, 2)
+}
+
+func doKText(runtime, object, name, text) {
+    emit okKWriteField(runtime, object, name, text, 3)
 }
 
 func okKHas(runtime, object, name) { emit okKField(runtime, object, name) != 0 }
@@ -549,13 +635,18 @@ func doKRelease(runtime, object) {
                 okKWrite(runtime, field, 24, 0)
                 if child != 0 { doKRelease(runtime, child) }
             }
+            if okKRead(runtime, field, 32) == 3 {
+                let text = okKRead(runtime, field, 24)
+                okKWrite(runtime, field, 24, 0)
+                if text != 0 { doKReleaseText(runtime, text) }
+            }
             field = okKRead(runtime, field, 8)
         }
         // Child hooks can still read their releasing owner's entire field list.
         field = okKRead(runtime, object, 24)
         while field != 0 {
             let next = okKRead(runtime, field, 8)
-            doKFree(runtime, okKRead(runtime, field, 16))
+            doKReleaseText(runtime, okKRead(runtime, field, 16))
             doKFree(runtime, field)
             field = next
         }

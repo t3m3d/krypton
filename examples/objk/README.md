@@ -46,6 +46,7 @@ Windows parity check:
 - runtime-checked `combine(Focus) -> Focus` dispatch
 - owned work/rest models in application state
 - weak peer links that do not form a cycle
+- reference-counted K-owned text names
 - cleanup hooks released through Quit
 - OKUI controls following system theme
 

@@ -55,10 +55,12 @@ version supports zero-user-argument `super` messages.
 
 ## Object-Class Method Contracts
 
-Use `okKObjectMethod(runtime, klass, name, arity, pointer, firstClass,
-secondClass, resultClass)` to constrain arguments/results to object classes.
-Signature 0 means unconstrained; constrained values must be nonnull readable
-objects of that class or a subclass. Absent argument slots must be unconstrained.
+Use `okKTypedMethod(runtime, klass, name, arity, pointer, firstType,
+secondType, resultType)` for runtime contracts. `okKObjectMethod` remains a
+compatible alias. Signature 0 means unconstrained. `okKTypeInteger()` checks
+native guarded integers; `okKTypeText()` checks live arena text. Class handles
+accept subclasses; protocol handles accept nominal conformers. Object/protocol
+constraints are nonnull. Absent argument slots must be unconstrained.
 Checks run before arguments reach the callback and after its result returns.
 No retain/release is added. Legacy overrides inherit constraints; explicit typed
 overrides of typed parents must match exactly. Callback ABI remains caller-owned.
@@ -104,6 +106,9 @@ This snippet assumes `import "k:objk_runtime_macos"` at the top of the file.
 
 - Fields contain integers in `[-1000000000, 1000000000]` or arena handles.
 - Copy strings into the arena with `okKText`; read them with `okKTextValue`.
+- `okKText` returns one text reference. Balance `okKRetainText` and
+  `doKReleaseText`; `okKTextRefCount` reports live count or 0 after release.
+- `doKText` owns arena text in a field, including replacement and teardown.
 - `okKHas` distinguishes an absent field from a field holding `0`.
 - Each new object starts with reference count `1`.
 - `okKRetain` increments it; `doKRelease` decrements it.
@@ -116,6 +121,7 @@ This snippet assumes `import "k:objk_runtime_macos"` at the top of the file.
   returns `0` once the target starts releasing; `okKHas` still returns `1`.
 - Owned and weak slots keep their reference policy. Update them with `doKOwn`
   or `doKWeak`, not `doKSet`; conversion between these policies is rejected.
+- Owned-text slots keep policy and must be updated with `doKText`.
 - Assigning a borrowed slot with either reference API establishes its policy.
 
 ```krypton
@@ -164,9 +170,11 @@ expired weak handles remain zero even after storage reuse. `okKRefCount` returns
 zero for a previously issued ID whose record has been freed; it cannot recover
 the old record kind after reuse, so pass only object IDs to this API.
 
-Classes, methods, their names, and caller-created `okKText` remain allocated.
+Classes, methods, and metadata names remain allocated. Caller-created text is
+reclaimed at reference count zero. Borrowed text fields remain caller-managed.
 Adjacent free blocks coalesce during allocation; spare space splits when at
-least 24 bytes remain. Live records are not moved, so fragmentation is still
+least 24 bytes remain. A free tail lowers the high-water mark. Live records are
+not moved, so fragmentation is still
 possible. ID exhaustion fails rather than wrapping (about 62 million issued
 IDs per arena). Lookup scans allocation blocks; this is not a dispatch-speed
 optimization. Arena identity remains implicit, and the runtime is single-threaded.
@@ -234,9 +242,9 @@ identity and previously caused `setMinSize:` to crash.
 
 ## Next Stages
 
-1. Extend reclamation with explicit text lifetime and fragmentation stress tests.
-2. Extend runtime class contracts to primitive/text types and compiler diagnostics.
-3. Extend protocols with protocol-typed signatures and compiler diagnostics.
+1. Extend fragmentation stress tests and evaluate compaction.
+2. Add compiler diagnostics and result ownership contracts for typed methods.
+3. Add protocol declaration syntax and compiler diagnostics.
 4. Add generated Apple bridge adapters for K-owned objects.
 5. Extend Choc widget state and events around the K-owned core.
 

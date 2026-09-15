@@ -3,9 +3,10 @@
 ## Current Objective-K Track
 
 macOS arm64 K-owned classes, dispatch, owned/weak fields, cleanup, and fresh-ID
-storage reuse are implemented experimentally. Free-block splitting/coalescing
-and runtime object-class method contracts are now added. Next: text ownership,
-primitive/compiler type checks, then more K-owned Choc state/adapters. Nominal
+storage reuse are implemented experimentally. Free-block splitting/coalescing,
+runtime object-class contracts, and owned arena text are now added. Next:
+compiler signature checks and result ownership, then more K-owned Choc
+state/adapters. Integer/text/class/protocol runtime checks now exist. Nominal
 runtime protocols now check required methods and inherited conformance at sealing.
 See [spec and validation gates](../spec.md) and
 [runtime guide](objk_runtime_macos.md). Apple GUI backends remain; this is not

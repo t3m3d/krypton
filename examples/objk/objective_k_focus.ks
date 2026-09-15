@@ -56,6 +56,13 @@ func makeFocusState(runtime, first, second) {
     emit state
 }
 
+func setFocusName(runtime, model, name) {
+    let stored = okKText(runtime, name)
+    doKText(runtime, model, "name", stored)
+    doKReleaseText(runtime, stored)
+    emit model
+}
+
 let focusRuntime = okKRuntime(65536)
 let focusClass = makeFocusClass(focusRuntime)
 let focusState = makeFocusState(
@@ -63,6 +70,8 @@ let focusState = makeFocusState(
     okKNew(focusRuntime, focusClass),
     okKNew(focusRuntime, focusClass)
 )
+let namedWork = setFocusName(focusRuntime, okKGet(focusRuntime, focusState, "work"), "Deep work")
+let namedRest = setFocusName(focusRuntime, okKGet(focusRuntime, focusState, "rest"), "Recovery")
 let workLabel = 0
 let restLabel = 0
 let focusStatus = 0
@@ -71,8 +80,10 @@ func workModel() { emit okKGet(focusRuntime, focusState, "work") }
 func restModel() { emit okKGet(focusRuntime, focusState, "rest") }
 
 func refreshFocus() {
-    doText(workLabel, "Work  " + okKSend(focusRuntime, workModel(), "score"))
-    doText(restLabel, "Rest  " + okKSend(focusRuntime, restModel(), "score"))
+    let workName = okKTextValue(focusRuntime, okKGet(focusRuntime, workModel(), "name"))
+    let restName = okKTextValue(focusRuntime, okKGet(focusRuntime, restModel(), "name"))
+    doText(workLabel, workName + "  " + okKSend(focusRuntime, workModel(), "score"))
+    doText(restLabel, restName + "  " + okKSend(focusRuntime, restModel(), "score"))
     emit 0
 }
 
@@ -121,8 +132,8 @@ just run {
     minSize(win, 520, 300)
     let root = page(520, 300, 28)
     title(win, "Focus score", top(root, 32))
-    workLabel = label(win, "Work  0", left(row(root, 1, 44, 18), 180))
-    restLabel = label(win, "Rest  0", right(row(root, 1, 44, 18), 180))
+    workLabel = label(win, "Deep work  0", left(row(root, 1, 44, 18), 180))
+    restLabel = label(win, "Recovery  0", right(row(root, 1, 44, 18), 180))
 
     let controls = row(root, 2, 34, 14)
     let workButton = button(win, "+ Work", left(controls, 100))
@@ -145,7 +156,7 @@ just run {
             okKSend(focusRuntime, restModel(), "score") != 1 ||
             okKConforms(focusRuntime, workModel(), scoreableProtocol) != 1 ||
             okKGet(focusRuntime, workModel(), "peer") != restModel() ||
-            text(workLabel) != "Work  3" || text(restLabel) != "Rest  1" {
+            text(workLabel) != "Deep work  3" || text(restLabel) != "Recovery  1" {
             kp("[FAIL] Objective-K Focus integration")
             exit("1")
         }

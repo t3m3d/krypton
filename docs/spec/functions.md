@@ -22,10 +22,19 @@ that position unconstrained. Constrained values accept subclasses, reject null,
 and remain borrowed. Explicit typed-parent overrides must match; legacy overrides
 inherit constraints. See [typed contract](../../spec.md#object-typed-methods).
 
+Prefer `okKTypedMethod` for new runtime contracts. Constraints may be
+`okKTypeInteger()`, `okKTypeText()`, a class handle, a sealed protocol handle,
+or 0 for unconstrained. Arguments check before callback execution; results check
+afterward. Calls remain borrowed and raw `callPtr` bypasses these checks.
+
 K-owned protocols use `okKProtocol`, `doKRequireMethod`, `doKRegisterProtocol`,
 `doKConform`, and `okKConforms`. Required methods and exact signatures are checked
 on class sealing, including inherited adoption against subclass overrides.
 See [protocol contract](../../spec.md#protocols). These APIs do not call libobjc.
+
+Arena text is reference-counted through `okKRetainText`, `doKReleaseText`, and
+`okKTextRefCount`. `doKText` gives a field one owned text reference; replacement
+and object teardown release it. These are library APIs, not builtins.
 
 Historical pipeline tags below are not evidence of current cross-platform
 support. This addendum is verified only on macOS arm64 and does not reintroduce
