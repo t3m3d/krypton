@@ -19,11 +19,20 @@ macOS arm64 only. Checkout capabilities do not establish a published version.
 Objective-K modules; it is not a separate Objective-K interpreter. The driver
 can wrap script statements in an entry block. Explicit `just run` remains valid.
 
-The K-owned object API currently consists of ordinary function calls and
-imports. It introduces no method, inheritance, protocol, ownership, or handle
-keywords. Existing `class`/`struct`/`type` declarations are not automatically
-K-owned runtime classes. Compiler-checked signatures remain planned;
-object class constraints are available through runtime registration.
+The compiler accepts top-level `objk protocol` and `objk object` declarations
+and lowers them to K-owned runtime setup before entry work. It auto-imports
+`k:objk_runtime_macos`. Existing `class`/`struct`/`type` declarations are not
+K-owned runtime classes. Direct runtime calls remain supported.
+
+This first declaration stage supports protocol/object inheritance, one protocol
+conformance per object declaration, callback-backed methods, and 0..2 typed user
+arguments. Generated entry locals expose `__objkRuntime` and each declaration
+name. Types lower to runtime contracts: `int`/`integer`, `text`, a previously
+declared object/protocol name, or unconstrained `any`/`do`. Method callbacks
+receive `(runtime, self)` before user arguments. Inline method bodies, fields,
+ownership syntax, multiple conformance syntax, and compile-time message checks
+remain planned. Declarations currently belong in executable entry source;
+imported modules should use direct runtime APIs.
 
 Use `-> do` for an explicit no-result contract. Do not add `void` declarations
 to new APIs. The unannotated cleanup callbacks in the prototype return an
@@ -253,7 +262,8 @@ export KRYPTON_ROOT="$PWD"
 
 `--gui` needs a desktop session. The intentional null-call trap is expected,
 not a checker regression. Core checks cover imports, indirect calls, ancestry,
-dispatch, text, fields, lifetime/cleanup, weak references, and failure cases;
+dispatch, declaration lowering, text, fields, lifetime/cleanup, weak references,
+and failure cases;
 they inspect dependencies to reject Apple object frameworks. Reuse tests run
 2,000 object/field/name cycles in a 1KB arena without high-water growth, test
 expired weak IDs and stale strong access, GC, and allocation during cleanup.
@@ -272,16 +282,16 @@ Next work, in order:
 
 1. Extend fragmented-workload stress checks and evaluate compaction.
    Splitting, coalescing, tail trimming, and explicit text ownership are implemented.
-2. Add compiler signature diagnostics and result ownership contracts. Runtime
+2. Add deeper compiler signature diagnostics and result ownership contracts. Runtime
    integer/text/class/protocol checks are not compile-time type safety.
-3. Add compiler syntax/diagnostics for nominal protocols. Protocol-typed runtime
-   arguments are implemented; declaration syntax remains separate.
+3. Add inline Objective-K method bodies, fields, ownership annotations, and
+   multiple protocol conformances without exposing runtime setup locals.
 4. Move more Choc widget state/events into K-owned objects and generate native
    adapters without losing pointer identity or platform ABI correctness.
 5. Repair remaining macOS pointer primitives, negative-number regression, import
    graph depth/global type propagation, then run platform-specific parity tests.
 
 Do not claim ARC, cycle collection, thread-safe dispatch, dispatch caching,
-compiler-native Objective-K class syntax, a Cocoa replacement, or a released
+a complete Objective-K language, a Cocoa replacement, or a released
 2.4.6 from this work. Rebuild compiler/driver seeds only when compiler/driver
 source changes; runtime-module edits are compiled into their consuming programs.

@@ -62,7 +62,8 @@ The web framework adds a third extension for templates:
 
 - **OKUI becomes the app-facing Objective-K layer** — app code imports `k:okui`; macOS routes through `objk`/Choc/AppKit and Windows routes through `objkwin`/Choc/Win32.
 - **kweb GUI now builds on OKUI** — fewer direct backend calls in the app.
-- **Experimental macOS K-owned core** — classes, inheritance, dispatch, owned/weak fields, cleanup, and object/field memory reuse with fresh handle IDs. Uses normal imports and function calls, not new class syntax.
+- **Experimental macOS K-owned core** — classes, inheritance, dispatch, owned/weak fields, cleanup, and object/field memory reuse with fresh handle IDs.
+- **Objective-K declarations** — `objk protocol` and `objk object` lower to the K-owned runtime with inheritance, one conformance, typed signatures, and callback-backed methods.
 - **Compiler support** — imported executable globals initialize before entry work; macOS native `callPtr` supports zero through eight Krypton arguments.
 - **Core hardening** — free-block splitting/coalescing, owner fields preserved through child cleanup, runtime class constraints, and K-owned protocols with inherited conformance checks. Compiler-checked signatures remain pending.
 - **Owned K text** — explicit text retain/release plus `doKText` fields reclaim text during replacement and object teardown.

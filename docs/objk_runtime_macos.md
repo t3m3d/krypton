@@ -9,8 +9,41 @@ Objective-K GUI apps still use their Apple adapters; this core does not replace
 those adapters yet.
 
 The [repo spec](../spec.md) contains API contracts, arena layout, compiler
-prerequisites, validation gates, and outstanding work. Grammar references cover
-existing imports/calls only; this module adds no Objective-K syntax.
+prerequisites, validation gates, and outstanding work. Compiler declarations
+lower to this runtime; direct runtime calls remain supported.
+
+## Compiler Declaration Syntax
+
+```krypton
+objk protocol Scoreable {
+    require score() -> int
+}
+
+objk object Counter conforms Scoreable {
+    method score() -> int = counterScore
+}
+
+func counterScore(runtime, self) {
+    emit okKGet(runtime, self, "score")
+}
+
+just run {
+    let counter = okKNew(__objkRuntime, Counter)
+    doKSet(__objkRuntime, counter, "score", 42)
+    kp(okKSend(__objkRuntime, counter, "score"))
+    doKRelease(__objkRuntime, counter)
+}
+```
+
+`objk` declarations auto-import this module. Protocols and objects may use one
+`extends` parent. Objects may declare one `conforms` protocol. Requirements and
+methods accept 0..2 named, typed user arguments. Supported type forms are
+`any`, `do`, `int`/`integer`, `text`, and a previously declared object/protocol
+name. Methods bind to ordinary callback functions with `(runtime, self)` before
+user arguments. Generated entry locals are `__objkRuntime` and each declaration
+name. Inline bodies, fields, ownership annotations, multiple conformances, and
+compile-time send checking are not implemented yet. Declarations currently
+belong in executable entry source; imported modules should use direct APIs.
 
 ## Use From Krypton Or KryptScript
 
@@ -77,8 +110,8 @@ Class sealing checks required methods, arity, and exact class constraints using
 effective inherited lookup. Subclass sealing rechecks inherited conformance, so
 overrides cannot silently invalidate it. `okKConforms` queries nominal adoption,
 including class/protocol ancestors; matching methods alone do not confer adoption.
-Requirements have no callback pointers or default implementations. This adds
-runtime APIs, not grammar keywords or Objective-C protocol interoperation.
+Requirements have no callback pointers or default implementations. This does
+not add Objective-C protocol interoperation.
 See [complete protocol contract](../spec.md#protocols).
 
 ```krypton

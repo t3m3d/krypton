@@ -2,14 +2,13 @@
 
 **Version 2.3.0** — EBNF grammar for the Krypton language and KryptScript.
 
-## Objective-K Runtime Boundary
+## Objective-K Declarations
 
-The experimental macOS K-owned core adds no grammar productions. Import
-`k:objk_runtime_macos` and use ordinary calls such as `okKClass`, `okKMethod`,
-`doKOwn`, and `okKSend`. `.k` and `.ks` share this syntax. Runtime class handles
-are integer IDs; existing `class`/`struct`/`type` declarations do not register
-these classes, and field access uses `okKGet`, not automatic `object.field`
-lowering. Ownership is explicit API behavior, not an annotation or keyword.
+The experimental macOS compiler accepts `objk protocol` and `objk object`
+declarations. It auto-imports `k:objk_runtime_macos` and lowers declarations to
+the K-owned runtime before entry work. `.k` and `.ks` share this syntax.
+Existing `class`/`struct`/`type` declarations remain unrelated to K-owned
+runtime classes. Field access and ownership still use runtime APIs.
 
 Methods receive `(runtime, self)` plus 0..2 declared user arguments. Runtime
 arity checks alone do not check types. `okKObjectMethod` adds runtime class
@@ -19,10 +18,16 @@ macOS `callPtr` accepts 0..8 arguments after its pointer operand. Imported
 module globals initialize before executable entry work within the current
 import walker's limits; this is lowering behavior, not new syntax.
 
-Typed method declarations, protocol declaration syntax, and compiler-native Objective-K
-classes remain planned. Do not add them to normative EBNF until implemented.
-Runtime protocol registration uses ordinary `okKProtocol`, `doKRequireMethod`,
-`doKRegisterProtocol`, `doKConform`, and `okKConforms` calls.
+This first syntax stage supports protocol inheritance, object inheritance, one
+declared conformance per object, 0..2 typed user arguments, and callback-backed
+methods. Types are `any`, `do`, `int`/`integer`, `text`, or a previously declared
+object/protocol handle. Generated entry locals are `__objkRuntime` and each
+declaration name. Method callbacks remain ordinary functions receiving
+`(runtime, self)` plus declared user arguments. Inline method bodies, fields,
+ownership annotations, multiple conformances, and compile-time send checking
+remain planned. Declarations currently belong in the executable entry source;
+imported modules should use direct runtime APIs. Runtime registration calls
+remain available directly.
 See [implementation contract](../../spec.md) and
 [runtime guide](../objk_runtime_macos.md).
 
@@ -39,6 +44,7 @@ shebang     ::= "#!" [^\n]* "\n"
 top_level   ::= func_decl
               | callback_decl
               | struct_decl
+              | objk_decl
               | import_stmt
               | export_decl
               | jxt_block
@@ -56,6 +62,19 @@ callback_decl ::= "callback" func_decl
 
 struct_decl ::= ("struct" | "class" | "type") UPPER_IDENT "{" struct_field* "}"
 struct_field ::= "let" IDENT (":" type)? ("=" expr)?
+
+objk_decl          ::= objk_protocol_decl | objk_object_decl
+objk_protocol_decl ::= "objk" "protocol" IDENT ("extends" IDENT)? "{"
+                         objk_requirement*
+                       "}"
+objk_object_decl   ::= "objk" "object" IDENT ("extends" IDENT)?
+                       ("conforms" IDENT)? "{" objk_method* "}"
+objk_requirement   ::= "require" IDENT "(" objk_params? ")" ("->" objk_type)?
+objk_method        ::= "method" IDENT "(" objk_params? ")"
+                       ("->" objk_type)? "=" IDENT
+objk_params        ::= objk_param ("," objk_param)?
+objk_param         ::= IDENT ":" objk_type
+objk_type          ::= "any" | "do" | "int" | "integer" | "text" | IDENT
 
 params      ::= param ("," param)*
 param       ::= IDENT (":" type)?
@@ -216,7 +235,7 @@ From highest to lowest:
 ```
 just  go  func  fn  let  local  const  emit  return
 if  else  while  do  loop  until  break  continue
-for  in  match  struct  class  type  callback
+for  in  match  struct  class  type  callback  objk
 try  catch  throw
 module  import  export  jxt
 true  false  null

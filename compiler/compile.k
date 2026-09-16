@@ -234,12 +234,119 @@ func isKW(word) {
     else if word == "prepare" { emit 1 }
     else if word == "jxt" { emit 1 }
     else if word == "callback" { emit 1 }
+    else if word == "objk" { emit 1 }
     else if word == "loop" { emit 1 }
     else if word == "until" { emit 1 }
     else if word == "switch" { emit 1 }
     else if word == "case" { emit 1 }
     else if word == "default" { emit 1 }
     else { emit 0 }
+}
+
+func irObjKType(token) {
+    let name = tokVal(token)
+    if name == "" || name == "any" || name == "do" { emit "PUSH 0\n" }
+    if name == "int" || name == "integer" { emit "PUSH 0\nPUSH 1\nSUB\n" }
+    if name == "text" { emit "PUSH 0\nPUSH 2\nSUB\n" }
+    emit "LOAD " + name + "\n"
+}
+
+func irObjKSetup(tokens, ntoks) {
+    let code = ""
+    let found = 0
+    let i = 0
+    while i < ntoks {
+        if tokAt(tokens, i) != "KW:objk" { i += 1; continue }
+        let form = tokVal(tokAt(tokens, i + 1))
+        if form == "object" { form = "class" }
+        if form != "protocol" && form != "class" {
+            printErr("kcc: objk expects protocol or object")
+            exit("1")
+        }
+        if found == 0 {
+            code = code + "LOCAL __objkRuntime\nPUSH 65536\nCALL okKRuntime 1\nSTORE __objkRuntime\n"
+            found = 1
+        }
+        let name = tokVal(tokAt(tokens, i + 2))
+        if name == "" { printErr("kcc: Objective-K declaration needs name"); exit("1") }
+        let parent = ""
+        let conformName = ""
+        let p = i + 3
+        while p < ntoks && tokAt(tokens, p) != "LBRACE" {
+            let word = tokVal(tokAt(tokens, p))
+            if word == "extends" {
+                parent = tokVal(tokAt(tokens, p + 1))
+                p += 2
+            } else if word == "conforms" {
+                p += 1
+                if tokType(tokAt(tokens, p)) != "ID" { printErr("kcc: conforms needs protocol name"); exit("1") }
+                conformName = tokVal(tokAt(tokens, p))
+                p += 1
+                if tokAt(tokens, p) == "COMMA" { printErr("kcc: one protocol per class is supported in this syntax stage"); exit("1") }
+            } else { p += 1 }
+        }
+        if tokAt(tokens, p) != "LBRACE" { printErr("kcc: Objective-K declaration needs body"); exit("1") }
+        code = code + "LOCAL " + name + "\nLOAD __objkRuntime\nPUSH \"" + name + "\"\n"
+        if parent == "" { code = code + "PUSH 0\n" } else { code = code + "LOAD " + parent + "\n" }
+        if form == "protocol" { code = code + "CALL okKProtocol 3\nSTORE " + name + "\n" }
+        else { code = code + "CALL okKClass 3\nSTORE " + name + "\n" }
+        p += 1
+        while p < ntoks && tokAt(tokens, p) != "RBRACE" {
+            let memberKind = tokVal(tokAt(tokens, p))
+            if memberKind == "" { p += 1; continue }
+            if (form == "protocol" && memberKind != "require") ||
+                (form == "class" && memberKind != "method") {
+                printErr("kcc: invalid Objective-K member: " + memberKind)
+                exit("1")
+            }
+            let methodName = tokVal(tokAt(tokens, p + 1))
+            if tokAt(tokens, p + 2) != "LPAREN" { printErr("kcc: invalid Objective-K method: " + methodName); exit("1") }
+            let q = p + 3
+            let arity = 0
+            let firstType = "PUSH 0\n"
+            let secondType = "PUSH 0\n"
+            while q < ntoks && tokAt(tokens, q) != "RPAREN" {
+                if tokType(tokAt(tokens, q)) != "ID" || tokAt(tokens, q + 1) != "COLON" {
+                    printErr("kcc: Objective-K parameter needs type")
+                    exit("1")
+                }
+                let typeCode = irObjKType(tokAt(tokens, q + 2))
+                if arity == 0 { firstType = typeCode } else { secondType = typeCode }
+                arity += 1
+                if arity > 2 { printErr("kcc: Objective-K methods support 0..2 arguments"); exit("1") }
+                q += 3
+                if tokAt(tokens, q) == "COMMA" { q += 1 }
+            }
+            q += 1
+            let resultType = "PUSH 0\n"
+            if tokAt(tokens, q) == "ARROW" {
+                resultType = irObjKType(tokAt(tokens, q + 1))
+                q += 2
+            }
+            code = code + "LOAD __objkRuntime\nLOAD " + name + "\nPUSH \"" + methodName + "\"\nPUSH " + arity + "\n"
+            if form == "class" {
+                if tokAt(tokens, q) != "ASSIGN" || tokType(tokAt(tokens, q + 1)) != "ID" {
+                    printErr("kcc: Objective-K method needs '= callback'")
+                    exit("1")
+                }
+                code = code + "FUNCPTR " + tokVal(tokAt(tokens, q + 1)) + "\n"
+                q += 2
+            }
+            code = code + firstType + secondType + resultType
+            if form == "protocol" { code = code + "CALL doKRequireMethod 7\nPOP\n" }
+            else { code = code + "CALL okKTypedMethod 8\nPOP\n" }
+            p = q
+        }
+        if tokAt(tokens, p) != "RBRACE" { printErr("kcc: unclosed Objective-K declaration: " + name); exit("1") }
+        if form == "protocol" {
+            code = code + "LOAD __objkRuntime\nLOAD " + name + "\nCALL doKRegisterProtocol 2\nPOP\n"
+        } else {
+            if conformName != "" { code = code + "LOAD __objkRuntime\nLOAD " + name + "\nLOAD " + conformName + "\nCALL doKConform 3\nPOP\n" }
+            code = code + "LOAD __objkRuntime\nLOAD " + name + "\nCALL doKRegister 2\nPOP\n"
+        }
+        i = p + 1
+    }
+    emit code
 }
 
 func readBacktickString(text, i) {
@@ -653,6 +760,10 @@ func scanFunctions(tokens, ntoks) {
             // shadow the real `func double(n)`. (skipBlock returns past `}`,
             // we want to land AT `}` so the outer i+=1 advances past it.)
             i = skipBlock(tokens, i + 2) - 1
+        } else if tok == "KW:objk" {
+            let op = i + 2
+            while op < ntoks && tokAt(tokens, op) != "LBRACE" { op += 1 }
+            i = skipBlock(tokens, op) - 1
         } else if tok == "KW:func" {
             let nameTok = tokAt(tokens, i + 1)
             let fname = tokVal(nameTok)
@@ -3470,6 +3581,17 @@ just run {
     }
     let tokens = tokenize(source)
     let ntoks = lineCount(tokens)
+    let objkScan = 0
+    let hasObjK = 0
+    while objkScan < ntoks {
+        if tokAt(tokens, objkScan) == "KW:objk" { hasObjK = 1; break }
+        objkScan += 1
+    }
+    if hasObjK == 1 {
+        source = "import \"k:objk_runtime_macos\"\n" + source
+        tokens = tokenize(source)
+        ntoks = lineCount(tokens)
+    }
 
     // 2.0-alpha-3: --port-1to2 diagnostic mode. Scans source for
     // patterns that need attention before a 2.0 upgrade and exits.
@@ -4296,6 +4418,10 @@ just run {
                 let ifP = iri + 2
                 while ifP < ntoks && tokAt(tokens, ifP) != "LBRACE" { ifP += 1 }
                 iri = skipBlock(tokens, ifP)
+            } else if irtok == "KW:objk" {
+                let objkP = iri + 2
+                while objkP < ntoks && tokAt(tokens, objkP) != "LBRACE" { objkP += 1 }
+                iri = skipBlock(tokens, objkP)
             } else if irtok == "KW:struct" || irtok == "KW:class" || irtok == "KW:type" {
                 // Skip struct/class/type body — `let`s inside are field decls,
                 // not file-scope globals. Without this skip, we'd hoist them
@@ -4354,7 +4480,7 @@ just run {
             // 2.0-alpha-3 GC stage 3: same shadow-stack save/restore wrap
             // as irFuncIR applies to __main__'s body (and prepended global
             // inits). On normal exit, all per-let pushes get popped.
-            let mainBody = importedInit + irScanStatics(tokens, ntoks, mainTypes) + sbToString(sbGlobInit) + pairVal(ep)
+            let mainBody = importedInit + irScanStatics(tokens, ntoks, mainTypes) + sbToString(sbGlobInit) + irObjKSetup(tokens, ntoks) + pairVal(ep)
             mainBody = "" + mainBody +
                        ""
             sbIR = sbAppend(sbIR, "FUNC __main__ 0\n" + mainBody + "END\n")

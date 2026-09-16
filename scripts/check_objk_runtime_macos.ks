@@ -54,6 +54,19 @@ func compileReject(root, source, binary, log) {
     kp("OK rejects " + source)
 }
 
+func syntaxReject(root, source, expected, log) {
+    let cmd = "KRYPTON_ROOT=" + q(root) + " " +
+        q(root + "/bootstrap/kcc_driver_macos_aarch64") + " " + q(source) +
+        " -o " + q(log + ".bin") + " >" + q(log) + " 2>&1"
+    let rc = shellRun(cmd)
+    if rc == "0" || !contains(readFile(log), expected) {
+        kp("FAIL syntax rejection rc=" + rc)
+        kp(readFile(log))
+        exit("1")
+    }
+    kp("OK rejects " + source)
+}
+
 just run {
     if trim(exec("uname -s")) != "Darwin" {
         kp("SKIP macOS Objective-K runtime")
@@ -75,6 +88,10 @@ just run {
     kp("OK null pointer traps before call")
     let core = compileCheck(root, work, "tests/macos/test_objk_runtime.k", "core")
     runCheck(core, "K-owned object runtime", log)
+    let syntax = compileCheck(root, work, "tests/macos/test_objk_syntax.k", "syntax")
+    runCheck(syntax, "Objective-K declarations", log)
+    syntaxReject(root, "tests/macos/fixtures/objk_syntax_invalid.k",
+        "Objective-K parameter needs type", log)
     if shellRun("otool -L " + q(core) + " >" + q(log) + " 2>&1") != "0" {
         kp("FAIL inspect object-core dependencies")
         exit("1")
