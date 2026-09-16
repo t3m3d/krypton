@@ -73,6 +73,6 @@ just run {
         exec("mkdir -p \"" + app + "/Contents/Resources\"")
         exec("cp \"" + icns + "\" \"" + app + "/Contents/Resources/" + name + ".icns\"")
     }
-    exec("codesign -s - -f \"" + app + "/Contents/MacOS/" + name + "\" >/dev/null 2>&1")
+    exec("codesign -s - -f --deep \"" + app + "\" >/dev/null 2>&1")
     kp("==> built " + app + " (pure Krypton, no Obj-C source)")
 }
