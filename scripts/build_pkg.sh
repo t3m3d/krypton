@@ -57,6 +57,7 @@ echo "staging payload for $VERSION ..."
 # (BSD/macOS `install` has no GNU `-D`, so mkdir the dir first.)
 mkdir -p "$ROOT/bootstrap"
 install -m 0755 "$DRIVER"                          "$ROOT/$DRIVER"
+install -m 0755 kr                                 "$ROOT/kr"
 install -m 0755 bootstrap/kcc_seed_macos_aarch64   "$ROOT/bootstrap/kcc_seed_macos_aarch64"
 
 # Frontend + backend host + their sources (driver resolves root via
@@ -109,6 +110,7 @@ ROOT=/usr/local/krypton
 
 mkdir -p /usr/local/bin
 ln -sf "$ROOT/bootstrap/kcc_driver_macos_aarch64" /usr/local/bin/kcc
+ln -sf "$ROOT/kr" /usr/local/bin/kr
 [[ -e "$ROOT/compiler/macos_arm64/kls" ]] && ln -sf "$ROOT/compiler/macos_arm64/kls" /usr/local/bin/kls
 [[ -e "$ROOT/web/kweb" ]] && ln -sf "$ROOT/web/kweb" /usr/local/bin/kweb
 
@@ -117,10 +119,10 @@ for b in "$ROOT/bootstrap/kcc_driver_macos_aarch64" \
          "$ROOT/compiler/macos_arm64/kcc-arm64" \
          "$ROOT/compiler/macos_arm64/macho_host" \
          "$ROOT/compiler/macos_arm64/kls" \
-         "$ROOT/web/kweb" \
-         "/Applications/Krypton/kweb.app/Contents/MacOS/kweb"; do
+         "$ROOT/web/kweb"; do
     [[ -e "$b" ]] && codesign -s - -f "$b" 2>/dev/null || true
 done
+[[ -d "/Applications/Krypton/kweb.app" ]] && codesign -s - -f --deep "/Applications/Krypton/kweb.app" 2>/dev/null || true
 
 # Make binaries newer than the .k sources -> ensureHost() sees macho_host as
 # up-to-date and skips the one-time clang rebuild.

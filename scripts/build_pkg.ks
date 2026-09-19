@@ -60,6 +60,7 @@ just run {
     kp("staging payload for " + version + " ...")
     exec("mkdir -p \"" + r + "/bootstrap\"")
     exec("install -m 0755 " + driver + " \"" + r + "/" + driver + "\"")
+    exec("install -m 0755 kr \"" + r + "/kr\"")
     exec("install -m 0755 bootstrap/kcc_seed_macos_aarch64 \"" + r + "/bootstrap/kcc_seed_macos_aarch64\"")
     exec("mkdir -p \"" + r + "/compiler/macos_arm64\"")
     exec("install -m 0755 compiler/macos_arm64/kcc-arm64 \"" + r + "/compiler/macos_arm64/kcc-arm64\"")
@@ -92,11 +93,13 @@ just run {
         "ROOT=/usr/local/krypton\n" +
         "mkdir -p /usr/local/bin\n" +
         "ln -sf \"$ROOT/bootstrap/kcc_driver_macos_aarch64\" /usr/local/bin/kcc\n" +
+        "ln -sf \"$ROOT/kr\" /usr/local/bin/kr\n" +
         "[[ -e \"$ROOT/compiler/macos_arm64/kls\" ]] && ln -sf \"$ROOT/compiler/macos_arm64/kls\" /usr/local/bin/kls\n" +
         "[[ -e \"$ROOT/web/kweb\" ]] && ln -sf \"$ROOT/web/kweb\" /usr/local/bin/kweb\n" +
-        "for b in \"$ROOT/bootstrap/kcc_driver_macos_aarch64\" \"$ROOT/compiler/macos_arm64/kcc-arm64\" \"$ROOT/compiler/macos_arm64/macho_host\" \"$ROOT/compiler/macos_arm64/kls\" \"$ROOT/web/kweb\" \"/Applications/Krypton/kweb.app/Contents/MacOS/kweb\"; do\n" +
+        "for b in \"$ROOT/bootstrap/kcc_driver_macos_aarch64\" \"$ROOT/compiler/macos_arm64/kcc-arm64\" \"$ROOT/compiler/macos_arm64/macho_host\" \"$ROOT/compiler/macos_arm64/kls\" \"$ROOT/web/kweb\"; do\n" +
         "    [[ -e \"$b\" ]] && codesign -s - -f \"$b\" 2>/dev/null || true\n" +
         "done\n" +
+        "[[ -d \"/Applications/Krypton/kweb.app\" ]] && codesign -s - -f --deep \"/Applications/Krypton/kweb.app\" 2>/dev/null || true\n" +
         "touch \"$ROOT/bootstrap/kcc_driver_macos_aarch64\" \"$ROOT/compiler/macos_arm64/kcc-arm64\" \"$ROOT/compiler/macos_arm64/macho_host\" 2>/dev/null || true\n" +
         "exit 0\n"
     writeFile(scriptsDir + "/postinstall", post)

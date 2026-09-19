@@ -51,6 +51,8 @@ just run {
 
     let q = fromCharCode(34)
     let bundleId = "org.krypton-lang.macos." + name
+    let appVersion = trim(exec("env KRYPTON_ROOT=\"" + root + "\" \"" + fe + "\" --version 2>&1 | sed -E 's/^kcc version //;s/[[:space:]]+.*$//'"))
+    if appVersion == "" { appVersion = "0.1.0" }
     let plist = "<?xml version=" + q + "1.0" + q + " encoding=" + q + "UTF-8" + q + "?>\n" +
         "<!DOCTYPE plist PUBLIC " + q + "-//Apple//DTD PLIST 1.0//EN" + q + " " + q + "http://www.apple.com/DTDs/PropertyList-1.0.dtd" + q + ">\n" +
         "<plist version=" + q + "1.0" + q + "><dict>\n" +
@@ -58,7 +60,8 @@ just run {
         "  <key>CFBundleExecutable</key><string>" + name + "</string>\n" +
         "  <key>CFBundleIdentifier</key><string>" + bundleId + "</string>\n" +
         "  <key>CFBundlePackageType</key><string>APPL</string>\n" +
-        "  <key>CFBundleShortVersionString</key><string>0.1.0</string>\n" +
+        "  <key>CFBundleShortVersionString</key><string>" + appVersion + "</string>\n" +
+        "  <key>CFBundleVersion</key><string>" + appVersion + "</string>\n" +
         "  <key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>\n" +
         "  <key>NSHighResolutionCapable</key><true/>\n" +
         "  <key>CFBundleIconFile</key><string>" + name + "</string>\n" +

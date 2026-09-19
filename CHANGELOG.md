@@ -4,6 +4,19 @@ All notable changes to the Krypton language and compiler.
 
 ## [Unreleased]
 
+- **Compiler-native Objective-K declarations.** macOS now accepts
+  `objk protocol` and `objk object` with inheritance, one declared protocol
+  conformance, typed 0..2 argument signatures, and callback-backed methods.
+- **K-owned Objective-K runtime.** Added checked classes, inheritance, dispatch,
+  protocols, typed integer/text/object contracts, owned/weak/text fields,
+  cleanup hooks, fresh handle IDs, and reusable arena storage.
+- **macOS Objective-K examples and checks.** Added Focus and Counter GUI apps,
+  runtime rejection coverage, declaration syntax checks, and native GUI smoke
+  paths without Objective-C source.
+- **kweb macOS app refresh.** Added liquid-glass kweb icon, full bundle signing,
+  and compiler-derived app version metadata.
+- **macOS package parity.** `.pkg` and tarball now include `kr` for top-level
+  KryptScript and re-sign the complete kweb app after installation.
 - **Objective-K UI hardening for 2.4.6.** `stdlib/okui.k` now exposes the
   missing app-facing pieces kweb needs: alerts, menus, text-view helpers,
   text-range colour, and button-title tinting.

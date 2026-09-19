@@ -37,6 +37,7 @@ just run {
     exec("mkdir -p \"" + rootd + "/bootstrap\" \"" + rootd + "/compiler/macos_arm64\"")
     // Driver + frontend seed
     exec("install -m 0755 " + driver + " \"" + rootd + "/" + driver + "\"")
+    exec("install -m 0755 kr \"" + rootd + "/kr\"")
     exec("install -m 0755 bootstrap/kcc_seed_macos_aarch64 \"" + rootd + "/bootstrap/kcc_seed_macos_aarch64\"")
     // Frontend + backend host + their sources
     exec("install -m 0755 compiler/macos_arm64/kcc-arm64 \"" + rootd + "/compiler/macos_arm64/kcc-arm64\"")
@@ -75,10 +76,11 @@ just run {
         "for b in bootstrap/kcc_driver_macos_aarch64 compiler/macos_arm64/kcc-arm64 compiler/macos_arm64/macho_host compiler/macos_arm64/kls web/kweb; do\n" +
         "    [[ -e \"$PREFIX/$b\" ]] && $SUDO codesign -s - -f \"$PREFIX/$b\" 2>/dev/null || true\n" +
         "done\n" +
-        "[[ -e \"$APPDIR/kweb.app/Contents/MacOS/kweb\" ]] && $SUDO codesign -s - -f \"$APPDIR/kweb.app/Contents/MacOS/kweb\" 2>/dev/null || true\n" +
+        "[[ -d \"$APPDIR/kweb.app\" ]] && $SUDO codesign -s - -f --deep \"$APPDIR/kweb.app\" 2>/dev/null || true\n" +
         "$SUDO touch \"$PREFIX/bootstrap/kcc_driver_macos_aarch64\" \"$PREFIX/compiler/macos_arm64/kcc-arm64\" \"$PREFIX/compiler/macos_arm64/macho_host\" 2>/dev/null || true\n" +
         "$SUDO mkdir -p \"$BIN\"\n" +
         "$SUDO ln -sf \"$PREFIX/bootstrap/kcc_driver_macos_aarch64\" \"$BIN/kcc\"\n" +
+        "$SUDO ln -sf \"$PREFIX/kr\" \"$BIN/kr\"\n" +
         "[[ -e \"$PREFIX/compiler/macos_arm64/kls\" ]] && $SUDO ln -sf \"$PREFIX/compiler/macos_arm64/kls\" \"$BIN/kls\"\n" +
         "$SUDO ln -sf \"$PREFIX/web/kweb\" \"$BIN/kweb\"\n" +
         "echo \"done. 'kcc --version':\"; \"$BIN/kcc\" --version\n"
