@@ -49,7 +49,10 @@ just run {
     // Runtime trees
     exec("env COPYFILE_DISABLE=1 ditto --norsrc stdlib \"" + rootd + "/stdlib\"")
     exec("env COPYFILE_DISABLE=1 ditto --norsrc headers \"" + rootd + "/headers\"")
-    if isDir("examples") == "yes" { exec("env COPYFILE_DISABLE=1 ditto --norsrc examples \"" + rootd + "/examples\"") }
+    if isDir("examples") == "yes" {
+        exec("env COPYFILE_DISABLE=1 ditto --norsrc examples \"" + rootd + "/examples\"")
+        exec("git ls-files --others -z examples | xargs -0 -I{} rm -f \"" + rootd + "/{}\"")
+    }
     if isFile("LICENSE") == "yes" { exec("cp LICENSE \"" + rootd + "/LICENSE\"") }
     exec("find \"" + rootd + "\" -type f -name '*.k' -exec chmod 0644 {} +")
     exec("mkdir -p \"" + rootd + "/web\" \"" + rootd + "/apps\"")

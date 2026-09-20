@@ -71,7 +71,10 @@ just run {
     if klsBin != "" { exec("install -m 0755 " + klsBin + " \"" + r + "/compiler/macos_arm64/kls\"") }
     exec("env COPYFILE_DISABLE=1 ditto --norsrc stdlib \"" + r + "/stdlib\"")
     exec("env COPYFILE_DISABLE=1 ditto --norsrc headers \"" + r + "/headers\"")
-    if isDir("examples") == "yes" { exec("env COPYFILE_DISABLE=1 ditto --norsrc examples \"" + r + "/examples\"") }
+    if isDir("examples") == "yes" {
+        exec("env COPYFILE_DISABLE=1 ditto --norsrc examples \"" + r + "/examples\"")
+        exec("git ls-files --others -z examples | xargs -0 -I{} rm -f \"" + r + "/{}\"")
+    }
     if isDir("lsp") == "yes" {
         exec("mkdir -p \"" + r + "/lsp\"")
         exec("for f in lsp/*.k lsp/README.md; do [ -f \"$f\" ] && install -m 0644 \"$f\" \"" + r + "/$f\"; done")

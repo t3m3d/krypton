@@ -2829,7 +2829,7 @@ func opInstrCount(opTok) {
     if opTok == "STORE_SLOT"   { emit 2 }
     if opTok == "LOAD_GLOBAL"  { emit 4 }
     if opTok == "STORE_GLOBAL" { emit 4 }
-    if opTok == "ADD"          { emit 193 } // int+int(8)|numstr+int(71)|concat(111)
+    if opTok == "ADD"          { emit 199 } // int+int(14)|numstr+int(71)|concat(111)
     if opTok == "CAT"          { emit 113 } // 2 pops + emitPolyConcat (111)
     if opTok == "SUB"          { emit 4 }
     if opTok == "MUL"          { emit 4 }
@@ -3435,125 +3435,100 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
             s = sbAppend(s, arm64_push_x0())                           // 4
             instrIdx = instrIdx + 5
         } else if opTok == "ADD" {
-            // Polymorphic ADD — 193 instructions. Three paths:
-            //   INT+INT (0-9):   both < threshold → integer add → push
-            //   NUMSTR+INT (10-81): a=ptr, b=int, a-string is all-digits →
+            // Polymorphic ADD — 199 instructions. Three paths:
+            //   INT+INT (0-15):  signed add for negative operands, modular add otherwise
+            //   NUMSTR+INT (16-87): a=ptr, b=int, a-string is all-digits →
             //                       alloc 24B heap, itoa(parse(a)+b), push string
-            //   CONCAT (82-192): fallback string concat via emitPolyConcat
-            //
-            // Layout:
-            //   0:pop x6  1:pop x3  2:movz x14  3:cmp a,thr  4:b.ge→A_PTR@10
-            //   5:cmp b,thr  6:b.ge→CONCAT@82  7:add  8:push  9:b→DONE@193
-            //   A_PTR(10): 10:cmp b,thr  11:b.ge→CONCAT@82
-            //   SCAN(12-21): 12:movz x4=0  13:LOOP:ldrb  14:cbz→@21  15:cmp48
-            //     16:b.lt→CONCAT  17:cmp57  18:b.gt→CONCAT  19:add x4  20:b→LOOP
-            //     21:cbz x4→CONCAT(empty)
-            //   PARSE(22-31): 22:movz x15=0  23:movz x4=0  24:LOOP:ldrb
-            //     25:cbz→@32  26:sub#48  27:movz x10=10  28:mul  29:add  30:add x4  31:b→LOOP
-            //   ALLOC(32-52): emitAllocN(24) → x0=heapbuf (21 instr)
-            //   ITOA(53-81): 53:add x13=x15+x6  54:add x4=x0+22  55:strb NUL
-            //     56:movz x5=0  57:cmp x13,0  58:b.ge→@61  59:movz x5=1  60:neg x13
-            //     61:cbnz x13,+5→@66  62:sub x4  63:movz'0'  64:strb  65:b→@75
-            //     66:cbz x13,+9→@75  67:movz x7=10  68:udiv  69:msub  70:add#48
-            //     71:sub x4  72:strb  73:mov x13=quot  74:b→@66
-            //     75:cbz x5,+4→@79  76:sub x4  77:movz'-'  78:strb
-            //     79:mov x0,x4  80:push  81:b→DONE@193
-            //   CONCAT(82-192): emitPolyConcat
+            //   CONCAT (88-198): fallback string concat via emitPolyConcat
+            // Keep relative branch offsets and opInstrCount aligned with all paths.
             s = sbAppend(s, arm64_pop(6))  // 0: b
             s = sbAppend(s, arm64_pop(3))  // 1: a
             s = sbAppend(s, arm64_movz_x_imm_lsl32(14, 1))  // 2: threshold
             s = sbAppend(s, arm64_cmp_xx(3, 14))  // 3
-            s = sbAppend(s, arm64_b_cond(0xa, 6))  // 4: b.ge → A_PTR@10
+            s = sbAppend(s, arm64_b_cond(0xa, 12))  // 4: b.ge → A_PTR@16
             s = sbAppend(s, arm64_cmp_xx(6, 14))  // 5
-            s = sbAppend(s, arm64_b_cond(0xa, 76))  // 6: b.ge → CONCAT@82
-            // INT_INT @ 7: 32-bit add so result wraps at 2^32. This wrap is
-            // LOAD-BEARING for the in-Krypton ad-hoc code signer's pure-K
-            // SHA-256 (sha256_processChunk above, used by emitCodeSignature):
-            // SHA-256 is defined mod 2^32, and the wrap is what keeps every
-            // intermediate < 2^32 = the int/pointer tag boundary. A 64-bit add
-            // (arm64_add_xxx) WOULD fix negative results — (0-10)+3 prints -7
-            // not 4294967289 — and SUB/MUL already use _xxx safely. But it
-            // breaks self-host: the moment a modular add exceeds 2^32 it is
-            // tagged as a POINTER on the next store/builtin, so the signer's
-            // SHA garbles, gen3 produces an invalid signature, and the binary
-            // SIGSEGVs (verified 2026-06-20). You CANNOT mask it back either —
-            // MOD/bitAnd threshold-check their args, so they choke on the same
-            // transient >2^32 value. Fixing negative ADD needs the low-bit
-            // tagging rework (docs/backend_history.md#LOWBIT_TAGGING_PLAN.md), not a point fix.
-            s = sbAppend(s, arm64_add_www(0, 3, 6))  // 7
-            s = sbAppend(s, arm64_push_x0())  // 8
-            s = sbAppend(s, arm64_b(184))  // 9: → ADD_DONE@193
-            // A_PTR @ 10: a is ptr
-            s = sbAppend(s, arm64_cmp_xx(6, 14))  // 10
-            s = sbAppend(s, arm64_b_cond(0xa, 71))  // 11: b.ge → CONCAT@82
+            s = sbAppend(s, arm64_b_cond(0xa, 82))  // 6: b.ge → CONCAT@88
+            // SHA-256 needs 32-bit modular addition; negative arithmetic needs signed results.
+            s = sbAppend(s, arm64_orr_xxx(13, 3, 6))  // 7
+            s = sbAppend(s, arm64_cmp_imm(13, 0))  // 8
+            s = sbAppend(s, arm64_b_cond(0xb, 4))  // 9: b.lt → SIGNED@13
+            s = sbAppend(s, arm64_add_www(0, 3, 6))  // 10
+            s = sbAppend(s, arm64_push_x0())  // 11
+            s = sbAppend(s, arm64_b(187))  // 12: → ADD_DONE@199
+            s = sbAppend(s, arm64_add_xxx(0, 3, 6))  // 13
+            s = sbAppend(s, arm64_push_x0())  // 14
+            s = sbAppend(s, arm64_b(184))  // 15: → ADD_DONE@199
+            // A_PTR @ 16: a is ptr
+            s = sbAppend(s, arm64_cmp_xx(6, 14))
+            s = sbAppend(s, arm64_b_cond(0xa, 71))
             // SCAN: a-string all digits?
-            s = sbAppend(s, arm64_movz_x_imm(4, 0))  // 12: i = 0
-            // SCAN_LOOP @ 13:
-            s = sbAppend(s, arm64_ldrb_reg(5, 3, 4))  // 13
-            s = sbAppend(s, arm64_cbz(5, 7))  // 14: NUL → NUM_CHECK@21
-            s = sbAppend(s, arm64_cmp_imm(5, 48))  // 15
-            s = sbAppend(s, arm64_b_cond(0xb, 66))  // 16: b.lt → CONCAT@82
-            s = sbAppend(s, arm64_cmp_imm(5, 57))  // 17
-            s = sbAppend(s, arm64_b_cond(0xc, 64))  // 18: b.gt → CONCAT@82
-            s = sbAppend(s, arm64_add_imm(4, 4, 1))  // 19
-            s = sbAppend(s, arm64_b(0 - 7))  // 20: → SCAN_LOOP@13
-            // NUM_CHECK @ 21:
-            s = sbAppend(s, arm64_cbz(4, 61))  // 21: empty → CONCAT@82
+            s = sbAppend(s, arm64_movz_x_imm(4, 0))
+            // SCAN_LOOP @ 19:
+            s = sbAppend(s, arm64_ldrb_reg(5, 3, 4))
+            s = sbAppend(s, arm64_cbz(5, 7))
+            s = sbAppend(s, arm64_cmp_imm(5, 48))
+            s = sbAppend(s, arm64_b_cond(0xb, 66))
+            s = sbAppend(s, arm64_cmp_imm(5, 57))
+            s = sbAppend(s, arm64_b_cond(0xc, 64))
+            s = sbAppend(s, arm64_add_imm(4, 4, 1))
+            s = sbAppend(s, arm64_b(0 - 7))
+            // NUM_CHECK @ 27:
+            s = sbAppend(s, arm64_cbz(4, 61))
             // PARSE a → x15
-            s = sbAppend(s, arm64_movz_x_imm(15, 0))  // 22
-            s = sbAppend(s, arm64_movz_x_imm(4, 0))  // 23
-            // PARSE_LOOP @ 24:
-            s = sbAppend(s, arm64_ldrb_reg(7, 3, 4))  // 24
-            s = sbAppend(s, arm64_cbz(7, 7))  // 25: → PARSED@32
-            s = sbAppend(s, arm64_sub_imm(7, 7, 48))  // 26
-            s = sbAppend(s, arm64_movz_x_imm(10, 10))  // 27
-            s = sbAppend(s, arm64_mul_xxx(15, 15, 10))  // 28
-            s = sbAppend(s, arm64_add_xxx(15, 15, 7))  // 29
-            s = sbAppend(s, arm64_add_imm(4, 4, 1))  // 30
-            s = sbAppend(s, arm64_b(0 - 7))  // 31: → PARSE_LOOP@24
-            // PARSED @ 32: allocate 24-byte heap buffer → x0 (21 instr)
-            instrIdx = instrIdx + 32
+            s = sbAppend(s, arm64_movz_x_imm(15, 0))
+            s = sbAppend(s, arm64_movz_x_imm(4, 0))
+            // PARSE_LOOP @ 30:
+            s = sbAppend(s, arm64_ldrb_reg(7, 3, 4))
+            s = sbAppend(s, arm64_cbz(7, 7))
+            s = sbAppend(s, arm64_sub_imm(7, 7, 48))
+            s = sbAppend(s, arm64_movz_x_imm(10, 10))
+            s = sbAppend(s, arm64_mul_xxx(15, 15, 10))
+            s = sbAppend(s, arm64_add_xxx(15, 15, 7))
+            s = sbAppend(s, arm64_add_imm(4, 4, 1))
+            s = sbAppend(s, arm64_b(0 - 7))
+            // PARSED @ 38: allocate 24-byte heap buffer → x0 (21 instr)
+            instrIdx = instrIdx + 38
             s = sbAppend(s, emitAllocN(24, instrIdx, textVaddr, textOff))
-            instrIdx = instrIdx + 21   // now at 53
+            instrIdx = instrIdx + 21   // now at 59
             // ITOA: sum x15+x6 → x13, write into heap buf at x0 backward from p=x0+22
-            s = sbAppend(s, arm64_add_xxx(13, 15, 6))  // 53: x13 = parsed_a + b
-            s = sbAppend(s, arm64_add_imm(4, 0, 22))  // 54: p = buf+22
-            s = sbAppend(s, arm64_strb_imm(31, 4, 0))  // 55: buf[22] = NUL (bzr)
-            s = sbAppend(s, arm64_movz_x_imm(5, 0))  // 56: neg = 0
-            s = sbAppend(s, arm64_cmp_imm(13, 0))  // 57
-            s = sbAppend(s, arm64_b_cond(0xa, 3))  // 58: b.ge → IPOS@61
-            s = sbAppend(s, arm64_movz_x_imm(5, 1))  // 59
-            s = sbAppend(s, arm64_neg(13, 13))  // 60
-            // IPOS @ 61:
-            s = sbAppend(s, arm64_cbnz(13, 5))  // 61: → ILOOP@66
-            s = sbAppend(s, arm64_sub_imm(4, 4, 1))  // 62: zero → write '0'
-            s = sbAppend(s, arm64_movz_w_imm(7, 0x30))  // 63
-            s = sbAppend(s, arm64_strb_imm(7, 4, 0))  // 64
-            s = sbAppend(s, arm64_b(10))  // 65: → ISIGN@75
-            // ILOOP @ 66:
-            s = sbAppend(s, arm64_cbz(13, 9))  // 66: → ISIGN@75
-            s = sbAppend(s, arm64_movz_x_imm(7, 10))  // 67
-            s = sbAppend(s, arm64_udiv_xxx(8, 13, 7))  // 68
-            s = sbAppend(s, arm64_msub_xxxx(9, 8, 7, 13))  // 69: rem
-            s = sbAppend(s, arm64_add_imm(9, 9, 0x30))  // 70
-            s = sbAppend(s, arm64_sub_imm(4, 4, 1))  // 71
-            s = sbAppend(s, arm64_strb_imm(9, 4, 0))  // 72
-            s = sbAppend(s, arm64_mov_xx(13, 8))  // 73: quotient
-            s = sbAppend(s, arm64_b(0 - 8))  // 74: → ILOOP@66
-            // ISIGN @ 75:
-            s = sbAppend(s, arm64_cbz(5, 4))  // 75: → IDONE@79
-            s = sbAppend(s, arm64_sub_imm(4, 4, 1))  // 76
-            s = sbAppend(s, arm64_movz_w_imm(7, 0x2D))  // 77: '-'
-            s = sbAppend(s, arm64_strb_imm(7, 4, 0))  // 78
-            // IDONE @ 79:
-            s = sbAppend(s, arm64_mov_xx(0, 4))  // 79: x0 = start of number string
-            s = sbAppend(s, arm64_push_x0())  // 80
-            s = sbAppend(s, arm64_b(112))  // 81: → ADD_DONE@193
-            // CONCAT @ idx 82: shared polymorphic concat body
-            instrIdx = instrIdx + 29   // advance from 53 by 29 to reach 82
+            s = sbAppend(s, arm64_add_xxx(13, 15, 6))
+            s = sbAppend(s, arm64_add_imm(4, 0, 22))
+            s = sbAppend(s, arm64_strb_imm(31, 4, 0))
+            s = sbAppend(s, arm64_movz_x_imm(5, 0))
+            s = sbAppend(s, arm64_cmp_imm(13, 0))
+            s = sbAppend(s, arm64_b_cond(0xa, 3))
+            s = sbAppend(s, arm64_movz_x_imm(5, 1))
+            s = sbAppend(s, arm64_neg(13, 13))
+            // IPOS @ 67:
+            s = sbAppend(s, arm64_cbnz(13, 5))
+            s = sbAppend(s, arm64_sub_imm(4, 4, 1))
+            s = sbAppend(s, arm64_movz_w_imm(7, 0x30))
+            s = sbAppend(s, arm64_strb_imm(7, 4, 0))
+            s = sbAppend(s, arm64_b(10))
+            // ILOOP @ 72:
+            s = sbAppend(s, arm64_cbz(13, 9))
+            s = sbAppend(s, arm64_movz_x_imm(7, 10))
+            s = sbAppend(s, arm64_udiv_xxx(8, 13, 7))
+            s = sbAppend(s, arm64_msub_xxxx(9, 8, 7, 13))
+            s = sbAppend(s, arm64_add_imm(9, 9, 0x30))
+            s = sbAppend(s, arm64_sub_imm(4, 4, 1))
+            s = sbAppend(s, arm64_strb_imm(9, 4, 0))
+            s = sbAppend(s, arm64_mov_xx(13, 8))
+            s = sbAppend(s, arm64_b(0 - 8))
+            // ISIGN @ 81:
+            s = sbAppend(s, arm64_cbz(5, 4))
+            s = sbAppend(s, arm64_sub_imm(4, 4, 1))
+            s = sbAppend(s, arm64_movz_w_imm(7, 0x2D))
+            s = sbAppend(s, arm64_strb_imm(7, 4, 0))
+            // IDONE @ 85:
+            s = sbAppend(s, arm64_mov_xx(0, 4))
+            s = sbAppend(s, arm64_push_x0())
+            s = sbAppend(s, arm64_b(112))
+            // CONCAT @ idx 88: shared polymorphic concat body
+            instrIdx = instrIdx + 29   // advance from 59 by 29 to reach 88
             s = sbAppend(s, emitPolyConcat(instrIdx, textVaddr, textOff))  // emits 111 instr
             instrIdx = instrIdx + 111
-            // ADD_DONE @ idx 193
+            // ADD_DONE @ idx 199
         } else if opTok == "CAT" {
             // String concatenation IR op — compile.k emits this for known
             // string contexts (backtick interpolation, etc.). Body is the same

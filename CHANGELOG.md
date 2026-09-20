@@ -17,6 +17,9 @@ All notable changes to the Krypton language and compiler.
   and compiler-derived app version metadata.
 - **macOS package parity.** `.pkg` and tarball now include `kr` for top-level
   KryptScript and re-sign the complete kweb app after installation.
+- **macOS signed arithmetic.** Native `ADD` preserves SHA-256's 32-bit wrap for
+  nonnegative operands while producing signed results for negative operands.
+  Negative addition and comparison regressions now pass.
 - **Objective-K UI hardening for 2.4.6.** `stdlib/okui.k` now exposes the
   missing app-facing pieces kweb needs: alerts, menus, text-view helpers,
   text-range colour, and button-title tinting.

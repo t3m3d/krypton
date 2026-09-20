@@ -39,7 +39,15 @@ just run {
     let a = 0 - 10
     let b = 3
     check("neg + pos", "-7", "" + (a + b))
+    check("neg + pos chain", "-4", "" + (a + b + 3))
     check("neg * pos", "-30", "" + (a * b))
+    if a + b < 0 {
+        check("neg sum lt zero", "true", "true")
+    } else {
+        check("neg sum lt zero", "true", "false")
+    }
+    let max32 = 65535 * 65535 + 131070
+    check("uint32 add wrap", "0", "" + (max32 + 1))
 
     emit "ok"
 }

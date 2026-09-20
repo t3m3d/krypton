@@ -16,25 +16,38 @@ remains 2.4.5.
 - kweb CLI creates a project and builds a configured `dist/index.html`.
 - `.pkg` expands and contains compiler, `kr`, runtime, and signed kweb app.
   Package installer and tarball installer scripts pass `bash -n`.
+- Native `ADD` keeps SHA-256's 32-bit wrap for nonnegative operands and uses
+  signed addition when either operand is negative. Backend self-host output is
+  byte-identical across generations; `codesign -v` passes. Full macOS suite is
+  71 passed, 0 failed, 8 skipped, including negative-chain and wrap regressions.
+- Tarball installer passed in a disposable `/tmp` prefix: installed `kcc`
+  reports 2.4.6, compiles and runs negative-number checks, and installed
+  kweb app passes `codesign -v`. Tarball and `.pkg` payloads contain backend
+  matching the tracked seed; neither contains local untracked example binary.
+- `pkgbuild` emits four `write: Permission denied` lines even for an empty
+  package root, both inside and outside the sandbox. The release build emits
+  five. `pkgutil --expand` and payload extraction succeed; this is a known
+  host-tool warning, not a payload validation failure.
+
+Current local artifact SHA-256:
+
+- `krypton-2.4.6-macos-arm64.tar.gz`:
+  `1c34ca6fa9183816c79df9c4dc616e53af6431fee68c70ca25b0e1970426c479`
+- `krypton-2.4.6-macos-arm64.pkg`:
+  `ee9b8dde7007dc76c568aa95edbdb80882c9b6df46659527d750afc5c5d6577f`
 
 ## Release Gates
 
-1. Fix or explicitly waive `test_negative_nums.k`: full macOS suite is 70
-   passed, 1 failed, 8 skipped. `(0 - 10) + 3` currently prints `4294967289`
-   instead of `-7`; wrapped result also has wrong comparison behavior. Backend
-   32-bit ADD protects the self-host signer, so string-only formatting is not
-   a complete fix.
-2. Investigate five `write: Permission denied` lines from `build_pkg.ks`.
-   Expanded payload checks pass, but package creation should be warning-free.
-3. Test installer on a clean macOS arm64 machine or disposable volume; current
-   checks used extracted payloads, not system installation.
-4. Test real FTP deployment with a test account and remote folder; no
+1. Test `.pkg` through macOS Installer on a clean machine or disposable volume;
+   payload expansion and tarball installation pass, but system installation
+   has not been exercised.
+2. Test real FTP deployment with a test account and remote folder; no
    credentials are stored or used by this release prep.
-5. Obtain Developer ID signing identity and notarize public app/package, or
+3. Obtain Developer ID signing identity and notarize public app/package, or
    explicitly publish an unsigned/ad-hoc-signed build with macOS Gatekeeper
    limitations stated. `security find-identity` currently finds no valid
    signing identity; the local `.pkg` has no distribution signature.
-6. Rebuild final artifacts after any gate fix, record SHA-256, then publish
+4. Rebuild final artifacts after any gate fix, record SHA-256, then publish
    GitHub assets. Update Homebrew only after release URLs work.
 
 Objective-K remains experimental and macOS arm64 only in this candidate.
