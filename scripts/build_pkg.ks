@@ -93,16 +93,15 @@ just run {
     // ── postinstall (BASH — Installer runs it as root) ────────────────────────
     let post = "#!/bin/bash\n" +
         "set -e\n" +
-        "ROOT=/usr/local/krypton\n" +
-        "mkdir -p /usr/local/bin\n" +
-        "ln -sf \"$ROOT/bootstrap/kcc_driver_macos_aarch64\" /usr/local/bin/kcc\n" +
-        "ln -sf \"$ROOT/kr\" /usr/local/bin/kr\n" +
-        "[[ -e \"$ROOT/compiler/macos_arm64/kls\" ]] && ln -sf \"$ROOT/compiler/macos_arm64/kls\" /usr/local/bin/kls\n" +
-        "[[ -e \"$ROOT/web/kweb\" ]] && ln -sf \"$ROOT/web/kweb\" /usr/local/bin/kweb\n" +
-        "for b in \"$ROOT/bootstrap/kcc_driver_macos_aarch64\" \"$ROOT/compiler/macos_arm64/kcc-arm64\" \"$ROOT/compiler/macos_arm64/macho_host\" \"$ROOT/compiler/macos_arm64/kls\" \"$ROOT/web/kweb\"; do\n" +
-        "    [[ -e \"$b\" ]] && codesign -s - -f \"$b\" 2>/dev/null || true\n" +
-        "done\n" +
-        "[[ -d \"/Applications/Krypton/kweb.app\" ]] && codesign -s - -f --deep \"/Applications/Krypton/kweb.app\" 2>/dev/null || true\n" +
+        "TARGET=\"${3:?Installer target volume missing}\"\n" +
+        "TARGET=\"${TARGET%/}\"\n" +
+        "ROOT=\"$TARGET/usr/local/krypton\"\n" +
+        "BIN=\"$TARGET/usr/local/bin\"\n" +
+        "mkdir -p \"$BIN\"\n" +
+        "ln -sf /usr/local/krypton/bootstrap/kcc_driver_macos_aarch64 \"$BIN/kcc\"\n" +
+        "ln -sf /usr/local/krypton/kr \"$BIN/kr\"\n" +
+        "[[ -e \"$ROOT/compiler/macos_arm64/kls\" ]] && ln -sf /usr/local/krypton/compiler/macos_arm64/kls \"$BIN/kls\"\n" +
+        "[[ -e \"$ROOT/web/kweb\" ]] && ln -sf /usr/local/krypton/web/kweb \"$BIN/kweb\"\n" +
         "touch \"$ROOT/bootstrap/kcc_driver_macos_aarch64\" \"$ROOT/compiler/macos_arm64/kcc-arm64\" \"$ROOT/compiler/macos_arm64/macho_host\" 2>/dev/null || true\n" +
         "exit 0\n"
     writeFile(scriptsDir + "/postinstall", post)

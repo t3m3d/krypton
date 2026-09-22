@@ -16,7 +16,7 @@ All notable changes to the Krypton language and compiler.
 - **kweb macOS app refresh.** Added liquid-glass kweb icon, full bundle signing,
   and compiler-derived app version metadata.
 - **macOS package parity.** `.pkg` and tarball now include `kr` for top-level
-  KryptScript and re-sign the complete kweb app after installation.
+  KryptScript and preserve signed payloads through installation.
 - **macOS signed arithmetic.** Native `ADD` preserves SHA-256's 32-bit wrap for
   nonnegative operands while producing signed results for negative operands.
   Negative addition and comparison regressions now pass.

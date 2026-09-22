@@ -64,7 +64,7 @@ just run {
 
     // ── install.sh (BASH — bootstraps kcc on the user's machine) ──────────────
     let inst = "#!/usr/bin/env bash\n" +
-        "# Krypton macOS installer - copies the bundle, signs it, puts kcc on PATH.\n" +
+        "# Krypton macOS installer - copies signed payload and puts kcc on PATH.\n" +
         "set -euo pipefail\n" +
         "PREFIX=\"${1:-/usr/local/krypton}\"\n" +
         "BIN=\"${BINDIR:-/usr/local/bin}\"\n" +
@@ -76,10 +76,6 @@ just run {
         "$SUDO mkdir -p \"$APPDIR\"; $SUDO cp -R \"$HERE/apps/kweb.app\" \"$APPDIR/kweb.app\"\n" +
         "$SUDO xattr -dr com.apple.quarantine \"$PREFIX\" 2>/dev/null || true\n" +
         "$SUDO xattr -dr com.apple.quarantine \"$APPDIR/kweb.app\" 2>/dev/null || true\n" +
-        "for b in bootstrap/kcc_driver_macos_aarch64 compiler/macos_arm64/kcc-arm64 compiler/macos_arm64/macho_host compiler/macos_arm64/kls web/kweb; do\n" +
-        "    [[ -e \"$PREFIX/$b\" ]] && $SUDO codesign -s - -f \"$PREFIX/$b\" 2>/dev/null || true\n" +
-        "done\n" +
-        "[[ -d \"$APPDIR/kweb.app\" ]] && $SUDO codesign -s - -f --deep \"$APPDIR/kweb.app\" 2>/dev/null || true\n" +
         "$SUDO touch \"$PREFIX/bootstrap/kcc_driver_macos_aarch64\" \"$PREFIX/compiler/macos_arm64/kcc-arm64\" \"$PREFIX/compiler/macos_arm64/macho_host\" 2>/dev/null || true\n" +
         "$SUDO mkdir -p \"$BIN\"\n" +
         "$SUDO ln -sf \"$PREFIX/bootstrap/kcc_driver_macos_aarch64\" \"$BIN/kcc\"\n" +
@@ -92,13 +88,13 @@ just run {
 
     // ── README.txt ────────────────────────────────────────────────────────────
     let rme = "Krypton " + version + " - macOS " + arch + "\n" +
-        "Install:  ./install.sh            (symlinks kcc into /usr/local/bin, ad-hoc signs)\n" +
+        "Install:  ./install.sh            (symlinks kcc into /usr/local/bin)\n" +
         "Use:      kcc hello.k -o hello && ./hello\n" +
         "          kcc -r hello.ks\n" +
         "          kweb init mysite\n" +
         "          open /Applications/Krypton/kweb.app\n" +
         "          kcc --version\n" +
-        "No clang, no clone needed - prebuilt binaries, self-signed on install.\n"
+        "No clang, no clone needed - prebuilt, signed binaries.\n"
     writeFile(rootd + "/README.txt", rme)
 
     // Make binaries NEWER than the .k sources so the driver never triggers the
