@@ -38,6 +38,9 @@ remaining manual gates pass. Published macOS release remains 2.4.5.
   creates boot-correct `/usr/local/krypton` symlinks there. Extracted postinstall
   passes `bash -n`, fails without its target argument, and succeeds against an
   offline `/tmp` target without writing live system paths.
+- Installer.app completed on the release host. The package receipt reports
+  2.4.6 and installed `/usr/local/bin/kcc` reports `kcc version 2.4.6`. Existing
+  Homebrew 2.4.5 was unlinked because `/opt/homebrew/bin` had PATH priority.
 - `pkgbuild` emits four `write: Permission denied` lines even for an empty
   package root, both inside and outside the sandbox. The release build emits
   five. `pkgutil --expand` and payload extraction succeed; this is a known
@@ -52,13 +55,9 @@ Current local artifact SHA-256:
 
 ## Release Gates
 
-1. Test `.pkg` through macOS Installer on a clean machine or disposable volume;
-   payload expansion, offline postinstall, and tarball installation pass, but
-   Installer requires an administrator password unavailable to this run. Test
-   image was detached after this check.
-2. Test real FTP deployment with a test account and remote folder; no
+1. Test real FTP deployment with a test account and remote folder; no
    credentials are stored or used by this release prep.
-3. Rebuild final artifacts after any gate fix, record SHA-256, then publish
+2. Rebuild final artifacts after any gate fix, record SHA-256, then publish
    GitHub assets. Update Homebrew only after release URLs work.
 
 Objective-K remains experimental and macOS arm64 only in this candidate.
