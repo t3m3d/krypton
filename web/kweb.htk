@@ -21,6 +21,7 @@ func printUsage() {
     printErr("  kweb deploy <host> <user> [remote-dir] [password]" + NL)
     printErr("                              Deploy dist/ via FTP" + NL)
     printErr("                              remote-dir is relative to FTP login root" + NL)
+    printErr("                              password may use KWEB_FTP_PASSWORD" + NL)
     printErr(NL)
     printErr("https://krypton-lang.org" + NL)
 }
@@ -367,7 +368,10 @@ func doDeploy(rawHost, ftpUser, remoteFolder, ftpPass) {
     }
     printErr("kweb: deploying dist/ to " + ftpUser + "@" + ftpHost + ":/")
     if folder != "" { printErr("kweb: remote folder " + folder) }
-    if ftpPass == "" { printErr("kweb: enter password when prompted") }
+    if ftpPass == "" || ftpPass == "0" {
+        printErr("kweb: password required; set KWEB_FTP_PASSWORD or pass it as the final argument")
+        exit("1")
+    }
 
     // Walk dist/ recursively so subfolders (e.g. learn/) are included.
     // --ftp-create-dirs makes curl create remote folders as needed.
@@ -426,7 +430,10 @@ just run {
         let ftpHost = arg("1")
         let ftpUser = arg("2")
         let remoteFolder = arg("3")
-        let ftpPass = arg("4")
+        let ftpPass = ""
+        if argCount() > 4 { ftpPass = arg("4") }
+        if ftpPass == "" { ftpPass = environ("KWEB_FTP_PASSWORD") }
+        if ftpPass == "0" { ftpPass = "" }
         if ftpHost == "" || ftpUser == "" {
             printErr("kweb: usage: kweb deploy <ftp-host> <username> [remote-dir] [password]" + NL)
             emit 1

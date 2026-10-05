@@ -115,6 +115,10 @@ func stateField(state, key) {
     emit cleanLine(text(get(appH(), key)))
 }
 
+func capturePath(name) {
+    emit "/tmp/kweb_gui_" + name + ".log"
+}
+
 func setStatus(state, text) {
     doText(get(appH(), "status"), text)
     emit "1"
@@ -138,9 +142,18 @@ func runInProject(state, name, args) {
     appendLog(log, "$ cd " + project)
     appendLog(log, "$ " + kweb + " " + args)
 
-    let cmd = "cd " + shellQuote(project) + " && " + shellQuote(kweb) + " " + args + " 2>&1"
-    let out = exec(cmd)
+    let capture = capturePath("build")
+    let cmd = "cd " + shellQuote(project) + " && " + shellQuote(kweb) + " " + args +
+        " >" + shellQuote(capture) + " 2>&1"
+    let rc = shellRun(cmd)
+    let out = readFile(capture)
+    shellRun("rm -f " + shellQuote(capture))
     appendLog(log, out)
+    if rc != "0" {
+        setStatus(state, name + " failed")
+        alert("kweb", name + " failed. Check the output for details.")
+        emit "1"
+    }
     setStatus(state, name + " finished")
     emit "1"
 }
@@ -173,9 +186,13 @@ func onDeploy(self, cmd, sender) {
     setStatus(state, "Deploy running")
     appendLog(log, "FTP deploy to " + host + " as " + user)
     if remoteFolder != "" { appendLog(log, "Remote folder: " + remoteFolder) }
-    let files = exec("cd " + shellQuote(project) + " && find dist -type f 2>/dev/null")
+    let capture = capturePath("files")
+    let findRc = shellRun("cd " + shellQuote(project) + " && find dist -type f >" +
+        shellQuote(capture) + " 2>/dev/null")
+    let files = readFile(capture)
+    shellRun("rm -f " + shellQuote(capture))
     let n = lineCount(files)
-    if n == 0 {
+    if findRc != "0" || n == 0 {
         appendLog(log, "No files found in dist/. Build first or choose a project with dist/.")
         setStatus(state, "Deploy failed")
         emit "1"
