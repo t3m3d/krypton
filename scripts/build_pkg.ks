@@ -11,6 +11,27 @@ func isFile(p) { emit trim(exec("test -f \"" + p + "\" && echo yes || echo no"))
 func isDir(p)  { emit trim(exec("test -d \"" + p + "\" && echo yes || echo no")) }
 func has(c)    { emit trim(exec("command -v " + c + " >/dev/null 2>&1 && echo yes || echo no")) }
 func die(m)    { kp(m)  exit("1") }
+func envValue(name) { emit trim(exec("printenv " + name + " 2>/dev/null || true")) }
+
+func signPayload(stage, identity) {
+    let cmd = "find \"" + stage + "\" -type f -perm -111 -print0 | " +
+        "while IFS= read -r -d '' f; do " +
+        "if file \"$f\" | grep -q 'Mach-O'; then " +
+        "name=$(basename \"$f\" | tr '_' '-' | tr -cd 'A-Za-z0-9.-'); " +
+        "id=org.krypton-lang.$name; " +
+        "case \"$f\" in */kweb.app/Contents/MacOS/kweb) id=org.krypton-lang.macos.kweb;; esac; " +
+        "codesign --force --identifier \"$id\" --options runtime --timestamp " +
+        "--sign \"" + identity + "\" \"$f\" || exit 1; " +
+        "fi; done"
+    if shellRun(cmd) != "0" { die("build_pkg.ks: Developer ID payload signing failed") }
+    let app = stage + "/Applications/Krypton/kweb.app"
+    if shellRun("codesign --force --options runtime --timestamp --sign \"" + identity + "\" \"" + app + "\"") != "0" {
+        die("build_pkg.ks: Developer ID app signing failed")
+    }
+    if shellRun("codesign --verify --deep --strict --verbose=2 \"" + app + "\"") != "0" {
+        die("build_pkg.ks: signed app verification failed")
+    }
+}
 
 func cleanPkgAppleDouble(pkgFile) {
     let work = trim(exec("mktemp -d"))
@@ -33,6 +54,20 @@ just run {
     if trim(exec("uname -s")) != "Darwin" { die("build_pkg.ks: macOS only") }
     if trim(exec("uname -m")) != "arm64"  { die("build_pkg.ks: arm64 only (bundles the arm64 binaries)") }
     if has("pkgbuild") != "yes" { die("build_pkg.ks: pkgbuild not found (install Xcode Command Line Tools)") }
+    let releaseSign = envValue("KRYPTON_RELEASE_SIGN") == "1"
+    let appIdentity = envValue("KRYPTON_APP_SIGN_IDENTITY")
+    let installerIdentity = envValue("KRYPTON_INSTALLER_SIGN_IDENTITY")
+    if appIdentity == "" { appIdentity = "Developer ID Application: BRIAN KEITH THOMPSON (SD4X94BA97)" }
+    if installerIdentity == "" { installerIdentity = "Developer ID Installer: BRIAN KEITH THOMPSON (SD4X94BA97)" }
+    if releaseSign {
+        if has("productsign") != "yes" { die("build_pkg.ks: productsign not found") }
+        if shellRun("security find-identity -v | grep -F '\"" + appIdentity + "\"' >/dev/null") != "0" {
+            die("build_pkg.ks: Developer ID Application identity not found")
+        }
+        if shellRun("security find-identity -v | grep -F '\"" + installerIdentity + "\"' >/dev/null") != "0" {
+            die("build_pkg.ks: Developer ID Installer identity not found")
+        }
+    }
 
     let driver = "bootstrap/kcc_driver_macos_aarch64"
     let host   = "bootstrap/macho_host_macos_aarch64"
@@ -74,6 +109,7 @@ just run {
     if isDir("examples") == "yes" {
         exec("env COPYFILE_DISABLE=1 ditto --norsrc examples \"" + r + "/examples\"")
         exec("git ls-files --others -z examples | xargs -0 -I{} rm -f \"" + r + "/{}\"")
+        exec("rm -f \"" + r + "/examples/objk/objective-k-focus\"")
     }
     if isDir("lsp") == "yes" {
         exec("mkdir -p \"" + r + "/lsp\"")
@@ -89,6 +125,7 @@ just run {
     if isFile("web/README.md") == "yes" { exec("install -m 0644 web/README.md \"" + r + "/web/README.md\"") }
     exec("mkdir -p \"" + stage + "/Applications/Krypton\"")
     exec("env COPYFILE_DISABLE=1 ditto --norsrc dist/kweb.app \"" + stage + "/Applications/Krypton/kweb.app\"")
+    if releaseSign { signPayload(stage, appIdentity) }
 
     // ── postinstall (BASH — Installer runs it as root) ────────────────────────
     let post = "#!/bin/bash\n" +
@@ -108,12 +145,35 @@ just run {
     exec("chmod 0755 \"" + scriptsDir + "/postinstall\"")
 
     exec("find \"" + stage + "\" \"" + scriptsDir + "\" -name '._*' -exec rm -f {} + 2>/dev/null || true")
+    exec("xattr -cr \"" + stage + "\" \"" + scriptsDir + "\" 2>/dev/null || true")
+    if releaseSign {
+        let app = stage + "/Applications/Krypton/kweb.app"
+        if shellRun("codesign --verify --deep --strict --verbose=2 \"" + app + "\"") != "0" {
+            die("build_pkg.ks: staged app verification failed after metadata cleanup")
+        }
+    }
 
     exec("mkdir -p releases")
     exec("rm -f \"" + pkgFile + "\"")
     kp("building " + pkgFile + "...")
-    exec("env COPYFILE_DISABLE=1 pkgbuild --root \"" + stage + "\" --identifier \"" + pkgId + "\" --version \"" + version + "\" --scripts \"" + scriptsDir + "\" --install-location / --filter '(^|/)[.]_[^/]*$' --filter '(^|/)[.]DS_Store$' --filter '(^|/)CVS($|/)' --filter '(^|/)[.]svn($|/)' \"" + pkgFile + "\"")
+    let buildCmd = "env COPYFILE_DISABLE=1 pkgbuild --root \"" + stage + "\" --identifier \"" + pkgId + "\" --version \"" + version + "\" --scripts \"" + scriptsDir + "\" --install-location / --filter '(^|/)[.]_[^/]*$' --filter '(^|/)[.]DS_Store$' --filter '(^|/)CVS($|/)' --filter '(^|/)[.]svn($|/)' \"" + pkgFile + "\""
+    if shellRun(buildCmd) != "0" { die("build_pkg.ks: pkgbuild failed") }
     cleanPkgAppleDouble(pkgFile)
+    if releaseSign {
+        let signedPkg = pkgFile + ".signed"
+        exec("rm -f \"" + signedPkg + "\"")
+        if shellRun("productsign --sign \"" + installerIdentity + "\" \"" + pkgFile + "\" \"" + signedPkg + "\"") != "0" {
+            die("build_pkg.ks: Developer ID package signing failed")
+        }
+        if shellRun("pkgutil --check-signature \"" + signedPkg + "\" 2>&1 | grep -q 'Status: signed by a developer certificate issued by Apple'") != "0" {
+            die("build_pkg.ks: temporary signed package verification failed")
+        }
+        exec("rm -f \"" + pkgFile + "\"")
+        exec("mv \"" + signedPkg + "\" \"" + pkgFile + "\"")
+        if shellRun("pkgutil --check-signature \"" + pkgFile + "\" 2>&1 | grep -q 'Status: signed by a developer certificate issued by Apple'") != "0" {
+            die("build_pkg.ks: signed package verification failed")
+        }
+    }
     exec("rm -rf \"" + stage + "\" \"" + scriptsDir + "\"")
 
     kp("")

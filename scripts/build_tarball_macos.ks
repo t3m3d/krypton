@@ -10,10 +10,39 @@ func isExec(p) { emit trim(exec("test -x \"" + p + "\" && echo yes || echo no"))
 func isFile(p) { emit trim(exec("test -f \"" + p + "\" && echo yes || echo no")) }
 func isDir(p)  { emit trim(exec("test -d \"" + p + "\" && echo yes || echo no")) }
 func die(m)    { kp(m)  exit("1") }
+func envValue(name) { emit trim(exec("printenv " + name + " 2>/dev/null || true")) }
+
+func signPayload(rootd, identity) {
+    let cmd = "find \"" + rootd + "\" -type f -perm -111 -print0 | " +
+        "while IFS= read -r -d '' f; do " +
+        "if file \"$f\" | grep -q 'Mach-O'; then " +
+        "name=$(basename \"$f\" | tr '_' '-' | tr -cd 'A-Za-z0-9.-'); " +
+        "id=org.krypton-lang.$name; " +
+        "case \"$f\" in */kweb.app/Contents/MacOS/kweb) id=org.krypton-lang.macos.kweb;; esac; " +
+        "codesign --force --identifier \"$id\" --options runtime --timestamp " +
+        "--sign \"" + identity + "\" \"$f\" || exit 1; " +
+        "fi; done"
+    if shellRun(cmd) != "0" { die("build_tarball_macos: Developer ID payload signing failed") }
+    let app = rootd + "/apps/kweb.app"
+    if shellRun("codesign --force --options runtime --timestamp --sign \"" + identity + "\" \"" + app + "\"") != "0" {
+        die("build_tarball_macos: Developer ID app signing failed")
+    }
+    if shellRun("codesign --verify --deep --strict --verbose=2 \"" + app + "\"") != "0" {
+        die("build_tarball_macos: signed app verification failed")
+    }
+}
 
 just run {
     let root = trim(exec("pwd"))
     if trim(exec("uname -s")) != "Darwin" { die("build_tarball_macos: macOS only") }
+    let releaseSign = envValue("KRYPTON_RELEASE_SIGN") == "1"
+    let appIdentity = envValue("KRYPTON_APP_SIGN_IDENTITY")
+    if appIdentity == "" { appIdentity = "Developer ID Application: BRIAN KEITH THOMPSON (SD4X94BA97)" }
+    if releaseSign {
+        if shellRun("security find-identity -v | grep -F '\"" + appIdentity + "\"' >/dev/null") != "0" {
+            die("build_tarball_macos: Developer ID Application identity not found")
+        }
+    }
 
     let arch = "arm64"
     let driver = "bootstrap/kcc_driver_macos_aarch64"
@@ -52,6 +81,7 @@ just run {
     if isDir("examples") == "yes" {
         exec("env COPYFILE_DISABLE=1 ditto --norsrc examples \"" + rootd + "/examples\"")
         exec("git ls-files --others -z examples | xargs -0 -I{} rm -f \"" + rootd + "/{}\"")
+        exec("rm -f \"" + rootd + "/examples/objk/objective-k-focus\"")
     }
     if isFile("LICENSE") == "yes" { exec("cp LICENSE \"" + rootd + "/LICENSE\"") }
     exec("find \"" + rootd + "\" -type f -name '*.k' -exec chmod 0644 {} +")
@@ -74,8 +104,6 @@ just run {
         "echo \"installing Krypton to $PREFIX ...\"\n" +
         "$SUDO rm -rf \"$PREFIX\"; $SUDO mkdir -p \"$PREFIX\"; $SUDO cp -R \"$HERE\"/. \"$PREFIX\"/\n" +
         "$SUDO mkdir -p \"$APPDIR\"; $SUDO cp -R \"$HERE/apps/kweb.app\" \"$APPDIR/kweb.app\"\n" +
-        "$SUDO xattr -dr com.apple.quarantine \"$PREFIX\" 2>/dev/null || true\n" +
-        "$SUDO xattr -dr com.apple.quarantine \"$APPDIR/kweb.app\" 2>/dev/null || true\n" +
         "$SUDO touch \"$PREFIX/bootstrap/kcc_driver_macos_aarch64\" \"$PREFIX/compiler/macos_arm64/kcc-arm64\" \"$PREFIX/compiler/macos_arm64/macho_host\" 2>/dev/null || true\n" +
         "$SUDO mkdir -p \"$BIN\"\n" +
         "$SUDO ln -sf \"$PREFIX/bootstrap/kcc_driver_macos_aarch64\" \"$BIN/kcc\"\n" +
@@ -104,6 +132,7 @@ just run {
     exec("find \"" + rootd + "\" -type f \\( -name macho_host -o -name 'kcc-*' -o -name 'kcc_*' -o -name kweb -o -name kweb_gui \\) -exec touch {} +")
     exec("dot_clean -m \"" + rootd + "\" 2>/dev/null || true")
     exec("find \"" + rootd + "\" -name '._*' -exec rm -f {} + 2>/dev/null || true")
+    if releaseSign { signPayload(rootd, appIdentity) }
 
     exec("mkdir -p releases")
     let out = "releases/" + name + ".tar.gz"

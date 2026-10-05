@@ -1,7 +1,7 @@
 # macOS Objective-K 2.4.6 Release Candidate
 
-Status: local candidate only. Do not tag or publish yet. Published macOS release
-remains 2.4.5.
+Status: signed and notarized local candidate. Do not tag or publish until the
+remaining manual gates pass. Published macOS release remains 2.4.5.
 
 ## Verified In This Checkout
 
@@ -16,6 +16,14 @@ remains 2.4.5.
 - kweb CLI creates a project and builds a configured `dist/index.html`.
 - `.pkg` expands and contains compiler, `kr`, runtime, and signed kweb app.
   Package installer and tarball installer scripts pass `bash -n`.
+- Every shipped Mach-O has a hardened-runtime Developer ID Application
+  signature. The installer has a Developer ID Installer signature and trusted
+  timestamp. Apple accepted notarization submission
+  `53daa137-5c37-45c0-b9e5-b7b457145d23`; the ticket is stapled and validates.
+  Gatekeeper reports `source=Notarized Developer ID`. The tarball kweb app is
+  covered by the same notarization and passes Gatekeeper.
+- Final `.pkg` and tarball contain no AppleDouble `._*` files. Release builders
+  exclude the tracked local Objective-K Focus binary.
 - Native `ADD` keeps SHA-256's 32-bit wrap for nonnegative operands and uses
   signed addition when either operand is negative. Backend self-host output is
   byte-identical across generations; `codesign -v` passes. Full macOS suite is
@@ -38,9 +46,9 @@ remains 2.4.5.
 Current local artifact SHA-256:
 
 - `krypton-2.4.6-macos-arm64.tar.gz`:
-  `fbe6247c6756b6a2456e90852f1a0fc521efecf1def6e8181bdfa26f513aae3d`
+  `3c399881abbb5d2f8a05a47bba74cedf195bc91b5e920b4d054d7a861ca1802e`
 - `krypton-2.4.6-macos-arm64.pkg`:
-  `15bb36abb88c44bae68ff64f4a2cc344ebfb931a5fe163fad2a221528ef62c5f`
+  `8ee34ed2492db90887e038286dc730f1abc5f0a19540c45b5f6ed43548fbbadc`
 
 ## Release Gates
 
@@ -50,11 +58,7 @@ Current local artifact SHA-256:
    image was detached after this check.
 2. Test real FTP deployment with a test account and remote folder; no
    credentials are stored or used by this release prep.
-3. Obtain Developer ID signing identity and notarize public app/package, or
-   explicitly publish an unsigned/ad-hoc-signed build with macOS Gatekeeper
-   limitations stated. `security find-identity` currently finds no valid
-   signing identity; the local `.pkg` has no distribution signature.
-4. Rebuild final artifacts after any gate fix, record SHA-256, then publish
+3. Rebuild final artifacts after any gate fix, record SHA-256, then publish
    GitHub assets. Update Homebrew only after release URLs work.
 
 Objective-K remains experimental and macOS arm64 only in this candidate.

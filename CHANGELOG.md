@@ -17,6 +17,9 @@ All notable changes to the Krypton language and compiler.
   and compiler-derived app version metadata.
 - **macOS package parity.** `.pkg` and tarball now include `kr` for top-level
   KryptScript and preserve signed payloads through installation.
+- **macOS release signing.** Release builders can apply hardened-runtime
+  Developer ID signatures to every Mach-O and kweb app, sign the installer,
+  remove AppleDouble metadata, and preserve Gatekeeper verification.
 - **macOS signed arithmetic.** Native `ADD` preserves SHA-256's 32-bit wrap for
   nonnegative operands while producing signed results for negative operands.
   Negative addition and comparison regressions now pass.

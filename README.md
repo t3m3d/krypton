@@ -73,7 +73,7 @@ These are checkout changes, not confirmation of a published 2.4.6. Apple GUI
 adapters remain in use; Windows/Linux/BSD execution parity is not claimed.
 See [implementation spec and remaining work](spec.md) and
 [macOS runtime guide](docs/objk_runtime_macos.md). Last recorded full macOS
-suite: 70 pass, 1 negative-number assertion failure, 8 platform/pointer skips.
+suite: 71 pass, 0 failures, 8 platform/pointer skips.
 
 ## What's new in 2.4.4
 
