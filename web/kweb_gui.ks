@@ -6,10 +6,11 @@
 import "k:okui"
 
 func dq() { emit fromCharCode(34) }
-func bs() { emit fromCharCode(92) }
+func sq() { emit fromCharCode(39) }
 
 func shellQuote(s) {
-    emit dq() + replace(s, dq(), bs() + dq()) + dq()
+    let q = sq()
+    emit q + replace(s, q, q + dq() + q + dq() + q) + q
 }
 
 func cleanLine(s) {

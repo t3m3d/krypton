@@ -28,10 +28,12 @@ func printUsage() {
 
 func _dq() { emit fromCharCode(34) }
 func _bs() { emit fromCharCode(92) }
+func _sq() { emit fromCharCode(39) }
 func DQ() { emit _dq() }
 
 func shellQuote(s) {
-    emit _dq() + replace(s, _dq(), _bs() + _dq()) + _dq()
+    let q = _sq()
+    emit q + replace(s, q, q + _dq() + q + _dq() + q) + q
 }
 
 func chomp(s) {
