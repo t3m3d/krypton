@@ -1,7 +1,7 @@
 # macOS Objective-K 2.4.6 Release Candidate
 
-Status: signed and notarized local candidate. Do not tag or publish until the
-remaining manual gates pass. Published macOS release remains 2.4.5.
+Status: signed, notarized, installed, and ready to publish. Published macOS
+release remains 2.4.5 until the GitHub assets are uploaded.
 
 ## Verified In This Checkout
 
@@ -18,8 +18,8 @@ remaining manual gates pass. Published macOS release remains 2.4.5.
   Package installer and tarball installer scripts pass `bash -n`.
 - Every shipped Mach-O has a hardened-runtime Developer ID Application
   signature. The installer has a Developer ID Installer signature and trusted
-  timestamp. Apple accepted notarization submission
-  `53daa137-5c37-45c0-b9e5-b7b457145d23`; the ticket is stapled and validates.
+  timestamp. Apple accepted final notarization submission
+  `33fa8ea8-b627-48be-b563-02a5d36077e8`; the ticket is stapled and validates.
   Gatekeeper reports `source=Notarized Developer ID`. The tarball kweb app is
   covered by the same notarization and passes Gatekeeper.
 - Final `.pkg` and tarball contain no AppleDouble `._*` files. Release builders
@@ -41,6 +41,8 @@ remaining manual gates pass. Published macOS release remains 2.4.5.
 - Installer.app completed on the release host. The package receipt reports
   2.4.6 and installed `/usr/local/bin/kcc` reports `kcc version 2.4.6`. Existing
   Homebrew 2.4.5 was unlinked because `/opt/homebrew/bin` had PATH priority.
+- The final kweb GUI deployed `index.html`, `about.html`, and `.htaccess` by FTP
+  to `kweb-test`. `https://krypton-lang.org/kweb-test/` returns HTTP 200.
 - `pkgbuild` emits four `write: Permission denied` lines even for an empty
   package root, both inside and outside the sandbox. The release build emits
   five. `pkgutil --expand` and payload extraction succeed; this is a known
@@ -49,16 +51,14 @@ remaining manual gates pass. Published macOS release remains 2.4.5.
 Current local artifact SHA-256:
 
 - `krypton-2.4.6-macos-arm64.tar.gz`:
-  `3c399881abbb5d2f8a05a47bba74cedf195bc91b5e920b4d054d7a861ca1802e`
+  `b784108e70bace923a4c5c4de06aae560db399ee0cb1ccd294b0e4b066e2a06a`
 - `krypton-2.4.6-macos-arm64.pkg`:
-  `8ee34ed2492db90887e038286dc730f1abc5f0a19540c45b5f6ed43548fbbadc`
+  `1f8e9ce84e38fed57dbdc46214adf92e5aa79b91ecfb107c28b9305f66b3468a`
 
 ## Release Gates
 
-1. Test real FTP deployment with a test account and remote folder; no
-   credentials are stored or used by this release prep.
-2. Rebuild final artifacts after any gate fix, record SHA-256, then publish
-   GitHub assets. Update Homebrew only after release URLs work.
+All local release gates passed. Publish GitHub assets, verify their URLs, then
+update Homebrew with the final tarball SHA-256.
 
 Objective-K remains experimental and macOS arm64 only in this candidate.
 Current declarations require executable entry source, callback-backed methods,
