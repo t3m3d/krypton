@@ -4,6 +4,15 @@ All notable changes to the Krypton language and compiler.
 
 ## [Unreleased]
 
+## [2.4.7] - 2026-10-15 - kweb deploy crash fix
+
+- Fixed the macOS kweb GUI Deploy action crashing before FTP started because
+  `normalizeRemoteFolder()` called an undefined path-separator helper.
+- Rebuilt, signed, and notarized macOS arm64 release assets with the corrected
+  kweb app.
+
+## [2.4.6] - 2026-10-14 - Objective-K macOS release
+
 - **Compiler-native Objective-K declarations.** macOS now accepts
   `objk protocol` and `objk object` with inheritance, one declared protocol
   conformance, typed 0..2 argument signatures, and callback-backed methods.

@@ -2,12 +2,12 @@
 
 **A self-hosting programming language that emits native machine code without a C compiler in the loop.**
 
-> **Current macOS version: 2.4.5** — refreshed kweb CLI/GUI deploy release.
+> **Current macOS version: 2.4.7** - corrected kweb GUI deploy release.
 > See [`CHANGELOG.md`](CHANGELOG.md) for the full history.
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-2.4.5-brightgreen)
-![macOS](https://img.shields.io/badge/macOS-arm64%202.4.5-success)
+![Version](https://img.shields.io/badge/version-2.4.7-brightgreen)
+![macOS](https://img.shields.io/badge/macOS-arm64%202.4.7-success)
 ![Linux](https://img.shields.io/badge/Linux-x86__64%202.4.4-yellow)
 ![Windows](https://img.shields.io/badge/Windows-x86__64%202.3.0-orange)
 
@@ -54,11 +54,21 @@ The web framework adds a third extension for templates:
 - **`.htk`** — htmk + ks template source built by `kweb`. Same Krypton syntax;
   the convention signals "this file is meant to render HTML."
 
+## What's new in 2.4.7
+
+- **kweb GUI deploy crash fixed** - the macOS app now defines its path-separator
+  helper, so Deploy reaches FTP instead of jumping to an unresolved function.
+
+## What's new in 2.4.6
+
+- **Objective-K macOS release** - compiler-native declarations, K-owned runtime,
+  OKUI hardening, signed kweb app, and notarized macOS package.
+
 ## What's new in 2.4.5
 
 - **kweb deploy refresh** — rebuilt macOS release with the FTP root/default-folder fix and current `kweb.app`.
 
-## Next: 2.4.6 Objective-K hardening
+## Objective-K hardening in 2.4.6
 
 - **OKUI becomes the app-facing Objective-K layer** — app code imports `k:okui`; macOS routes through `objk`/Choc/AppKit and Windows routes through `objkwin`/Choc/Win32.
 - **kweb GUI now builds on OKUI** — fewer direct backend calls in the app.
@@ -69,8 +79,7 @@ The web framework adds a third extension for templates:
 - **Owned K text** — explicit text retain/release plus `doKText` fields reclaim text during replacement and object teardown.
 - **Typed dispatch** — runtime contracts now check integer, arena text, class, and nominal protocol arguments/results.
 
-These are checkout changes, not confirmation of a published 2.4.6. Apple GUI
-adapters remain in use; Windows/Linux/BSD execution parity is not claimed.
+Apple GUI adapters remain in use; Windows/Linux/BSD execution parity is not claimed.
 See [implementation spec and remaining work](spec.md) and
 [macOS runtime guide](docs/objk_runtime_macos.md). Last recorded full macOS
 suite: 71 pass, 0 failures, 8 platform/pointer skips.
@@ -157,16 +166,16 @@ run, imports, and self-host on macOS (arm64), Linux (x86-64), and Windows
   Winsock + POSIX `cfunc`) is still around for the Windows / `--gcc`
   path; new macOS code should `import "k:server_native"`.
 
-**Platform release status (2026-07-05):**
+**Platform release status (2026-10-15):**
 
 | Platform | Shipped version | Notes |
 |----------|-----------------|-------|
-| macOS arm64 | **2.4.5** | `.pkg`, tarball, or Homebrew. Includes `kweb`, `/usr/local/bin/kweb`, and `/Applications/Krypton/kweb.app`. |
+| macOS arm64 | **2.4.7** | `.pkg`, tarball, or Homebrew. Includes `kweb`, `/usr/local/bin/kweb`, and `/Applications/Krypton/kweb.app`. |
 | Linux x86_64 | **2.4.4** | Prebuilt tarball -> `./install.sh`, or build from source. No C compiler. Self-hosting. Includes rebuilt `kcc` seed, driver, kweb, and aarch64 via `kcc --aarch64` cross-compile. |
 | Windows x86_64 | **2.3.0** | Inno Setup installer: `kcc.exe`/`kcc-bin.exe` driver/backend split, native `krypton_rt.dll`, `kr.exe` REPL, kweb, WASM, .k/.ks associations. |
 | **VS Code / Antigravity ext.** | **2.3.0** | `extensions/krypton-language-2.3.0.vsix`. Adds `.ks` (KryptScript) alongside `.k`, bundles the `kls` language server for Windows + macOS, ships `KryptScript` as a language-picker alias. |
 
-macOS is on [`2.4.5`](https://github.com/t3m3d/krypton/releases/tag/2.4.5).
+macOS is on [`2.4.7`](https://github.com/t3m3d/krypton/releases/tag/v2.4.7).
 Linux is on [`2.4.4`](https://github.com/t3m3d/krypton/releases/tag/2.4.4).
 Windows and the editor extension stay on [`2.3.0`](https://github.com/t3m3d/krypton/releases/tag/2.3.0)
 until their matching artifacts are cut.
@@ -187,7 +196,7 @@ until their matching artifacts are cut.
   Windows-native equivalent of a `.bat` file. _(As of 2.3.0, Windows `kr.exe`
   has the same top-level auto-wrap + REPL as the POSIX `kr`.)_
 - `kweb` — web framework CLI (`kweb init <name>`, `kweb build`, `kweb serve`,
-  `kweb deploy <host> <user>`). macOS 2.4.5 also ships `kweb.app` for build
+  `kweb deploy <host> <user>`). macOS 2.4.7 also ships `kweb.app` for build
   and FTP deploy.
 
 Krypton is a dynamically typed language with clean syntax, ~150 built-in functions, and a compiler written in itself.
