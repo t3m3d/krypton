@@ -27,6 +27,8 @@ func fileExists(path) {
 }
 
 func defaultKwebPath(cwd) {
+    let bundled = bundledExecutable("kweb-cli")
+    if bundled != "" && fileExists(bundled) == "1" { emit bundled }
     let local = cwd + "/web/kweb"
     if cwd != "/" && fileExists(local) == "1" { emit local }
     let installed = "/usr/local/krypton/web/kweb"
@@ -118,7 +120,10 @@ func stateField(state, key) {
 }
 
 func capturePath(name) {
-    emit "/tmp/kweb_gui_" + name + ".log"
+    let dir = temporaryDirectory()
+    if dir == "" { dir = "/tmp" }
+    if !endsWith(dir, "/") { dir = dir + "/" }
+    emit dir + "kweb_gui_" + name + ".log"
 }
 
 func setStatus(state, text) {
@@ -145,7 +150,10 @@ func runInProject(state, name, args) {
     appendLog(log, "$ " + kweb + " " + args)
 
     let capture = capturePath("build")
-    let cmd = "cd " + shellQuote(project) + " && " + shellQuote(kweb) + " " + args +
+    let prefix = ""
+    let bundledRoot = bundledResource("krypton")
+    if bundledRoot != "" { prefix = "KRYPTON_ROOT=" + shellQuote(bundledRoot) + " " }
+    let cmd = "cd " + shellQuote(project) + " && " + prefix + shellQuote(kweb) + " " + args +
         " >" + shellQuote(capture) + " 2>&1"
     let rc = shellRun(cmd)
     let out = readFile(capture)

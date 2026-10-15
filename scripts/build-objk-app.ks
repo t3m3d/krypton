@@ -49,6 +49,26 @@ just run {
     exec("cp /tmp/" + name + ".bin \"" + app + "/Contents/MacOS/" + name + "\"")
     exec("chmod +x \"" + app + "/Contents/MacOS/" + name + "\"")
 
+    if name == "kweb" && isExec(root + "/web/kweb") == "yes" {
+        exec("cp \"" + root + "/web/kweb\" \"" + app + "/Contents/MacOS/kweb-cli\"")
+        exec("chmod +x \"" + app + "/Contents/MacOS/kweb-cli\"")
+
+        let payload = app + "/Contents/Resources/krypton"
+        exec("mkdir -p \"" + payload + "/bootstrap\" \"" + payload + "/compiler/macos_arm64\"")
+        exec("install -m 0755 \"" + root + "/bootstrap/kcc_driver_macos_aarch64\" \"" + payload + "/bootstrap/kcc_driver_macos_aarch64\"")
+        exec("install -m 0755 \"" + root + "/bootstrap/kcc_seed_macos_aarch64\" \"" + payload + "/bootstrap/kcc_seed_macos_aarch64\"")
+        exec("install -m 0755 \"" + root + "/compiler/macos_arm64/kcc-arm64\" \"" + payload + "/compiler/macos_arm64/kcc-arm64\"")
+        exec("install -m 0755 \"" + root + "/bootstrap/macho_host_macos_aarch64\" \"" + payload + "/compiler/macos_arm64/macho_host\"")
+        exec("install -m 0644 \"" + root + "/compiler/macos_arm64/macho_arm64_self.k\" \"" + payload + "/compiler/macos_arm64/macho_arm64_self.k\"")
+        exec("install -m 0644 \"" + root + "/compiler/compile.k\" \"" + payload + "/compiler/compile.k\"")
+        if isFile(root + "/compiler/optimize.k") == "yes" {
+            exec("install -m 0644 \"" + root + "/compiler/optimize.k\" \"" + payload + "/compiler/optimize.k\"")
+        }
+        exec("env COPYFILE_DISABLE=1 ditto --norsrc \"" + root + "/stdlib\" \"" + payload + "/stdlib\"")
+        exec("env COPYFILE_DISABLE=1 ditto --norsrc \"" + root + "/headers\" \"" + payload + "/headers\"")
+        exec("touch \"" + payload + "/bootstrap/kcc_driver_macos_aarch64\" \"" + payload + "/bootstrap/kcc_seed_macos_aarch64\" \"" + payload + "/compiler/macos_arm64/kcc-arm64\" \"" + payload + "/compiler/macos_arm64/macho_host\"")
+    }
+
     let q = fromCharCode(34)
     let bundleId = "org.krypton-lang.macos." + name
     let appVersion = trim(exec("env KRYPTON_ROOT=\"" + root + "\" \"" + fe + "\" --version 2>&1 | sed -E 's/^kcc version //;s/[[:space:]]+.*$//'"))
@@ -57,12 +77,15 @@ just run {
         "<!DOCTYPE plist PUBLIC " + q + "-//Apple//DTD PLIST 1.0//EN" + q + " " + q + "http://www.apple.com/DTDs/PropertyList-1.0.dtd" + q + ">\n" +
         "<plist version=" + q + "1.0" + q + "><dict>\n" +
         "  <key>CFBundleName</key><string>" + name + "</string>\n" +
+        "  <key>CFBundleDisplayName</key><string>" + name + "</string>\n" +
         "  <key>CFBundleExecutable</key><string>" + name + "</string>\n" +
         "  <key>CFBundleIdentifier</key><string>" + bundleId + "</string>\n" +
         "  <key>CFBundlePackageType</key><string>APPL</string>\n" +
         "  <key>CFBundleShortVersionString</key><string>" + appVersion + "</string>\n" +
         "  <key>CFBundleVersion</key><string>" + appVersion + "</string>\n" +
         "  <key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>\n" +
+        "  <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>\n" +
+        "  <key>LSMinimumSystemVersion</key><string>14.0</string>\n" +
         "  <key>NSHighResolutionCapable</key><true/>\n" +
         "  <key>CFBundleIconFile</key><string>" + name + "</string>\n" +
         "  <key>NSDocumentsFolderUsageDescription</key><string>" + name + " edits files in your Documents.</string>\n" +

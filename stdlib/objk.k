@@ -80,6 +80,9 @@ func okNumberValue(num)              { emit chocNumberVal(num) }
 func okChooseFolder(title)           { emit chocChooseFolder(title) }
 func okChooseFile(title)             { emit chocChooseFile(title) }
 func okSaveFile(title, defaultName)  { emit chocSaveFile(title, defaultName) }
+func okBundledExecutable(name)       { emit chocBundledExecutable(name) }
+func okBundledResource(name)         { emit chocBundledResource(name) }
+func okTemporaryDirectory()          { emit chocTemporaryDirectory() }
 func okClipboard()                   { emit chocClipboardText() }
 func okSetClipboard(text)            { emit chocSetClipboardText(text) }
 func okDefault(key)                  { emit chocDefaultsGet(key) }

@@ -74,8 +74,15 @@ func _winExists(p) {
     emit "0"
 }
 
+func tmpRoot() {
+    let dir = environ("TMPDIR")
+    if dir == "" { dir = "/tmp" }
+    while len(dir) > 1 && endsWith(dir, "/") { dir = substring(dir, 0, len(dir) - 1) }
+    emit dir
+}
+
 func tmpPath(prefix, suffix) {
-    let p = sh("mktemp /tmp/" + prefix + "_XXXXXX")
+    let p = sh("mktemp " + q(tmpRoot() + "/" + prefix + "_XXXXXX"))
     if suffix == "" { emit p }
     let out = p + suffix
     exec("mv " + q(p) + " " + q(out))
@@ -698,7 +705,7 @@ just run {
             if argCount() < 2 { kp("kcc: -e needs code")  exit("1") }
             let ek = tmpPath("_kcceval", ".ks")
             writeText(ek, "just run {\n" + arg(1) + "\n}\n")
-            let ebin = sh("mktemp /tmp/_kcceval_XXXXXX")
+            let ebin = sh("mktemp " + q(tmpRoot() + "/_kcceval_XXXXXX"))
             let oke = "0"
             if toArm == "1" { oke = compileArm64(root, ek, ebin) } else { oke = compileLinux(root, ek, ebin) }
             if oke == "0" { rm(ek)  exit("1") }
@@ -711,7 +718,7 @@ just run {
         let s = linuxSrc()
         if s == "" { kp("kcc: no source file")  exit("1") }
         if hasFlag("-r") {
-            let tmpbin = sh("mktemp /tmp/_kcckrun_XXXXXX")
+            let tmpbin = sh("mktemp " + q(tmpRoot() + "/_kcckrun_XXXXXX"))
             let okr = "0"
             if toArm == "1" { okr = compileArm64(root, s, tmpbin) } else { okr = compileLinux(root, s, tmpbin) }
             if okr == "0" { exit("1") }
@@ -746,7 +753,7 @@ just run {
             if argCount() < 2 { kp("kcc: -e needs code")  exit("1") }
             let ek = tmpPath("_kcceval", ".ks")
             writeText(ek, "just run {\n" + arg(1) + "\n}\n")
-            let ebin = sh("mktemp /tmp/_kcceval_XXXXXX")
+            let ebin = sh("mktemp " + q(tmpRoot() + "/_kcceval_XXXXXX"))
             if compileFreebsd(root, ek, ebin) == "0" { rm(ek)  exit("1") }
             kp(sh(q(ebin)))
             rm(ek)  rm(ebin)
@@ -756,7 +763,7 @@ just run {
         let s = linuxSrc()
         if s == "" { kp("kcc: no source file")  exit("1") }
         if hasFlag("-r") {
-            let tmpbin = sh("mktemp /tmp/_kcckrun_XXXXXX")
+            let tmpbin = sh("mktemp " + q(tmpRoot() + "/_kcckrun_XXXXXX"))
             if compileFreebsd(root, s, tmpbin) == "0" { exit("1") }
             kp(sh(q(tmpbin)))
             rm(tmpbin)
@@ -909,7 +916,7 @@ just run {
         if argCount() < 2 { kp("kcc: -e needs code")  exit("1") }
         let ek = tmpPath("_kcceval", ".ks")
         writeText(ek, "just run {\n" + arg(1) + "\n}\n")
-        let ebin = sh("mktemp /tmp/_kcceval_XXXXXX")
+        let ebin = sh("mktemp " + q(tmpRoot() + "/_kcceval_XXXXXX"))
         if compileMacos(root, ek, ebin) == "0" { rm(ek)  exit("1") }
         kp(sh(q(ebin)))
         rm(ek)  rm(ebin)
@@ -920,7 +927,7 @@ just run {
     if first == "-r" {
         if argCount() < 2 { kp("kcc: -r needs a source file")  exit("1") }
         let src = arg(1)
-        let tmpbin = sh("mktemp /tmp/_kcckrun_XXXXXX")
+        let tmpbin = sh("mktemp " + q(tmpRoot() + "/_kcckrun_XXXXXX"))
         if compileMacos(root, src, tmpbin) == "0" { exit("1") }
         // pass through any args after the source. sh() chomps the trailing
         // newline so kp re-adds exactly one (shRaw would double it).

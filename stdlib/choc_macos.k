@@ -332,6 +332,26 @@ func chocSaveFile(title, defaultName) {
     emit msg(msg(url, "path"), "UTF8String")
 }
 
+func chocBundledExecutable(name) {
+    let bundle = msg(cls("NSBundle"), "mainBundle")
+    let path = msg_1(bundle, "pathForAuxiliaryExecutable:", nsString(name))
+    if path == 0 { emit "" }
+    emit msg(path, "UTF8String")
+}
+
+func chocBundledResource(name) {
+    let bundle = msg(cls("NSBundle"), "mainBundle")
+    let path = msg_2(bundle, "pathForResource:ofType:", nsString(name), 0)
+    if path == 0 { emit "" }
+    emit msg(path, "UTF8String")
+}
+
+func chocTemporaryDirectory() {
+    let url = msg(msg(cls("NSFileManager"), "defaultManager"), "temporaryDirectory")
+    if url == 0 { emit "" }
+    emit msg(msg(url, "path"), "UTF8String")
+}
+
 func chocClipboardText() {
     let pb = msg(cls("NSPasteboard"), "generalPasteboard")
     let s = msg_1(pb, "stringForType:", nsString("public.utf8-plain-text"))

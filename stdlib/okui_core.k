@@ -80,6 +80,9 @@ func get(obj, key)              { emit okGet(obj, key) }
 func chooseFolder(title)        { emit okChooseFolder(title) }
 func chooseFile(title)          { emit okChooseFile(title) }
 func saveFile(title, name)      { emit okSaveFile(title, name) }
+func bundledExecutable(name)    { emit okBundledExecutable(name) }
+func bundledResource(name)      { emit okBundledResource(name) }
+func temporaryDirectory()       { emit okTemporaryDirectory() }
 func doCopyText(value)          { emit okSetClipboard(value) }
 func clipboard()                { emit okClipboard() }
 func setting(key)               { emit okDefault(key) }

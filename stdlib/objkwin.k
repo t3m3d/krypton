@@ -102,6 +102,9 @@ func okNumberValue(num)             { emit num }
 func okChooseFolder(title)          { emit chocChooseFolder(title) }
 func okChooseFile(title)            { emit chocChooseFile(title) }
 func okSaveFile(title, defaultName) { emit chocSaveFile(title, defaultName) }
+func okBundledExecutable(name)      { emit name }
+func okBundledResource(name)        { emit name }
+func okTemporaryDirectory()         { emit environ("TEMP") }
 func okClipboard()                  { emit "" }
 func okSetClipboard(text)           { emit "0" }
 func okDefault(key)                 { emit "" }
