@@ -7,6 +7,7 @@ import "k:okui"
 
 func dq() { emit fromCharCode(34) }
 func sq() { emit fromCharCode(39) }
+func bs() { emit fromCharCode(92) }
 
 func shellQuote(s) {
     let q = sq()
