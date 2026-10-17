@@ -23,16 +23,16 @@ just run {
     env = setVar(env, "name", "Krypton")
 
     // Get variables back
-    kp("x = " + getVar(env, "x"))
-    kp("y = " + getVar(env, "y"))
-    kp("name = " + getVar(env, "name"))
+    print("x = " + getVar(env, "x"))
+    print("y = " + getVar(env, "y"))
+    print("name = " + getVar(env, "name"))
 
     // Update a variable
     env = setVar(env, "x", "100")
-    kp("x updated = " + getVar(env, "x"))
+    print("x updated = " + getVar(env, "x"))
 
     // Use in computation
     let a = toInt(getVar(env, "x"))
     let b = toInt(getVar(env, "y"))
-    kp("x + y = " + (a + b))
+    print("x + y = " + (a + b))
 }

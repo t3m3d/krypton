@@ -375,12 +375,12 @@ func doDeploy(rawHost, ftpUser, remoteFolder, ftpPass) {
         exit("1")
     }
 
-    // Walk dist/ recursively so subfolders (e.g. learn/) are included.
-    // --ftp-create-dirs makes curl create remote folders as needed.
     let files = _walkDir("dist", "")
     let n = lineCount(files)
     let i = 0
     let count = 0
+    let batchCount = 0
+    let curl = "curl --fail-early"
     while i < n {
         let rel = getLine(files, i)
         if len(rel) > 0 {
@@ -388,18 +388,32 @@ func doDeploy(rawHost, ftpUser, remoteFolder, ftpPass) {
             let remote = "ftp://" + ftpHost + "/" + remotePath(folder, rel)
             let userArg = ftpUser
             if ftpPass != "" { userArg = ftpUser + ":" + ftpPass }
-            let cmd = "curl --ftp-create-dirs -T " + shellQuote(local) + " " + shellQuote(remote) +
-                " --user " + shellQuote(userArg) + " --insecure --silent --show-error"
             printErr("  uploading " + rel + "...")
-            let rc = shellRun(cmd)
-            if rc != "0" {
-                printErr("kweb: upload failed for " + rel + " (curl exit " + rc + ")")
-                printErr("kweb: deploy stopped after " + count + " successful files")
-                exit("1")
-            }
+            if batchCount > 0 { curl = curl + " --next" }
+            curl = curl + " --ftp-create-dirs --connect-timeout 15 --max-time 120" +
+                " --retry 5 --retry-delay 3 --retry-all-errors -T " + shellQuote(local) + " " +
+                shellQuote(remote) + " --user " + shellQuote(userArg) +
+                " --insecure --silent --show-error"
             count = count + 1
+            batchCount = batchCount + 1
+            if batchCount == 10 {
+                let batchRc = shellRun(curl)
+                if batchRc != "0" {
+                    printErr("kweb: deploy failed after retries (curl exit " + batchRc + ")")
+                    exit("1")
+                }
+                curl = "curl --fail-early"
+                batchCount = 0
+            }
         }
         i += 1
+    }
+    if batchCount > 0 {
+        let rc = shellRun(curl)
+        if rc != "0" {
+            printErr("kweb: deploy failed after retries (curl exit " + rc + ")")
+            exit("1")
+        }
     }
     printErr("kweb: deploy complete (" + count + " files)")
 }

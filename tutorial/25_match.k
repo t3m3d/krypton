@@ -31,22 +31,22 @@ just run {
     // Basic match
     let color = "blue"
     match color {
-        "red"   { kp("warm color") }
-        "blue"  { kp("cool color") }
-        "green" { kp("nature color") }
-        else    { kp("other color") }
+        "red"   { print("warm color") }
+        "blue"  { print("cool color") }
+        "green" { print("nature color") }
+        else    { print("other color") }
     }
 
     // Match in function
     let days = "Mon,Wed,Fri,Sat,Sun"
     for day in days {
-        kp(day + ": " + dayType(day))
+        print(day + ": " + dayType(day))
     }
 
     // Match on computed value
     let codes = "200,404,500,201"
     for code in codes {
-        kp(code + " " + httpStatus(code))
+        print(code + " " + httpStatus(code))
     }
 
     // Match with variable capture (using else)
@@ -57,5 +57,5 @@ just run {
         "1"  { label = "one" }
         else { label = "other: " + val }
     }
-    kp(label)
+    print(label)
 }

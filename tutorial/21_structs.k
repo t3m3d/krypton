@@ -22,27 +22,27 @@ just run {
     let p = Point()
     p.x = "3"
     p.y = "4"
-    kp("x: " + p.x)
-    kp("y: " + p.y)
+    print("x: " + p.x)
+    print("y: " + p.y)
 
     // Struct literal
     let q = Point { x: "0", y: "0" }
-    kp("distance: " + distance(p, q))
+    print("distance: " + distance(p, q))
 
     // Struct in function
     let brian = Person { name: "Brian", age: "30" }
-    kp("Hello, " + brian.name)
-    kp("Age: " + brian.age)
+    print("Hello, " + brian.name)
+    print("Age: " + brian.age)
 
     // Update a field
     brian.age = "31"
-    kp("Next year: " + brian.age)
+    print("Next year: " + brian.age)
 
     // Dynamic struct (no declaration needed)
     let config = structNew()
     setField(config, "debug", "1")
     setField(config, "version", "0.7.2")
-    kp("debug: " + getField(config, "debug"))
-    kp("version: " + getField(config, "version"))
-    kp("fields: " + structFields(config))
+    print("debug: " + getField(config, "debug"))
+    print("version: " + getField(config, "version"))
+    print("fields: " + structFields(config))
 }

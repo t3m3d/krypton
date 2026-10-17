@@ -12,7 +12,7 @@ func classify(line) {
         emit "conditional"
     } else if startsWith(line, "while ") {
         emit "loop"
-    } else if startsWith(line, "print(") || startsWith(line, "kp(") {
+    } else if startsWith(line, "print(") {
         emit "output"
     } else {
         emit "other"
@@ -26,7 +26,7 @@ just run {
     while i < lc {
         let line = getLine(code, i)
         let kind = classify(line)
-        kp("[" + kind + "] " + line)
+        print("[" + kind + "] " + line)
         i = i + 1
     }
 }

@@ -209,6 +209,8 @@ func onDeploy(self, cmd, sender) {
     }
     let i = 0
     let count = 0
+    let batchCount = 0
+    let curl = "curl --fail-early"
     while i < n {
         let file = getLine(files, i)
         if len(file) > 0 {
@@ -219,19 +221,35 @@ func onDeploy(self, cmd, sender) {
             if remoteFolder != "" { remoteRel = remoteFolder + "/" + rel }
             let remote = "ftp://" + host + "/" + remoteRel
             appendLog(log, "upload " + rel)
-            let curl = "curl --ftp-create-dirs -T " + shellQuote(local) + " " +
+            if batchCount > 0 { curl = curl + " --next" }
+            curl = curl + " --ftp-create-dirs --connect-timeout 15 --max-time 120" +
+                " --retry 5 --retry-delay 3 --retry-all-errors -T " + shellQuote(local) + " " +
                 shellQuote(remote) + " --user " + shellQuote(user + ":" + pass) +
                 " --insecure --silent --show-error"
-            let rc = shellRun(curl)
-            if rc != "0" {
-                appendLog(log, "Upload failed for " + rel + " (curl exit " + rc + ")")
-                setStatus(state, "Deploy failed")
-                alert("kweb deploy", "Upload failed for " + rel + ". The deploy was stopped.")
-                emit "1"
-            }
             count = count + 1
+            batchCount = batchCount + 1
+            if batchCount == 10 {
+                let batchRc = shellRun(curl)
+                if batchRc != "0" {
+                    appendLog(log, "Deploy failed (curl exit " + batchRc + ")")
+                    setStatus(state, "Deploy failed")
+                    alert("kweb deploy", "FTP connection failed after retries. Run Deploy again to retry.")
+                    emit "1"
+                }
+                curl = "curl --fail-early"
+                batchCount = 0
+            }
         }
         i = i + 1
+    }
+    if batchCount > 0 {
+        let rc = shellRun(curl)
+        if rc != "0" {
+            appendLog(log, "Deploy failed (curl exit " + rc + ")")
+            setStatus(state, "Deploy failed")
+            alert("kweb deploy", "FTP connection failed after retries. Run Deploy again to retry.")
+            emit "1"
+        }
     }
     appendLog(log, "Deploy complete: " + count + " files")
     setStatus(state, "Deploy finished")

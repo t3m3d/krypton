@@ -5,14 +5,14 @@ just run {
     // Basic for-in
     let fruits = "apple,banana,cherry,date"
     for fruit in fruits {
-        kp(fruit)
+        print(fruit)
     }
 
     // For-in with index tracking
     let nums = "10,20,30,40,50"
     let i = 0
     for n in nums {
-        kp(i + ": " + n)
+        print(i + ": " + n)
         i += 1
     }
 
@@ -21,7 +21,7 @@ just run {
     let cols = "a,b,c"
     for row in rows {
         for col in cols {
-            kp(row + col + " ")
+            print(row + col + " ")
         }
     }
 
@@ -34,12 +34,12 @@ just run {
         }
         upper = upper + toUpper(w)
     }
-    kp(upper)
+    print(upper)
 
     // For-in with range
     let total = 0
     for n in range(1, 11) {
         total += toInt(n)
     }
-    kp("sum 1-10: " + total)
+    print("sum 1-10: " + total)
 }

@@ -36,7 +36,7 @@ just run {
     let api = "https://hacker-news.firebaseio.com/v0"
     let limit = 10
 
-    kp("Fetching HN top stories...")
+    print("Fetching HN top stories...")
 
     // 1. Top story IDs come back as "[123, 456, 789, ...]".
     let raw = fetch(api + "/topstories.json")
@@ -44,9 +44,9 @@ just run {
     let idList = replace(cleaned, ",", "\n")
     let total = lineCount(idList)
 
-    kp("")
-    kp("Hacker News — top " + limit + " (live, fetched in your browser)")
-    kp("")
+    print("")
+    print("Hacker News — top " + limit + " (live, fetched in your browser)")
+    print("")
 
     let i = 0
     let shown = 0
@@ -69,20 +69,20 @@ just run {
                 if len(url) > 0 { h = host(url) }
 
                 // Row 1: rank + score + title.
-                kp("#" + padL("" + (shown + 1), 2) + "  " +
+                print("#" + padL("" + (shown + 1), 2) + "  " +
                    padL("" + score, 4) + "  " + title)
                 // Row 2: meta + comments link.
                 let meta = ""
                 if len(h) > 0 { meta = h + " | " }
-                kp("       " + meta + by + " | " + ago(time) + " | " +
+                print("       " + meta + by + " | " + ago(time) + " | " +
                    kids + " comments")
-                kp("       https://news.ycombinator.com/item?id=" + id)
-                kp("")
+                print("       https://news.ycombinator.com/item?id=" + id)
+                print("")
                 shown += 1
             }
         }
         i += 1
     }
 
-    kp("--- " + shown + " stories shown. Live data, hit Run again for the latest.")
+    print("--- " + shown + " stories shown. Live data, hit Run again for the latest.")
 }

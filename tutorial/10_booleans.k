@@ -7,32 +7,32 @@ just run {
 
     // Comparison operators: ==, !=, <, >, <=, >=
     if a < b {
-        kp("" + a + " < " + b)
+        print("" + a + " < " + b)
     }
     if a != b {
-        kp("" + a + " != " + b)
+        print("" + a + " != " + b)
     }
 
     // Logical AND (&&): both must be true
     let x = 15
     if x >= 10 && x <= 20 {
-        kp("" + x + " is between 10 and 20")
+        print("" + x + " is between 10 and 20")
     }
 
     // Logical OR (||): at least one must be true
     let day = "Saturday"
     if day == "Saturday" || day == "Sunday" {
-        kp("It's the weekend!")
+        print("It's the weekend!")
     }
 
     // Logical NOT (!): inverts truth
     let empty = ""
     if !empty {
-        kp("The string is empty (falsy)")
+        print("The string is empty (falsy)")
     }
 
     // Boolean values: 0 is false, everything else is truthy
-    if 1 { kp("1 is truthy") }
-    if !0 { kp("0 is falsy") }
-    if "hello" { kp("non-empty string is truthy") }
+    if 1 { print("1 is truthy") }
+    if !0 { print("0 is falsy") }
+    if "hello" { print("non-empty string is truthy") }
 }

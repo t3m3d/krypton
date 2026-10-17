@@ -18,11 +18,11 @@
 
 <span class="kw">just</span> <span class="kw">run</span> {
     <span class="cm">// ── Literals ────────────────────────────────────────────────────</span>
-    kp(<span class="kw">true</span>)        <span class="cm">// "true"</span>
-    kp(<span class="kw">false</span>)       <span class="cm">// "false"</span>
+    print(<span class="kw">true</span>)        <span class="cm">// "true"</span>
+    print(<span class="kw">false</span>)       <span class="cm">// "false"</span>
 
     <span class="kw">let</span> flag = <span class="kw">true</span>
-    kp(<span class="str">&quot;flag = &quot;</span> + flag)   <span class="cm">// flag = true</span>
+    print(<span class="str">&quot;flag = &quot;</span> + flag)   <span class="cm">// flag = true</span>
 
 
     <span class="cm">// ── Truthiness ──────────────────────────────────────────────────</span>
@@ -36,20 +36,20 @@
     <span class="cm">// Everything else is truthy — including non-numeric non-empty</span>
     <span class="cm">// strings like "anything", "no", "false " (note trailing space), etc.</span>
 
-    <span class="kw">if</span> <span class="kw">true</span>   { kp(<span class="str">&quot;true is truthy&quot;</span>)  }
-    <span class="kw">if</span> !<span class="kw">false</span> { kp(<span class="str">&quot;false is falsy&quot;</span>)  }
-    <span class="kw">if</span> <span class="str">&quot;0&quot;</span>    { kp(<span class="str">&quot;not reached&quot;</span>) } <span class="kw">else</span> { kp(<span class="str">&quot;'0' is falsy&quot;</span>)     }
-    <span class="kw">if</span> <span class="str">&quot;no&quot;</span>   { kp(<span class="str">&quot;'no' is truthy&quot;</span>) }      <span class="cm">// surprising? "no" is non-empty</span>
+    <span class="kw">if</span> <span class="kw">true</span>   { print(<span class="str">&quot;true is truthy&quot;</span>)  }
+    <span class="kw">if</span> !<span class="kw">false</span> { print(<span class="str">&quot;false is falsy&quot;</span>)  }
+    <span class="kw">if</span> <span class="str">&quot;0&quot;</span>    { print(<span class="str">&quot;not reached&quot;</span>) } <span class="kw">else</span> { print(<span class="str">&quot;'0' is falsy&quot;</span>)     }
+    <span class="kw">if</span> <span class="str">&quot;no&quot;</span>   { print(<span class="str">&quot;'no' is truthy&quot;</span>) }      <span class="cm">// surprising? "no" is non-empty</span>
 
 
     <span class="cm">// ── Comparison and logical ops return ints ──────────────────────</span>
     <span class="cm">// For backward compat with builtins like hasField/isDigit (which</span>
     <span class="cm">// return "1"/"0"), comparison and logical ops still return "1" or</span>
     <span class="cm">// "0" small ints, NOT "true"/"false" strings. So:</span>
-    kp(<span class="str">&quot;5 &gt; 3 = &quot;</span> + (<span class="num">5</span> &gt; <span class="num">3</span>))           <span class="cm">// 5 &gt; 3 = 1</span>
-    kp(<span class="str">&quot;5 &lt; 3 = &quot;</span> + (<span class="num">5</span> &lt; <span class="num">3</span>))           <span class="cm">// 5 &lt; 3 = 0</span>
-    kp(<span class="str">&quot;!true  = &quot;</span> + (!<span class="kw">true</span>))          <span class="cm">// !true  = 0</span>
-    kp(<span class="str">&quot;!false = &quot;</span> + (!<span class="kw">false</span>))         <span class="cm">// !false = 1</span>
+    print(<span class="str">&quot;5 &gt; 3 = &quot;</span> + (<span class="num">5</span> &gt; <span class="num">3</span>))           <span class="cm">// 5 &gt; 3 = 1</span>
+    print(<span class="str">&quot;5 &lt; 3 = &quot;</span> + (<span class="num">5</span> &lt; <span class="num">3</span>))           <span class="cm">// 5 &lt; 3 = 0</span>
+    print(<span class="str">&quot;!true  = &quot;</span> + (!<span class="kw">true</span>))          <span class="cm">// !true  = 0</span>
+    print(<span class="str">&quot;!false = &quot;</span> + (!<span class="kw">false</span>))         <span class="cm">// !false = 1</span>
 
 
     <span class="cm">// ── Mixing the two forms ────────────────────────────────────────</span>
@@ -58,14 +58,14 @@
     <span class="cm">// because "true" and "1" are different strings.</span>
 
     <span class="kw">if</span> <span class="kw">true</span> == (<span class="num">5</span> &gt; <span class="num">3</span>) {
-        kp(<span class="str">&quot;never reached&quot;</span>)
+        print(<span class="str">&quot;never reached&quot;</span>)
     } <span class="kw">else</span> {
-        kp(<span class="str">&quot;'true' != 1 (different value forms)&quot;</span>)
+        print(<span class="str">&quot;'true' != 1 (different value forms)&quot;</span>)
     }
 
     <span class="cm">// For "do these mean the same boolean?" use truthy comparison:</span>
     <span class="kw">if</span> isTruthy(<span class="kw">true</span>) == isTruthy(<span class="num">5</span> &gt; <span class="num">3</span>) {
-        kp(<span class="str">&quot;both truthy: matches as booleans&quot;</span>)
+        print(<span class="str">&quot;both truthy: matches as booleans&quot;</span>)
     }
 
 
@@ -84,6 +84,6 @@
 
     <span class="kw">emit</span> <span class="str">&quot;ok&quot;</span>
 }
-</code></pre><button class="run-btn" onclick="runK(this)">&#9654; Run</button><pre class="run-out">Click &#9654; Run to execute. Lessons using k:fs/k:http/match/struct need the real runtime.</pre><p><em>Tip: this code box is editable &mdash; tweak it, then hit Run, or copy into a .k file and run locally.</em></p><p>Run it locally: <code>kcc -r tutorial/26_booleans.k</code></p><p><a href="/learn.html">&larr; All lessons</a> &nbsp; <a href="/learn/25_match.html">Prev</a> &nbsp; <a href="/learn/27_imports.html">Next &rarr;</a></p></div></section><script src="/runner.js?v=7"></script><script src="/wasm_runner.js?v=22"></script><a href="https://www.kry.li/thepeoplewiread" target="_blank" rel="noopener noreferrer sponsored" class="sponsor-slot"><img src="/ads/gpdlonly.png" alt="The People Wire — Free Lifetime Premium News"></a><footer><p style="margin-bottom:8px">Built and maintained by Brian. Support the project on <a href="/sponsor.html">&#10084; GitHub Sponsors</a> &mdash; keeps Krypton shipping.</p>Powered by <a href="https://www.kryptonbytes.com">KryptonBytes</a> | <a href="https://github.com/t3m3d/krypton">View on GitHub</a> | <a href="/sponsor.html">Sponsor</a> | All rights reserved.</footer><button id="topBtn" onclick="window.scrollTo({top:0,behavior:'smooth'})">&uarr;</button><script>document.addEventListener('DOMContentLoaded',function(){var navT=document.querySelector('.nav-toggle');var navL=document.getElementById('navLinks');if(navT&&navL){navT.addEventListener('click',function(){var open=navL.classList.toggle('open');navT.setAttribute('aria-expanded',open);navT.innerHTML=open?'\u00d7':'\u2630';});navL.querySelectorAll('a').forEach(function(a){a.addEventListener('click',function(){navL.classList.remove('open');navT.setAttribute('aria-expanded','false');navT.innerHTML='\u2630';});});}var stats=document.querySelectorAll('.stat .num');stats.forEach(function(el){var target=parseInt(el.getAttribute('data-n'));var step=Math.max(1,Math.floor(target/40));var current=0;var timer=setInterval(function(){current+=step;if(current>=target){current=target;clearInterval(timer)}el.textContent=current;},30);});var cards=document.querySelectorAll('.card');cards.forEach(function(card){var g=document.createElement('div');g.className='card-glow';card.appendChild(g);card.addEventListener('mousemove',function(e){var r=card.getBoundingClientRect();g.style.left=(e.clientX-r.left)+'px';g.style.top=(e.clientY-r.top)+'px';});});var reveals=document.querySelectorAll('.card,.stat');reveals.forEach(function(el){if(el.getBoundingClientRect().top>window.innerHeight*0.5)el.classList.add('reveal');});function checkReveal(){reveals.forEach(function(el){var t=el.getBoundingClientRect().top;if(t<window.innerHeight-60)el.classList.add('visible');});}window.addEventListener('scroll',checkReveal);checkReveal();var topBtn=document.getElementById('topBtn');if(topBtn){window.addEventListener('scroll',function(){if(window.scrollY>400)topBtn.classList.add('show');else topBtn.classList.remove('show');});}var tc=document.getElementById('typeCode');if(tc){var raw='func fib(n) {\n    if n &lt;= 1 { emit n }\n    emit fib(n - 1) + fib(n - 2)\n}\n\njust run {\n    kp(fib(10))  // 55\n}';var ci=0;function hl(s){s=s.replace(/\/\/.*/g,function(m){return '<span class=cm>'+m+'</span>';});s=s.replace(/\b(\d+)\b/g,'<span class=num>$1</span>');s=s.replace(/\b(func|if|emit|just|run)\b/g,'<span class=kw>$1</span>');s=s.replace(/\b(fib|kp)\b/g,'<span class=fn>$1</span>');return s;}function typeNext(){if(ci<=raw.length){tc.innerHTML=hl(raw.substring(0,ci));ci++;setTimeout(typeNext,25);}else{tc.innerHTML=hl(raw);tc.classList.remove('type-cursor');}}typeNext();}});</script>
+</code></pre><button class="run-btn" onclick="runK(this)">&#9654; Run</button><pre class="run-out">Click &#9654; Run to execute. Lessons using k:fs/k:http/match/struct need the real runtime.</pre><p><em>Tip: this code box is editable &mdash; tweak it, then hit Run, or copy into a .k file and run locally.</em></p><p>Run it locally: <code>kcc -r tutorial/26_booleans.k</code></p><p><a href="/learn.html">&larr; All lessons</a> &nbsp; <a href="/learn/25_match.html">Prev</a> &nbsp; <a href="/learn/27_imports.html">Next &rarr;</a></p></div></section><script src="/runner.js?v=7"></script><script src="/wasm_runner.js?v=22"></script><footer><p style="margin-bottom:8px">Built and maintained by Brian. Support the project on <a href="/sponsor.html">&#10084; GitHub Sponsors</a> &mdash; keeps Krypton shipping.</p>Powered by <a href="https://www.kryptonbytes.com">KryptonBytes</a> | <a href="https://github.com/t3m3d/krypton">View on GitHub</a> | <a href="/sponsor.html">Sponsor</a> | All rights reserved.</footer><button id="topBtn" onclick="window.scrollTo({top:0,behavior:'smooth'})">&uarr;</button><script>document.addEventListener('DOMContentLoaded',function(){var navT=document.querySelector('.nav-toggle');var navL=document.getElementById('navLinks');if(navT&&navL){navT.addEventListener('click',function(){var open=navL.classList.toggle('open');navT.setAttribute('aria-expanded',open);navT.innerHTML=open?'\u00d7':'\u2630';});navL.querySelectorAll('a').forEach(function(a){a.addEventListener('click',function(){navL.classList.remove('open');navT.setAttribute('aria-expanded','false');navT.innerHTML='\u2630';});});}var stats=document.querySelectorAll('.stat .num');stats.forEach(function(el){var target=parseInt(el.getAttribute('data-n'));var step=Math.max(1,Math.floor(target/40));var current=0;var timer=setInterval(function(){current+=step;if(current>=target){current=target;clearInterval(timer)}el.textContent=current;},30);});var cards=document.querySelectorAll('.card');cards.forEach(function(card){var g=document.createElement('div');g.className='card-glow';card.appendChild(g);card.addEventListener('mousemove',function(e){var r=card.getBoundingClientRect();g.style.left=(e.clientX-r.left)+'px';g.style.top=(e.clientY-r.top)+'px';});});var reveals=document.querySelectorAll('.card,.stat');reveals.forEach(function(el){if(el.getBoundingClientRect().top>window.innerHeight*0.5)el.classList.add('reveal');});function checkReveal(){reveals.forEach(function(el){var t=el.getBoundingClientRect().top;if(t<window.innerHeight-60)el.classList.add('visible');});}window.addEventListener('scroll',checkReveal);checkReveal();var topBtn=document.getElementById('topBtn');if(topBtn){window.addEventListener('scroll',function(){if(window.scrollY>400)topBtn.classList.add('show');else topBtn.classList.remove('show');});}var tc=document.getElementById('typeCode');if(tc){var raw='func fib(n) {\n    if n &lt;= 1 { emit n }\n    emit fib(n - 1) + fib(n - 2)\n}\n\njust run {\n    print(fib(10))  // 55\n}';var ci=0;function hl(s){s=s.replace(/\/\/.*/g,function(m){return '<span class=cm>'+m+'</span>';});s=s.replace(/\b(\d+)\b/g,'<span class=num>$1</span>');s=s.replace(/\b(func|if|emit|just|run)\b/g,'<span class=kw>$1</span>');s=s.replace(/\b(fib|print)\b/g,'<span class=fn>$1</span>');return s;}function typeNext(){if(ci<=raw.length){tc.innerHTML=hl(raw.substring(0,ci));ci++;setTimeout(typeNext,25);}else{tc.innerHTML=hl(raw);tc.classList.remove('type-cursor');}}typeNext();}});</script>
 </body>
 </html>

@@ -21,15 +21,15 @@ just run {
     try {
         throw "something went wrong"
     } catch e {
-        kp("caught: " + e)
+        print("caught: " + e)
     }
 
     // Catching from a function
     try {
         let result = divide("10", "0")
-        kp("result: " + result)
+        print("result: " + result)
     } catch e {
-        kp("error: " + e)
+        print("error: " + e)
     }
 
     // Successful try (catch never runs)
@@ -39,26 +39,26 @@ just run {
     } catch e {
         val = "error"
     }
-    kp("10 / 2 = " + val)
+    print("10 / 2 = " + val)
 
     // Nested try/catch
     try {
         try {
             throw "inner error"
         } catch e {
-            kp("inner caught: " + e)
+            print("inner caught: " + e)
             throw "rethrown: " + e
         }
     } catch e {
-        kp("outer caught: " + e)
+        print("outer caught: " + e)
     }
 
     // throw as function call
     try {
         throw("function-form throw")
     } catch e {
-        kp("got: " + e)
+        print("got: " + e)
     }
 
-    kp("done")
+    print("done")
 }

@@ -13,11 +13,11 @@ just run {
 
     // httpStatus returns just the response code ("200", "404", ...),
     // or "0" if the request couldn't be made (offline / no curl).
-    kp("status of " + url + ": " + httpStatus(url))
+    print("status of " + url + ": " + httpStatus(url))
 
     // httpGet returns the response body as a string.
     let body = httpGet(url)
-    kp("body length: " + len(body))
+    print("body length: " + len(body))
 
     // Also available:
     //   httpPost(url, body, contentType)

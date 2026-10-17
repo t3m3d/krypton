@@ -264,6 +264,10 @@ The remote folder field controls where `dist/` lands on the server:
 Do not enter `public_html` for Hostinger FTP accounts that already start inside
 the website root.
 
+Deploy groups files into 10-file curl batches. Each batch reuses one FTP
+connection and retries transient transfer failures, avoiding host connection
+limits caused by opening one curl process per file.
+
 Build app bundle:
 
 ```bash

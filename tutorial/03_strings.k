@@ -6,24 +6,24 @@ just run {
     let s = "Hello, Krypton!"
 
     // Length
-    kp("Length: " + len(s))
+    print("Length: " + len(s))
 
     // Indexing (zero-based)
-    kp("First char: " + s[0])
-    kp("Last char: " + s[len(s) - 1])
+    print("First char: " + s[0])
+    print("Last char: " + s[len(s) - 1])
 
     // Substring(string, start, end)
-    kp("First word: " + substring(s, 0, 5))
+    print("First word: " + substring(s, 0, 5))
 
     // startsWith
     if startsWith(s, "Hello") {
-        kp("Starts with Hello: yes")
+        print("Starts with Hello: yes")
     }
 
     // Concatenation with +
     let full = "Part A" + " + " + "Part B"
-    kp(full)
+    print(full)
 
     // Numbers convert to strings when concatenated
-    kp("The answer is " + 42)
+    print("The answer is " + 42)
 }

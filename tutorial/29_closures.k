@@ -15,12 +15,12 @@ func applyTwice(x, f: closure) {
 
 just run {
     // Pass a lambda where a ': closure' parameter is expected.
-    kp("applyTwice(5, *2) = " + applyTwice(5, func(x) { emit toInt(x) * 2 }))
-    kp("applyTwice(3, +1) = " + applyTwice(3, func(x) { emit toInt(x) + 1 }))
+    print("applyTwice(5, *2) = " + applyTwice(5, func(x) { emit toInt(x) * 2 }))
+    print("applyTwice(3, +1) = " + applyTwice(3, func(x) { emit toInt(x) + 1 }))
 
     // fp helpers run a lambda over every element of a comma-list.
     let xs = "1,2,3,4,5"
-    kp("doubled: " + fpMap(xs,    func(x) { emit toInt(x) * 2 }))
-    kp("evens:   " + fpFilter(xs, func(x) { emit toInt(x) % 2 == 0 }))
-    kp("sum:     " + fpReduce(xs, "0", func(acc, x) { emit toInt(acc) + toInt(x) }))
+    print("doubled: " + fpMap(xs,    func(x) { emit toInt(x) * 2 }))
+    print("evens:   " + fpFilter(xs, func(x) { emit toInt(x) % 2 == 0 }))
+    print("sum:     " + fpReduce(xs, "0", func(acc, x) { emit toInt(acc) + toInt(x) }))
 }

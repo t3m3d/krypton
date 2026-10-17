@@ -6,35 +6,35 @@ just run {
 
     // Simple if
     if age >= 18 {
-        kp("You are an adult")
+        print("You are an adult")
     }
 
     // If-else
     if age >= 65 {
-        kp("Senior citizen")
+        print("Senior citizen")
     } else {
-        kp("Not yet a senior")
+        print("Not yet a senior")
     }
 
     // If-else if-else chain
     let score = 85
     if score >= 90 {
-        kp("Grade: A")
+        print("Grade: A")
     } else if score >= 80 {
-        kp("Grade: B")
+        print("Grade: B")
     } else if score >= 70 {
-        kp("Grade: C")
+        print("Grade: C")
     } else {
-        kp("Grade: F")
+        print("Grade: F")
     }
 
     // Nested if
     let x = 10
     if x > 0 {
         if x % 2 == 0 {
-            kp("" + x + " is positive and even")
+            print("" + x + " is positive and even")
         } else {
-            kp("" + x + " is positive and odd")
+            print("" + x + " is positive and odd")
         }
     }
 }

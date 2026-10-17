@@ -304,13 +304,13 @@ func siteJS() {
         "if(topBtn){window.addEventListener('scroll',function(){if(window.scrollY>400)topBtn.classList.add('show');else topBtn.classList.remove('show');});}" +
         "var tc=document.getElementById('typeCode');" +
         "if(tc){" +
-        "var raw=`func fib(n) {\\n    if n &lt;= 1 { emit n }\\n    emit fib(n - 1) + fib(n - 2)\\n}\\n\\njust run {\\n    kp(fib(10))  // 55\\n}`;" +
+        "var raw=`func fib(n) {\\n    if n &lt;= 1 { emit n }\\n    emit fib(n - 1) + fib(n - 2)\\n}\\n\\njust run {\\n    print(fib(10))  // 55\\n}`;" +
         "var ci=0;" +
         "function hl(s){" +
         "s=s.replace(/\\/\\/.*/g,function(m){return '<span class=cm>'+m+'</span>';});" +
         "s=s.replace(/\\b(\\d+)\\b/g,'<span class=num>$1</span>');" +
         "s=s.replace(/\\b(func|if|emit|just|run)\\b/g,'<span class=kw>$1</span>');" +
-        "s=s.replace(/\\b(fib|kp)\\b/g,'<span class=fn>$1</span>');" +
+        "s=s.replace(/\\b(fib|print)\\b/g,'<span class=fn>$1</span>');" +
         "return s;}" +
         "function typeNext(){if(ci<=raw.length){tc.innerHTML=hl(raw.substring(0,ci));ci++;setTimeout(typeNext,25);}else{tc.innerHTML=hl(raw);tc.classList.remove('type-cursor');}}" +
         "typeNext();}" +
@@ -389,27 +389,8 @@ func siteNav(active) {
          "</div>"
 }
 
-// Sponsor slot — leaderboard-sized clickable area above the footer.
-// Image lives at dist/ads/gpdlonly.png; the link is a kry.li short URL
-// so we can read click-through analytics via the kryptlink dashboard.
-func siteSponsorSlot() {
-    emit "<div class=" + DQ() + "ad-embed" + DQ() + ">" +
-         "<iframe src=" + DQ() + "/ads/pw-ad.html" + DQ() +
-         " title=" + DQ() + "The People Wire" + DQ() +
-         " loading=" + DQ() + "lazy" + DQ() +
-         " scrolling=" + DQ() + "no" + DQ() +
-         " frameborder=" + DQ() + "0" + DQ() + "></iframe>" +
-         "<a href=" + DQ() + "https://www.kry.li/thepeoplewiread" + DQ() +
-         " target=" + DQ() + "_blank" + DQ() +
-         " rel=" + DQ() + "noopener noreferrer sponsored" + DQ() +
-         " class=" + DQ() + "ad-embed-link" + DQ() +
-         " aria-label=" + DQ() + "The People Wire" + DQ() + "></a>" +
-         "</div>"
-}
-
 func siteFooter() {
-    emit siteSponsorSlot() +
-         "<footer>" +
+    emit "<footer>" +
          "<p style=" + DQ() + "margin-bottom:8px" + DQ() + ">" +
          "Built and maintained by Brian. Support the project on " +
          htA("/sponsor.html", "&#10084; GitHub Sponsors") +
@@ -538,7 +519,7 @@ func pageAbout() {
         "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Small Surface") + htP("The entire language specification fits on a single EBNF page, with the compiler under 5,000 lines.") + "</div>" +
         "</div>" +
         htH2("Current Status") +
-        htP("Krypton reached version 2.4.7 in October 2026. Native Windows, macOS, and Linux backends, a self-hosting compiler, Objective-K UI work, and kweb powering this site.") +
+        htP("Krypton reached version 2.4.8 in October 2026. Native Windows, macOS, and Linux backends, a self-hosting compiler, Objective-K UI work, and kweb powering this site.") +
         htH2("Credits") +
         htP("Developed by t3m3d under KryptonBytes, licensed under Apache 2.0.") +
         "</div></section>"
@@ -562,11 +543,11 @@ func pageFeatures() {
         htH2("Language Features") +
         "<div class=" + DQ() + "grid" + DQ() + ">" +
         "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Functions") + htPre(htCode("func add(a, b) {" + NL() + "    emit a + b" + NL() + "}")) + "</div>" +
-        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Lambdas") + htPre(htCode("let dbl = func(x) { emit x * 2 }" + NL() + "kp(dbl(5))  // 10")) + "</div>" +
-        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Pattern Matching") + htPre(htCode("match color {" + NL() + "    " + DQ() + "red" + DQ() + " { kp(" + DQ() + "warm" + DQ() + ") }" + NL() + "    else  { kp(" + DQ() + "other" + DQ() + ") }" + NL() + "}")) + "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Lambdas") + htPre(htCode("let dbl = func(x) { emit x * 2 }" + NL() + "print(dbl(5))  // 10")) + "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Pattern Matching") + htPre(htCode("match color {" + NL() + "    " + DQ() + "red" + DQ() + " { print(" + DQ() + "warm" + DQ() + ") }" + NL() + "    else  { print(" + DQ() + "other" + DQ() + ") }" + NL() + "}")) + "</div>" +
         "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Structs") + htPre(htCode("struct Point { let x; let y }" + NL() + "let p = Point { x: 10, y: 20 }")) + "</div>" +
-        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Try/Catch") + htPre(htCode("try {" + NL() + "    throw " + DQ() + "oops" + DQ() + NL() + "} catch e { kp(e) }")) + "</div>" +
-        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("String Interpolation") + htPre(htCode("kp(`Hello, {name}!`)")) + "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("Try/Catch") + htPre(htCode("try {" + NL() + "    throw " + DQ() + "oops" + DQ() + NL() + "} catch e { print(e) }")) + "</div>" +
+        "<div class=" + DQ() + "card" + DQ() + ">" + htH3("String Interpolation") + htPre(htCode("print(`Hello, {name}!`)")) + "</div>" +
         "</div>" +
         htH2("Standard Library") +
         htP("~150 built-in functions plus 36 stdlib modules covering I/O, strings, numbers, lists, maps, structs, JSON, CSV, math, sorting, and more.") +
@@ -658,7 +639,7 @@ func pageKryptScript() {
     let sampleHello =
         "#!/usr/bin/env kr" + NL() +
         "just run {" + NL() +
-        "    kp(" + DQ() + "hello from a kryptscript" + DQ() + ")" + NL() +
+        "    print(" + DQ() + "hello from a kryptscript" + DQ() + ")" + NL() +
         "}" + NL()
 
     let sampleArgs =
@@ -666,7 +647,7 @@ func pageKryptScript() {
         "// rename.ks " + DASH() + " batch-rename files matching a pattern" + NL() +
         "just run {" + NL() +
         "    if argCount() < 2 {" + NL() +
-        "        kp(" + DQ() + "usage: rename.ks <from-ext> <to-ext>" + DQ() + ")" + NL() +
+        "        print(" + DQ() + "usage: rename.ks <from-ext> <to-ext>" + DQ() + ")" + NL() +
         "        exit(1)" + NL() +
         "    }" + NL() +
         "    let from = arg(0)" + NL() +
@@ -680,7 +661,7 @@ func pageKryptScript() {
         "        shellRun(" + DQ() + "mv " + DQ() + " + f + " + DQ() + " " + DQ() + " + base + to)" + NL() +
         "        i = i + 1" + NL() +
         "    }" + NL() +
-        "    kp(" + DQ() + "renamed " + DQ() + " + n + " + DQ() + " files" + DQ() + ")" + NL() +
+        "    print(" + DQ() + "renamed " + DQ() + " + n + " + DQ() + " files" + DQ() + ")" + NL() +
         "}" + NL()
 
     let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
@@ -746,7 +727,7 @@ func pageKryptScript() {
         htH2("Get started") +
         htP("KryptScript ships with Krypton 2.2 " + DASH() + " no separate install. If you already have Krypton, you already have it. Try:") +
         htPre(htCode("echo '#!/usr/bin/env kr" + NL() +
-            "just run { kp(" + DQ() + "hi from a kryptscript" + DQ() + ") }' > hello.ks" + NL() +
+            "just run { print(" + DQ() + "hi from a kryptscript" + DQ() + ") }' > hello.ks" + NL() +
             "kcc -r hello.ks")) +
         htP("Or check the " + htA("/downloads.html", "Downloads page") + " for installers, and the " + htA("/learn.html", "Learn track") + " for the full language tour.") +
 
@@ -763,25 +744,25 @@ func dlBtn(url, label) {
 
 func pageDownloads() {
     let BS = fromCharCode(92)
-    let MAC_RELEASE = "https://github.com/t3m3d/krypton/releases/tag/v2.4.7"
-    let MAC_PKG = "https://github.com/t3m3d/krypton/releases/download/v2.4.7/krypton-2.4.7-macos-arm64.pkg"
-    let MAC_TAR = "https://github.com/t3m3d/krypton/releases/download/v2.4.7/krypton-2.4.7-macos-arm64.tar.gz"
+    let MAC_RELEASE = "https://github.com/t3m3d/krypton/releases/tag/v2.4.8"
+    let MAC_PKG = "https://github.com/t3m3d/krypton/releases/download/v2.4.8/krypton-2.4.8-macos-arm64.pkg"
+    let MAC_TAR = "https://github.com/t3m3d/krypton/releases/download/v2.4.8/krypton-2.4.8-macos-arm64.tar.gz"
     let OLD_RELEASE = "https://github.com/t3m3d/krypton/releases/tag/2.3.0"
     let WIN_INSTALLER = "https://github.com/t3m3d/krypton/releases/download/2.3.0/krypton-2.3.0-windows-x86_64.exe"
     let LINUX_TAR = "https://github.com/t3m3d/krypton/releases/download/2.4.4/krypton-2.4.4-linux-x86_64.tar.gz"
     let VSIX = "https://github.com/t3m3d/krypton/releases/download/2.3.0/krypton-language-2.3.0.vsix"
     let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
         "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
-        "<span class=" + DQ() + "tag" + DQ() + ">Latest macOS release: 2.4.7</span>" +
+        "<span class=" + DQ() + "tag" + DQ() + ">Latest macOS release: 2.4.8</span>" +
         htH1("Downloads") +
-        htP("Krypton 2.4.7 brings the notarized macOS Apple Silicon toolchain, current kweb CLI, and " + htCode("kweb.app") + " deploy GUI. Linux x86-64 remains on 2.4.4. Windows remains on 2.3.0 until its matching artifact is cut.") +
+        htP("Krypton 2.4.8 brings reliable batched FTP deploys to the notarized macOS Apple Silicon toolchain, current kweb CLI, and " + htCode("kweb.app") + " deploy GUI. Linux x86-64 remains on 2.4.4. Windows remains on 2.3.0 until its matching artifact is cut.") +
         "</div>"
     let content = hero +
         "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
-        htP("macOS 2.4.7 assets live on " + htAA(htHref(MAC_RELEASE), "the 2.4.7 GitHub release page") + ". Linux stays on 2.4.4 for now. Windows and editor downloads still use " + htAA(htHref(OLD_RELEASE), "the 2.3.0 release page") + ".") +
+        htP("macOS 2.4.8 assets live on " + htAA(htHref(MAC_RELEASE), "the 2.4.8 GitHub release page") + ". Linux stays on 2.4.4 for now. Windows and editor downloads still use " + htAA(htHref(OLD_RELEASE), "the 2.3.0 release page") + ".") +
         htH3("Platform versions") +
         htUl(
-            htLi(htStrong("macOS arm64:") + " 2.4.7 " + DASH() + " newest release, includes kweb.app and Homebrew support.") +
+            htLi(htStrong("macOS arm64:") + " 2.4.8 " + DASH() + " newest release, includes kweb.app and Homebrew support.") +
             htLi(htStrong("Windows x86-64:") + " 2.3.0 " + DASH() + " current Windows installer until Forge's next Windows artifact lands.") +
             htLi(htStrong("Linux x86-64:") + " 2.4.4 " + DASH() + " current Linux tarball, rebuilt in QEMU with native seeds.") +
             htLi(htStrong("VS Code / Antigravity extension:") + " 2.3.0.")
@@ -789,8 +770,8 @@ func pageDownloads() {
 
         htH3("What's in the release") +
         htUl(
-            htLi(htCode("krypton-2.4.7-macos-arm64.pkg") + " " + DASH() + " notarized macOS Apple Silicon installer. Includes " + htCode("kcc") + ", " + htCode("kweb") + ", " + htCode("kweb.app") + ", Choc, Objective-K helpers, and the 2.4.7 frontend.") +
-            htLi(htCode("krypton-2.4.7-macos-arm64.tar.gz") + " " + DASH() + " macOS Apple Silicon tarball, same toolchain as the .pkg.") +
+            htLi(htCode("krypton-2.4.8-macos-arm64.pkg") + " " + DASH() + " notarized macOS Apple Silicon installer. Includes " + htCode("kcc") + ", " + htCode("kweb") + ", " + htCode("kweb.app") + ", Choc, Objective-K helpers, and the 2.4.8 frontend.") +
+            htLi(htCode("krypton-2.4.8-macos-arm64.tar.gz") + " " + DASH() + " macOS Apple Silicon tarball, same toolchain as the .pkg.") +
             htLi(htCode("krypton-2.4.4-linux-x86_64.tar.gz") + " " + DASH() + " Linux x86-64 self-contained tarball. Includes rebuilt 2.4.4 driver/frontend seeds and native " + htCode("kweb") + ".") +
             htLi(htCode("krypton-2.3.0-windows-x86_64.exe") + " " + DASH() + " Windows installer. Bundles " + htCode("kcc") + " (Krypton-native driver), " + htCode("kcc-bin") + " (the compile.k-built backend), " + htCode("kr") + " (KryptScript runner with REPL), " + htCode("krypton_rt.dll") + ", the WASM backend, " + htCode("kweb") + ", and " + htCode(".k") + " / " + htCode(".ks") + " file associations.") +
             htLi(htCode("krypton-language-2.3.0.vsix") + " " + DASH() + " VS Code / Antigravity extension. Adds " + htCode(".ks") + " (KryptScript) + " + htCode(".k") + " syntax and ships the " + htCode("kls") + " language server for Windows + macOS.")
@@ -810,9 +791,9 @@ func pageDownloads() {
         htP("Two install paths, both clang-free. The toolchain self-hosts on Mach-O without any external compiler. The kweb GUI is bundled as " + htCode("kweb.app") + ".") +
         htH3("Homebrew (recommended)") +
         htPre(htCode("brew install t3m3d/krypton/krypton" + NL() +
-                     "kcc --version        # -> kcc version 2.4.7" + NL() +
+                     "kcc --version        # -> kcc version 2.4.8" + NL() +
                      "kweb-gui             # opens kweb.app")) +
-        htP("Tap " + htCode("t3m3d/krypton") + " is live; the formula installs the 2.4.7 macOS toolchain and a " + htCode("kweb-gui") + " launcher.") +
+        htP("Tap " + htCode("t3m3d/krypton") + " is live; the formula installs the 2.4.8 macOS toolchain and a " + htCode("kweb-gui") + " launcher.") +
         htH3("Or the signed " + htCode(".pkg") + " / tarball") +
         htP(dlBtn(MAC_PKG, "Download .pkg") + " " + htAA(htHref(MAC_TAR), "or grab the tarball")) +
         htP("The .pkg is Developer ID signed, Apple notarized, and stapled. The tarball ships Developer ID-signed binaries for manual and Homebrew installs.") +
@@ -849,7 +830,7 @@ func pageDownloads() {
             htLi(htCode("ks") + " " + DASH() + " server-side templating helpers.") +
             htLi(htCode("server") + " + " + htCode("router") + " " + DASH() + " HTTP server and route table for serving the output.")
         ) +
-        htP("Bundled inside the Windows installer at " + htCode("C:" + BS + "krypton" + BS + "kweb.exe") + ", Linux 2.4.4 as native " + htCode("kweb") + ", and macOS 2.4.7 as " + htCode("kweb") + " plus " + htCode("kweb.app") + ". CLI surface:") +
+        htP("Bundled inside the Windows installer at " + htCode("C:" + BS + "krypton" + BS + "kweb.exe") + ", Linux 2.4.4 as native " + htCode("kweb") + ", and macOS 2.4.8 as " + htCode("kweb") + " plus " + htCode("kweb.app") + ". CLI surface:") +
         htPre(htCode("kweb init <name>      # scaffold a new site" + NL() +
                      "kweb build            # render to dist/" + NL() +
                      "kweb serve [port]     # local dev server" + NL() +
@@ -860,7 +841,7 @@ func pageDownloads() {
 
         htH2("Verify") +
         htP("After install, confirm the toolchain version:") +
-        htPre(htCode("kcc --version    # kcc version 2.4.7 on macOS, 2.4.4 on Linux, 2.3.0 on Windows")) +
+        htPre(htCode("kcc --version    # kcc version 2.4.8 on macOS, 2.4.4 on Linux, 2.3.0 on Windows")) +
         htP("And confirm the editor extension version inside VS Code / Antigravity:") +
         htPre(htCode("Extensions panel " + fromCharCode(8594) + " Krypton " + fromCharCode(8594) + " v2.3.0")) +
         "</div></section>"
@@ -1136,7 +1117,7 @@ func pagePlayground() {
         "just run {" + NL() +
         "    let i = 0" + NL() +
         "    while i < 10 {" + NL() +
-        "        kp(\"fib(\" + i + \") = \" + fib(i))" + NL() +
+        "        print(\"fib(\" + i + \") = \" + fib(i))" + NL() +
         "        i = i + 1" + NL() +
         "    }" + NL() +
         "}" + NL()
@@ -1150,7 +1131,7 @@ func pagePlayground() {
         "</div>"
 
     let body = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
-        htP(htEm("Tip: edit the code below. Drop in your own functions, try the stdlib helpers (kp, len, listNew, mapNew, htmk, kcss). Lessons covering match/struct/try, file I/O, HTTP, JSON need the real local kcc " + DASH() + " try " + htCode("kcc -r yourfile.k") + ".")) +
+        htP(htEm("Tip: edit the code below. Drop in your own functions, try the stdlib helpers (print, len, listNew, mapNew, htmk, kcss). Lessons covering match/struct/try, file I/O, HTTP, JSON need the real local kcc " + DASH() + " try " + htCode("kcc -r yourfile.k") + ".")) +
         "<pre><code class=" + DQ() + "k" + DQ() +
             " contenteditable=" + DQ() + "true" + DQ() +
             " spellcheck=" + DQ() + "false" + DQ() + ">" + hlCode(starterCode) + "</code></pre>" +

@@ -10,7 +10,7 @@ just run {
         kcssVar("primary", "#7722ff") +
         kcssVar("text",    "#222")
     )
-    kp(theme)
+    print(theme)
 
     // A button rule. kcssDecl makes each line; kcssRule wraps the body.
     let btn = kcssRule(".btn",
@@ -19,13 +19,13 @@ just run {
         kcssPadding("12px 24px") +
         kcssRadius("8px")
     )
-    kp(btn)
+    print(btn)
 
     // Hover state via kcssHover selector helper.
     let btnHover = kcssRule(kcssHover(".btn"),
         "transform:translateY(-1px);"
     )
-    kp(btnHover)
+    print(btnHover)
 
     // Mobile-first override via kcssOnMobile (≤600px).
     let mobile = kcssOnMobile(
@@ -33,9 +33,9 @@ just run {
             kcssDisplay("block") + kcssWidth("100%")
         )
     )
-    kp(mobile)
+    print(mobile)
 
     // Wrap the whole sheet in a <style> tag, ready for htmk to embed.
     let css = theme + btn + btnHover + mobile
-    kp(kcssStyle(css))
+    print(kcssStyle(css))
 }

@@ -6,20 +6,20 @@ import "k:map"
 
 just run {
     // Scalars
-    kp(jsonStr("hello"))            // "hello"
-    kp(jsonNum(42))                 // 42
-    kp(jsonBool("1"))               // true
-    kp(jsonNull())                  // null
+    print(jsonStr("hello"))            // "hello"
+    print(jsonNum(42))                 // 42
+    print(jsonBool("1"))               // true
+    print(jsonNull())                  // null
 
     // jsonStr escapes quotes and backslashes for you.
-    kp(jsonStr("she said \"hi\""))
+    print(jsonStr("she said \"hi\""))
 
     // Arrays come from a comma-list.
-    kp(jsonArray("apple,banana,cherry"))
+    print(jsonArray("apple,banana,cherry"))
 
     // Objects come from a map.
     let person = mapNew()
     person = mapSet(person, "name", "Alice")
     person = mapSet(person, "city", "Paris")
-    kp(jsonObject(person))
+    print(jsonObject(person))
 }

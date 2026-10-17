@@ -6,9 +6,9 @@ just run {
     let version = 1
     let greeting = "Welcome to " + name + " v" + version
 
-    kp(greeting)
+    print(greeting)
 
     // Variables can be reassigned
     name = "Krypton Language"
-    kp("Now using: " + name)
+    print("Now using: " + name)
 }

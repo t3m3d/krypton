@@ -131,7 +131,7 @@
     }
 
     return {
-      // Output (kp = "Krypton print" w/ newline).
+      // Output.
       kp: emitLine, pe: emitLine, print: emitLine,
       printLn: emitLine, printErr: emitLine,
 

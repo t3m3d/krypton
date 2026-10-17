@@ -4,6 +4,16 @@ All notable changes to the Krypton language and compiler.
 
 ## [Unreleased]
 
+## [2.4.8] - 2026-10-17 - kweb FTP reliability
+
+- Batched kweb FTP uploads into reusable curl connections, avoiding Hostinger
+  disconnects caused by starting one FTP session per file.
+- Added bounded timeouts and retry handling to macOS, Windows, and CLI kweb
+  deploy paths.
+- Updated all Learn lessons and generated pages to use canonical `print(...)`
+  syntax while retaining `kp(...)` as a legacy compiler alias.
+- Removed unpaid ThePeopleWire placements from generated site pages.
+
 ## [2.4.7] - 2026-10-15 - kweb deploy crash fix
 
 - Fixed the macOS kweb GUI Deploy action crashing before FTP started because

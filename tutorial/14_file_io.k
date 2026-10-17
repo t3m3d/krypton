@@ -10,21 +10,21 @@ just run {
 
         // Count lines
         let lc = lineCount(content)
-        kp("File: " + filename)
-        kp("Lines: " + lc)
-        kp("Characters: " + len(content))
+        print("File: " + filename)
+        print("Lines: " + lc)
+        print("Characters: " + len(content))
 
         // Print first 5 lines
         let i = 0
         let limit = 5
         if lc < limit { limit = lc }
-        kp("--- First " + limit + " lines ---")
+        print("--- First " + limit + " lines ---")
         while i < limit {
-            kp(getLine(content, i))
+            print(getLine(content, i))
             i = i + 1
         }
     } else {
-        kp("Usage: provide a filename as argument")
-        kp("This program reads a file and shows stats")
+        print("Usage: provide a filename as argument")
+        print("This program reads a file and shows stats")
     }
 }

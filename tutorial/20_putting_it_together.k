@@ -37,8 +37,8 @@ func buildFreqMap(text) {
 
 just run {
     let text = "the cat sat on the mat the cat ate the rat"
-    kp("Text: " + text)
-    kp("")
+    print("Text: " + text)
+    print("")
 
     let freq = buildFreqMap(text)
 
@@ -50,11 +50,11 @@ just run {
         let w = split(words, i)
         let c = envGet(freq, w)
         if len(c) > 0 {
-            kp("  '" + w + "' appears " + c + " time(s)")
+            print("  '" + w + "' appears " + c + " time(s)")
         }
         i = i + 1
     }
 
-    kp("")
-    kp("Tutorial complete! You now know the key features of Krypton.")
+    print("")
+    print("Tutorial complete! You now know the key features of Krypton.")
 }

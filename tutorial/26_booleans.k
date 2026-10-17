@@ -8,11 +8,11 @@
 
 just run {
     // ── Literals ────────────────────────────────────────────────────
-    kp(true)        // "true"
-    kp(false)       // "false"
+    print(true)        // "true"
+    print(false)       // "false"
 
     let flag = true
-    kp("flag = " + flag)   // flag = true
+    print("flag = " + flag)   // flag = true
 
 
     // ── Truthiness ──────────────────────────────────────────────────
@@ -26,20 +26,20 @@ just run {
     // Everything else is truthy — including non-numeric non-empty
     // strings like "anything", "no", "false " (note trailing space), etc.
 
-    if true   { kp("true is truthy")  }
-    if !false { kp("false is falsy")  }
-    if "0"    { kp("not reached") } else { kp("'0' is falsy")     }
-    if "no"   { kp("'no' is truthy") }      // surprising? "no" is non-empty
+    if true   { print("true is truthy")  }
+    if !false { print("false is falsy")  }
+    if "0"    { print("not reached") } else { print("'0' is falsy")     }
+    if "no"   { print("'no' is truthy") }      // surprising? "no" is non-empty
 
 
     // ── Comparison and logical ops return ints ──────────────────────
     // For backward compat with builtins like hasField/isDigit (which
     // return "1"/"0"), comparison and logical ops still return "1" or
     // "0" small ints, NOT "true"/"false" strings. So:
-    kp("5 > 3 = " + (5 > 3))           // 5 > 3 = 1
-    kp("5 < 3 = " + (5 < 3))           // 5 < 3 = 0
-    kp("!true  = " + (!true))          // !true  = 0
-    kp("!false = " + (!false))         // !false = 1
+    print("5 > 3 = " + (5 > 3))           // 5 > 3 = 1
+    print("5 < 3 = " + (5 < 3))           // 5 < 3 = 0
+    print("!true  = " + (!true))          // !true  = 0
+    print("!false = " + (!false))         // !false = 1
 
 
     // ── Mixing the two forms ────────────────────────────────────────
@@ -48,14 +48,14 @@ just run {
     // because "true" and "1" are different strings.
 
     if true == (5 > 3) {
-        kp("never reached")
+        print("never reached")
     } else {
-        kp("'true' != 1 (different value forms)")
+        print("'true' != 1 (different value forms)")
     }
 
     // For "do these mean the same boolean?" use truthy comparison:
     if isTruthy(true) == isTruthy(5 > 3) {
-        kp("both truthy: matches as booleans")
+        print("both truthy: matches as booleans")
     }
 
 

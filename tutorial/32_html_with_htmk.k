@@ -6,30 +6,30 @@ import "k:htmk"
 
 just run {
     // Single elements
-    kp(htH1("Hello, Krypton"))
-    kp(htP("Pure Krypton emits this HTML."))
+    print(htH1("Hello, Krypton"))
+    print(htP("Pure Krypton emits this HTML."))
 
     // Wrappers + attributes
     let card = htDiv(
         htH3("A card") +
         htP("Composed from htmk helpers.")
     )
-    kp(card)
+    print(card)
 
     // Links and lists
-    kp(htA("https://krypton-lang.org", "Visit krypton-lang.org"))
+    print(htA("https://krypton-lang.org", "Visit krypton-lang.org"))
 
     let menu = htUl(
         htLi(htA("/", "Home")) +
         htLi(htA("/learn.html", "Learn")) +
         htLi(htA("/blog.html", "Blog"))
     )
-    kp(menu)
+    print(menu)
 
     // Full document: htPage wraps with <!DOCTYPE>, <head>, <body>.
     let page = htPage("My Page", "",
         htH1("Welcome") +
         htP("Built end-to-end in Krypton.")
     )
-    kp(page)
+    print(page)
 }
