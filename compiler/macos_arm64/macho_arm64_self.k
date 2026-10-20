@@ -264,10 +264,40 @@ func _isMsgSend(name) {
     if len(name) >= 12 { if substring(name, 0, 12) == "objc_msgSend" { emit 1 } }
     emit 0
 }
+func _isSupportedMsgSend(name) {
+    if name == "objc_msgSend" { emit 1 }
+    if name == "objc_msgSend_1" { emit 1 }
+    if name == "objc_msgSend_2" { emit 1 }
+    if name == "objc_msgSend_3" { emit 1 }
+    if name == "objc_msgSend_4" { emit 1 }
+    if name == "objc_msgSend_5" { emit 1 }
+    if name == "objc_msgSend_6" { emit 1 }
+    if name == "objc_msgSend_fpret" { emit 1 }
+    if name == "objc_msgSend_rect" { emit 1 }
+    if name == "objc_msgSend_frame" { emit 1 }
+    if name == "objc_msgSend_d1" { emit 1 }
+    if name == "objc_msgSend_rectp" { emit 1 }
+    if name == "objc_msgSend_timer" { emit 1 }
+    if name == "objc_msgSend_rgb" { emit 1 }
+    if name == "objc_msgSend_d2" { emit 1 }
+    if name == "objc_msgSend_d3" { emit 1 }
+    if name == "objc_msgSend_pd1" { emit 1 }
+    if name == "objc_msgSend_rounded" { emit 1 }
+    if name == "objc_msgSend_rgba" { emit 1 }
+    if name == "objc_msgSend_point_x" { emit 1 }
+    if name == "objc_msgSend_point_y" { emit 1 }
+    emit 0
+}
 func foreignLibFor(name) {
     if name == "getpid"          { emit "/usr/lib/libSystem.B.dylib" }
     if name == "UIApplicationMain" { emit "/System/Library/Frameworks/UIKit.framework/UIKit" }
-    if _isMsgSend(name) == 1     { emit "/usr/lib/libobjc.A.dylib" }
+    if _isMsgSend(name) == 1 {
+        if _isSupportedMsgSend(name) == 0 {
+            printErr("Objective-K: unsupported Objective-C ABI signature: " + name)
+            exit("1")
+        }
+        emit "/usr/lib/libobjc.A.dylib"
+    }
     if name == "objc_getClass"   { emit "/usr/lib/libobjc.A.dylib" }
     if name == "objc_lookUpClass"{ emit "/usr/lib/libobjc.A.dylib" }
     if name == "class_getName"   { emit "/usr/lib/libobjc.A.dylib" }
@@ -356,6 +386,9 @@ func cfCount(cname, argc) {
     if cname == "objc_msgSend_rgb" { emit 17 }      // (self,sel,r,g,b): r/g/b/255->d0..d2, 1.0->d3 (colorWithRed:green:blue:alpha:)
     if cname == "objc_msgSend_d2" { emit 8 }        // (self,sel,a,b): NSSize a->d0, b->d1 (setSize:/setMaxSize:)
     if cname == "objc_msgSend_d3" { emit 10 }       // (self,sel,a,b,c): CGFloat args d0..d2
+    if cname == "objc_msgSend_pd1" { emit 7 }
+    if cname == "objc_msgSend_rounded" { emit 16 }
+    if cname == "objc_msgSend_rgba" { emit 18 }
     if cname == "objc_msgSend_point_x" { emit 6 }   // (self,sel,obj): CGPoint d0 -> x0
     if cname == "objc_msgSend_point_y" { emit 6 }   // (self,sel,obj): CGPoint d1 -> x0
     emit argc + 2
@@ -6116,6 +6149,46 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
                 let d3i = textSz / 4 + foreignIdx("objc_msgSend_d3") * 3
                 s = sbAppend(s, arm64_bl(d3i - instrIdx))  instrIdx = instrIdx + 1
                 s = sbAppend(s, arm64_push(0))  instrIdx = instrIdx + 1
+            } else if cname == "objc_msgSend_pd1" {
+                s = sbAppend(s, arm64_pop(9))  instrIdx += 1
+                s = sbAppend(s, arm64_scvtf_d_x(0, 9))  instrIdx += 1
+                s = sbAppend(s, arm64_pop(2))  instrIdx += 1
+                s = sbAppend(s, arm64_pop(1))  instrIdx += 1
+                s = sbAppend(s, arm64_pop(0))  instrIdx += 1
+                let fti = textSz / 4 + foreignIdx(cname) * 3
+                s = sbAppend(s, arm64_bl(fti - instrIdx))  instrIdx += 1
+                s = sbAppend(s, arm64_push(0))  instrIdx += 1
+            } else if cname == "objc_msgSend_rounded" {
+                let d = 5
+                while d >= 0 {
+                    s = sbAppend(s, arm64_pop(9))  instrIdx += 1
+                    s = sbAppend(s, arm64_scvtf_d_x(d, 9))  instrIdx += 1
+                    d -= 1
+                }
+                s = sbAppend(s, arm64_pop(1))  instrIdx += 1
+                s = sbAppend(s, arm64_pop(0))  instrIdx += 1
+                let fti = textSz / 4 + foreignIdx(cname) * 3
+                s = sbAppend(s, arm64_bl(fti - instrIdx))  instrIdx += 1
+                s = sbAppend(s, arm64_push(0))  instrIdx += 1
+            } else if cname == "objc_msgSend_rgba" {
+                let d = 3
+                while d >= 0 {
+                    s = sbAppend(s, arm64_pop(9))  instrIdx += 1
+                    s = sbAppend(s, arm64_scvtf_d_x(d, 9))  instrIdx += 1
+                    d -= 1
+                }
+                s = sbAppend(s, arm64_movz_x_imm(10, 255))  instrIdx += 1
+                s = sbAppend(s, arm64_scvtf_d_x(4, 10))  instrIdx += 1
+                d = 0
+                while d < 4 {
+                    s = sbAppend(s, arm64_fdiv_d(d, d, 4))  instrIdx += 1
+                    d += 1
+                }
+                s = sbAppend(s, arm64_pop(1))  instrIdx += 1
+                s = sbAppend(s, arm64_pop(0))  instrIdx += 1
+                let fti = textSz / 4 + foreignIdx(cname) * 3
+                s = sbAppend(s, arm64_bl(fti - instrIdx))  instrIdx += 1
+                s = sbAppend(s, arm64_push(0))  instrIdx += 1
             } else if cname == "objc_msgSend_point_x" || cname == "objc_msgSend_point_y" {
                 // (self,sel,obj): CGPoint return in d0/d1, selected component -> x0.
                 s = sbAppend(s, arm64_pop(2))  instrIdx = instrIdx + 1   // relativeTo

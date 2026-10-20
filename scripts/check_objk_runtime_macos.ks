@@ -80,6 +80,10 @@ just run {
     runCheck(globals, "imported globals", log)
     let pointers = compileCheck(root, work, "tests/macos/test_callptr.k", "pointers")
     runCheck(pointers, "native function pointers", log)
+    let graphics = compileCheck(root, work, "tests/macos/test_objk_graphics_abi.k", "graphics-abi")
+    runCheck(graphics, "Objective-K graphics ABI", log)
+    syntaxReject(root, "tests/macos/fixtures/objk_abi_signature_invalid.k",
+        "Objective-K: unsupported Objective-C ABI signature", log)
     compileReject(root, "tests/macos/fixtures/callptr_missing.k", work + "/bad", log)
     compileReject(root, "tests/macos/fixtures/callptr_too_many.k", work + "/bad", log)
     let nullPointer = compileCheck(root, work, "tests/macos/fixtures/callptr_null.k", "null")

@@ -2,6 +2,7 @@ module objk
 
 import "k:choc_macos"
 import "k:objk_layout"
+import "k:objc"
 
 func okApp()                         { emit chocInit() }
 func okSharedApp()                   { emit chocSharedApp() }
@@ -129,3 +130,33 @@ func okFillRect(x, y, w, h)          { emit chocFillRect(x, y, w, h) }
 func okColorSet(color)               { emit chocColorSet(color) }
 func okTextAttrs(font, color)        { emit chocTextAttrs(font, color) }
 func okDrawText(text, x, y, w, h, attrs) { emit chocDrawText(text, x, y, w, h, attrs) }
+
+func okAutoreleasePool()              { emit newPool() }
+func okDrainPool(pool)                { emit drainPool(pool) }
+func okImage(size)                    { emit msg_d2(msg(cls("NSImage"), "alloc"), "initWithSize:", size, size) }
+func okImageBegin(image)              { emit msg(image, "lockFocus") }
+func okImageEnd(image)                { emit msg(image, "unlockFocus") }
+func okGraphicsSave()                 { emit msg(cls("NSGraphicsContext"), "saveGraphicsState") }
+func okGraphicsRestore()              { emit msg(cls("NSGraphicsContext"), "restoreGraphicsState") }
+func okPath()                         { emit msg(cls("NSBezierPath"), "bezierPath") }
+func okRoundedPath(x, y, w, h, rx, ry) { emit msg_rounded(cls("NSBezierPath"), "bezierPathWithRoundedRect:xRadius:yRadius:", x, y, w, h, rx, ry) }
+func okPathMove(path, x, y)           { emit msg_d2(path, "moveToPoint:", x, y) }
+func okPathLine(path, x, y)           { emit msg_d2(path, "lineToPoint:", x, y) }
+func okPathWidth(path, width)         { emit msg_d1(path, "setLineWidth:", width) }
+func okPathCap(path, style)           { emit msg_1(path, "setLineCapStyle:", style) }
+func okPathJoin(path, style)          { emit msg_1(path, "setLineJoinStyle:", style) }
+func okPathFill(path)                 { emit msg(path, "fill") }
+func okPathStroke(path)               { emit msg(path, "stroke") }
+func okRGBA(r, g, b, a)              { emit msg_rgba(cls("NSColor"), "colorWithCalibratedRed:green:blue:alpha:", r, g, b, a) }
+func okGradient(startColor, endColor) { emit msg_2(msg(cls("NSGradient"), "alloc"), "initWithStartingColor:endingColor:", startColor, endColor) }
+func okGradientPath(gradient, path, angle) { emit msg_pd1(gradient, "drawInBezierPath:angle:", path, angle) }
+func okImagePNG(image, path) {
+    let tiff = msg(image, "TIFFRepresentation")
+    if tiff == 0 { emit 0 }
+    let rep = msg_1(cls("NSBitmapImageRep"), "imageRepWithData:", tiff)
+    if rep == 0 { emit 0 }
+    let props = msg(cls("NSDictionary"), "dictionary")
+    let png = msg_2(rep, "representationUsingType:properties:", 4, props)
+    if png == 0 { emit 0 }
+    emit msg_2(png, "writeToFile:atomically:", nsString(path), 1)
+}

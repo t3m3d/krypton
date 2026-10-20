@@ -97,6 +97,18 @@ func msg_d3(obj, selName, a, b, c) {
     emit objc_msgSend_d3(obj, sel(selName), a, b, c)
 }
 
+func msg_pd1(obj, selName, pointer, n) {
+    emit objc_msgSend_pd1(obj, sel(selName), pointer, n)
+}
+
+func msg_rounded(obj, selName, x, y, w, h, rx, ry) {
+    emit objc_msgSend_rounded(obj, sel(selName), x, y, w, h, rx, ry)
+}
+
+func msg_rgba(obj, selName, r, g, b, a) {
+    emit objc_msgSend_rgba(obj, sel(selName), r, g, b, a)
+}
+
 // CGPoint-returning message helpers. Objective-C returns x/y in d0/d1;
 // backend converts selected component to Krypton integer coordinates.
 func msgPointX(obj, selName, relativeTo) {

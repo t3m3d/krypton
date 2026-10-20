@@ -62,6 +62,9 @@ jxt {
     func objc_msgSend_rgb(self, sel, r, g, b)       // colorWithRed:green:blue:alpha: r/g/b/255->d0..d2, 1.0->d3
     func objc_msgSend_d2(self, sel, a, b)            // NSSize a->d0, b->d1 (setSize:/setMaxSize:)
     func objc_msgSend_d3(self, sel, a, b, c)         // three CGFloat args -> d0..d2
+    func objc_msgSend_pd1(self, sel, p, n)            // pointer x2 + CGFloat d0
+    func objc_msgSend_rounded(self, sel, x, y, w, h, rx, ry) // NSRect + two CGFloat args
+    func objc_msgSend_rgba(self, sel, r, g, b, a)     // four 0..255 channels -> d0..d3
     func objc_msgSend_point_x(self, sel, obj)         // CGPoint return d0 -> integer x
     func objc_msgSend_point_y(self, sel, obj)         // CGPoint return d1 -> integer y
 
