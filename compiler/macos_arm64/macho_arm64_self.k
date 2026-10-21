@@ -286,6 +286,8 @@ func _isSupportedMsgSend(name) {
     if name == "objc_msgSend_rgba" { emit 1 }
     if name == "objc_msgSend_point_x" { emit 1 }
     if name == "objc_msgSend_point_y" { emit 1 }
+    if name == "objc_msgSend_rect_w" { emit 1 }
+    if name == "objc_msgSend_rect_h" { emit 1 }
     emit 0
 }
 func foreignLibFor(name) {
@@ -391,6 +393,8 @@ func cfCount(cname, argc) {
     if cname == "objc_msgSend_rgba" { emit 18 }
     if cname == "objc_msgSend_point_x" { emit 6 }   // (self,sel,obj): CGPoint d0 -> x0
     if cname == "objc_msgSend_point_y" { emit 6 }   // (self,sel,obj): CGPoint d1 -> x0
+    if cname == "objc_msgSend_rect_w" { emit 5 }    // (self,sel): NSRect d2 -> x0
+    if cname == "objc_msgSend_rect_h" { emit 5 }    // (self,sel): NSRect d3 -> x0
     emit argc + 2
 }
 // 0-based index of foreign symbol "_"+name in g_FORSYMS, or -1 if not foreign.
@@ -6188,6 +6192,18 @@ func emitOneFunction(parsed, fIdx, funcStartInstr, funcTable, strOffsets, textSz
                 s = sbAppend(s, arm64_pop(0))  instrIdx += 1
                 let fti = textSz / 4 + foreignIdx(cname) * 3
                 s = sbAppend(s, arm64_bl(fti - instrIdx))  instrIdx += 1
+                s = sbAppend(s, arm64_push(0))  instrIdx += 1
+            } else if cname == "objc_msgSend_rect_w" || cname == "objc_msgSend_rect_h" {
+                // (self,sel): NSRect return in d0..d3, selected size -> x0.
+                s = sbAppend(s, arm64_pop(1))  instrIdx += 1
+                s = sbAppend(s, arm64_pop(0))  instrIdx += 1
+                let ri = textSz / 4 + foreignIdx(cname) * 3
+                s = sbAppend(s, arm64_bl(ri - instrIdx))  instrIdx += 1
+                if cname == "objc_msgSend_rect_w" {
+                    s = sbAppend(s, arm64_fcvtzs_x_d(0, 2))  instrIdx += 1
+                } else {
+                    s = sbAppend(s, arm64_fcvtzs_x_d(0, 3))  instrIdx += 1
+                }
                 s = sbAppend(s, arm64_push(0))  instrIdx += 1
             } else if cname == "objc_msgSend_point_x" || cname == "objc_msgSend_point_y" {
                 // (self,sel,obj): CGPoint return in d0/d1, selected component -> x0.

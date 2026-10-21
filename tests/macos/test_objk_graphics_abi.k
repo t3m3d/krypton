@@ -4,6 +4,10 @@ just run {
     let pool = okAutoreleasePool()
     let image = okImage(64)
     if image == 0 { kp("[FAIL] image size ABI"); exit("1") }
+    if msgRectWidth(image, "alignmentRect") != 64 || msgRectHeight(image, "alignmentRect") != 64 {
+        kp("[FAIL] NSRect return ABI")
+        exit("1")
+    }
     okImageBegin(image)
     okGraphicsSave()
 

@@ -67,6 +67,8 @@ jxt {
     func objc_msgSend_rgba(self, sel, r, g, b, a)     // four 0..255 channels -> d0..d3
     func objc_msgSend_point_x(self, sel, obj)         // CGPoint return d0 -> integer x
     func objc_msgSend_point_y(self, sel, obj)         // CGPoint return d1 -> integer y
+    func objc_msgSend_rect_w(self, sel)               // NSRect return d2 -> integer width
+    func objc_msgSend_rect_h(self, sel)               // NSRect return d3 -> integer height
 
     // ── Class introspection (rarely needed at runtime) ─────────────────
     func class_getName(cls)

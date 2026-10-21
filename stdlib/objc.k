@@ -118,3 +118,12 @@ func msgPointX(obj, selName, relativeTo) {
 func msgPointY(obj, selName, relativeTo) {
     emit objc_msgSend_point_y(obj, sel(selName), relativeTo)
 }
+
+// NSRect-returning message helpers. arm64 returns x/y/w/h in d0..d3.
+func msgRectWidth(obj, selName) {
+    emit objc_msgSend_rect_w(obj, sel(selName))
+}
+
+func msgRectHeight(obj, selName) {
+    emit objc_msgSend_rect_h(obj, sel(selName))
+}
