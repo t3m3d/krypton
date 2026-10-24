@@ -179,12 +179,12 @@ run, imports, and self-host on macOS (arm64), Linux (x86-64), and Windows
 | macOS arm64 | **2.4.8** | `.pkg`, tarball, or Homebrew. Includes `kweb`, `/usr/local/bin/kweb`, and `/Applications/Krypton/kweb.app`. |
 | Linux x86_64 | **2.4.4** | Prebuilt tarball -> `./install.sh`, or build from source. No C compiler. Self-hosting. Includes rebuilt `kcc` seed, driver, kweb, and aarch64 via `kcc --aarch64` cross-compile. |
 | Windows x86_64 | **2.3.0** | Inno Setup installer: `kcc.exe`/`kcc-bin.exe` driver/backend split, native `krypton_rt.dll`, `kr.exe` REPL, kweb, WASM, .k/.ks associations. |
-| **VS Code / Antigravity ext.** | **2.3.0** | `extensions/krypton-language-2.3.0.vsix`. Adds `.ks` (KryptScript) alongside `.k`, bundles the `kls` language server for Windows + macOS, ships `KryptScript` as a language-picker alias. |
+| **VS Code / Antigravity ext.** | **2.4.8 (local build)** | `extensions/krypton-language-2.4.8.vsix`. Objective-K highlighting, `print` snippets/completions, diagnostics, and outline. This local artifact bundles macOS arm64 `kls`; other platforms use an installed server. |
 
 macOS is on [`2.4.8`](https://github.com/t3m3d/krypton/releases/tag/v2.4.8).
 Linux is on [`2.4.4`](https://github.com/t3m3d/krypton/releases/tag/2.4.4).
-Windows and the editor extension stay on [`2.3.0`](https://github.com/t3m3d/krypton/releases/tag/2.3.0)
-until their matching artifacts are cut.
+Windows stays on [`2.3.0`](https://github.com/t3m3d/krypton/releases/tag/2.3.0).
+The editor extension has a local 2.4.8 build; it has not been published as a release.
 
 **Bundled CLIs (one package, four commands):**
 

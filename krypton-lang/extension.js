@@ -1,348 +1,409 @@
-// extension.js — Krypton VS Code extension
-//
-// Spawns kls.exe and speaks LSP 3.17 directly using Node's child_process
-// + a hand-rolled Content-Length frame parser. We avoid the
-// vscode-languageclient dependency so the .vsix stays single-file.
-//
-// Capabilities consumed:
-//   - publishDiagnostics  (server → client)
-//   - textDocument/didOpen|didChange|didClose
-//   - textDocument/documentSymbol
-//   - textDocument/completion
-//
-// Config keys:
-//   krypton.kls.path     — explicit path to kls.exe (else search)
-//   krypton.kls.enabled  — disable to fall back to syntax-only mode
-//   krypton.kls.trace    — log all frames to output channel
-
+// Krypton language support. The extension speaks framed LSP directly to kls.
 "use strict";
 
-const vscode  = require("vscode");
-const cp      = require("child_process");
-const path    = require("path");
-const fs      = require("fs");
+const vscode = require("vscode");
+const cp = require("child_process");
+const fs = require("fs");
+const path = require("path");
 
-let proc = null;
+const MAX_FRAME = 16 * 1024 * 1024;
+let current = null;
 let output = null;
 let diagnostics = null;
-let buffer = Buffer.alloc(0);
-let nextId = 1;
-let pending = new Map();           // id → {resolve, reject}
-let documentVersions = new Map();  // uri → version
-let trace = false;
+let disposed = false;
+let lifecycle = Promise.resolve();
 
-// ── kls.exe location ────────────────────────────────────────────
+function log(message) {
+    if (output) output.appendLine(message);
+}
+
+function executable(candidate) {
+    try {
+        fs.accessSync(candidate, process.platform === "win32" ? fs.constants.F_OK : fs.constants.X_OK);
+        return fs.statSync(candidate).isFile();
+    } catch (_) {
+        return false;
+    }
+}
 
 function findKlsBinary(extensionPath) {
-    const KLS_NAME = process.platform === "win32" ? "kls.exe" : "kls";
-    const cfg = vscode.workspace.getConfiguration("krypton");
-    const explicit = cfg.get("kls.path", "");
-    const probes = [];
-    if (explicit) probes.push(["config", explicit]);
-    probes.push(
-        ["bundled",  path.join(extensionPath, KLS_NAME)],
-        ["sibling1", path.join(extensionPath, "..", "..", KLS_NAME)],
-        ["sibling2", path.join(extensionPath, "..", KLS_NAME)]
-    );
-    for (const [tag, p] of probes) {
-        const ok = fs.existsSync(p);
-        output.appendLine(`  probe ${tag}: ${p} ${ok ? "FOUND" : "missing"}`);
-        if (ok) return p;
-    }
-    // PATH lookup
-    try {
-        const cmd = process.platform === "win32" ? "where kls.exe" : "which kls";
-        const out = cp.execSync(cmd, { stdio: ["ignore", "pipe", "ignore"] })
-                      .toString().trim().split(/\r?\n/)[0];
-        if (out && fs.existsSync(out)) {
-            output.appendLine("  probe PATH: " + out + " FOUND");
-            return out;
+    const name = process.platform === "win32" ? "kls.exe" : "kls";
+    const explicit = vscode.workspace.getConfiguration("krypton").get("kls.path", "");
+    if (explicit) {
+        if (!path.isAbsolute(explicit) || !executable(explicit)) {
+            throw new Error("krypton.kls.path must name an absolute, executable kls file.");
         }
-    } catch (_) { /* not found */ }
-    output.appendLine("  probe PATH: not found");
-    return null;
-}
-
-// ── Frame I/O ───────────────────────────────────────────────────
-
-function send(method, params, isRequest) {
-    if (!proc) return Promise.reject(new Error("kls not running"));
-    const msg = { jsonrpc: "2.0", method, params };
-    let p = Promise.resolve(null);
-    if (isRequest) {
-        const id = nextId++;
-        msg.id = id;
-        p = new Promise((resolve, reject) => {
-            pending.set(id, { resolve, reject });
-            // Timeout after 5s — server should answer fast.
-            setTimeout(() => {
-                if (pending.has(id)) {
-                    pending.get(id).reject(new Error("kls timeout: " + method));
-                    pending.delete(id);
-                }
-            }, 5000);
-        });
+        return explicit;
     }
-    const body = Buffer.from(JSON.stringify(msg), "utf8");
-    const header = Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "ascii");
-    if (trace) output.appendLine("→ " + JSON.stringify(msg).slice(0, 300));
-    proc.stdin.write(Buffer.concat([header, body]));
-    return p;
+    const probes = [
+        path.join(extensionPath, "server", process.platform + "-" + process.arch, name),
+        path.join(extensionPath, name)
+    ];
+    if (process.platform === "darwin") {
+        probes.push("/opt/homebrew/bin/kls", "/usr/local/bin/kls");
+    }
+    for (const directory of (process.env.PATH || "").split(path.delimiter)) {
+        if (directory && path.isAbsolute(directory)) probes.push(path.join(directory, name));
+    }
+    const root = process.env.KRYPTON_ROOT || process.env.KRYPTON;
+    if (root && path.isAbsolute(root)) {
+        probes.push(path.join(root, name));
+        if (process.platform === "darwin") probes.push(path.join(root, "compiler", "macos_arm64", name));
+    }
+    for (const candidate of probes) {
+        if (executable(candidate)) return candidate;
+    }
+    throw new Error(name + " not found. Install Krypton or set krypton.kls.path. Highlighting and snippets remain available.");
 }
 
-function notify(method, params) { return send(method, params, false); }
-function request(method, params) { return send(method, params, true); }
+function range(value) {
+    return new vscode.Range(value.start.line, value.start.character, value.end.line, value.end.character);
+}
 
-function onData(chunk) {
-    buffer = Buffer.concat([buffer, chunk]);
-    while (true) {
-        const headerEnd = buffer.indexOf("\r\n\r\n");
-        if (headerEnd < 0) return;
-        const header = buffer.slice(0, headerEnd).toString("ascii");
-        const m = /Content-Length:\s*(\d+)/i.exec(header);
-        if (!m) {
-            // Bad header — skip past it.
-            buffer = buffer.slice(headerEnd + 4);
-            continue;
+class Session {
+    constructor(binary) {
+        this.binary = binary;
+        this.child = null;
+        this.buffer = Buffer.alloc(0);
+        this.pending = new Map();
+        this.versions = new Map();
+        this.nextId = 1;
+        this.ready = false;
+        this.closed = false;
+        this.stopPromise = null;
+        this.trace = vscode.workspace.getConfiguration("krypton").get("kls.trace", false);
+    }
+
+    rejectPending(error) {
+        for (const entry of this.pending.values()) {
+            clearTimeout(entry.timer);
+            entry.reject(error);
         }
-        const len = parseInt(m[1], 10);
-        const total = headerEnd + 4 + len;
-        if (buffer.length < total) return;       // wait for more bytes
-        const body = buffer.slice(headerEnd + 4, total).toString("utf8");
-        buffer = buffer.slice(total);
-        try {
-            const msg = JSON.parse(body);
-            handleMessage(msg);
-        } catch (e) {
-            output.appendLine("← <unparseable> " + e.message);
+        this.pending.clear();
+    }
+
+    fail(error) {
+        this.ready = false;
+        this.rejectPending(error);
+        log("kls: " + error.message);
+    }
+
+    send(method, params, request, timeout = 5000) {
+        if (!this.child || this.closed || this.child.exitCode !== null) {
+            return Promise.reject(new Error("kls is not running"));
         }
-    }
-}
-
-function handleMessage(msg) {
-    if (trace) output.appendLine("← " + JSON.stringify(msg).slice(0, 300));
-    if (msg.id != null && pending.has(msg.id)) {
-        const { resolve, reject } = pending.get(msg.id);
-        pending.delete(msg.id);
-        if (msg.error) reject(new Error(msg.error.message || "kls error"));
-        else           resolve(msg.result);
-        return;
-    }
-    if (msg.method === "textDocument/publishDiagnostics") {
-        applyDiagnostics(msg.params);
-    }
-}
-
-// ── Diagnostics fan-out ─────────────────────────────────────────
-
-function applyDiagnostics(params) {
-    const uri = vscode.Uri.parse(params.uri);
-    const items = (params.diagnostics || []).map(d => {
-        const range = new vscode.Range(
-            d.range.start.line, d.range.start.character,
-            d.range.end.line,   d.range.end.character
-        );
-        const severityMap = {
-            1: vscode.DiagnosticSeverity.Error,
-            2: vscode.DiagnosticSeverity.Warning,
-            3: vscode.DiagnosticSeverity.Information,
-            4: vscode.DiagnosticSeverity.Hint
-        };
-        const diag = new vscode.Diagnostic(
-            range, d.message, severityMap[d.severity] || vscode.DiagnosticSeverity.Error
-        );
-        diag.source = "kls";
-        return diag;
-    });
-    diagnostics.set(uri, items);
-}
-
-// ── Document lifecycle ──────────────────────────────────────────
-
-function openDoc(doc) {
-    if (output) output.appendLine(`onDidOpen: ${doc.uri.toString()} (lang=${doc.languageId})`);
-    if (doc.languageId !== "krypton") return;
-    documentVersions.set(doc.uri.toString(), doc.version);
-    notify("textDocument/didOpen", {
-        textDocument: {
-            uri: doc.uri.toString(),
-            languageId: "krypton",
-            version: doc.version,
-            text: doc.getText()
-        }
-    });
-}
-
-function changeDoc(e) {
-    if (output && trace) output.appendLine(`onDidChange: ${e.document.uri.toString()} (lang=${e.document.languageId})`);
-    if (e.document.languageId !== "krypton") return;
-    documentVersions.set(e.document.uri.toString(), e.document.version);
-    // Full sync — server is configured for sync mode 1.
-    notify("textDocument/didChange", {
-        textDocument: { uri: e.document.uri.toString(), version: e.document.version },
-        contentChanges: [{ text: e.document.getText() }]
-    });
-}
-
-function closeDoc(doc) {
-    if (doc.languageId !== "krypton") return;
-    documentVersions.delete(doc.uri.toString());
-    notify("textDocument/didClose", {
-        textDocument: { uri: doc.uri.toString() }
-    });
-}
-
-// ── Provider adapters ───────────────────────────────────────────
-
-function symbolProvider() {
-    return {
-        provideDocumentSymbols(doc) {
-            return request("textDocument/documentSymbol", {
-                textDocument: { uri: doc.uri.toString() }
-            }).then(syms => {
-                if (!Array.isArray(syms)) return [];
-                if (output) {
-                    output.appendLine(`documentSymbol(${doc.uri.toString()}) -> ${syms.length} items: ${syms.map(s => s.name).join(", ")}`);
-                }
-                return syms.map(s => {
-                    const range = new vscode.Range(
-                        s.range.start.line, s.range.start.character,
-                        s.range.end.line,   s.range.end.character
-                    );
-                    const sel = new vscode.Range(
-                        s.selectionRange.start.line, s.selectionRange.start.character,
-                        s.selectionRange.end.line,   s.selectionRange.end.character
-                    );
-                    // Map LSP SymbolKind (1-based) → VS Code SymbolKind (0-based).
-                    const kind = (s.kind != null) ? (s.kind - 1) : vscode.SymbolKind.Function;
-                    return new vscode.DocumentSymbol(s.name, "", kind, range, sel);
-                });
-            }).catch(e => {
-                if (output) output.appendLine(`documentSymbol error: ${e.message}`);
-                return [];
+        const message = { jsonrpc: "2.0", method, params };
+        let result = Promise.resolve(null);
+        if (request) {
+            message.id = this.nextId++;
+            result = new Promise((resolve, reject) => {
+                const timer = setTimeout(() => {
+                    this.pending.delete(message.id);
+                    reject(new Error("kls timeout: " + method));
+                }, timeout);
+                this.pending.set(message.id, { resolve, reject, timer });
             });
         }
-    };
-}
-
-function completionProvider() {
-    return {
-        provideCompletionItems(doc, position) {
-            return request("textDocument/completion", {
-                textDocument: { uri: doc.uri.toString() },
-                position: { line: position.line, character: position.character }
-            }).then(res => {
-                const items = (res && res.items) || (Array.isArray(res) ? res : []);
-                return items.map(it => {
-                    const ci = new vscode.CompletionItem(
-                        it.label,
-                        (it.kind != null) ? (it.kind - 1) : vscode.CompletionItemKind.Text
-                    );
-                    if (it.detail) ci.detail = it.detail;
-                    return ci;
-                });
-            }).catch(() => []);
+        const body = Buffer.from(JSON.stringify(message), "utf8");
+        const header = Buffer.from("Content-Length: " + body.length + "\r\n\r\n", "ascii");
+        if (this.trace) log("→ " + method + " (" + body.length + " bytes)");
+        try {
+            this.child.stdin.write(Buffer.concat([header, body]));
+        } catch (error) {
+            this.fail(error);
+            if (!request) return Promise.reject(error);
         }
-    };
+        return result;
+    }
+
+    notify(method, params) {
+        this.send(method, params, false).catch(error => {
+            if (!this.closed) log(method + ": " + error.message);
+        });
+    }
+
+    request(method, params, timeout) {
+        if (!this.ready && method !== "initialize" && method !== "shutdown") {
+            return Promise.reject(new Error("kls has not initialized"));
+        }
+        return this.send(method, params, true, timeout);
+    }
+
+    onData(chunk) {
+        if (this.closed) return;
+        this.buffer = Buffer.concat([this.buffer, chunk]);
+        while (this.buffer.length) {
+            const end = this.buffer.indexOf("\r\n\r\n");
+            if (end < 0) {
+                if (this.buffer.length > 8192) this.protocolError("Oversized LSP header");
+                return;
+            }
+            const header = this.buffer.subarray(0, end).toString("ascii");
+            const match = /^Content-Length:\s*(\d+)\s*$/im.exec(header);
+            const length = match ? Number(match[1]) : -1;
+            if (end > 8192 || !Number.isSafeInteger(length) || length < 0 || length > MAX_FRAME) {
+                this.protocolError("Invalid LSP Content-Length");
+                return;
+            }
+            const total = end + 4 + length;
+            if (this.buffer.length < total) return;
+            const body = this.buffer.subarray(end + 4, total).toString("utf8");
+            this.buffer = this.buffer.subarray(total);
+            try {
+                this.handle(JSON.parse(body));
+            } catch (error) {
+                this.protocolError("Invalid LSP message: " + error.message);
+                return;
+            }
+        }
+    }
+
+    protocolError(message) {
+        this.fail(new Error(message));
+        this.closed = true;
+        this.buffer = Buffer.alloc(0);
+        if (this.child) this.child.kill();
+    }
+
+    handle(message) {
+        if (this.trace) log("← " + (message.method || "response " + message.id));
+        if (message.id != null && !message.method && this.pending.has(message.id)) {
+            const entry = this.pending.get(message.id);
+            this.pending.delete(message.id);
+            clearTimeout(entry.timer);
+            if (message.error) entry.reject(new Error(message.error.message || "kls error"));
+            else entry.resolve(message.result);
+            return;
+        }
+        if (message.method && message.id != null) {
+            const reply = Buffer.from(JSON.stringify({
+                jsonrpc: "2.0", id: message.id,
+                error: { code: -32601, message: "Unsupported client request: " + message.method }
+            }), "utf8");
+            this.child.stdin.write(Buffer.concat([
+                Buffer.from("Content-Length: " + reply.length + "\r\n\r\n", "ascii"), reply
+            ]));
+            return;
+        }
+        if (message.method !== "textDocument/publishDiagnostics" || current !== this) return;
+        const params = message.params || {};
+        if (!this.versions.has(params.uri)) return;
+        if (params.version != null && params.version < this.versions.get(params.uri)) return;
+        const severities = [
+            vscode.DiagnosticSeverity.Error, vscode.DiagnosticSeverity.Error,
+            vscode.DiagnosticSeverity.Warning, vscode.DiagnosticSeverity.Information,
+            vscode.DiagnosticSeverity.Hint
+        ];
+        const items = (params.diagnostics || []).map(item => {
+            const diagnostic = new vscode.Diagnostic(range(item.range), item.message,
+                severities[item.severity] ?? vscode.DiagnosticSeverity.Error);
+            diagnostic.source = "kls";
+            return diagnostic;
+        });
+        diagnostics.set(vscode.Uri.parse(params.uri), items);
+    }
+
+    async start() {
+        log("Starting " + this.binary);
+        const folder = (vscode.workspace.workspaceFolders || []).find(item => item.uri.scheme === "file");
+        this.child = cp.spawn(this.binary, [], {
+            stdio: ["pipe", "pipe", "pipe"],
+            cwd: folder ? folder.uri.fsPath : undefined,
+            shell: false
+        });
+        this.child.stdout.on("data", chunk => this.onData(chunk));
+        this.child.stderr.on("data", chunk => log("[kls.stderr] " + chunk.toString()));
+        this.child.stdin.on("error", error => this.fail(error));
+        this.child.on("error", error => this.fail(error));
+        this.child.on("exit", code => {
+            this.closed = true;
+            this.ready = false;
+            this.rejectPending(new Error("kls exited (" + code + ")"));
+            this.versions.clear();
+            if (current === this) diagnostics.clear();
+            log("kls exited (" + code + ")");
+        });
+        await this.request("initialize", {
+            processId: process.pid,
+            rootUri: folder ? folder.uri.toString() : null,
+            capabilities: { general: { positionEncodings: ["utf-16"] } }
+        }, 10000);
+        if (this.closed || this.stopPromise || disposed) return;
+        this.notify("initialized", {});
+        this.ready = true;
+        vscode.workspace.textDocuments.forEach(document => this.open(document));
+        log("kls ready");
+    }
+
+    open(document) {
+        if (!this.ready || document.languageId !== "krypton") return;
+        const uri = document.uri.toString();
+        if (this.versions.has(uri)) return;
+        this.versions.set(uri, document.version);
+        this.notify("textDocument/didOpen", { textDocument: {
+            uri, languageId: "krypton", version: document.version, text: document.getText()
+        } });
+    }
+
+    change(event) {
+        const document = event.document;
+        if (!this.ready || document.languageId !== "krypton") return;
+        if (!this.versions.has(document.uri.toString())) {
+            this.open(document);
+            return;
+        }
+        this.versions.set(document.uri.toString(), document.version);
+        this.notify("textDocument/didChange", {
+            textDocument: { uri: document.uri.toString(), version: document.version },
+            contentChanges: [{ text: document.getText() }]
+        });
+    }
+
+    close(document) {
+        const uri = document.uri.toString();
+        if (!this.versions.delete(uri)) return;
+        diagnostics.delete(document.uri);
+        if (this.ready) this.notify("textDocument/didClose", { textDocument: { uri } });
+    }
+
+    stop() {
+        if (!this.stopPromise) this.stopPromise = this.shutdown();
+        return this.stopPromise;
+    }
+
+    async shutdown() {
+        this.ready = false;
+        if (!this.child || this.closed) return;
+        try { await this.request("shutdown", null, 1000); } catch (_) { /* bounded shutdown */ }
+        if (!this.closed) {
+            this.notify("exit", null);
+            this.child.stdin.end();
+            await new Promise(resolve => {
+                const timer = setTimeout(() => { this.child.kill(); resolve(); }, 1000);
+                this.child.once("exit", () => { clearTimeout(timer); resolve(); });
+            });
+        }
+        this.closed = true;
+        this.rejectPending(new Error("kls stopped"));
+        this.versions.clear();
+    }
 }
 
-// ── Lifecycle ───────────────────────────────────────────────────
+function completionItem(item) {
+    const label = typeof item.label === "string" ? item.label : item.label.label;
+    const canonical = label === "kp" ? "print" : label;
+    const result = new vscode.CompletionItem(canonical,
+        item.kind != null ? item.kind - 1 : vscode.CompletionItemKind.Text);
+    if (item.detail) result.detail = item.detail;
+    if (item.sortText) result.sortText = item.sortText;
+    if (item.filterText) result.filterText = item.filterText;
+    if (item.documentation) result.documentation = typeof item.documentation === "string"
+        ? item.documentation : item.documentation.value;
+    if (item.insertText != null || label === "kp") {
+        let text = item.insertText == null ? canonical : item.insertText;
+        if (label === "kp") text = text.replace(/^kp\b/, "print");
+        result.insertText = item.insertTextFormat === 2 ? new vscode.SnippetString(text) : text;
+    }
+    if (item.textEdit && item.textEdit.range) {
+        result.range = range(item.textEdit.range);
+        const text = label === "kp" ? item.textEdit.newText.replace(/^kp\b/, "print") : item.textEdit.newText;
+        result.insertText = item.insertTextFormat === 2 ? new vscode.SnippetString(text) : text;
+    }
+    return result;
+}
+
+async function restart(context) {
+    if (current) {
+        const previous = current;
+        current = null;
+        await previous.stop();
+    }
+    diagnostics.clear();
+    if (disposed) return;
+    if (vscode.workspace.isTrusted === false) {
+        log("Restricted Mode: highlighting and snippets only.");
+        return;
+    }
+    if (!vscode.workspace.getConfiguration("krypton").get("kls.enabled", true)) {
+        log("kls disabled by configuration.");
+        return;
+    }
+    current = new Session(findKlsBinary(context.extensionPath));
+    const session = current;
+    try {
+        await session.start();
+    } catch (error) {
+        if (current === session) current = null;
+        await session.stop();
+        throw error;
+    }
+}
 
 function activate(context) {
-    // Create the output channel first thing — even if everything else
-    // fails, the user can find "Krypton LSP" in View → Output.
+    disposed = false;
     output = vscode.window.createOutputChannel("Krypton LSP");
     diagnostics = vscode.languages.createDiagnosticCollection("kls");
-    context.subscriptions.push(output, diagnostics);
-    output.appendLine("Krypton extension 2.2.0 activated (recognises .k, .ks, .htk)");
-    output.appendLine("extensionPath: " + context.extensionPath);
-    output.show(true);   // surface the channel so first-time users see it
-
-    try {
-        activateImpl(context);
-    } catch (e) {
-        output.appendLine("FATAL during activate: " + (e && e.stack || e));
-        vscode.window.showErrorMessage("Krypton extension failed to start: " + (e && e.message || e));
-    }
-}
-
-function activateImpl(context) {
-    const cfg = vscode.workspace.getConfiguration("krypton");
-    if (!cfg.get("kls.enabled", true)) {
-        output.appendLine("kls disabled by setting krypton.kls.enabled");
-        return;
-    }
-    trace = cfg.get("kls.trace", false);
-    output.appendLine("trace: " + trace);
-
-    const bin = findKlsBinary(context.extensionPath);
-    if (!bin) {
-        const klsName = process.platform === "win32" ? "kls.exe" : "kls";
-        const msg = `Krypton: ${klsName} not found. Set 'krypton.kls.path' or place ${klsName} on PATH. ` +
-                    "Syntax highlighting still works.";
-        output.appendLine(msg);
-        vscode.window.showWarningMessage(msg);
-        return;
-    }
-    output.appendLine("launching: " + bin);
-
-    proc = cp.spawn(bin, [], { stdio: ["pipe", "pipe", "pipe"] });
-    proc.stdout.on("data", onData);
-    proc.stderr.on("data", d => output.append("[kls.stderr] " + d.toString()));
-    proc.on("exit", code => {
-        output.appendLine("kls exited with code " + code);
-        proc = null;
-        // Surface the error so users notice — without this, diagnostics
-        // just silently stop updating.
-        diagnostics.clear();
-    });
-    proc.on("error", e => {
-        vscode.window.showErrorMessage("kls failed to start: " + e.message);
-        proc = null;
-    });
-
-    // Initialize handshake.
-    request("initialize", {
-        processId: process.pid,
-        rootUri: vscode.workspace.workspaceFolders
-            ? vscode.workspace.workspaceFolders[0].uri.toString()
-            : null,
-        capabilities: {}
-    }).then(() => {
-        notify("initialized", {});
-        // Attach to already-open .k buffers.
-        vscode.workspace.textDocuments.forEach(openDoc);
-    }).catch(e => {
-        output.appendLine("initialize failed: " + e.message);
-    });
-
-    // Wire events.
-    context.subscriptions.push(
-        vscode.workspace.onDidOpenTextDocument(openDoc),
-        vscode.workspace.onDidChangeTextDocument(changeDoc),
-        vscode.workspace.onDidCloseTextDocument(closeDoc),
-        vscode.languages.registerDocumentSymbolProvider(
-            { language: "krypton" }, symbolProvider()
-        ),
-        vscode.languages.registerCompletionItemProvider(
-            { language: "krypton" }, completionProvider()
-        )
+    log("Krypton extension " + require("./package.json").version + " activated (.k, .ks, .htk)");
+    const schedule = () => {
+        lifecycle = lifecycle.catch(() => {}).then(() => restart(context)).catch(error => {
+            log(error.stack || error.message);
+            vscode.window.showWarningMessage("Krypton: " + error.message);
+        });
+        return lifecycle;
+    };
+    const selector = [{ language: "krypton", scheme: "file" }, { language: "krypton", scheme: "untitled" }];
+    context.subscriptions.push(output, diagnostics,
+        vscode.commands.registerCommand("krypton.restartLanguageServer", schedule),
+        vscode.workspace.onDidOpenTextDocument(document => { if (current) current.open(document); }),
+        vscode.workspace.onDidChangeTextDocument(event => { if (current) current.change(event); }),
+        vscode.workspace.onDidCloseTextDocument(document => { if (current) current.close(document); }),
+        vscode.workspace.onDidChangeConfiguration(event => {
+            if (event.affectsConfiguration("krypton.kls")) schedule();
+        }),
+        vscode.languages.registerDocumentSymbolProvider(selector, {
+            async provideDocumentSymbols(document) {
+                if (!current || !current.ready) return [];
+                try {
+                    const symbols = await current.request("textDocument/documentSymbol",
+                        { textDocument: { uri: document.uri.toString() } });
+                    const convert = symbol => {
+                        const result = new vscode.DocumentSymbol(symbol.name, symbol.detail || "",
+                            symbol.kind != null ? symbol.kind - 1 : vscode.SymbolKind.Function,
+                            range(symbol.range), range(symbol.selectionRange || symbol.range));
+                        result.children = (symbol.children || []).map(convert);
+                        return result;
+                    };
+                    return Array.isArray(symbols) ? symbols.map(convert) : [];
+                } catch (_) { return []; }
+            }
+        }),
+        vscode.languages.registerCompletionItemProvider(selector, {
+            async provideCompletionItems(document, position) {
+                if (!current || !current.ready) return [];
+                try {
+                    const response = await current.request("textDocument/completion", {
+                        textDocument: { uri: document.uri.toString() },
+                        position: { line: position.line, character: position.character }
+                    });
+                    const items = Array.isArray(response) ? response : (response && response.items) || [];
+                    const hasPrint = items.some(item => item.label === "print");
+                    const completions = items.filter(item => !(hasPrint && item.label === "kp")).map(completionItem);
+                    return response && response.isIncomplete ? new vscode.CompletionList(completions, true) : completions;
+                } catch (_) { return []; }
+            }
+        })
     );
+    if (vscode.workspace.onDidGrantWorkspaceTrust) {
+        context.subscriptions.push(vscode.workspace.onDidGrantWorkspaceTrust(schedule));
+    }
+    return schedule();
 }
 
 function deactivate() {
-    if (!proc) return Promise.resolve();
-    return new Promise(resolve => {
-        try {
-            request("shutdown", null)
-                .catch(() => {})
-                .then(() => notify("exit", null))
-                .then(() => {
-                    proc.stdin.end();
-                    setTimeout(resolve, 100);
-                });
-        } catch (_) { resolve(); }
-    });
+    disposed = true;
+    const session = current;
+    current = null;
+    return session ? session.stop() : Promise.resolve();
 }
 
 module.exports = { activate, deactivate };

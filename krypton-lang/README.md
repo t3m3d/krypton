@@ -1,66 +1,55 @@
-# Krypton Language Support for VS Code
+# Krypton 2.4.8 language support
 
-Syntax highlighting **plus a bundled language server** (`kls.exe`) for the
-[Krypton](https://github.com/t3m3d/krypton) programming language.
+VS Code extension for Krypton, KryptScript, and Objective-K. Supports `.k`, `.ks`,
+and `.htk` files with highlighting, bracket matching, comments, and snippets.
+New snippets and completions use `print(...)`. Legacy `kp` remains highlighted.
+Objective-K objects, protocols, methods, and requirements have declaration scopes.
 
-## Features
+## Language server
 
-- Syntax highlighting for `.k` (Krypton libraries / programs), `.ks` (KryptScript run-as-script files), and `.htk` (kweb HTML templates)
-- Bracket matching and auto-closing (incl. `` ` `` for backtick interpolation strings)
-- Comment toggling (`//` and `/* */`)
-- Folding by indentation
-- **(1.8.1+)** Real-time diagnostics from `kls`:
-  - tokenizer errors (unterminated strings/comments, bad hex literals)
-  - structural errors (unmatched braces/parens/brackets)
-  - shape errors (missing func name, missing param list, bare `let`)
-  - duplicate function name warnings
-- **(1.8.1+)** Document outline (function/struct/module list)
-- **(1.8.1+)** Completion (38 keywords + 109 builtins + open-buffer functions)
+With `kls`, the extension provides diagnostics, document outline, and completion.
+It waits for initialization before opening buffers, synchronizes full document
+text, rejects stale diagnostics, and shuts down the server when deactivated.
+Use **Krypton: Restart Language Server** from the command palette after installing
+or replacing your compiler tools.
 
-## Settings
+Syntax and snippets work without a server and in Restricted Mode. Running `kls`
+requires a trusted workspace. Trust only folders whose contents you trust.
 
-| Key | Default | Purpose |
+| Setting | Default | Purpose |
 |---|---|---|
-| `krypton.kls.path`   | `""`    | Explicit path to `kls.exe`. Empty = bundled binary, then PATH |
-| `krypton.kls.enabled`| `true`  | Disable to fall back to syntax-only mode |
-| `krypton.kls.trace`  | `false` | Log every JSON-RPC frame to the *Krypton LSP* output channel |
+| `krypton.kls.path` | `""` | Absolute path to executable `kls` (`kls.exe` on Windows) |
+| `krypton.kls.enabled` | `true` | Enable diagnostics, outline, and completion |
+| `krypton.kls.trace` | `false` | Log LSP method names and frame sizes in Krypton LSP output |
 
-## Source of truth
+Without an explicit path, discovery tries a bundled server for the current
+platform, a legacy bundled server, standard macOS installation locations, PATH,
+and `KRYPTON_ROOT` / `KRYPTON`. Bundled helpers live under `server/<platform>/`;
+other platforms use their installed `kls`. Portable builds contain no server.
+The local 2.4.8 artifact built with the command below bundles macOS arm64 `kls`.
+No Windows or Linux server is included by that command.
 
-The TextMate grammar (`syntaxes/krypton.tmLanguage.json`) is a git submodule
-pointing at https://github.com/t3m3d/krypton-tmLanguage. The standalone repo
-exists so it can be referenced by GitHub Linguist for repo-level highlighting
-without having to vendor the whole compiler. To update the grammar, edit it
-in that repo and update the submodule pointer here.
+## Install and build
 
-## Install locally
+In VS Code, choose **Extensions: Install from VSIX...**, then select
+`extensions/krypton-language-2.4.8.vsix`. Restart the extension host if prompted.
+This package requires a VS Code-compatible desktop extension host. Brain does
+not yet run VS Code JavaScript extensions.
 
-Either install the prebuilt vsix from `extensions/krypton-language-<version>.vsix`:
+From the Krypton repository root:
 
-```bash
-code --install-extension extensions/krypton-language-1.8.1.vsix
+```sh
+# Portable extension, uses an installed language server:
+python3 scripts/build_vsix.py
+
+# macOS arm64 helper included explicitly:
+python3 scripts/build_vsix.py --bundle-kls darwin-arm64=/usr/local/bin/kls
+
+# Client tests; optional real-server integration:
+KRYPTON_TEST_KLS=/usr/local/bin/kls node --test krypton-lang/test/extension.test.js
 ```
 
-The `.vsix` bundles `kls.exe` so the language server works out of the box on
-Windows. macOS / Linux users need to build their own `kls` binary
-(see [`lsp/`](../lsp/)) and point `krypton.kls.path` at it.
-
-…or symlink this folder into your VS Code extensions directory:
-
-```bash
-# Windows (PowerShell, admin)
-New-Item -ItemType SymbolicLink -Path "$env:USERPROFILE\.vscode\extensions\krypton-lang" -Target "$(Resolve-Path .)"
-
-# macOS / Linux
-ln -s "$(pwd)" ~/.vscode/extensions/krypton-lang
-```
-
-## Build a vsix
-
-```bash
-bash scripts/build_vsix.sh
-```
-
-The script creates `extensions/krypton-language-<version>.vsix` from the
-manifest in this folder plus the submoduled tmLanguage grammar. No
-`vsce` / Node toolchain required — vsix is just a ZIP with a specific layout.
+The builder uses Python's standard library and packages only declared assets.
+It excludes Git metadata, test fixtures, and unrelated files. Existing versioned
+VSIX files remain available. The grammar lives in the `syntaxes/` Git submodule;
+grammar changes must also be committed in its source repository when publishing.

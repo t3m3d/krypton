@@ -1,0 +1,66 @@
+{
+  "Print": {
+    "prefix": "print",
+    "body": [
+      "print(${1:\"Hello, Krypton\"})$0"
+    ],
+    "description": "Print a value"
+  },
+  "Entry point": {
+    "prefix": "run",
+    "body": [
+      "just run {",
+      "\t${0:print(\"Hello, Krypton\")}",
+      "}"
+    ],
+    "description": "Executable entry point"
+  },
+  "Function": {
+    "prefix": "func",
+    "body": [
+      "func ${1:name}(${2:args}) {",
+      "\t${0:emit args}",
+      "}"
+    ],
+    "description": "Value-producing function"
+  },
+  "Action function": {
+    "prefix": "action",
+    "body": [
+      "func ${1:log}(${2:message}: text) -> do {",
+      "\t${0:print(message)}",
+      "}"
+    ],
+    "description": "Action-only function; use do rather than void"
+  },
+  "Objective-K protocol": {
+    "prefix": "objkprotocol",
+    "body": [
+      "objk protocol ${1:Scoreable} {",
+      "\trequire ${2:score}() -> ${3:int}",
+      "}",
+      "$0"
+    ],
+    "description": "Objective-K protocol declaration"
+  },
+  "Objective-K object": {
+    "prefix": "objkobject",
+    "body": [
+      "objk object ${1:Counter} conforms ${2:Scoreable} {",
+      "\tmethod ${3:score}() -> ${4:int} = ${5:counterScore}",
+      "}",
+      "",
+      "func ${5:counterScore}(runtime, self) {",
+      "\t${0:emit 0}",
+      "}"
+    ],
+    "description": "Objective-K object with callback-backed method"
+  },
+  "Library import": {
+    "prefix": "importk",
+    "body": [
+      "import \"k:${1:module}\"$0"
+    ],
+    "description": "Import a Krypton standard-library module"
+  }
+}

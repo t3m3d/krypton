@@ -1,8 +1,8 @@
 {
   "name": "krypton-lang",
   "displayName": "Krypton",
-  "description": "Syntax highlighting + language server (kls) for the Krypton programming language (.k libraries / .ks scripts)",
-  "version": "2.3.0",
+  "description": "Krypton 2.4.8 and Objective-K language support: highlighting, snippets, diagnostics, outline, and completion.",
+  "version": "2.4.8",
   "publisher": "krypton-lang",
   "license": "MIT",
   "main": "./extension.js",
@@ -27,8 +27,16 @@
     "languages": [
       {
         "id": "krypton",
-        "aliases": ["Krypton", "krypton", "KryptScript"],
-        "extensions": [".k", ".ks", ".htk"],
+        "aliases": [
+          "Krypton",
+          "krypton",
+          "KryptScript"
+        ],
+        "extensions": [
+          ".k",
+          ".ks",
+          ".htk"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -46,7 +54,7 @@
         "krypton.kls.path": {
           "type": "string",
           "default": "",
-          "description": "Path to the kls (Krypton Language Server) binary — kls.exe on Windows, kls on macOS/Linux. Leave empty to look it up on PATH or alongside the extension."
+          "description": "Path to an installed kls executable (kls.exe on Windows). Empty searches bundled tools, PATH, and standard macOS install locations."
         },
         "krypton.kls.enabled": {
           "type": "boolean",
@@ -59,6 +67,24 @@
           "description": "Log every JSON-RPC frame sent and received to the 'Krypton LSP' output channel. Noisy."
         }
       }
+    },
+    "snippets": [
+      {
+        "language": "krypton",
+        "path": "./snippets/krypton.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "krypton.restartLanguageServer",
+        "title": "Krypton: Restart Language Server"
+      }
+    ]
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Syntax highlighting and snippets work in Restricted Mode. Running kls requires a trusted workspace."
     }
   }
 }
