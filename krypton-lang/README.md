@@ -33,8 +33,8 @@ No Windows or Linux server is included by that command.
 
 In VS Code, choose **Extensions: Install from VSIX...**, then select
 `extensions/krypton-language-2.4.8.vsix`. Restart the extension host if prompted.
-This package requires a VS Code-compatible desktop extension host. Brain does
-not yet run VS Code JavaScript extensions.
+This package requires a compatible desktop extension host. The same VSIX
+installs directly in brain Code Editor, VS Code, and Google Antigravity.
 
 From the Krypton repository root:
 

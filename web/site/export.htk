@@ -750,7 +750,7 @@ func pageDownloads() {
     let OLD_RELEASE = "https://github.com/t3m3d/krypton/releases/tag/2.3.0"
     let WIN_INSTALLER = "https://github.com/t3m3d/krypton/releases/download/2.3.0/krypton-2.3.0-windows-x86_64.exe"
     let LINUX_TAR = "https://github.com/t3m3d/krypton/releases/download/2.4.4/krypton-2.4.4-linux-x86_64.tar.gz"
-    let VSIX = "https://github.com/t3m3d/krypton/releases/download/2.3.0/krypton-language-2.3.0.vsix"
+    let VSIX = "https://github.com/t3m3d/krypton/releases/download/v2.4.8/krypton-language-2.4.8.vsix"
     let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
         "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
         "<span class=" + DQ() + "tag" + DQ() + ">Latest macOS release: 2.4.8</span>" +
@@ -759,13 +759,13 @@ func pageDownloads() {
         "</div>"
     let content = hero +
         "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
-        htP("macOS 2.4.8 assets live on " + htAA(htHref(MAC_RELEASE), "the 2.4.8 GitHub release page") + ". Linux stays on 2.4.4 for now. Windows and editor downloads still use " + htAA(htHref(OLD_RELEASE), "the 2.3.0 release page") + ".") +
+        htP("macOS 2.4.8 and the editor extension live on " + htAA(htHref(MAC_RELEASE), "the 2.4.8 GitHub release page") + ". Linux stays on 2.4.4 for now. The Windows installer still uses " + htAA(htHref(OLD_RELEASE), "the 2.3.0 release page") + ".") +
         htH3("Platform versions") +
         htUl(
             htLi(htStrong("macOS arm64:") + " 2.4.8 " + DASH() + " newest release, includes kweb.app and Homebrew support.") +
             htLi(htStrong("Windows x86-64:") + " 2.3.0 " + DASH() + " current Windows installer until Forge's next Windows artifact lands.") +
             htLi(htStrong("Linux x86-64:") + " 2.4.4 " + DASH() + " current Linux tarball, rebuilt in QEMU with native seeds.") +
-            htLi(htStrong("VS Code / Antigravity extension:") + " 2.3.0.")
+            htLi(htStrong("Editor extension:") + " 2.4.8.")
         ) +
 
         htH3("What's in the release") +
@@ -774,7 +774,7 @@ func pageDownloads() {
             htLi(htCode("krypton-2.4.8-macos-arm64.tar.gz") + " " + DASH() + " macOS Apple Silicon tarball, same toolchain as the .pkg.") +
             htLi(htCode("krypton-2.4.4-linux-x86_64.tar.gz") + " " + DASH() + " Linux x86-64 self-contained tarball. Includes rebuilt 2.4.4 driver/frontend seeds and native " + htCode("kweb") + ".") +
             htLi(htCode("krypton-2.3.0-windows-x86_64.exe") + " " + DASH() + " Windows installer. Bundles " + htCode("kcc") + " (Krypton-native driver), " + htCode("kcc-bin") + " (the compile.k-built backend), " + htCode("kr") + " (KryptScript runner with REPL), " + htCode("krypton_rt.dll") + ", the WASM backend, " + htCode("kweb") + ", and " + htCode(".k") + " / " + htCode(".ks") + " file associations.") +
-            htLi(htCode("krypton-language-2.3.0.vsix") + " " + DASH() + " VS Code / Antigravity extension. Adds " + htCode(".ks") + " (KryptScript) + " + htCode(".k") + " syntax and ships the " + htCode("kls") + " language server for Windows + macOS.")
+            htLi(htCode("krypton-language-2.4.8.vsix") + " " + DASH() + " Krypton, KryptScript, and Objective-K highlighting and snippets for " + htCode(".k") + ", " + htCode(".ks") + ", and " + htCode(".htk") + ". Includes macOS arm64 " + htCode("kls") + "; other platforms use an installed " + htCode("kls") + ".")
         ) +
 
         htH2("Windows x86-64") +
@@ -818,8 +818,8 @@ func pageDownloads() {
                      "./build.sh")) +
         htP("Prebuilt seeds eliminate the need for external compilers " + DASH() + " no gcc / clang at user-invocation time.") +
 
-        htH2("VS Code &amp; Google Antigravity Extension (2.3.0)") +
-        htP("Syntax highlighting, bracket matching, code folding, and " + htCode("kls") + "-powered diagnostics + completions for Krypton (" + htCode(".k") + " libraries) and KryptScript (" + htCode(".ks") + " scripts). One " + htCode(".vsix") + " installs in both VS Code and Google Antigravity (a VS Code fork) " + DASH() + " Extensions panel " + fromCharCode(8594) + " Install from VSIX.") +
+        htH2("Krypton Editor Extension (2.4.8)") +
+        htP("Syntax highlighting, bracket matching, snippets, and " + htCode("kls") + "-powered diagnostics, outline, and completion for Krypton, KryptScript, and Objective-K. The " + htCode(".vsix") + " installs directly in brain Code Editor, VS Code, and Google Antigravity through Extensions " + fromCharCode(8594) + " Install from VSIX. This package bundles macOS arm64 " + htCode("kls") + "; on Windows and Linux, install " + htCode("kls") + " separately.") +
         htP(dlBtn(VSIX, "Download .vsix")) +
 
         htH2("Krypton Web Framework (kweb)") +
@@ -842,8 +842,8 @@ func pageDownloads() {
         htH2("Verify") +
         htP("After install, confirm the toolchain version:") +
         htPre(htCode("kcc --version    # kcc version 2.4.8 on macOS, 2.4.4 on Linux, 2.3.0 on Windows")) +
-        htP("And confirm the editor extension version inside VS Code / Antigravity:") +
-        htPre(htCode("Extensions panel " + fromCharCode(8594) + " Krypton " + fromCharCode(8594) + " v2.3.0")) +
+        htP("And confirm the editor extension version in brain Code Editor, VS Code, or Antigravity:") +
+        htPre(htCode("Extensions panel " + fromCharCode(8594) + " Krypton " + fromCharCode(8594) + " v2.4.8")) +
         "</div></section>"
     emit sitePage("Downloads", content)
 }
@@ -1646,6 +1646,7 @@ func pageStemPrivacy() {
 }
 
 func pageBrain() {
+    let VSIX = "https://github.com/t3m3d/krypton/releases/download/v2.4.8/krypton-language-2.4.8.vsix"
     let hero = "<div class=" + DQ() + "hero" + DQ() + ">" +
         "<canvas id=" + DQ() + "heroCanvas" + DQ() + "></canvas>" +
         htImgA(htSrc("/brain.png") + htAttr("alt", "brain app icon") +
@@ -1654,7 +1655,7 @@ func pageBrain() {
         htH1("brain") +
         htP("A native code editor / IDE whose entire UI is " + htEm("pure Krypton") + ". On macOS via Objective-K and Choc (no Obj-C / Swift source); on Windows via " + htCode("stdlib/gui.k") + " over the Win32 IAT. A real native app on Mac, a real Win32 app on Windows " + DASH() + " driven by Krypton functions. Pairs with the " + htA("/programs/stem.html", "stem") + " terminal.") +
         "<a href=" + DQ() + "#install" + DQ() + " class=" + DQ() + "btn primary" + DQ() + ">Install via Homebrew</a>" +
-        "<a href=" + DQ() + "https://github.com/t3m3d/krypton/releases/tag/brain-0.1.0" + DQ() + " class=" + DQ() + "btn primary" + DQ() + ">Download DMG</a>" +
+        "<span class=" + DQ() + "btn outline" + DQ() + " aria-disabled=" + DQ() + "true" + DQ() + " style=" + DQ() + "opacity:.5;cursor:not-allowed;pointer-events:none" + DQ() + ">DMG unavailable</span>" +
         "<a href=" + DQ() + "https://github.com/t3m3d/krypton/tree/main/examples/objk" + DQ() + " class=" + DQ() + "btn outline" + DQ() + ">View Source</a>" +
         "</div>"
 
@@ -1671,14 +1672,20 @@ func pageBrain() {
         "</div>" +
         "</div></section>"
 
+    let extension = "<section><div class=" + DQ() + "wrap" + DQ() + ">" +
+        htH2("Krypton language extension") +
+        htP("Install the Krypton 2.4.8 VSIX directly in brain Code Editor. It adds Krypton, KryptScript, and Objective-K highlighting and snippets for " + htCode(".k") + ", " + htCode(".ks") + ", and " + htCode(".htk") + ", with " + htCode("kls") + " diagnostics, outline, and completion.") +
+        htP(dlBtn(VSIX, "Download Krypton 2.4.8 VSIX") + " " + htA("/downloads.html", "All Krypton downloads")) +
+        "</div></section>"
+
     let install = "<section class=" + DQ() + "dotbg" + DQ() + " id=" + DQ() + "install" + DQ() + "><div class=" + DQ() + "wrap" + DQ() + " style=" + DQ() + "text-align:center" + DQ() + ">" +
         htH2("Install") +
         htP("macOS on Apple Silicon (Tahoe).") +
         htPre("brew install --cask t3m3d/krypton/brain") +
-        htP(htEm("Pure Krypton on objk " + DASH() + " no C, no Obj-C, no Swift. Or grab the " + htA("https://github.com/t3m3d/krypton/releases/tag/brain-0.1.0", "DMG") + ".")) +
+        htP(htEm("Pure Krypton on objk " + DASH() + " no C, no Obj-C, no Swift. DMG download is unavailable for now.")) +
         "</div></section>"
 
-    emit sitePage("brain", hero + features + install)
+    emit sitePage("brain", hero + features + extension + install)
 }
 
 func pageObjk() {
@@ -1960,8 +1967,8 @@ just run {
     writePage(dist + "/downloads.html", pageDownloads())
     writePage(dist + "/kryptscript.html", pageKryptScript())
     writePage(dist + "/contact.html", pageContact())
-    writePage(dist + "/zipforge-privacy.html", pageZipForgePrivacy())
     writePage(dist + "/brain.html", pageBrain())
+    writePage(dist + "/zipforge-privacy.html", pageZipForgePrivacy())
     writePage(dist + "/programs/stem.html", pageStem())
     writePage(dist + "/stem-privacy.html", pageStemPrivacy())
     writePage(dist + "/objk.html", pageObjk())
