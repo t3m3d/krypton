@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/branding/kcc-logo.png" alt="KCC shield and circuit K logo" width="240">
+</p>
+
 # Krypton
 
 **A self-hosting programming language that emits native machine code without a C compiler in the loop.**
