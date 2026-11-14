@@ -83,6 +83,24 @@ jxt {
     func objc_setAssociatedObject(obj, key, value, policy)
     func objc_getAssociatedObject(obj, key)
 
+    // ── Weak references (zeroing) ───────────────────────────────
+    // objc_initWeak stores obj into loc; objc_destroyWeak clears it;
+    // objc_loadWeakRetained bumps the object's retain count and returns
+    // it, nil when the referent deallocated.
+    func objc_initWeak(loc, obj)
+    func objc_destroyWeak(loc)
+    func objc_loadWeakRetained(loc)
+
+    // ── Autorelease pool push/pop (explicit scope control) ──────
+    func objc_autoreleasePoolPush()
+    func objc_autoreleasePoolPop(pool)
+
+    // ── CoreFoundation toll-free bridging helpers ───────────────
+    // CFRetain/CFRelease let Krypton hand ownership between
+    // CoreFoundation and Objective-C without extra ARC bookkeeping.
+    func CFRetain(ref)
+    func CFRelease(ref)
+
     // ── Class runtime synthesis ────────────────────────────────────────
     // Used once at startup by the macho backend to install
     // `KrCallbackTarget`, the Obj-C class whose `krDispatch:` method

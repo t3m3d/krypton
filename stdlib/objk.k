@@ -237,3 +237,58 @@ func okViewHeight(view) { emit msgRectHeight(view, "bounds") }
 
 // Generic == treats high addresses as text. Compare foreign handles numerically.
 func okSameHandle(a, b) { emit (a - b) == 0 }
+
+// ── Short-form Objective-C runtime API ─────────────────────────────
+// Concise, idiomatic aliases over the verbose runtime bindings in
+// headers/objc.krh. Prefer these for new call sites.
+// (cls/sel take a class or selector NAME and cache the resolved handle.)
+
+// Selector memoization: a global structNew-const keyed by selector
+// name → registered SEL handle. Rebuilt on each miss via sel().
+// Never freed — process-scoped cache, matches the spec.
+let okSelCacheMap = 0
+
+// lookup: cached or register-and-memoize.
+func okSel(name) {
+    if okSelCacheMap == 0 { okSelCacheMap = structNew() }
+    let hit = getField(okSelCacheMap, name)
+    if hit != 0 { emit hit }
+    let s = sel(name)
+    setField(okSelCacheMap, name, s)
+    emit s
+}
+
+func okCls(name) { emit cls(name) }
+func okSend(obj, selName) { emit msg(obj, selName) }
+func okSend1(obj, selName, a) { emit msg_1(obj, selName, a) }
+func okSend2(obj, selName, a, b) { emit msg_2(obj, selName, a, b) }
+func okSend3(obj, selName, a, b, c) { emit msg_3(obj, selName, a, b, c) }
+func okSendFp(obj, selName) { emit msg_fp(obj, selName) }
+func okSendRect(obj, selName, x, y, w, h, mask, backing, deferF) { emit msg_rect(obj, selName, x, y, w, h, mask, backing, deferF) }
+
+// Dynamic subclass creation
+func okNewCls(superCls, name) {
+    let c = chocClassNew(name)
+    emit c
+}
+func okAddFn(c, selName, fnPtr, types) { emit chocClassAddMethod(c, selName, fnPtr, types) }
+func okRegCls(c) { emit chocClassRegister(c) }
+
+// Autorelease pool scoping
+func okPoolPush() { emit objc_autoreleasePoolPush() }
+func okPoolPop(pool) { objc_autoreleasePoolPop(pool); emit "1" }
+
+// CoreFoundation ↔ Objective-C toll-free bridging helpers
+func okCfIn(ref) { emit CFRetain(ref) }
+func okCfOut(ref) { CFRelease(ref); emit "1" }
+
+// Zeroing weak references
+// `loc` is a bufNew(8) pointer owned by the caller. Only one live weak
+// reference per location; do not reuse a location after destroyWeak.
+func okWeakSet(loc, obj) { objc_initWeak(loc, obj); emit "1" }
+func okWeakGet(loc) { emit objc_loadWeakRetained(loc) }
+func okWeakDel(loc) { objc_destroyWeak(loc); emit "1" }
+
+// Explicit association helpers (short aliases for the objc_setAssociatedObject family)
+func okSetAssoc(obj, key, value, policy) { objc_setAssociatedObject(obj, sel(key), value, policy); emit "1" }
+func okGetAssoc(obj, key) { emit objc_getAssociatedObject(obj, sel(key)) }

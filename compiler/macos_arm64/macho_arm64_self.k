@@ -316,6 +316,13 @@ func foreignLibFor(name) {
     if name == "objc_release"    { emit "/usr/lib/libobjc.A.dylib" }
     if name == "objc_setAssociatedObject" { emit "/usr/lib/libobjc.A.dylib" }
     if name == "objc_getAssociatedObject" { emit "/usr/lib/libobjc.A.dylib" }
+    if name == "objc_autoreleasePoolPush" { emit "/usr/lib/libobjc.A.dylib" }
+    if name == "objc_autoreleasePoolPop"  { emit "/usr/lib/libobjc.A.dylib" }
+    if name == "objc_initWeak"            { emit "/usr/lib/libobjc.A.dylib" }
+    if name == "objc_destroyWeak"         { emit "/usr/lib/libobjc.A.dylib" }
+    if name == "objc_loadWeakRetained"    { emit "/usr/lib/libobjc.A.dylib" }
+    if name == "CFRetain"                 { emit "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation" }
+    if name == "CFRelease"                { emit "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation" }
     if name == "objc_allocateClassPair"   { emit "/usr/lib/libobjc.A.dylib" }
     if name == "objc_registerClassPair"   { emit "/usr/lib/libobjc.A.dylib" }
     if name == "class_addMethod"          { emit "/usr/lib/libobjc.A.dylib" }
